@@ -1617,6 +1617,7 @@ definitions:
     - admin
     - mcp_tool_call
     - apigateway_invoke
+    - prompt_serve
     type: string
     x-enum-varnames:
     - EventTypeToolCall
@@ -1624,6 +1625,7 @@ definitions:
     - EventTypeAdmin
     - EventTypeMCPToolCall
     - EventTypeAPIGatewayInvoke
+    - EventTypePromptServe
   audit.Overview:
     properties:
       avg_duration_ms:
@@ -3654,6 +3656,18 @@ definitions:
         example: true
         type: boolean
     type: object
+  prompt.EditOutcome:
+    properties:
+      applied:
+        description: Applied is true when the live row was updated (the edit is being
+          served).
+        type: boolean
+      pending_version:
+        description: |-
+          PendingVersion is the draft version number when the edit was deferred
+          for review; zero when Applied.
+        type: integer
+    type: object
   prompt.Prompt:
     properties:
       approved_at:
@@ -3688,6 +3702,8 @@ definitions:
       id:
         example: prompt_a1b2c3d4
         type: string
+      last_run_at:
+        type: string
       name:
         example: daily-sales-report
         type: string
@@ -3718,6 +3734,14 @@ definitions:
           reject (see ApplyPromotionRequest / ApprovePromotion).
         example: false
         type: boolean
+      run_count:
+        description: |-
+          Serve-derived usage (see UsageReader). Populated only on read surfaces
+          wired to a usage reader (manage_prompt get, the prompt usage REST
+          endpoints); omitted elsewhere. Zero/absent means never served within the
+          audit retention window.
+        example: 37
+        type: integer
       scope:
         example: persona
         type: string
@@ -3741,6 +3765,67 @@ definitions:
       updated_at:
         example: "2026-01-15T14:30:00Z"
         type: string
+      version:
+        description: |-
+          Version is the number of the snapshot the live row currently serves
+          (see VersionStore). Pending draft versions above this number exist in
+          the version history but are not served until approved.
+        example: 4
+        type: integer
+    type: object
+  prompt.Usage:
+    properties:
+      last_run_at:
+        type: string
+      run_count:
+        example: 37
+        type: integer
+    type: object
+  prompt.Version:
+    properties:
+      approved_at:
+        type: string
+      approved_by:
+        example: admin@example.com
+        type: string
+      arguments:
+        items:
+          $ref: '#/definitions/prompt.Argument'
+        type: array
+      author:
+        example: jane@example.com
+        type: string
+      content:
+        example: Analyze sales data for {date} grouped by region.
+        type: string
+      created_at:
+        example: "2026-06-12T14:30:00Z"
+        type: string
+      description:
+        example: Generate a daily sales summary by region
+        type: string
+      display_name:
+        example: Daily Sales Report
+        type: string
+      id:
+        example: ver_a1b2c3d4
+        type: string
+      prompt_id:
+        example: prompt_a1b2c3d4
+        type: string
+      status:
+        example: applied
+        type: string
+      tags:
+        example:
+        - sales
+        - reporting
+        items:
+          type: string
+        type: array
+      version:
+        example: 4
+        type: integer
     type: object
   resource.Scope:
     enum:
@@ -3789,6 +3874,16 @@ definitions:
         type: string
       reachable:
         type: boolean
+    type: object
+  versionhttp.versionListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/prompt.Version'
+        type: array
+      total:
+        example: 4
+        type: integer
     type: object
 host: localhost:8080
 info:
@@ -7281,8 +7376,10 @@ paths:
     put:
       consumes:
       - application/json
-      description: Updates an existing prompt by ID and re-registers it with the live
-        MCP server.
+      description: 'Updates an existing prompt by ID and re-registers it with the
+        live MCP server. A content or arguments edit to an approved global or persona
+        prompt is deferred as a pending draft version (202): the approved snapshot
+        keeps being served until the draft is approved via the version approval endpoint.'
       parameters:
       - description: Prompt ID
         in: path
@@ -7302,6 +7399,10 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/prompt.Prompt'
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/prompt.EditOutcome'
         "400":
           description: Bad Request
           schema:
@@ -7392,6 +7493,199 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Reject prompt promotion
+      tags:
+      - Prompts
+  /admin/prompts/{id}/versions:
+    get:
+      description: Returns every version of a prompt with full content and author,
+        newest first.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/versionhttp.versionListResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List prompt versions
+      tags:
+      - Prompts
+  /admin/prompts/{id}/versions/{version}:
+    get:
+      description: Returns a single prompt version snapshot.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/prompt.Version'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get prompt version
+      tags:
+      - Prompts
+  /admin/prompts/{id}/versions/{version}/approve:
+    post:
+      description: Applies a pending draft version's snapshot to the live prompt,
+        stamping the approval on that specific version. Other pending drafts are superseded.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/prompt.Prompt'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Approve prompt version
+      tags:
+      - Prompts
+  /admin/prompts/{id}/versions/{version}/reject:
+    post:
+      description: Rejects a pending draft version, leaving the live prompt unchanged.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Reject prompt version
+      tags:
+      - Prompts
+  /admin/prompts/usage:
+    get:
+      description: Returns run count and last-run timestamp per prompt id, aggregated
+        from prompt_serve audit events within the audit retention window. Prompts
+        never served are absent from the map.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              $ref: '#/definitions/prompt.Usage'
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Prompt usage stats
       tags:
       - Prompts
   /admin/settings/smtp:
@@ -10231,7 +10525,8 @@ paths:
       consumes:
       - application/json
       description: Updates a personal prompt owned by the current user. Admins can
-        update any prompt.
+        update any prompt; an admin's content edit to an approved shared prompt is
+        deferred as a pending draft version (202) until approved.
       parameters:
       - description: Prompt ID
         in: path
@@ -10251,6 +10546,10 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/prompt.Prompt'
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/prompt.EditOutcome'
         "400":
           description: Bad Request
           schema:
@@ -10363,6 +10662,53 @@ paths:
       summary: Share a prompt
       tags:
       - Prompts
+  /portal/prompts/{id}/versions:
+    get:
+      description: Returns the version history of a prompt the caller owns; admins
+        may read any prompt's history.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/versionhttp.versionListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List prompt versions (portal)
+      tags:
+      - Prompts
   /portal/prompts/search:
     get:
       description: Ranks approved prompts visible to the caller by relevance to q.
@@ -10407,6 +10753,37 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Search my prompts
+      tags:
+      - Prompts
+  /portal/prompts/usage:
+    get:
+      description: Returns run count and last-run timestamp per prompt id for the
+        prompts visible to the caller.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              $ref: '#/definitions/prompt.Usage'
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Prompt usage stats (portal)
       tags:
       - Prompts
   /portal/search:

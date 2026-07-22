@@ -61,6 +61,6 @@ func TestSharedPrompt_PromotedNotDoubleServed(t *testing.T) {
 	for _, pr := range out {
 		assert.NotEqual(t, "shared-report", pr.Name, "promoted prompt must not be served via shared- alias")
 	}
-	_, ok := h.getSharedPrompt(ctx, "bob@example.com", "report", nil)
+	_, ok := h.GetByName(ctx, "bob@example.com", nil, "shared-report", nil)
 	assert.False(t, ok, "promoted prompt not resolvable via shared- prefix")
 }

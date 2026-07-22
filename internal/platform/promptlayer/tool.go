@@ -3,6 +3,7 @@ package promptlayer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -84,6 +85,9 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 			"when the handle is ambiguous. " +
 			"Non-admin users can manage their own personal prompts. " +
 			"Admins can manage prompts at all scope levels (global, persona, personal). " +
+			"Editing the content or arguments of an approved global or persona prompt saves the change as a " +
+			"pending draft version (update returns status 'pending_approval'); the approved version keeps " +
+			"being served until an admin approves the draft. " +
 			"Management commands cover database-stored prompts only; static prompts from server " +
 			"configuration are not editable here, though 'use' resolves operator, workflow, and " +
 			"toolkit prompts too.",
@@ -195,6 +199,10 @@ func (h *Handle) handlePromptUpdate(ctx context.Context, input managePromptInput
 		return promptErrorResult(msg), nil, nil
 	}
 
+	// Snapshot the persisted state before mutation: ApplyEdit compares it
+	// against the edited copy to decide whether the edit needs admin review.
+	before := *existing
+
 	oldScope := existing.Scope
 	if errMsg := applyPromptUpdates(existing, input, h.isAdminPersona(ctx)); errMsg != "" {
 		return promptErrorResult(errMsg), nil, nil
@@ -206,9 +214,31 @@ func (h *Handle) handlePromptUpdate(ctx context.Context, input managePromptInput
 		return promptErrorResult(errMsg), nil, nil
 	}
 
-	if err := h.store.Update(ctx, existing); err != nil {
-		slog.Error("failed to update prompt", promptLogKey, input.Name, promptLogKeyErr, err)
+	return h.persistPromptUpdate(ctx, &before, existing, oldScope, email)
+}
+
+// persistPromptUpdate lands an edited prompt through the shared review gate.
+// A review-gated content edit becomes a pending draft version and the served
+// prompt (and its runtime metadata) stays on the approved snapshot; every
+// other edit applies and re-registers.
+func (h *Handle) persistPromptUpdate(ctx context.Context, before, existing *prompt.Prompt, oldScope, email string) (*mcp.CallToolResult, any, error) {
+	outcome, err := prompt.ApplyEdit(ctx, h.store, before, existing, email)
+	if errors.Is(err, prompt.ErrReviewRequiredMixedEdit) {
+		return promptErrorResult(err.Error()), nil, nil
+	}
+	if err != nil {
+		slog.Error("failed to update prompt", promptLogKey, existing.Name, promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, "failed to update prompt", err), nil, nil
+	}
+	if !outcome.Applied {
+		return promptJSONResult(map[string]any{
+			fieldStatus:       "pending_approval",
+			fieldName:         existing.Name,
+			"pending_version": outcome.PendingVersion,
+			"message": fmt.Sprintf("this prompt is approved and shared, so the content change was saved as "+
+				"draft version %d; the approved version continues to be served until an admin approves the "+
+				"draft in the admin portal or via the admin prompts API", outcome.PendingVersion),
+		})
 	}
 
 	h.reregisterAfterUpdate(existing, oldScope)
@@ -216,6 +246,7 @@ func (h *Handle) handlePromptUpdate(ctx context.Context, input managePromptInput
 	return promptJSONResult(map[string]any{
 		fieldStatus: "updated",
 		fieldName:   existing.Name,
+		"version":   existing.Version,
 	})
 }
 
@@ -511,6 +542,7 @@ func (h *Handle) handlePromptGet(ctx context.Context, input managePromptInput) (
 		}
 	}
 
+	h.applyUsage(ctx, pr)
 	return promptJSONResult(pr)
 }
 

@@ -52,6 +52,7 @@ func mountAdminAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeliv
 		prefix = defaultAdminPathPrefix
 	}
 	mux.Handle(prefix+"/", adminHandler)
+	mountPromptVersionAdminAPI(mux, p, prefix)
 	log.Println("Admin API enabled on", prefix)
 }
 
@@ -446,8 +447,10 @@ func mountPortalUI(mux *http.ServeMux, p *platform.Platform, assetsAvailable boo
 	log.Println("Portal UI enabled on /portal/")
 }
 
-// buildAdminHandler constructs the admin REST API handler from the platform.
-func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Handler {
+// buildAdminAuth constructs the admin persona-gate middleware. Shared by the
+// admin API handler and the separately mounted prompt-version routes so both
+// enforce identical authentication, persona, and CSRF rules.
+func buildAdminAuth(p *platform.Platform) func(http.Handler) http.Handler {
 	var authOpts []admin.PlatformAuthOption
 	if p.BrowserSessionAuth() != nil {
 		authOpts = append(authOpts, admin.WithBrowserSessionAuth(p.BrowserSessionAuth()))
@@ -456,13 +459,16 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	if adminPersona == "" {
 		adminPersona = defaultAdminPersona
 	}
-	platAuth := admin.NewPlatformAuthenticator(
+	return admin.RequirePersona(admin.NewPlatformAuthenticator(
 		p.Authenticator(),
 		adminPersona,
 		p.PersonaRegistry(),
 		authOpts...,
-	)
+	))
+}
 
+// buildAdminHandler constructs the admin REST API handler from the platform.
+func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Handler {
 	deps := admin.Deps{
 		Config:             p.Config(),
 		ConfigStore:        p.ConfigStore(),
@@ -541,7 +547,7 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	deps.NotificationSettings = notify.Settings()
 	deps.SendTestEmail = notify.SendTest
 
-	return admin.NewHandler(deps, admin.RequirePersona(platAuth))
+	return admin.NewHandler(deps, buildAdminAuth(p))
 }
 
 // wireAdminIndexDeps attaches the api-gateway catalog store, embed-job queue,

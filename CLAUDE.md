@@ -190,7 +190,7 @@ mcp-data-platform/
 │   ├── pkcestore/                  # In-flight PKCE state for outbound OAuth (oauth-start → callback)
 │   ├── platform/                   # Core orchestration: facade, config, options, lifecycle (fieldcrypt/, instructions/, personastore/ = seams shared with pkg/admin; other facade-internal seams live under internal/platform/)
 │   ├── portal/                     # Asset portal data layer (assetindex/, collectionindex/, datahubapi/, knowledgepage/, threads/, ...)
-│   ├── prompt/                     # Prompt management for the MCP data platform
+│   ├── prompt/                     # Prompt management: versioned store contract, review gate (versionhttp/ = version-history/approval/usage REST for the admin + portal surfaces)
 │   ├── query/                      # Query execution provider abstraction (trino/ = Trino adapter)
 │   ├── ratelimit/                  # Shared per-IP token-bucket limiter + trusted-proxy client-IP resolver (portal viewer, OAuth endpoints)
 │   ├── registry/                   # Toolkit registration and management

@@ -657,3 +657,105 @@ func TestUpdatePrompt_DirectScopeChangeCollision(t *testing.T) {
 
 	assert.Equal(t, http.StatusConflict, w.Code)
 }
+
+// --- Versioning review gate (#1009) ---
+
+// mockVersionedPromptStore adds the versioning capability to the mock store,
+// with clone-on-read like the real store (a scanned row is never aliased to
+// the stored state).
+type mockVersionedPromptStore struct {
+	*mockPromptStore
+	draftContents []string
+}
+
+func clonePromptRow(p *prompt.Prompt) *prompt.Prompt {
+	if p == nil {
+		return nil
+	}
+	c := *p
+	return &c
+}
+
+func (m *mockVersionedPromptStore) GetByID(ctx context.Context, id string) (*prompt.Prompt, error) {
+	p, err := m.mockPromptStore.GetByID(ctx, id)
+	return clonePromptRow(p), err
+}
+
+func (m *mockVersionedPromptStore) UpdateWithVersion(ctx context.Context, p *prompt.Prompt, _ string) error {
+	return m.Update(ctx, p)
+}
+
+func (m *mockVersionedPromptStore) CreateDraftVersion(_ context.Context, _ string, proposed *prompt.Prompt, _ string) (int, error) {
+	m.draftContents = append(m.draftContents, proposed.Content)
+	return 3, nil
+}
+
+func (*mockVersionedPromptStore) ListVersions(context.Context, string) ([]prompt.Version, error) {
+	return nil, nil
+}
+
+func (*mockVersionedPromptStore) GetVersion(context.Context, string, int) (*prompt.Version, error) {
+	return nil, nil //nolint:nilnil // interface contract
+}
+
+func (*mockVersionedPromptStore) ApproveVersion(context.Context, string, int, string) (*prompt.Prompt, error) {
+	return nil, nil //nolint:nilnil // unused in these tests
+}
+
+func (*mockVersionedPromptStore) RejectVersion(context.Context, string, int) error { return nil }
+
+var _ prompt.VersionStore = (*mockVersionedPromptStore)(nil)
+
+// A content edit to an approved global prompt through the admin API is
+// deferred as a pending draft version: 202, live row untouched, no runtime
+// re-registration of draft content.
+func TestUpdatePrompt_ApprovedSharedContentEditPends(t *testing.T) {
+	store := &mockVersionedPromptStore{mockPromptStore: newMockPromptStore()}
+	registrar := &mockPromptRegistrar{}
+	h := NewHandler(Deps{PromptStore: store, PromptRegistrar: registrar, Config: testConfig()}, nil)
+	store.prompts["g"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "g", Content: "approved body", Scope: prompt.ScopeGlobal,
+		Status: prompt.StatusApproved, Enabled: true, Version: 2,
+	}
+
+	update := adminPromptUpdateRequest{}
+	newContent := "draft body"
+	update.Content = &newContent
+	bodyBytes, _ := json.Marshal(update)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/prompts/uuid-1", bytes.NewReader(bodyBytes))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	var out prompt.EditOutcome
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.False(t, out.Applied)
+	assert.Equal(t, 3, out.PendingVersion)
+	assert.Equal(t, []string{"draft body"}, store.draftContents)
+	assert.Equal(t, "approved body", store.prompts["g"].Content, "the live row keeps the approved snapshot")
+	assert.Empty(t, registrar.registered, "draft content is never re-registered")
+}
+
+// A gated content edit combined with a status change is rejected whole.
+func TestUpdatePrompt_MixedGatedEditConflicts(t *testing.T) {
+	store := &mockVersionedPromptStore{mockPromptStore: newMockPromptStore()}
+	h := NewHandler(Deps{PromptStore: store, Config: testConfig()}, nil)
+	store.prompts["g"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "g", Content: "approved body", Scope: prompt.ScopeGlobal,
+		Status: prompt.StatusApproved, Enabled: true, Version: 2,
+	}
+
+	update := adminPromptUpdateRequest{}
+	newContent := "draft body"
+	newStatus := prompt.StatusDeprecated
+	update.Content = &newContent
+	update.Status = &newStatus
+	bodyBytes, _ := json.Marshal(update)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/prompts/uuid-1", bytes.NewReader(bodyBytes))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	assert.Empty(t, store.draftContents)
+	assert.Equal(t, "approved body", store.prompts["g"].Content)
+}

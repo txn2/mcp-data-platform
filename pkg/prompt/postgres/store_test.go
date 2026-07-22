@@ -23,7 +23,7 @@ var selectColumns = []string{
 	"category", "scope", "personas", "owner_email", "source", "enabled",
 	"tags", "status", "approved_by", "approved_at", "deprecated_at",
 	"superseded_by", "review_requested", "requested_scope", "requested_personas",
-	"created_at", "updated_at",
+	"version", "created_at", "updated_at",
 }
 
 // testRowTime is the fixed created_at/updated_at value used by promptRow; the
@@ -31,13 +31,13 @@ var selectColumns = []string{
 var testRowTime = time.Unix(1700000000, 0).UTC()
 
 // promptRow returns a full result row in promptColumns order for a global
-// prompt, so SELECT-mocking tests do not each repeat 23 values.
+// prompt, so SELECT-mocking tests do not each repeat 24 values.
 func promptRow(id, name, scope string, argsJSON []byte, owner string) []driver.Value {
 	return []driver.Value{
 		id, name, "Test Prompt", "A test prompt", "Do something with {topic}", argsJSON,
 		"workflow", scope, pq.Array([]string{}), owner, "operator", true,
 		pq.Array([]string{}), "approved", "", nil, nil, "",
-		false, "", pq.Array([]string{}),
+		false, "", pq.Array([]string{}), 1,
 		testRowTime, testRowTime,
 	}
 }
@@ -86,18 +86,48 @@ func TestCreate_Success(t *testing.T) {
 	argsJSON, err := json.Marshal(p.Arguments)
 	require.NoError(t, err)
 
+	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO prompts").WithArgs(
 		p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
 		p.Source, p.Enabled,
 		pq.Array(p.Tags), prompt.StatusDraft, "", nil, nil, "",
 		false, "", pq.Array(p.RequestedPersonas),
-	).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
-		AddRow("uuid-123", now, now))
+	).WillReturnRows(sqlmock.NewRows([]string{"id", "version", "created_at", "updated_at"}).
+		AddRow("uuid-123", 1, now, now))
+	mock.ExpectExec("INSERT INTO prompt_versions").WithArgs(
+		"uuid-123", 1, p.DisplayName, p.Description, p.Content, argsJSON,
+		pq.Array(p.Tags), p.OwnerEmail, prompt.VersionStatusApplied, "", nil,
+	).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	err = store.Create(context.Background(), p)
 	assert.NoError(t, err)
 	assert.Equal(t, "uuid-123", p.ID)
+	assert.Equal(t, 1, p.Version)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCreate_SystemPromptSkipsVersionRow(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db)
+	p := newTestPrompt()
+	p.Source = prompt.SourceSystem
+	now := time.Now().UTC()
+
+	// System rows (config mirrors) create the prompts row only: no
+	// prompt_versions INSERT is expected before the commit.
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO prompts").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "version", "created_at", "updated_at"}).
+			AddRow("uuid-sys", 1, now, now))
+	mock.ExpectCommit()
+
+	err = store.Create(context.Background(), p)
+	assert.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -109,8 +139,10 @@ func TestCreate_DBError(t *testing.T) {
 	store := New(db)
 	p := newTestPrompt()
 
+	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO prompts").
 		WillReturnError(errors.New("connection refused"))
+	mock.ExpectRollback()
 
 	err = store.Create(context.Background(), p)
 	assert.Error(t, err)
@@ -184,18 +216,88 @@ func TestUpdate_Success(t *testing.T) {
 	store := New(db)
 	p := newTestPrompt()
 	p.ID = "uuid-123"
+	p.Version = 1
+	p.Status = prompt.StatusApproved
 
 	argsJSON, err := json.Marshal(p.Arguments)
 	require.NoError(t, err)
 
+	mock.ExpectBegin()
+	expectLockPrompt(mock, p, argsJSON)
 	mock.ExpectExec("UPDATE prompts").WithArgs(
 		p.ID, p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
 		p.Source, p.Enabled,
 		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
 		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
-		indexjobs.TextHash(prompt.IndexText(p)),
+		indexjobs.TextHash(prompt.IndexText(p)), p.Version,
 	).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err = store.Update(context.Background(), p)
+	assert.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUpdate_RejectsRacingGatedEdit verifies the store-level review gate: a
+// plain Update carrying a content change against a row that is (as locked)
+// an approved shared prompt is rejected as a conflict rather than applied.
+func TestUpdate_RejectsRacingGatedEdit(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db)
+	p := newTestPrompt()
+	p.ID = "uuid-123"
+	p.Version = 1
+	p.Status = prompt.StatusApproved
+	p.Content = "unreviewed new content"
+
+	locked := *p
+	locked.Content = "the approved content"
+	argsJSON, err := json.Marshal(p.Arguments)
+	require.NoError(t, err)
+
+	mock.ExpectBegin()
+	expectLockPrompt(mock, &locked, argsJSON)
+	mock.ExpectRollback()
+
+	err = store.Update(context.Background(), p)
+	require.ErrorIs(t, err, prompt.ErrVersionConflict)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUpdate_ApprovalTransitionStampsVersion verifies the draft-to-approved
+// transition copies the prompt's approval stamp onto its current version row
+// within the same transaction, binding the approval to a specific snapshot.
+func TestUpdate_ApprovalTransitionStampsVersion(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db)
+	p := newTestPrompt()
+	p.ID = "uuid-123"
+	p.Version = 1
+	p.Status = prompt.StatusApproved
+	p.ApprovedBy = "admin@example.com"
+	now := time.Now().UTC()
+	p.ApprovedAt = &now
+
+	locked := *p
+	locked.Status = prompt.StatusDraft
+	argsJSON, err := json.Marshal(p.Arguments)
+	require.NoError(t, err)
+
+	mock.ExpectBegin()
+	expectLockPrompt(mock, &locked, argsJSON)
+	mock.ExpectExec("UPDATE prompts").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE prompt_versions").WithArgs(
+		p.ID, p.ApprovedBy, p.ApprovedAt,
+	).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	err = store.Update(context.Background(), p)
 	assert.NoError(t, err)
@@ -211,8 +313,10 @@ func TestUpdate_NotFound(t *testing.T) {
 	p := newTestPrompt()
 	p.ID = "missing"
 
-	mock.ExpectExec("UPDATE prompts").
-		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT .+ FROM prompts WHERE id = .+ FOR UPDATE").WithArgs(p.ID).
+		WillReturnRows(sqlmock.NewRows(selectColumns))
+	mock.ExpectRollback()
 
 	err = store.Update(context.Background(), p)
 	assert.Error(t, err)

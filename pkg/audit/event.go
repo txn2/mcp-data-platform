@@ -30,6 +30,13 @@ const (
 	// write time so the portal Activity view can split these out from
 	// the MCP-only view.
 	EventTypeAPIGatewayInvoke EventType = "apigateway_invoke"
+
+	// EventTypePromptServe categorizes a prompt being served to an agent
+	// (prompts/get on a database prompt, or a resolved manage_prompt use).
+	// The event's parameters carry prompt_id, prompt_name, and version, and
+	// the postgres store aggregates these rows into per-prompt run counts
+	// and last-run timestamps (issue #1009).
+	EventTypePromptServe EventType = "prompt_serve"
 )
 
 // toolkitKindAPIGateway is the toolkit-kind discriminator for the

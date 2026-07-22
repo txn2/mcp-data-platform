@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -173,6 +174,7 @@ func (h *Handler) mergeSystemPrompts(prompts []prompt.Prompt, filter prompt.List
 			Scope:       promptScopeSystem,
 			Source:      promptScopeSystem,
 			Enabled:     true,
+			Version:     1,
 		})
 	}
 	return prompts
@@ -307,13 +309,14 @@ func buildPromptFromCreateRequest(req adminPromptCreateRequest) (result *prompt.
 // updatePrompt updates an existing prompt.
 //
 // @Summary      Update prompt
-// @Description  Updates an existing prompt by ID and re-registers it with the live MCP server.
+// @Description  Updates an existing prompt by ID and re-registers it with the live MCP server. A content or arguments edit to an approved global or persona prompt is deferred as a pending draft version (202): the approved snapshot keeps being served until the draft is approved via the version approval endpoint.
 // @Tags         Prompts
 // @Accept       json
 // @Produce      json
 // @Param        id    path  string                    true  "Prompt ID"
 // @Param        body  body  adminPromptUpdateRequest  true  "Prompt fields to update"
 // @Success      200  {object}  prompt.Prompt
+// @Success      202  {object}  prompt.EditOutcome
 // @Failure      400  {object}  problemDetail
 // @Failure      404  {object}  problemDetail
 // @Failure      409  {object}  problemDetail
@@ -345,6 +348,7 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 
 	oldName := existing.Name
 	oldScope := existing.Scope
+	before := *existing
 
 	status, msg := h.applyAdminPromptUpdate(r.Context(), existing, req, adminUserEmail(r))
 	if status != 0 {
@@ -352,8 +356,7 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.deps.PromptStore.Update(r.Context(), existing); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update prompt")
+	if !h.applyPromptEdit(w, r, &before, existing) {
 		return
 	}
 
@@ -376,6 +379,29 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, existing)
+}
+
+// applyPromptEdit lands the edited prompt through the shared review gate
+// (prompt.ApplyEdit): a content edit to an approved shared prompt defers to a
+// pending draft version (202 with the pending version number; it is served
+// only after POST /admin/prompts/{id}/versions/{version}/approve), a gated
+// edit mixed with non-versioned changes conflicts, and everything else
+// applies. Returns true when the edit applied and the handler should continue.
+func (h *Handler) applyPromptEdit(w http.ResponseWriter, r *http.Request, before, existing *prompt.Prompt) bool {
+	outcome, err := prompt.ApplyEdit(r.Context(), h.deps.PromptStore, before, existing, adminUserEmail(r))
+	if errors.Is(err, prompt.ErrReviewRequiredMixedEdit) {
+		writeError(w, http.StatusConflict, err.Error())
+		return false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update prompt")
+		return false
+	}
+	if !outcome.Applied {
+		writeJSON(w, http.StatusAccepted, outcome)
+		return false
+	}
+	return true
 }
 
 // applyAdminPromptUpdate validates name rename and applies field updates.

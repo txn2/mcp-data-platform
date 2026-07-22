@@ -33,7 +33,7 @@ func New(db *sql.DB) *Store {
 const promptColumns = `id, name, display_name, description, content, arguments,
 	category, scope, personas, owner_email, source, enabled, tags, status,
 	approved_by, approved_at, deprecated_at, superseded_by,
-	review_requested, requested_scope, requested_personas, created_at, updated_at`
+	review_requested, requested_scope, requested_personas, version, created_at, updated_at`
 
 // promptSelect is the base SELECT for the prompt columns.
 const promptSelect = "SELECT " + promptColumns + " FROM prompts"
@@ -54,7 +54,7 @@ func promptScanDest(p *prompt.Prompt, argsJSON *[]byte) []any {
 		&p.Source, &p.Enabled, pq.Array(&p.Tags), &p.Status,
 		&p.ApprovedBy, &p.ApprovedAt, &p.DeprecatedAt, &p.SupersededBy,
 		&p.ReviewRequested, &p.RequestedScope, pq.Array(&p.RequestedPersonas),
-		&p.CreatedAt, &p.UpdatedAt,
+		&p.Version, &p.CreatedAt, &p.UpdatedAt,
 	}
 }
 
@@ -98,6 +98,9 @@ func normalizeSlices(p *prompt.Prompt) {
 }
 
 // Create persists a new prompt. If p.ID is empty the database generates one.
+// Every non-system prompt is created with version 1 and a matching applied
+// snapshot in prompt_versions, in one transaction; system rows (read-only
+// config mirrors re-ingested at startup) are never versioned.
 func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
 	// Normalize nil slices to empty before binding: pq.Array(nil) binds SQL NULL,
 	// which violates the NOT NULL constraints on personas, tags, and
@@ -120,18 +123,33 @@ func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
 		                     superseded_by, review_requested, requested_scope, requested_personas)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
 		        $12, $13, $14, $15, $16, $17, $18, $19, $20)
-		RETURNING id, created_at, updated_at`
+		RETURNING id, version, created_at, updated_at`
 
-	err = s.db.QueryRowContext(ctx, query,
-		p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
-		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
-		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
-		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
-	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
-	if err != nil {
-		return fmt.Errorf("create prompt: %w", err)
-	}
-	return nil
+	return s.withTx(ctx, "create prompt", func(tx *sql.Tx) error {
+		err := tx.QueryRowContext(ctx, query,
+			p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
+			p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
+			pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
+			p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
+		).Scan(&p.ID, &p.Version, &p.CreatedAt, &p.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("create prompt: %w", err)
+		}
+		if p.Source == prompt.SourceSystem {
+			return nil
+		}
+		// The creating prompt may already carry an approval stamp (backfills,
+		// tests); bind it to v1 so the stamp and the snapshot stay together.
+		return insertVersionRow(ctx, tx, versionInsert{
+			PromptID:   p.ID,
+			Version:    p.Version,
+			Snapshot:   p,
+			Author:     p.OwnerEmail,
+			Status:     prompt.VersionStatusApplied,
+			ApprovedBy: p.ApprovedBy,
+			ApprovedAt: p.ApprovedAt,
+		})
+	})
 }
 
 // Get retrieves a non-personal (global or persona) prompt by name. Personal
@@ -166,11 +184,37 @@ func (s *Store) queryOne(ctx context.Context, query string, args ...any) (*promp
 	return p, nil
 }
 
-// Update modifies an existing prompt identified by ID.
+// Update modifies an existing prompt identified by ID. It does not create a
+// version snapshot (use UpdateWithVersion for versioned edits), but it does
+// bind a first approval to the current version: when the update carries the
+// draft-to-approved transition, the approval stamp is copied onto the current
+// prompt_versions row in the same transaction, so "approved" always names a
+// specific snapshot regardless of which path performed the approval. Like
+// UpdateWithVersion, it re-validates the review gate under the row lock, so a
+// write racing an approval cannot slip unreviewed content past it.
 func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 	// See Create: nil slices must be normalized to empty so pq.Array binds '{}'
 	// rather than NULL into the NOT NULL personas/tags/requested_personas columns.
 	normalizeSlices(p)
+	return s.withTx(ctx, "update prompt", func(tx *sql.Tx) error {
+		before, err := lockPrompt(ctx, tx, p.ID)
+		if err != nil {
+			return err
+		}
+		if err := requireUngated(before, p); err != nil {
+			return err
+		}
+		if err := updateTx(ctx, tx, p); err != nil {
+			return err
+		}
+		return stampApprovalTransition(ctx, tx, p, before.Status)
+	})
+}
+
+// updateTx writes every prompt column within the caller's transaction. Shared
+// by Update, UpdateWithVersion, and ApproveVersion so the embedding
+// invalidation below applies identically on every write path.
+func updateTx(ctx context.Context, tx *sql.Tx, p *prompt.Prompt) error {
 	argsJSON, err := json.Marshal(p.Arguments)
 	if err != nil {
 		return fmt.Errorf("marshal arguments: %w", err)
@@ -193,6 +237,7 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 		    status = $14, approved_by = $15, approved_at = $16, deprecated_at = $17,
 		    superseded_by = $18, review_requested = $19, requested_scope = $20,
 		    requested_personas = $21,
+		    version = CASE WHEN $23 > 0 THEN $23 ELSE version END,
 		    embedding = CASE WHEN embedding_text_hash IS DISTINCT FROM $22
 		                     THEN NULL ELSE embedding END,
 		    embedding_model = CASE WHEN embedding_text_hash IS DISTINCT FROM $22
@@ -202,12 +247,12 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 		    updated_at = NOW()
 		WHERE id = $1`
 
-	res, err := s.db.ExecContext(ctx, query,
+	res, err := tx.ExecContext(ctx, query,
 		p.ID, p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
 		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
 		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
-		newHash,
+		newHash, p.Version,
 	)
 	if err != nil {
 		return fmt.Errorf("update prompt: %w", err)
@@ -215,6 +260,23 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return fmt.Errorf("prompt %s not found", p.ID)
+	}
+	return nil
+}
+
+// withTx runs fn inside a transaction, rolling back on error. op labels the
+// begin/commit errors.
+func (s *Store) withTx(ctx context.Context, op string, fn func(tx *sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin %s: %w", op, err)
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit %s: %w", op, err)
 	}
 	return nil
 }

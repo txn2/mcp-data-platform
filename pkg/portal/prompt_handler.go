@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -21,18 +22,9 @@ type SharedPrompt struct {
 	Permission SharePermission `json:"permission"`
 }
 
-// PromptStore provides prompt persistence for the portal.
-type PromptStore interface {
-	Create(ctx context.Context, p *prompt.Prompt) error
-	Get(ctx context.Context, name string) (*prompt.Prompt, error)
-	GetPersonal(ctx context.Context, ownerEmail, name string) (*prompt.Prompt, error)
-	GetByID(ctx context.Context, id string) (*prompt.Prompt, error)
-	Update(ctx context.Context, p *prompt.Prompt) error
-	Delete(ctx context.Context, name string) error
-	DeleteByID(ctx context.Context, id string) error
-	List(ctx context.Context, filter prompt.ListFilter) ([]prompt.Prompt, error)
-	Count(ctx context.Context, filter prompt.ListFilter) (int, error)
-}
+// PromptStore provides prompt persistence for the portal: exactly the prompt
+// store contract, aliased so portal deps read naturally.
+type PromptStore = prompt.Store
 
 // PromptInfoProvider returns metadata about system-registered prompts.
 type PromptInfoProvider interface {
@@ -305,13 +297,14 @@ func (h *Handler) createMyPrompt(w http.ResponseWriter, r *http.Request) {
 // updateMyPrompt handles PUT /api/v1/portal/prompts/{id}.
 //
 // @Summary      Update personal prompt
-// @Description  Updates a personal prompt owned by the current user. Admins can update any prompt.
+// @Description  Updates a personal prompt owned by the current user. Admins can update any prompt; an admin's content edit to an approved shared prompt is deferred as a pending draft version (202) until approved.
 // @Tags         Prompts
 // @Accept       json
 // @Produce      json
 // @Param        id    path  string                     true  "Prompt ID"
 // @Param        body  body  portalPromptCreateRequest  true  "Updated prompt fields"
 // @Success      200  {object}  prompt.Prompt
+// @Success      202  {object}  prompt.EditOutcome
 // @Failure      400  {object}  problemDetail
 // @Failure      401  {object}  problemDetail
 // @Failure      403  {object}  problemDetail
@@ -339,7 +332,7 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if errMsg := checkPortalUpdatePermission(user, existing, h.deps.AdminRoles); errMsg != "" {
+	if errMsg := checkPortalPromptPermission(user, existing, h.deps.AdminRoles, "update"); errMsg != "" {
 		writePortalError(w, http.StatusForbidden, errMsg)
 		return
 	}
@@ -351,14 +344,14 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	oldName := existing.Name
+	// The pre-edit snapshot lets the review gate detect a content change.
+	before := *existing
 	status, msg := h.applyAndValidatePortalUpdate(r.Context(), existing, req, oldName)
 	if status != 0 {
 		writePortalError(w, status, msg)
 		return
 	}
-
-	if err := h.deps.PromptStore.Update(r.Context(), existing); err != nil {
-		writePortalError(w, http.StatusInternalServerError, "failed to update prompt")
+	if !h.applyPortalPromptEdit(w, r, &before, existing, user.Email) {
 		return
 	}
 
@@ -384,9 +377,14 @@ func reregisterPrompt(reg PromptRegistrar, oldName string, p *prompt.Prompt) {
 	}
 }
 
-// checkPortalUpdatePermission checks whether the user may update the given prompt.
-// Returns a non-empty error message if denied.
-func checkPortalUpdatePermission(user *User, existing *prompt.Prompt, adminRoles []string) string {
+// checkPortalPromptPermission checks whether the user may mutate the given
+// prompt (verb is "update" or "delete"). System rows are read-only config
+// mirrors for every caller, admins may mutate anything else, and a non-admin
+// only their own personal prompts. Returns a non-empty error message if denied.
+func checkPortalPromptPermission(user *User, existing *prompt.Prompt, adminRoles []string, verb string) string {
+	if existing.Source == prompt.SourceSystem {
+		return "this prompt is defined in server configuration and is read-only"
+	}
 	if hasAnyRole(user.Roles, adminRoles) {
 		return ""
 	}
@@ -394,9 +392,30 @@ func checkPortalUpdatePermission(user *User, existing *prompt.Prompt, adminRoles
 		return "non-admins can only manage personal prompts"
 	}
 	if existing.OwnerEmail != user.Email {
-		return "you can only update your own prompts"
+		return "you can only " + verb + " your own prompts"
 	}
 	return ""
+}
+
+// applyPortalPromptEdit lands the edit through the shared review gate: a
+// content edit to an approved shared prompt (admin callers only here) defers
+// to a pending draft version (202); a gated edit mixed with non-versioned
+// changes conflicts. Returns true when the edit applied.
+func (h *Handler) applyPortalPromptEdit(w http.ResponseWriter, r *http.Request, before, existing *prompt.Prompt, author string) bool {
+	outcome, err := prompt.ApplyEdit(r.Context(), h.deps.PromptStore, before, existing, author)
+	if errors.Is(err, prompt.ErrReviewRequiredMixedEdit) {
+		writePortalError(w, http.StatusConflict, err.Error())
+		return false
+	}
+	if err != nil {
+		writePortalError(w, http.StatusInternalServerError, "failed to update prompt")
+		return false
+	}
+	if !outcome.Applied {
+		writePortalJSON(w, http.StatusAccepted, outcome)
+		return false
+	}
+	return true
 }
 
 // applyAndValidatePortalUpdate applies field updates and checks for name conflicts.
@@ -487,16 +506,9 @@ func (h *Handler) deleteMyPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAdmin := hasAnyRole(user.Roles, h.deps.AdminRoles)
-	if !isAdmin {
-		if existing.Scope != prompt.ScopePersonal {
-			writePortalError(w, http.StatusForbidden, "non-admins can only manage personal prompts")
-			return
-		}
-		if existing.OwnerEmail != user.Email {
-			writePortalError(w, http.StatusForbidden, "you can only delete your own prompts")
-			return
-		}
+	if errMsg := checkPortalPromptPermission(user, existing, h.deps.AdminRoles, "delete"); errMsg != "" {
+		writePortalError(w, http.StatusForbidden, errMsg)
+		return
 	}
 
 	if err := h.deps.PromptStore.DeleteByID(r.Context(), id); err != nil {
@@ -536,6 +548,7 @@ func (h *Handler) systemPrompts(existing []prompt.Prompt) []prompt.Prompt {
 			Scope:       "system",
 			Source:      "system",
 			Enabled:     true,
+			Version:     1,
 		})
 	}
 	return result
