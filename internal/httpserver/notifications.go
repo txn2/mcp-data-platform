@@ -28,6 +28,8 @@ func buildNotifications(p *platform.Platform) *notifydelivery.Handle {
 			BaseURL:         p.Config().Portal.PublicBaseURL,
 			ImplementorName: p.Config().Portal.Implementor.Name,
 			ImplementorURL:  p.Config().Portal.Implementor.URL,
+			TermsURL:        p.Config().Portal.TermsURL,
+			PrivacyURL:      p.Config().Portal.PrivacyURL,
 			LogoPNG:         emailLogo(p.Config().Portal.LogoEmail),
 		},
 		DigestHourUTC:  p.Config().Notifications.DigestHour(),

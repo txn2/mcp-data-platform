@@ -412,6 +412,8 @@ rate_limit:
 | `portal.implementor.name` | string | `""` | Implementor display name shown in the left zone of the public viewer header |
 | `portal.implementor.logo` | string | `""` | URL to implementor SVG logo (fetched once at startup, max 1 MB) |
 | `portal.implementor.url` | string | `""` | Clickable link wrapping the implementor name and logo |
+| `portal.terms_url` | string | `""` | Terms-of-service link rendered in notification email footers |
+| `portal.privacy_url` | string | `""` | Privacy-policy link rendered in notification email footers |
 | `portal.export.enabled` | bool | auto | Enable trino_export tool (auto-enabled when portal + trino configured) |
 | `portal.export.max_rows` | int | `100000` | Hard row cap for exports |
 | `portal.export.max_bytes` | int | `104857600` | Hard byte cap for formatted output (100 MB) |
@@ -443,6 +445,8 @@ Branding fields have moved to the `portal:` section:
 | `portal.implementor.name` | string | `""` | Implementor display name (left zone of public viewer header) |
 | `portal.implementor.logo` | string | `""` | URL to implementor SVG logo (fetched at startup, max 1 MB) |
 | `portal.implementor.url` | string | `""` | Clickable link wrapping implementor name and logo |
+| `portal.terms_url` | string | `""` | Terms-of-service link rendered in notification email footers |
+| `portal.privacy_url` | string | `""` | Privacy-policy link rendered in notification email footers |
 
 When `portal.enabled: true`, an interactive web dashboard is served at `/portal/`. It provides audit log exploration, tool execution testing, and system monitoring. The sidebar displays a configurable logo and title. Theme-specific logos are resolved as: light theme uses `logo_light` → `logo` → built-in default; dark theme uses `logo_dark` → `logo` → built-in default. The resolved logo is also used as the browser favicon. Shared artifact links (`/portal/view/{token}`) display a two-zone header: the right zone shows the platform brand, and the optional left zone shows the implementor brand configured via `portal.implementor`. Notification emails cannot reuse these logos because mail clients strip inline SVG; set `portal.logo_email` to a raster PNG URL, which is fetched once at startup and attached to each message as an inline part so it renders without remote-image loading. It is additive to the brand wordmark, which also serves as the image's alt text, and leaving it unset renders the wordmark alone.
 
@@ -2309,7 +2313,7 @@ Self-scoped: a user only ever reads or writes their own. Portal page: Settings (
 - GET /api/v1/portal/notification-prefs
 - PUT /api/v1/portal/notification-prefs with partial {"mode", "shares_enabled", "comments_enabled"}
 
-Preferences are keyed by bare email, so they cover recipients with no platform account. Every notification email carries a no-login unsubscribe footer link (GET /portal/notifications/unsubscribe?tok=..., an HMAC token bound to the recipient address, key derived from the browser-session signing key) that records mode off for that address. One-time guest view links (#1001) are transactional: rendered with the same branding but delivered directly (never queued or digest-deferred) and not gated on preferences, since the recipient requests each one.
+Preferences are keyed by bare email, so they cover recipients with no platform account. Every notification email carries a no-login unsubscribe footer link (GET /portal/notifications/unsubscribe?tok=..., an HMAC token bound to the recipient address, key derived from the browser-session signing key) that records mode off for that address. The same token URL is emitted as RFC 8058 one-click headers (List-Unsubscribe plus List-Unsubscribe-Post: List-Unsubscribe=One-Click) on every message carrying the footer link; a provider POST with body List-Unsubscribe=One-Click records the opt-out and returns a bare status with no page. Each message's Message-ID domain comes from the configured From address rather than the server hostname. When portal.terms_url or portal.privacy_url is set, the footer also renders the corresponding legal link. One-time guest view links (#1001) are transactional: rendered with the same branding but delivered directly (never queued or digest-deferred), not gated on preferences, and carrying neither the unsubscribe footer nor the headers, since the recipient requests each one.
 
 ## Configuration
 

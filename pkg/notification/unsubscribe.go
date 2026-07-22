@@ -92,9 +92,10 @@ p { font-size: 14px; color: #4a4f57; line-height: 1.5; margin: 0; }
 </html>
 `))
 
-// UnsubscribeHandler serves GET /portal/notifications/unsubscribe?tok=...,
-// the no-login opt-out linked from every notification email footer. A valid
-// token writes delivery mode "off" for the address it names; the share and
+// UnsubscribeHandler serves GET and POST on
+// /portal/notifications/unsubscribe?tok=..., the no-login opt-out linked from
+// every notification email footer and named by the List-Unsubscribe header. A
+// valid token writes delivery mode "off" for the address it names; the share and
 // comment enqueue paths already honor that mode, so the recipient receives
 // no further notification emails. One-time view links are unaffected: those
 // are transactional sends the recipient asks for, not notifications.
@@ -106,22 +107,52 @@ type UnsubscribeHandler struct {
 	BrandName string
 }
 
-// ServeHTTP verifies the token and records the opt-out.
+// ServeHTTP verifies the token and records the opt-out. GET renders a
+// confirmation page for a human following the footer link; POST is the
+// RFC 8058 one-click path a mail provider calls on the recipient's behalf
+// (body "List-Unsubscribe=One-Click"), which records the opt-out with no
+// page and no further interaction, as the RFC requires.
 func (h *UnsubscribeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		h.serveOneClick(w, r)
+		return
+	}
 	email, ok := VerifyUnsubToken(h.Key, r.URL.Query().Get("tok"))
 	if !ok {
 		h.renderPage(w, http.StatusBadRequest, "This unsubscribe link is not valid",
 			"The link may be incomplete. Use the unsubscribe link from a notification email, or ask the sender to stop sharing with this address.")
 		return
 	}
-	mode := ModeOff
-	if _, err := h.Prefs.Set(r.Context(), email, PrefsUpdate{Mode: &mode}); err != nil {
+	if !h.optOut(r, email) {
 		h.renderPage(w, http.StatusInternalServerError, "Something went wrong",
 			"The opt-out could not be recorded. Try the link again in a moment.")
 		return
 	}
 	h.renderPage(w, http.StatusOK, "You are unsubscribed",
 		"This address will no longer receive notification emails. One-time view links you request from a share page still work.")
+}
+
+// serveOneClick handles the RFC 8058 POST. The caller is a mail provider,
+// not a browser, so responses are bare status codes: the token in the posted
+// URL is the sole credential, exactly as on GET.
+func (h *UnsubscribeHandler) serveOneClick(w http.ResponseWriter, r *http.Request) {
+	email, ok := VerifyUnsubToken(h.Key, r.URL.Query().Get("tok"))
+	if !ok {
+		http.Error(w, "invalid unsubscribe token", http.StatusBadRequest)
+		return
+	}
+	if !h.optOut(r, email) {
+		http.Error(w, "opt-out could not be recorded", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// optOut writes delivery mode "off" for email, reporting success.
+func (h *UnsubscribeHandler) optOut(r *http.Request, email string) bool {
+	mode := ModeOff
+	_, err := h.Prefs.Set(r.Context(), email, PrefsUpdate{Mode: &mode})
+	return err == nil
 }
 
 // renderPage writes one confirmation/refusal page.

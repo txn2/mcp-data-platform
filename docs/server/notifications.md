@@ -107,6 +107,14 @@ notification emails only; one-time view links requested from a share's
 landing page are transactional (the recipient asks for each one) and still
 send.
 
+The same token URL is emitted as an RFC 8058 one-click unsubscribe header
+pair (`List-Unsubscribe` and `List-Unsubscribe-Post`) on every message that
+carries the footer link, which Gmail and Yahoo require of bulk senders. A
+mail provider acting on the header sends `POST` to the same endpoint with
+body `List-Unsubscribe=One-Click`; the server records the opt-out and
+returns a bare status with no page. Transactional sends (one-time guest
+links, admin SMTP tests) carry neither the footer nor the headers.
+
 ## Branded emails
 
 Emails are responsive, table-based HTML (broad email-client compatibility)
@@ -114,6 +122,13 @@ with a plaintext alternative part. They carry the deployment's brand name
 linked to the portal, the implementor footer when configured, deep links to
 the shared or discussed item (`portal.public_base_url` must be set for
 links to render), and a link to the recipient's notification preferences.
+When `portal.terms_url` or `portal.privacy_url` is set, the footer also
+renders the corresponding legal link; useful when the portal runs on a
+different domain than the mail From address, since it gives recipients and
+content filters body links that associate with the sending identity. Each
+message's `Message-ID` domain is taken from the configured From address
+rather than the server hostname, so IDs resolve to the sending domain in
+containerized deployments.
 Share links for assets and collections use the token viewer; prompt shares
 link to the in-app prompt page. The emailed link is not a bearer credential:
 a share addressed to a person is restricted to that person, so the viewer

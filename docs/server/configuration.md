@@ -490,6 +490,8 @@ portal:
     name: "ACME Corp"
     logo: "https://acme.com/logo.svg"
     url: "https://acme.com"
+  terms_url: "https://example.com/terms"          # Optional terms-of-service link (notification email footers)
+  privacy_url: "https://example.com/privacy"      # Optional privacy-policy link (notification email footers)
   rate_limit:                                     # Public portal viewer rate limiting
     requests_per_minute: 60
     burst_size: 10
@@ -520,6 +522,8 @@ portal:
 | `implementor.name` | string | - | Implementor display name shown in the left zone of the public viewer header |
 | `implementor.logo` | string | - | URL to implementor SVG logo (fetched once at startup, max 1 MB) |
 | `implementor.url` | string | - | Clickable link wrapping the implementor name and logo |
+| `terms_url` | string | - | Terms-of-service URL rendered as a small footer link in notification emails. Omitted when unset |
+| `privacy_url` | string | - | Privacy-policy URL rendered as a small footer link in notification emails. Omitted when unset |
 | `rate_limit.requests_per_minute` | int | `60` | Public portal viewer per-IP rate limit |
 | `rate_limit.burst_size` | int | `10` | Public portal viewer per-IP burst allowance |
 | `rate_limit.trusted_proxies` | list | `[]` | CIDRs whose `X-Forwarded-For` is trusted for client attribution. Empty trusts none: the direct peer address is used and forwarding headers are ignored. Set this to your ingress/load-balancer CIDRs so per-client limiting works behind a proxy without being spoofable. A global backstop bounds total throughput regardless of attribution |
