@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -194,17 +195,15 @@ func (s *MemoryStore) UpsertSpec(_ context.Context, catalogID string, spec SpecE
 	return nil
 }
 
-// GetSpec returns one spec from the catalog or ErrNotFound.
+// GetSpec returns one spec from the catalog, or a spec-naming error
+// wrapping ErrNotFound (matching the Postgres store, so the surfaced
+// message identifies the missing spec rather than the catalog).
 func (s *MemoryStore) GetSpec(_ context.Context, catalogID, specName string) (*SpecEntry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	bucket, ok := s.specs[catalogID]
+	spec, ok := s.specs[catalogID][specName]
 	if !ok {
-		return nil, ErrNotFound
-	}
-	spec, ok := bucket[specName]
-	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("spec %q not found in catalog %q: %w", specName, catalogID, ErrNotFound)
 	}
 	return &spec, nil
 }

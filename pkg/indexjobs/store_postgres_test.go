@@ -343,6 +343,32 @@ func TestStore_ResolveFailuresError(t *testing.T) {
 	}
 }
 
+func TestStore_CancelPending(t *testing.T) {
+	t.Parallel()
+	s, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec("DELETE FROM index_jobs").
+		WithArgs("api_catalog", "cat1\x1fspec1").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	n, err := s.CancelPending(context.Background(), Key{SourceKind: "api_catalog", SourceID: "cat1\x1fspec1"})
+	if err != nil {
+		t.Fatalf("CancelPending: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("canceled = %d; want 2", n)
+	}
+}
+
+func TestStore_CancelPendingError(t *testing.T) {
+	t.Parallel()
+	s, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec("DELETE FROM index_jobs").WillReturnError(errors.New("db down"))
+	if _, err := s.CancelPending(context.Background(), Key{SourceKind: "tools", SourceID: "p"}); err == nil {
+		t.Fatal("expected cancel-pending error")
+	}
+}
+
 func TestStore_ActiveFailures(t *testing.T) {
 	t.Parallel()
 	s, mock, done := newMockStore(t)

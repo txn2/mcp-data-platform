@@ -41,6 +41,50 @@ func (s *AdminStore) Enqueue(ctx context.Context, key SpecKey, kind Kind) (bool,
 	return created, nil
 }
 
+// Cancel drops the spec's pending jobs and resolves its open
+// failures, the delete-side counterpart to Enqueue. Running jobs are
+// left to the worker, whose ErrSourceGone path resolves them once
+// LoadItems notices the spec row is gone.
+func (s *AdminStore) Cancel(ctx context.Context, key SpecKey) error {
+	k := indexjobs.Key{SourceKind: SourceKind, SourceID: EncodeSourceID(key.CatalogID, key.SpecName)}
+	if _, err := s.jobs.CancelPending(ctx, k); err != nil {
+		return fmt.Errorf("catalogindex: cancel pending: %w", err)
+	}
+	if _, err := s.jobs.ResolveFailures(ctx, k); err != nil {
+		return fmt.Errorf("catalogindex: resolve failures: %w", err)
+	}
+	return nil
+}
+
+// CancelCatalog clears every spec's queue residue after a catalog
+// delete, matching jobs by the encoded source_id prefix (starts_with
+// rather than LIKE, so a catalog id containing a LIKE metacharacter
+// cannot over-match). Runs against index_jobs directly, like the
+// package's other cross-table queries, because the framework store's
+// per-key methods would require the spec names the cascade already
+// deleted.
+func (s *AdminStore) CancelCatalog(ctx context.Context, catalogID string) error {
+	const cancelQ = `
+		DELETE FROM index_jobs
+		 WHERE source_kind = $1 AND starts_with(source_id, $2)
+		   AND status = 'pending'
+	`
+	const resolveQ = `
+		UPDATE index_jobs
+		   SET resolved_at = NOW()
+		 WHERE source_kind = $1 AND starts_with(source_id, $2)
+		   AND status = 'failed' AND resolved_at IS NULL
+	`
+	prefix := sourceIDPrefix(catalogID)
+	if _, err := s.db.ExecContext(ctx, cancelQ, SourceKind, prefix); err != nil {
+		return fmt.Errorf("catalogindex: cancel catalog pending: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, resolveQ, SourceKind, prefix); err != nil {
+		return fmt.Errorf("catalogindex: resolve catalog failures: %w", err)
+	}
+	return nil
+}
+
 // List returns the matching jobs in api-catalog terms. A filter with
 // a spec name targets that exact unit; a filter with only a catalog
 // id matches every unit under it via the source_id prefix.

@@ -39,14 +39,18 @@ type catalogSource struct {
 func (*catalogSource) Kind() string { return catalogindex.SourceKind }
 
 // LoadItems decodes the source_id, fetches the spec content, and returns one
-// item per operation. A missing spec surfaces as an error (the worker treats it
-// as terminal: the spec was deleted).
+// item per operation. A missing spec (or catalog) surfaces as an error wrapping
+// indexjobs.ErrSourceGone, so the worker resolves the unit — the spec was
+// deleted, not broken — instead of recording an open failure (#998).
 func (s *catalogSource) LoadItems(ctx context.Context, sourceID string) ([]indexjobs.Item, error) {
 	catalogID, specName, ok := catalogindex.DecodeSourceID(sourceID)
 	if !ok {
 		return nil, fmt.Errorf("catalogSource: malformed source_id %q", sourceID)
 	}
 	spec, err := s.store.GetSpec(ctx, catalogID, specName)
+	if errors.Is(err, apigatewaycatalog.ErrNotFound) {
+		return nil, fmt.Errorf("catalogSource: %w: %w", indexjobs.ErrSourceGone, err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("catalogSource: get spec: %w", err)
 	}

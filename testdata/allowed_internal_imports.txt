@@ -364,6 +364,7 @@ pkg/toolkits/apigateway -> pkg/query
 pkg/toolkits/apigateway -> pkg/semantic
 pkg/toolkits/apigateway -> pkg/toolkit
 pkg/toolkits/apigateway -> pkg/toolkits/apigateway/catalog
+pkg/toolkits/apigateway/catalogindex -> internal/logsan
 pkg/toolkits/apigateway/catalogindex -> pkg/indexjobs
 pkg/toolkits/apigateway/catalogindex -> pkg/toolkits/apigateway/catalog
 pkg/toolkits/datahub -> pkg/query

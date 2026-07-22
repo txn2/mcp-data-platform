@@ -54,6 +54,8 @@ func (stubStore) Get(context.Context, int64) (*indexjobs.Job, error) {
 	return nil, indexjobs.ErrNotFound
 }
 
+func (stubStore) CancelPending(context.Context, indexjobs.Key) (int, error) { return 0, nil }
+
 func (stubStore) List(context.Context, indexjobs.ListFilter) ([]indexjobs.Job, error) {
 	return nil, nil
 }

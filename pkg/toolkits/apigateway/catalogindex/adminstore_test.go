@@ -2,6 +2,7 @@ package catalogindex
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,14 +11,19 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
-// fakeJobs is an indexjobs.Store stub recording the last Enqueue/List
-// inputs so the AdminStore translation can be asserted.
+// fakeJobs is an indexjobs.Store stub recording the last
+// Enqueue/List/Cancel inputs so the AdminStore translation can be
+// asserted.
 type fakeJobs struct {
 	lastEnqueueKey     indexjobs.Key
 	lastEnqueueTrigger indexjobs.Trigger
 	lastFilter         indexjobs.ListFilter
 	listResult         []indexjobs.Job
 	getResult          *indexjobs.Job
+	lastCancelKey      indexjobs.Key
+	lastResolveKey     indexjobs.Key
+	cancelErr          error
+	resolveErr         error
 }
 
 func (f *fakeJobs) Enqueue(_ context.Context, k indexjobs.Key, tr indexjobs.Trigger) (bool, error) {
@@ -51,9 +57,17 @@ func (*fakeJobs) ActiveFailures(context.Context, string, int) ([]indexjobs.Faile
 	return nil, nil
 }
 
-func (*fakeJobs) ResolveFailures(context.Context, indexjobs.Key) (int, error) { return 0, nil }
+func (f *fakeJobs) ResolveFailures(_ context.Context, k indexjobs.Key) (int, error) {
+	f.lastResolveKey = k
+	return 0, f.resolveErr
+}
 
 func (*fakeJobs) PurgeTerminal(context.Context, int) (int, error) { return 0, nil }
+
+func (f *fakeJobs) CancelPending(_ context.Context, k indexjobs.Key) (int, error) {
+	f.lastCancelKey = k
+	return 0, f.cancelErr
+}
 
 func TestAdminStore_EnqueueEncodesAndMapsTrigger(t *testing.T) {
 	t.Parallel()
@@ -70,6 +84,84 @@ func TestAdminStore_EnqueueEncodesAndMapsTrigger(t *testing.T) {
 	}
 	if jobs.lastEnqueueTrigger != indexjobs.TriggerManualRetry {
 		t.Errorf("trigger = %s; want manual_retry", jobs.lastEnqueueTrigger)
+	}
+}
+
+func TestAdminStore_CancelDropsPendingAndResolvesFailures(t *testing.T) {
+	t.Parallel()
+	jobs := &fakeJobs{}
+	s := NewAdminStore(jobs, nil)
+	if err := s.Cancel(context.Background(), SpecKey{CatalogID: "c", SpecName: "s"}); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	want := indexjobs.Key{SourceKind: SourceKind, SourceID: EncodeSourceID("c", "s")}
+	if jobs.lastCancelKey != want {
+		t.Errorf("CancelPending key = %+v; want %+v", jobs.lastCancelKey, want)
+	}
+	if jobs.lastResolveKey != want {
+		t.Errorf("ResolveFailures key = %+v; want %+v", jobs.lastResolveKey, want)
+	}
+}
+
+func TestAdminStore_CancelPropagatesErrors(t *testing.T) {
+	t.Parallel()
+	cancelErr := errors.New("cancel down")
+	resolveErr := errors.New("resolve down")
+
+	s := NewAdminStore(&fakeJobs{cancelErr: cancelErr}, nil)
+	if err := s.Cancel(context.Background(), SpecKey{CatalogID: "c", SpecName: "s"}); !errors.Is(err, cancelErr) {
+		t.Errorf("Cancel with pending-delete error = %v; want wrap of %v", err, cancelErr)
+	}
+
+	s = NewAdminStore(&fakeJobs{resolveErr: resolveErr}, nil)
+	if err := s.Cancel(context.Background(), SpecKey{CatalogID: "c", SpecName: "s"}); !errors.Is(err, resolveErr) {
+		t.Errorf("Cancel with resolve error = %v; want wrap of %v", err, resolveErr)
+	}
+}
+
+func TestAdminStore_CancelCatalogDropsPendingAndResolvesByPrefix(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck // test cleanup
+	s := NewAdminStore(&fakeJobs{}, db)
+
+	prefix := sourceIDPrefix("c")
+	mock.ExpectExec("DELETE FROM index_jobs").
+		WithArgs(SourceKind, prefix).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("UPDATE index_jobs").
+		WithArgs(SourceKind, prefix).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := s.CancelCatalog(context.Background(), "c"); err != nil {
+		t.Fatalf("CancelCatalog: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("expectations: %v", err)
+	}
+}
+
+func TestAdminStore_CancelCatalogPropagatesErrors(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck // test cleanup
+	s := NewAdminStore(&fakeJobs{}, db)
+
+	mock.ExpectExec("DELETE FROM index_jobs").WillReturnError(errors.New("db down"))
+	if err := s.CancelCatalog(context.Background(), "c"); err == nil {
+		t.Error("expected pending-delete error to propagate")
+	}
+
+	mock.ExpectExec("DELETE FROM index_jobs").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("UPDATE index_jobs").WillReturnError(errors.New("db down"))
+	if err := s.CancelCatalog(context.Background(), "c"); err == nil {
+		t.Error("expected resolve error to propagate")
 	}
 }
 

@@ -420,6 +420,27 @@ func (s *PostgresStore) PurgeTerminal(ctx context.Context, retentionDays int) (i
 	}
 }
 
+// CancelPending deletes the unit's pending job rows. Running rows are
+// deliberately not touched (a worker holds their lease; the
+// ErrSourceGone path resolves them when LoadItems notices the source
+// is gone).
+func (s *PostgresStore) CancelPending(ctx context.Context, key Key) (int, error) {
+	const q = `
+		DELETE FROM index_jobs
+		 WHERE source_kind = $1 AND source_id = $2
+		   AND status = 'pending'
+	`
+	res, err := s.db.ExecContext(ctx, q, key.SourceKind, key.SourceID)
+	if err != nil {
+		return 0, fmt.Errorf("indexjobs: cancel pending: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("indexjobs: cancel pending rows-affected: %w", err)
+	}
+	return int(n), nil
+}
+
 // Get returns one job by id.
 func (s *PostgresStore) Get(ctx context.Context, id int64) (*Job, error) {
 	q := `SELECT ` + jobColumns + ` FROM index_jobs WHERE id = $1`

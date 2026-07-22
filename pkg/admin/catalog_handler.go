@@ -342,6 +342,10 @@ func (h *Handler) deleteCatalog(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "failed to delete catalog")
 	default:
+		// WithoutCancel: the delete has committed, so the queue cleanup
+		// must not die with the request (a client disconnect here would
+		// otherwise leave an open failure nothing else can resolve).
+		catalogindex.CancelCatalogBestEffort(context.WithoutCancel(r.Context()), h.deps.EmbedJobs, id)
 		writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
 	}
 }
@@ -466,7 +470,7 @@ func (h *Handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 			// asynchronously. Without this the cloned spec
 			// would sit at "not indexed" until the periodic
 			// reconciler picked it up.
-			h.enqueueEmbedJob(r.Context(), dstID, s.SpecName)
+			catalogindex.EnqueueBestEffort(r.Context(), h.deps.EmbedJobs, dstID, s.SpecName)
 		}
 	}
 	return true
@@ -667,7 +671,7 @@ func (h *Handler) upsertCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, h.specErrorStatus(err), "failed to save spec: "+err.Error())
 		return
 	}
-	h.enqueueEmbedJob(r.Context(), id, entry.SpecName)
+	catalogindex.EnqueueBestEffort(r.Context(), h.deps.EmbedJobs, id, entry.SpecName)
 	h.reloadConnectionsForCatalog(id)
 	saved, _ := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName)
 	if saved != nil {
@@ -879,7 +883,7 @@ func (h *Handler) uploadCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, h.specErrorStatus(err), "failed to save spec: "+err.Error())
 		return
 	}
-	h.enqueueEmbedJob(r.Context(), id, entry.SpecName)
+	catalogindex.EnqueueBestEffort(r.Context(), h.deps.EmbedJobs, id, entry.SpecName)
 	h.reloadConnectionsForCatalog(id)
 	saved, _ := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName)
 	if saved != nil {
@@ -943,7 +947,7 @@ func (h *Handler) refreshCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save refreshed spec: "+err.Error())
 		return
 	}
-	h.enqueueEmbedJob(r.Context(), id, entry.SpecName)
+	catalogindex.EnqueueBestEffort(r.Context(), h.deps.EmbedJobs, id, entry.SpecName)
 	h.reloadConnectionsForCatalog(id)
 	writeJSON(w, http.StatusOK, h.specToResponseWithEmbedding(r.Context(), id, entry, false))
 }
@@ -972,6 +976,9 @@ func (h *Handler) deleteCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "failed to delete spec")
 	default:
+		// WithoutCancel: same rationale as deleteCatalog — the spec row
+		// is gone, so the cleanup outlives the request.
+		catalogindex.CancelBestEffort(context.WithoutCancel(r.Context()), h.deps.EmbedJobs, id, specName)
 		h.reloadConnectionsForCatalog(id)
 		writeJSON(w, http.StatusOK, statusResponse{Status: "deleted"})
 	}
@@ -1052,29 +1059,6 @@ func (h *Handler) specToResponseWithEmbedding(ctx context.Context, catalogID str
 		}
 	}
 	return resp
-}
-
-// enqueueEmbedJob is the producer-side hook every spec write
-// path calls after the spec row commits. It records the job
-// row alongside (or just after) the spec write and lets the
-// worker / reconciler / reaper drive the actual embedding pass
-// off the request path. Failures are logged but do not block
-// the spec write: the reconciler will pick up any spec whose
-// embedding-row count is below operation_count on its next
-// sweep, so a missed enqueue still converges.
-func (h *Handler) enqueueEmbedJob(ctx context.Context, catalogID, specName string) {
-	if h.deps.EmbedJobs == nil {
-		// No queue (file mode / no DB). The data path falls
-		// back to lexical and the operator gets no embeddings;
-		// this is the documented degraded mode.
-		return
-	}
-	if _, err := h.deps.EmbedJobs.Enqueue(ctx, catalogindex.SpecKey{
-		CatalogID: catalogID, SpecName: specName,
-	}, catalogindex.KindSpecWrite); err != nil {
-		slog.Warn("apigateway: enqueue embedding job failed",
-			logKeyCatalogID, logsan.SanitizeForLog(catalogID), logKeySpecName, logsan.SanitizeForLog(specName), logKeyError, err)
-	}
 }
 
 // logKeyCatalogID is the structured-log key for catalog ids in the
