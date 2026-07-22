@@ -189,6 +189,15 @@ type CatalogHealth struct {
 // the api_catalog tables.
 type Store interface {
 	Enqueue(ctx context.Context, key SpecKey, kind Kind) (bool, error)
+	// Cancel clears the queue residue a deleted spec leaves behind:
+	// its pending jobs are dropped and its open failures resolved, so
+	// a spec delete never pins the api_catalog index kind to Degraded
+	// (#998). Zero residue is success, not an error.
+	Cancel(ctx context.Context, key SpecKey) error
+	// CancelCatalog is the whole-catalog Cancel: it clears the residue
+	// for every spec the catalog delete cascaded away, matched by the
+	// encoded source_id prefix so no pre-delete spec listing is needed.
+	CancelCatalog(ctx context.Context, catalogID string) error
 	List(ctx context.Context, filter ListFilter) ([]Job, error)
 	Get(ctx context.Context, id int64) (*Job, error)
 	SpecStatuses(ctx context.Context, catalogID string) ([]SpecStatusRow, error)

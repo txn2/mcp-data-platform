@@ -221,9 +221,17 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 	}
 
 	items, err := source.LoadItems(ctx, job.SourceID)
+	if errors.Is(err, ErrSourceGone) {
+		// The source row was deleted on purpose. Resolve the unit
+		// instead of recording an open failure no later success could
+		// ever supersede (#998).
+		w.resolveGone(ctx, job, sink, err)
+		return
+	}
 	if err != nil {
-		// The source row is gone or unreadable. Not retryable: it
-		// may have been deleted on purpose. Move to terminal failed.
+		// The source is unreadable. Not retryable: LoadItems reads
+		// the consumer's own store, and the next reconciler sweep
+		// re-enqueues the unit if a gap remains.
 		w.terminate(ctx, job, fmt.Sprintf("load items failed: %v", err))
 		return
 	}
@@ -239,7 +247,7 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 		existing, err = sink.ListExisting(ctx, key)
 		if err != nil {
 			// A read failure from our own DB is retryable.
-			w.retryOrFail(ctx, job, fmt.Sprintf("list existing failed: %v", err))
+			w.retryOrFail(ctx, job, source, sink, fmt.Sprintf("list existing failed: %v", err))
 			return
 		}
 	}
@@ -257,12 +265,12 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 		persistBatch: w.persistBatchFn(ctx, key, sink),
 	})
 	if err != nil {
-		w.retryOrFail(ctx, job, fmt.Sprintf("embed failed: %v", err))
+		w.retryOrFail(ctx, job, source, sink, fmt.Sprintf("embed failed: %v", err))
 		return
 	}
 
 	if err := sink.Upsert(ctx, key, rows); err != nil {
-		w.retryOrFail(ctx, job, fmt.Sprintf("persist failed: %v", err))
+		w.retryOrFail(ctx, job, source, sink, fmt.Sprintf("persist failed: %v", err))
 		return
 	}
 
@@ -352,17 +360,51 @@ func (w *Worker) heartbeat(ctx context.Context, job *Job) {
 
 // retryOrFail routes a job to Retry (with backoff) or Fail
 // (terminal) based on the attempts counter, which Claim already
-// incremented.
-func (w *Worker) retryOrFail(ctx context.Context, job *Job, errMsg string) {
+// incremented. Before pinning a terminal failure it re-probes the
+// source: if the unit was deleted mid-attempt, the failure being
+// recorded now could never be superseded (the delete-side cancel ran
+// while this job was running, so it saw no pending row to drop and no
+// failed row to resolve), which is the #998 residue in a race shape.
+// A gone probe routes to resolveGone instead; earlier attempts need
+// no probe because their retry re-enters LoadItems, which surfaces
+// ErrSourceGone itself.
+func (w *Worker) retryOrFail(ctx context.Context, job *Job, source Source, sink Sink, errMsg string) {
 	slog.Warn("indexjobs: job error",
 		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
 		logKeySourceID, job.SourceID, "attempts", job.Attempts, logKeyError, errMsg)
 	if job.Attempts >= MaxAttempts {
+		if _, probeErr := source.LoadItems(ctx, job.SourceID); errors.Is(probeErr, ErrSourceGone) {
+			w.resolveGone(ctx, job, sink, probeErr)
+			return
+		}
 		w.terminate(ctx, job, errMsg)
 		return
 	}
 	if err := w.cfg.Store.Retry(ctx, job.ID, w.cfg.WorkerID, errMsg); err != nil {
 		slog.Error("indexjobs: retry release failed", logKeyJobID, job.ID, logKeyError, err)
+	}
+}
+
+// resolveGone settles a job whose source unit no longer exists: the
+// unit's vectors are cleared (best-effort; kinds with FK cascade have
+// already dropped them) and the job is completed, which also resolves
+// any open failures for the key — including a failure recorded by an
+// earlier attempt that ran before the source was deleted. No
+// StampExpected (the expected-count row belongs to the deleted
+// source) and no OnSucceeded (there is nothing left to reload).
+func (w *Worker) resolveGone(ctx context.Context, job *Job, sink Sink, cause error) {
+	slog.Info("indexjobs: source gone; resolving unit",
+		logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
+		logKeySourceID, job.SourceID, logKeyError, cause)
+	key := Key{SourceKind: job.SourceKind, SourceID: job.SourceID}
+	if err := sink.Upsert(ctx, key, nil); err != nil {
+		slog.Warn("indexjobs: clear vectors for gone source failed",
+			logKeyJobID, job.ID, logKeySourceKind, job.SourceKind,
+			logKeySourceID, job.SourceID, logKeyError, err)
+	}
+	if err := w.cfg.Store.Complete(ctx, job.ID, w.cfg.WorkerID); err != nil && !errors.Is(err, ErrNotFound) {
+		slog.Error("indexjobs: complete for gone source failed",
+			logKeyJobID, job.ID, logKeyError, err)
 	}
 }
 

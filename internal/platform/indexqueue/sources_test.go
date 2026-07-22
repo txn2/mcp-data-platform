@@ -3,10 +3,12 @@ package indexqueue
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
@@ -98,14 +100,38 @@ func TestCatalogSource_LoadItems_MalformedSourceID(t *testing.T) {
 	}
 }
 
-// TestCatalogSource_LoadItems_MissingSpec proves a vanished spec surfaces as a
-// wrapped error; the worker treats it as terminal (the spec was deleted between
-// enqueue and claim).
+// TestCatalogSource_LoadItems_MissingSpec proves a vanished spec surfaces as an
+// error wrapping indexjobs.ErrSourceGone, so the worker resolves the unit
+// (the spec was deleted between enqueue and claim) instead of recording an
+// open failure nothing can ever supersede (#998).
 func TestCatalogSource_LoadItems_MissingSpec(t *testing.T) {
 	t.Parallel()
 	s := &catalogSource{store: apigatewaycatalog.NewMemoryStore()}
-	if _, err := s.LoadItems(context.Background(), catalogindex.EncodeSourceID("missing", "missing")); err == nil {
+	_, err := s.LoadItems(context.Background(), catalogindex.EncodeSourceID("missing", "missing"))
+	if err == nil {
 		t.Fatal("expected error for missing spec")
+	}
+	if !errors.Is(err, indexjobs.ErrSourceGone) {
+		t.Errorf("missing spec error = %v; must wrap indexjobs.ErrSourceGone", err)
+	}
+	if !strings.Contains(err.Error(), `"missing"`) {
+		t.Errorf("missing spec error = %v; must name the missing spec", err)
+	}
+}
+
+// TestCatalogSource_LoadItems_StoreErrorIsNotGone pins the boundary of the
+// gone signal: an unreadable store is NOT a deleted source, so the error must
+// not wrap ErrSourceGone (the worker would silently resolve a unit that still
+// exists).
+func TestCatalogSource_LoadItems_StoreErrorIsNotGone(t *testing.T) {
+	t.Parallel()
+	s := &catalogSource{store: &errStore{err: errors.New("db down")}}
+	_, err := s.LoadItems(context.Background(), catalogindex.EncodeSourceID("c", "s"))
+	if err == nil {
+		t.Fatal("expected store error to surface")
+	}
+	if errors.Is(err, indexjobs.ErrSourceGone) {
+		t.Errorf("store error = %v; must NOT wrap ErrSourceGone", err)
 	}
 }
 

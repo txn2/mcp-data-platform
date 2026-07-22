@@ -326,6 +326,17 @@ var ErrNoJob = errors.New("indexjobs: no pending job available")
 // rotated lease gracefully.
 var ErrNotFound = errors.New("indexjobs: job not found")
 
+// ErrSourceGone is the Source's "this unit no longer exists" signal.
+// A LoadItems error wrapping this sentinel tells the worker the
+// source row was deleted on purpose (not that loading failed), so
+// the worker clears the unit's vectors, completes the job, and
+// resolves any open failures for the key instead of recording a
+// terminal failure. Without this distinction a job orphaned by a
+// source delete lands in an open failure that no later success can
+// ever supersede — permanent Degraded residue only an operator
+// dismiss could clear (#998).
+var ErrSourceGone = errors.New("indexjobs: source gone")
+
 // Store is the persistence interface for the job queue. The
 // concrete implementation is Postgres-backed (see
 // store_postgres.go); the interface is declared here so
@@ -416,6 +427,15 @@ type Store interface {
 	// the number of rows deleted. A non-positive retentionDays is a
 	// no-op (retention disabled). Backs the retainer's periodic sweep.
 	PurgeTerminal(ctx context.Context, retentionDays int) (deleted int, err error)
+
+	// CancelPending deletes the unit's pending job rows, the producer's
+	// counterpart to Enqueue for a source delete: work queued for a unit
+	// that no longer exists is dropped before a worker wastes a claim on
+	// it. Running rows are left alone (a worker holds the lease); their
+	// LoadItems surfaces ErrSourceGone and the worker resolves them.
+	// Returns the number of rows deleted (zero when nothing was queued,
+	// which a delete path treats as success, not an error).
+	CancelPending(ctx context.Context, key Key) (canceled int, err error)
 }
 
 // Source is a consumer's "what to index" contract. One Source per
@@ -430,12 +450,14 @@ type Source interface {
 	Kind() string
 
 	// LoadItems returns every embeddable item for the unit. An
-	// empty slice (with a nil error) means "nothing to index"
-	// (e.g. the source row was deleted between enqueue and claim);
-	// the worker treats that as a clean completion that writes zero
-	// vectors. An error is treated as a unit-resolve failure and
-	// terminates the job (the source is gone or unreadable; retry
-	// will not help).
+	// empty slice (with a nil error) means "the unit exists but has
+	// nothing to index"; the worker treats that as a clean completion
+	// that writes zero vectors. An error wrapping ErrSourceGone means
+	// the source row no longer exists (deleted between enqueue and
+	// claim); the worker clears the unit's vectors, completes the
+	// job, and resolves any open failures for the key. Any other
+	// error is a unit-resolve failure and terminates the job into an
+	// open failure (the source is unreadable; retry will not help).
 	LoadItems(ctx context.Context, sourceID string) ([]Item, error)
 
 	// OnSucceeded is an optional post-embed hook called after a

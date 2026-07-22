@@ -275,7 +275,10 @@ func (s *PostgresStore) GetSpec(ctx context.Context, catalogID, specName string)
 		&spec.ETag, &spec.BasePath, &spec.Title, &spec.Description, &fetchedAt,
 		&spec.CreatedAt, &spec.UpdatedAt, &spec.OperationCount)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+		// Name the spec: the bare sentinel reads "catalog: not found",
+		// which sends whoever sees the surfaced error to the wrong
+		// object when the catalog itself is present and healthy (#998).
+		return nil, fmt.Errorf("spec %q not found in catalog %q: %w", specName, catalogID, ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("catalog: get spec: %w", err)

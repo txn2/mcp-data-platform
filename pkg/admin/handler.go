@@ -194,11 +194,12 @@ type Deps struct {
 
 	// EmbedJobs is the Postgres-backed job queue for api-catalog
 	// embedding work. The admin handler enqueues jobs on every
-	// spec write and lets the worker / reconciler / reaper run
-	// the actual embedding pass off the request path. nil when
-	// the platform was built without a database; spec writes
-	// still succeed in that mode but no embeddings are persisted.
-	EmbedJobs EmbedJobsStore
+	// spec write, cancels them on spec/catalog delete (#998), and
+	// lets the worker / reconciler / reaper run the actual
+	// embedding pass off the request path. nil when the platform
+	// was built without a database; spec writes still succeed in
+	// that mode but no embeddings are persisted.
+	EmbedJobs catalogindex.Store
 
 	// IndexJobs is the cross-kind read + command surface for the admin
 	// Indexing dashboard (per-kind job-state counts, coverage, the job
@@ -248,19 +249,6 @@ type IndexJobsService interface {
 	// fallback when a failure will never be superseded. Returns the
 	// number of failed rows resolved (zero is not an error).
 	Resolve(ctx context.Context, kind, sourceID string) (int, error)
-}
-
-// EmbedJobsStore is the subset of catalogindex.Store the admin
-// handler uses (enqueue + read-side queries for the UI). Declared
-// here so admin can mock the queue without depending on its
-// concrete implementation. catalogindex backs it with the generic
-// index_jobs queue joined to the api_catalog tables.
-type EmbedJobsStore interface {
-	Enqueue(ctx context.Context, key catalogindex.SpecKey, kind catalogindex.Kind) (bool, error)
-	List(ctx context.Context, filter catalogindex.ListFilter) ([]catalogindex.Job, error)
-	Get(ctx context.Context, id int64) (*catalogindex.Job, error)
-	SpecStatuses(ctx context.Context, catalogID string) ([]catalogindex.SpecStatusRow, error)
-	Health(ctx context.Context, catalogID string) (*catalogindex.CatalogHealth, error)
 }
 
 // APICatalogStore is the subset of apigateway/catalog.Store that the

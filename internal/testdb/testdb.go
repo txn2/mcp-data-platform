@@ -49,15 +49,22 @@ func NewWithDSN(t *testing.T) (*sql.DB, string) {
 	}
 	ctx := context.Background()
 
+	// The wait strategy requires BOTH the second "ready" log line (postgres
+	// restarts once during init) AND the mapped port to be externally
+	// reachable. The log line alone raced under parallel container load:
+	// ConnectionString could run before Docker exposed the port mapping and
+	// fail with `port "5432/tcp" not found`.
 	container, err := tcpostgres.Run(ctx,
 		"pgvector/pgvector:pg16",
 		tcpostgres.WithDatabase("testdb"),
 		tcpostgres.WithUsername("test"),
 		tcpostgres.WithPassword("test"),
 		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(5*time.Minute),
+			wait.ForAll(
+				wait.ForLog("database system is ready to accept connections").
+					WithOccurrence(2),
+				wait.ForListeningPort("5432/tcp"),
+			).WithStartupTimeoutDefault(5*time.Minute),
 		),
 	)
 	if err != nil {

@@ -26,13 +26,14 @@ func (s *stubSource) OnSucceeded(id string) {
 }
 
 type stubSink struct {
-	kind     string
-	existing map[string]Vector
-	listErr  error
-	upserted []Vector
-	upErr    error
-	stamped  int
-	gaps     []string
+	kind        string
+	existing    map[string]Vector
+	listErr     error
+	upserted    []Vector
+	upsertCalls int
+	upErr       error
+	stamped     int
+	gaps        []string
 }
 
 func (s *stubSink) Kind() string { return s.kind }
@@ -42,6 +43,7 @@ func (s *stubSink) ListExisting(_ context.Context, _ Key) (map[string]Vector, er
 
 func (s *stubSink) Upsert(_ context.Context, _ Key, rows []Vector) error {
 	s.upserted = rows
+	s.upsertCalls++
 	return s.upErr
 }
 func (*stubSink) UpsertBatch(_ context.Context, _ Key, _ []Vector) error { return nil }

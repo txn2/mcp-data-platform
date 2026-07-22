@@ -13,7 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
 )
 
-// fakeEmbedJobs implements admin.EmbedJobsStore in-memory.
+// fakeEmbedJobs implements catalogindex.Store in-memory.
 // Exists only for admin-handler tests; the production store is
 // Postgres-backed and tested separately.
 type fakeEmbedJobs struct {
@@ -22,10 +22,17 @@ type fakeEmbedJobs struct {
 	nextID int64
 
 	enqueueErr  error
+	cancelErr   error
 	listErr     error
 	getErr      error
 	statusesErr error
 	healthErr   error
+
+	// canceled / canceledCatalogs record every Cancel / CancelCatalog
+	// call so delete-path tests can assert the handler unwound the
+	// queue residue.
+	canceled         []catalogindex.SpecKey
+	canceledCatalogs []string
 
 	statuses []catalogindex.SpecStatusRow
 	health   *catalogindex.CatalogHealth
@@ -53,6 +60,46 @@ func (f *fakeEmbedJobs) Enqueue(_ context.Context, key catalogindex.SpecKey, kin
 		CreatedAt: time.Now(),
 	})
 	return true, nil
+}
+
+// Cancel mirrors the AdminStore semantics: pending jobs for the key
+// are dropped (failed rows stay; the fake's Job has no resolved
+// marker, so resolution is asserted via the canceled record).
+func (f *fakeEmbedJobs) Cancel(_ context.Context, key catalogindex.SpecKey) error {
+	if f.cancelErr != nil {
+		return f.cancelErr
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.canceled = append(f.canceled, key)
+	kept := f.jobs[:0]
+	for _, j := range f.jobs {
+		if j.CatalogID == key.CatalogID && j.SpecName == key.SpecName && j.Status == catalogindex.StatusPending {
+			continue
+		}
+		kept = append(kept, j)
+	}
+	f.jobs = kept
+	return nil
+}
+
+// CancelCatalog drops every pending job under the catalog.
+func (f *fakeEmbedJobs) CancelCatalog(_ context.Context, catalogID string) error {
+	if f.cancelErr != nil {
+		return f.cancelErr
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.canceledCatalogs = append(f.canceledCatalogs, catalogID)
+	kept := f.jobs[:0]
+	for _, j := range f.jobs {
+		if j.CatalogID == catalogID && j.Status == catalogindex.StatusPending {
+			continue
+		}
+		kept = append(kept, j)
+	}
+	f.jobs = kept
+	return nil
 }
 
 func (f *fakeEmbedJobs) List(_ context.Context, filter catalogindex.ListFilter) ([]catalogindex.Job, error) {
@@ -181,8 +228,8 @@ func TestSpecUpsert_EnqueuesJob(t *testing.T) {
 }
 
 // TestSpecUpsert_EnqueueErrorIsBestEffort drives the producer hook's
-// best-effort warn branch (catalog_handler.go:1078): the spec write
-// commits but the queue Enqueue fails. The HTTP write must still
+// best-effort warn branch (catalogindex.EnqueueBestEffort): the spec
+// write commits but the queue Enqueue fails. The HTTP write must still
 // return 200 because a missed enqueue is non-fatal (the reconciler
 // re-detects the gap on its next sweep), and no job row is recorded
 // because Enqueue errored before appending.
@@ -473,5 +520,78 @@ func TestSpecToResponseWithEmbedding_PopulatesJobFields(t *testing.T) {
 	}
 	if body.EmbeddingStatus != "running" || body.EmbeddingAttempts != 2 {
 		t.Errorf("missing job state on spec response: %+v", body)
+	}
+}
+
+// TestSpecDelete_CancelsJobs covers the delete-side counterpart to
+// the producer hook (#998): removing a spec must unwind its queued
+// index work, or the orphaned job fails terminally and pins the
+// api_catalog index kind to Degraded until an operator dismisses it.
+func TestSpecDelete_CancelsJobs(t *testing.T) {
+	t.Parallel()
+	h, _, jobs := newCatalogTestHandlerWithJobs(t)
+	res := doJSON(t, h, http.MethodPut, "/api/v1/admin/api-catalogs/petstore/specs/default", map[string]any{
+		"source_kind": "inline",
+		"content":     minimalSpec,
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("upsert: %d %s", res.Code, res.Body.String())
+	}
+	if len(jobs.jobs) != 1 {
+		t.Fatalf("expected 1 pending job before delete, got %d", len(jobs.jobs))
+	}
+
+	res = doJSON(t, h, http.MethodDelete, "/api/v1/admin/api-catalogs/petstore/specs/default", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete: %d %s", res.Code, res.Body.String())
+	}
+	want := catalogindex.SpecKey{CatalogID: "petstore", SpecName: "default"}
+	if len(jobs.canceled) != 1 || jobs.canceled[0] != want {
+		t.Errorf("Cancel calls = %+v; want exactly %+v", jobs.canceled, want)
+	}
+	if len(jobs.jobs) != 0 {
+		t.Errorf("pending jobs after delete = %d; want 0", len(jobs.jobs))
+	}
+}
+
+// TestSpecDelete_CancelErrorIsBestEffort: the spec row is already
+// gone, so a queue hiccup must not fail the delete. The worker's
+// source-gone path settles anything the missed cancel left behind.
+func TestSpecDelete_CancelErrorIsBestEffort(t *testing.T) {
+	t.Parallel()
+	h, store, jobs := newCatalogTestHandlerWithJobs(t)
+	_ = store.UpsertSpec(context.Background(), "petstore", apicatalog.SpecEntry{
+		SpecName: "default", Content: minimalSpec, SourceKind: apicatalog.SourceInline,
+	})
+	jobs.cancelErr = errors.New("queue down")
+	res := doJSON(t, h, http.MethodDelete, "/api/v1/admin/api-catalogs/petstore/specs/default", nil)
+	if res.Code != http.StatusOK {
+		t.Errorf("delete must succeed despite cancel failure: %d %s", res.Code, res.Body.String())
+	}
+}
+
+// TestCatalogDelete_CancelsJobsForEverySpec covers the whole-catalog
+// variant of the same hole: the cascade removes every spec row, so
+// every spec's queue residue must be unwound.
+func TestCatalogDelete_CancelsJobsForEverySpec(t *testing.T) {
+	t.Parallel()
+	h, store, jobs := newCatalogTestHandlerWithJobs(t)
+	for _, name := range []string{"alpha", "beta"} {
+		if err := store.UpsertSpec(context.Background(), "petstore", apicatalog.SpecEntry{
+			SpecName: name, Content: minimalSpec, SourceKind: apicatalog.SourceInline,
+		}); err != nil {
+			t.Fatalf("UpsertSpec(%s): %v", name, err)
+		}
+	}
+
+	res := doJSON(t, h, http.MethodDelete, "/api/v1/admin/api-catalogs/petstore", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete catalog: %d %s", res.Code, res.Body.String())
+	}
+	if len(jobs.canceledCatalogs) != 1 || jobs.canceledCatalogs[0] != "petstore" {
+		t.Errorf("CancelCatalog calls = %+v; want exactly [petstore]", jobs.canceledCatalogs)
+	}
+	if len(jobs.jobs) != 0 {
+		t.Errorf("pending jobs after catalog delete = %d; want 0", len(jobs.jobs))
 	}
 }

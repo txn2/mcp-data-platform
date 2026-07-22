@@ -27,3 +27,4 @@ func (*noopStore) ActiveFailures(context.Context, string, int) ([]FailedUnit, er
 }
 func (*noopStore) ResolveFailures(context.Context, Key) (int, error) { return 0, nil }
 func (*noopStore) PurgeTerminal(context.Context, int) (int, error)   { return 0, nil }
+func (*noopStore) CancelPending(context.Context, Key) (int, error)   { return 0, nil }

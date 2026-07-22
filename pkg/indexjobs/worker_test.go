@@ -3,6 +3,7 @@ package indexjobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -114,6 +115,57 @@ func TestWorkerProcess_LoadItemsErrorTerminates(t *testing.T) {
 	}
 }
 
+func TestWorkerProcess_SourceGoneResolvesInsteadOfFailing(t *testing.T) {
+	t.Parallel()
+	var reloaded bool
+	src := &stubSource{
+		kind: "k",
+		err:  fmt.Errorf("spec %q deleted: %w", "u1", ErrSourceGone),
+		onOK: func(string) { reloaded = true },
+	}
+	snk := &stubSink{kind: "k"}
+	store := &recordingStore{}
+	w := newTestWorker(store, registryWith(src, snk))
+
+	w.process(context.Background(), writeJob("k"))
+
+	if !store.completed {
+		t.Error("source-gone job should Complete (resolving open failures), not fail")
+	}
+	if store.failed || store.retried {
+		t.Error("source-gone must not record a failure or retry: nothing can ever supersede it")
+	}
+	if snk.upsertCalls != 1 || len(snk.upserted) != 0 {
+		t.Errorf("gone unit's vectors should be cleared with one empty Upsert; calls=%d rows=%d",
+			snk.upsertCalls, len(snk.upserted))
+	}
+	if snk.stamped != 0 {
+		t.Errorf("StampExpected should not run for a gone unit; stamped=%d", snk.stamped)
+	}
+	if reloaded {
+		t.Error("OnSucceeded should not fire for a gone unit")
+	}
+}
+
+// TestWorkerProcess_SourceGoneCompletesDespiteUpsertError: clearing a
+// gone unit's vectors is best-effort (kinds with FK cascade have
+// already dropped them); a sink error must not turn the resolution
+// back into residue.
+func TestWorkerProcess_SourceGoneCompletesDespiteUpsertError(t *testing.T) {
+	t.Parallel()
+	src := &stubSource{kind: "k", err: fmt.Errorf("gone: %w", ErrSourceGone)}
+	snk := &stubSink{kind: "k", upErr: errors.New("vector table down")}
+	store := &recordingStore{}
+	w := newTestWorker(store, registryWith(src, snk))
+
+	w.process(context.Background(), writeJob("k"))
+
+	if !store.completed || store.failed || store.retried {
+		t.Errorf("source-gone must Complete despite Upsert error; completed=%v failed=%v retried=%v",
+			store.completed, store.failed, store.retried)
+	}
+}
+
 func TestWorkerProcess_ListExistingErrorRetries(t *testing.T) {
 	t.Parallel()
 	src := &stubSource{kind: "k", items: twoItems()}
@@ -158,6 +210,49 @@ func TestWorkerProcess_ExhaustedAttemptsFails(t *testing.T) {
 	}
 	if store.retried {
 		t.Error("should not retry once attempts are exhausted")
+	}
+}
+
+// vanishingSource returns items on the first LoadItems call and
+// ErrSourceGone afterwards, modeling a source deleted mid-attempt.
+type vanishingSource struct {
+	stubSource
+	calls int
+}
+
+func (s *vanishingSource) LoadItems(_ context.Context, _ string) ([]Item, error) {
+	s.calls++
+	if s.calls == 1 {
+		return twoItems(), nil
+	}
+	return nil, fmt.Errorf("deleted mid-attempt: %w", ErrSourceGone)
+}
+
+// TestWorkerProcess_ExhaustedAttemptsProbesForGoneSource pins the
+// race half of #998: the source is deleted while the final attempt is
+// mid-flight (LoadItems already succeeded), so the delete-side cancel
+// saw a running job and nothing to resolve. A terminal Fail recorded
+// now could never be superseded; the exhausted-attempts path must
+// re-probe the source and resolve instead.
+func TestWorkerProcess_ExhaustedAttemptsProbesForGoneSource(t *testing.T) {
+	t.Parallel()
+	src := &vanishingSource{stubSource: stubSource{kind: "k"}}
+	snk := &stubSink{kind: "k", upErr: errors.New("fk violation: spec row cascaded away")}
+	store := &recordingStore{}
+	w := newTestWorker(store, registryWith(src, snk))
+
+	job := writeJob("k")
+	job.Attempts = MaxAttempts
+	w.process(context.Background(), job)
+
+	if !store.completed {
+		t.Error("final-attempt failure with a gone source should resolve (Complete), not Fail")
+	}
+	if store.failed || store.retried {
+		t.Errorf("no terminal failure or retry expected; failed=%v retried=%v", store.failed, store.retried)
+	}
+	if src.calls != 2 {
+		t.Errorf("LoadItems calls = %d; want 2 (initial load + terminal probe)", src.calls)
 	}
 }
 
