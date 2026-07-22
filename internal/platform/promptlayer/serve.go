@@ -94,16 +94,34 @@ func (h *Handle) auditPromptServe(ctx context.Context, pr *prompt.Prompt, surfac
 // usage reader. No-op without a reader; a read failure logs and leaves the
 // fields empty rather than failing the caller's read.
 func (h *Handle) applyUsage(ctx context.Context, pr *prompt.Prompt) {
-	if h.usage == nil || pr.ID == "" {
+	h.applyUsageAll(ctx, []*prompt.Prompt{pr})
+}
+
+// applyUsageAll fills audit-derived usage fields for every prompt in one
+// batched read. No-op without a usage reader; a read failure logs and leaves
+// the fields empty rather than failing the caller's read.
+func (h *Handle) applyUsageAll(ctx context.Context, prompts []*prompt.Prompt) {
+	if h.usage == nil {
 		return
 	}
-	usage, err := h.usage.PromptUsage(ctx, []string{pr.ID})
+	ids := make([]string, 0, len(prompts))
+	for _, pr := range prompts {
+		if pr.ID != "" {
+			ids = append(ids, pr.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	usage, err := h.usage.PromptUsage(ctx, ids)
 	if err != nil {
-		slog.Warn("failed to read prompt usage", logKeyError, err, promptLogKey, pr.Name)
+		slog.Warn("failed to read prompt usage", logKeyError, err)
 		return
 	}
-	if u, ok := usage[pr.ID]; ok {
-		pr.RunCount = u.RunCount
-		pr.LastRunAt = u.LastRunAt
+	for _, pr := range prompts {
+		if u, ok := usage[pr.ID]; ok {
+			pr.RunCount = u.RunCount
+			pr.LastRunAt = u.LastRunAt
+		}
 	}
 }

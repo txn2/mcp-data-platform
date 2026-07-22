@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prompt Library</title>
+    <script id="app-config" type="application/json">{}</script>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --surface-2: #21262d;
+            --border: #30363d;
+            --text: #e6edf3;
+            --text-secondary: #c9d1d9;
+            --muted: #8b949e;
+            --accent: #58a6ff;
+            --accent-bg: rgba(88,166,255,0.08);
+            --accent-border: rgba(88,166,255,0.18);
+            --success: #3fb950;
+            --success-bg: rgba(63,185,80,0.1);
+            --warn: #d29922;
+            --warn-bg: rgba(210,153,34,0.1);
+            --danger: #f85149;
+            --danger-bg: rgba(248,81,73,0.1);
+            --font-mono: 'SFMono-Regular','Cascadia Code','Fira Code',Consolas,monospace;
+        }
+
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg: #ffffff;
+                --surface: #f6f8fa;
+                --surface-2: #f6f8fa;
+                --border: #d0d7de;
+                --text: #1f2328;
+                --text-secondary: #24292f;
+                --muted: #636c76;
+                --accent: #0969da;
+                --accent-bg: rgba(9,105,218,0.07);
+                --accent-border: rgba(9,105,218,0.18);
+                --success: #1a7f37;
+                --success-bg: rgba(26,127,55,0.07);
+                --warn: #9a6700;
+                --warn-bg: rgba(154,103,0,0.08);
+                --danger: #cf222e;
+                --danger-bg: rgba(207,34,46,0.07);
+            }
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans',
+                         Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--text);
+            background: var(--bg);
+            padding: 16px;
+        }
+
+        .hidden { display: none !important; }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--muted);
+            padding: 24px 4px;
+        }
+        .loading .dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--muted);
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+        .loading .dot:nth-child(2) { animation-delay: 0.2s; }
+        .loading .dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes pulse { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+        .banner {
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            font-size: 13px;
+        }
+        .banner.error {
+            color: var(--danger);
+            background: var(--danger-bg);
+            border: 1px solid var(--danger);
+        }
+        .banner .retry {
+            margin-left: 8px;
+            color: var(--accent);
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            text-decoration: underline;
+        }
+
+        /* Top bar */
+        .topbar {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .title { font-size: 16px; font-weight: 600; }
+        .title .count { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+
+        .search {
+            flex: 1 1 220px;
+            max-width: 340px;
+            padding: 6px 10px;
+            font-size: 13px;
+            color: var(--text);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            outline: none;
+        }
+        .search:focus { border-color: var(--accent); }
+        .search::placeholder { color: var(--muted); }
+
+        /* Facets */
+        .facets {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .bucket-tabs { display: flex; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 2px; }
+        .bucket-btn {
+            padding: 4px 10px;
+            font-size: 12.5px;
+            color: var(--muted);
+            background: none;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .bucket-btn.active { color: var(--text); background: var(--surface-2); font-weight: 600; }
+
+        .facet-select {
+            padding: 4px 8px;
+            font-size: 12.5px;
+            color: var(--text-secondary);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            outline: none;
+        }
+
+        .tagrow { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+        .tag-chip {
+            padding: 2px 9px;
+            font-size: 12px;
+            font-family: var(--font-mono);
+            color: var(--muted);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            cursor: pointer;
+        }
+        .tag-chip.active {
+            color: var(--accent);
+            background: var(--accent-bg);
+            border-color: var(--accent-border);
+        }
+
+        /* Cards */
+        .card {
+            padding: 12px 14px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+        }
+        .card:hover { border-color: var(--accent-border); background: var(--accent-bg); }
+        .card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .card-name { font-weight: 600; font-size: 14px; }
+        .card-desc {
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 2px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .card-meta {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 6px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .badge {
+            padding: 1px 7px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            white-space: nowrap;
+        }
+        .badge.scope-personal { color: var(--accent); border-color: var(--accent-border); background: var(--accent-bg); }
+        .badge.status-approved { color: var(--success); border-color: var(--success); background: var(--success-bg); }
+        .badge.status-other { color: var(--warn); border-color: var(--warn); background: var(--warn-bg); }
+        .badge.version { font-family: var(--font-mono); font-weight: 400; }
+
+        .empty { color: var(--muted); padding: 20px 4px; font-size: 13px; }
+
+        /* Detail view */
+        .back-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px 4px 6px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: var(--accent);
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .detail-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+        .detail-title { font-size: 17px; font-weight: 600; }
+        .detail-desc { color: var(--text-secondary); font-size: 13.5px; margin-bottom: 12px; }
+
+        .section-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+            margin: 14px 0 6px;
+        }
+
+        .prov {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+            gap: 6px 16px;
+            padding: 10px 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 12.5px;
+        }
+        .prov .k { color: var(--muted); }
+        .prov .v { color: var(--text-secondary); }
+        .prov .v.mono { font-family: var(--font-mono); font-size: 12px; }
+
+        .arg-row { margin-bottom: 10px; }
+        .arg-label { display: flex; align-items: baseline; gap: 6px; margin-bottom: 3px; }
+        .arg-name { font-family: var(--font-mono); font-size: 13px; color: var(--text); }
+        .arg-req { color: var(--danger); font-size: 12px; }
+        .arg-hint { color: var(--muted); font-size: 12px; }
+        .arg-input {
+            width: 100%;
+            padding: 6px 10px;
+            font-size: 13px;
+            font-family: var(--font-mono);
+            color: var(--text);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            outline: none;
+        }
+        .arg-input:focus { border-color: var(--accent); }
+        .arg-input.missing { border-color: var(--danger); }
+        .no-args { color: var(--muted); font-size: 13px; }
+
+        .content-pre {
+            padding: 12px;
+            font-family: var(--font-mono);
+            font-size: 12.5px;
+            line-height: 1.55;
+            color: var(--text-secondary);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 320px;
+            overflow-y: auto;
+        }
+        .content-pre .ph { color: var(--warn); }
+        .content-pre .sub { color: var(--success); }
+
+        .actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+        .btn {
+            padding: 7px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            color: var(--text);
+            background: var(--surface-2);
+        }
+        .btn.primary {
+            color: #fff;
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        .btn:disabled { opacity: 0.55; cursor: default; }
+
+        .run-status { margin-top: 12px; font-size: 13px; }
+        .run-status.ok { color: var(--success); }
+        .run-status.err { color: var(--danger); }
+        .run-note { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <div id="loading" class="loading">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        <span>Loading prompt library&hellip;</span>
+    </div>
+
+    <div id="error" class="banner error hidden"></div>
+
+    <div id="browser" class="hidden">
+        <div class="topbar">
+            <div class="title">Prompt Library<span id="count" class="count"></span></div>
+            <input id="search" class="search" type="text"
+                   placeholder="Search prompts&hellip;" autocomplete="off">
+        </div>
+        <div class="facets">
+            <div class="bucket-tabs" id="buckets"></div>
+            <select id="collection" class="facet-select hidden"></select>
+            <select id="sort" class="facet-select"></select>
+        </div>
+        <div id="tags" class="tagrow"></div>
+        <div id="cards"></div>
+        <div id="empty" class="empty hidden"></div>
+    </div>
+
+    <div id="detail" class="hidden"></div>
+
+<script>
+    'use strict';
+
+    // ---------------------------------------------------------------------
+    // MCP Apps bridge. Supports two host protocols:
+    //  - 2026-01-26 spec hosts: tools/call with JSON-RPC responses; the
+    //    ui/initialize result carries hostCapabilities for feature detection.
+    //  - Legacy hosts (protocol 2025-01-09, e.g. earlier claude.ai): the
+    //    ui/call-tool method with results delivered as
+    //    ui/notifications/tool-result notifications and no hostCapabilities.
+    // ---------------------------------------------------------------------
+    var TOOL_NAME = 'manage_prompt';
+    var CALL_TIMEOUT_MS = 20000;
+
+    var rid = 2; // request id 1 is ui/initialize
+    var pending = {};       // id -> {resolve, reject, timer, expect}
+    var legacyWaiters = []; // pending ids awaiting a ui/notifications/tool-result
+    var hostCaps = null;    // hostCapabilities from ui/initialize (null on legacy hosts)
+    var isLegacy = false;
+    var canMessage = false; // host accepts ui/message conversation insertion
+    var booted = false;
+
+    function send(msg) { window.parent.postMessage(msg, '*'); }
+
+    window.addEventListener('message', function(e) {
+        var m = e.data;
+        // Ignore anything that is not a JSON-RPC protocol message (hosts may
+        // inject unrelated postMessage traffic into the sandbox).
+        if (!m || typeof m !== 'object' || (m.id === undefined && !m.method)) { return; }
+        if (m.id === 1 && (m.result !== undefined || m.error !== undefined)) {
+            onInitialized(m.result || {});
+            return;
+        }
+        if (m.id !== undefined && pending[m.id]) {
+            settlePending(m.id, m);
+            return;
+        }
+        if (m.method === 'ui/notifications/tool-result' && m.params) {
+            onLegacyToolResult(m.params);
+        }
+    });
+
+    send({
+        jsonrpc: '2.0', id: 1, method: 'ui/initialize',
+        params: {
+            protocolVersion: '2025-01-09',
+            appInfo: { name: 'Prompt Library', version: '1.0.0' },
+            appCapabilities: { availableDisplayModes: ['inline', 'fullscreen'] }
+        }
+    });
+
+    function onInitialized(result) {
+        if (booted) { return; }
+        booted = true;
+        hostCaps = result && result.hostCapabilities ? result.hostCapabilities : null;
+        isLegacy = !hostCaps;
+        canMessage = !!(hostCaps && hostCaps.message);
+        send({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
+        loadList('');
+    }
+
+    // callTool invokes an MCP tool through the host and resolves with the
+    // parsed JSON payload of the result's first text content block. On legacy
+    // hosts, results arrive as notifications with no request id; the expect
+    // predicate distinguishes our response from host pushes of the original
+    // tool call's result.
+    var lastCallId = null; // id of the most recently issued callTool request
+
+    function callTool(name, args, expect) {
+        return new Promise(function(resolve, reject) {
+            var id = rid++;
+            lastCallId = id;
+            var timer = setTimeout(function() {
+                dropPending(id);
+                reject(new Error('The request to the platform timed out.'));
+            }, CALL_TIMEOUT_MS);
+            pending[id] = { resolve: resolve, reject: reject, timer: timer, expect: expect };
+            if (isLegacy) { legacyWaiters.push(id); }
+            send({
+                jsonrpc: '2.0', id: id,
+                method: isLegacy ? 'ui/call-tool' : 'tools/call',
+                params: { name: name, arguments: args }
+            });
+        });
+    }
+
+    function dropPending(id) {
+        if (pending[id]) {
+            clearTimeout(pending[id].timer);
+            delete pending[id];
+        }
+        var i = legacyWaiters.indexOf(id);
+        if (i !== -1) { legacyWaiters.splice(i, 1); }
+    }
+
+    function settlePending(id, m) {
+        var p = pending[id];
+        dropPending(id);
+        if (m.error) {
+            p.reject(new Error(m.error.message || 'Request failed'));
+            return;
+        }
+        if (m.result && m.result.content !== undefined) {
+            try { p.resolve(parseToolResult(m.result)); }
+            catch (err) { p.reject(err); }
+            return;
+        }
+        p.resolve(m.result || {});
+    }
+
+    // onLegacyToolResult correlates a legacy tool-result notification (which
+    // carries no request id) with a pending call: the oldest waiter whose
+    // expect predicate accepts the payload wins; a payload no waiter accepts
+    // is a host push of the original tool call's result and is ignored. An
+    // unparseable or error payload cannot be shape-matched, so it settles the
+    // oldest waiter (the error banner's Retry recovers a rare mismatch).
+    function onLegacyToolResult(result) {
+        if (legacyWaiters.length === 0) { return; } // host push of the original call's result
+        var payload;
+        try { payload = parseToolResult(result); }
+        catch (err) {
+            var oldest = legacyWaiters[0];
+            var op = pending[oldest];
+            dropPending(oldest);
+            op.reject(err);
+            return;
+        }
+        for (var i = 0; i < legacyWaiters.length; i++) {
+            var id = legacyWaiters[i];
+            var p = pending[id];
+            if (p.expect && !p.expect(payload)) { continue; }
+            dropPending(id);
+            p.resolve(payload);
+            return;
+        }
+        // No waiter matched: an unrelated host push.
+    }
+
+    function parseToolResult(result) {
+        var text = result && result.content && result.content[0] && result.content[0].text;
+        if (result && result.isError) {
+            throw new Error(text || 'The platform returned an error.');
+        }
+        if (!text) { throw new Error('Empty response from the platform.'); }
+        var payload = JSON.parse(text);
+        if (payload && payload.error) { throw new Error(String(payload.error)); }
+        return payload;
+    }
+
+    // sendUserMessage inserts text into the host conversation via ui/message,
+    // rejecting after timeoutMs when the host does not answer (a host without
+    // ui/message support may ignore the request entirely).
+    function sendUserMessage(text, timeoutMs) {
+        return new Promise(function(resolve, reject) {
+            var id = rid++;
+            var timer = setTimeout(function() {
+                dropPending(id);
+                reject(new Error('The host did not accept the message.'));
+            }, timeoutMs);
+            pending[id] = {
+                resolve: function(res) {
+                    if (res && res.isError) { reject(new Error('The host declined the message.')); }
+                    else { resolve(res); }
+                },
+                reject: reject, timer: timer
+            };
+            send({
+                jsonrpc: '2.0', id: id, method: 'ui/message',
+                params: { role: 'user', content: [{ type: 'text', text: text }] }
+            });
+        });
+    }
+
+    // ---------------------------------------------------------------------
+    // State and data shaping
+    // ---------------------------------------------------------------------
+    var state = {
+        prompts: [],      // normalized prompt objects (score attached when ranked)
+        collections: {},  // id -> collection
+        query: '',
+        bucket: 'all',    // all | mine | library
+        collection: '',
+        tag: '',
+        sort: '',         // '' = auto (relevance when searching, usage otherwise)
+        ranked: false
+    };
+
+    var BUCKETS = [
+        { key: 'all', label: 'All' },
+        { key: 'mine', label: 'My Prompts' },
+        { key: 'library', label: 'Library' }
+    ];
+    var SORTS = [
+        { key: 'relevance', label: 'Relevance' },
+        { key: 'usage', label: 'Most used' },
+        { key: 'updated', label: 'Recently updated' },
+        { key: 'name', label: 'Name' }
+    ];
+
+    function normalizePrompts(items) {
+        var out = [];
+        (items || []).forEach(function(item) {
+            var p = item && item.prompt ? item.prompt : item;
+            if (!p || !p.name) { return; }
+            if (item && item.score !== undefined) { p._score = item.score; }
+            out.push(p);
+        });
+        return out;
+    }
+
+    function indexCollections(cols) {
+        var idx = {};
+        (cols || []).forEach(function(c) { if (c && c.id) { idx[c.id] = c; } });
+        return idx;
+    }
+
+    function displayName(p) { return p.display_name || p.name; }
+
+    function isListPayload(d) {
+        return !!d && (Array.isArray(d.prompts) || d.count !== undefined);
+    }
+
+    function isUsePayload(d) {
+        return !!d && (d.status === 'resolved' || d.status === 'ambiguous');
+    }
+
+    var listSeq = 0;       // drops stale responses when searches overlap
+    var activeListId = null; // pending list request, canceled when superseded
+
+    function loadList(query) {
+        hide('error'); hide('detail');
+        // Keep the browser (and the search box focus) visible on re-queries;
+        // only the initial load shows the full-page loading state.
+        if ($('browser').classList.contains('hidden')) { show('loading'); }
+        var seq = ++listSeq;
+        // Cancel a superseded in-flight list call so at most one list waiter
+        // exists (legacy hosts correlate responses by shape, not id).
+        if (activeListId !== null && pending[activeListId]) { dropPending(activeListId); }
+        var args = { command: 'list' };
+        if (query) { args.query = query; args.limit = 50; }
+        var call = callTool(TOOL_NAME, args, isListPayload);
+        activeListId = lastCallId;
+        call
+            .then(function(d) {
+                if (seq !== listSeq) { return; }
+                state.prompts = normalizePrompts(d.prompts);
+                state.collections = indexCollections(d.collections);
+                state.ranked = !!query && d.ranking !== undefined;
+                hide('loading');
+                renderBrowser();
+            })
+            .catch(function(err) {
+                if (seq !== listSeq) { return; }
+                hide('loading');
+                showError(err.message, function() { loadList(state.query); });
+            });
+    }
+
+    // ---------------------------------------------------------------------
+    // Rendering helpers (DOM builders only; server data never hits innerHTML)
+    // ---------------------------------------------------------------------
+    function $(id) { return document.getElementById(id); }
+    function show(id) { $(id).classList.remove('hidden'); }
+    function hide(id) { $(id).classList.add('hidden'); }
+
+    function el(tag, cls, text) {
+        var n = document.createElement(tag);
+        if (cls) { n.className = cls; }
+        if (text !== undefined && text !== null) { n.textContent = text; }
+        return n;
+    }
+
+    function clear(node) { while (node.firstChild) { node.removeChild(node.firstChild); } }
+
+    function showError(msg, retry) {
+        var banner = $('error');
+        clear(banner);
+        banner.appendChild(document.createTextNode(msg));
+        if (retry) {
+            var b = el('button', 'retry', 'Retry');
+            b.addEventListener('click', function() { hide('error'); retry(); });
+            banner.appendChild(b);
+        }
+        show('error');
+    }
+
+    function fmtDate(iso) {
+        if (!iso) { return ''; }
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) { return ''; }
+        return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+
+    function runsLabel(p) {
+        if (!p.run_count) { return ''; }
+        return p.run_count === 1 ? '1 run' : p.run_count + ' runs';
+    }
+
+    function scopeBadge(p) {
+        if (p.scope === 'personal') { return el('span', 'badge scope-personal', 'Personal'); }
+        if (p.scope === 'persona') {
+            var label = (p.personas && p.personas.length) ? p.personas.join(', ') : 'Persona';
+            return el('span', 'badge', label);
+        }
+        return el('span', 'badge', 'Global');
+    }
+
+    function statusBadge(p) {
+        if (!p.status || p.status === 'approved') { return null; }
+        return el('span', 'badge status-other', p.status.replace(/_/g, ' '));
+    }
+
+    // ---------------------------------------------------------------------
+    // Browse view
+    // ---------------------------------------------------------------------
+    function visiblePrompts() {
+        var list = state.prompts.filter(function(p) {
+            if (state.bucket === 'mine' && p.scope !== 'personal') { return false; }
+            if (state.bucket === 'library' && p.scope === 'personal') { return false; }
+            if (state.collection && p.collection_id !== state.collection) { return false; }
+            if (state.tag && (!p.tags || p.tags.indexOf(state.tag) === -1)) { return false; }
+            return true;
+        });
+        return sortPrompts(list);
+    }
+
+    function currentSort() {
+        if (state.sort) { return state.sort; }
+        return state.ranked ? 'relevance' : 'usage';
+    }
+
+    function sortPrompts(list) {
+        var mode = currentSort();
+        if (mode === 'relevance') { return list; } // server order is relevance order
+        var sorted = list.slice();
+        sorted.sort(function(a, b) {
+            if (mode === 'usage') {
+                var d = (b.run_count || 0) - (a.run_count || 0);
+                if (d !== 0) { return d; }
+            } else if (mode === 'updated') {
+                var bu = b.updated_at || '';
+                var au = a.updated_at || '';
+                if (bu !== au) { return bu > au ? 1 : -1; }
+            }
+            return displayName(a).localeCompare(displayName(b));
+        });
+        return sorted;
+    }
+
+    function renderBrowser() {
+        hide('detail'); show('browser');
+        renderBuckets();
+        renderCollections();
+        renderSorts();
+        renderTags();
+        renderCards();
+    }
+
+    function renderBuckets() {
+        var wrap = $('buckets');
+        clear(wrap);
+        BUCKETS.forEach(function(b) {
+            var btn = el('button', 'bucket-btn' + (state.bucket === b.key ? ' active' : ''), b.label);
+            btn.addEventListener('click', function() {
+                state.bucket = b.key;
+                renderBrowser();
+            });
+            wrap.appendChild(btn);
+        });
+    }
+
+    function renderCollections() {
+        var sel = $('collection');
+        var ids = Object.keys(state.collections);
+        // A stale collection filter with no matching option would silently
+        // filter everything out with no control left to clear it.
+        if (state.collection && ids.indexOf(state.collection) === -1) { state.collection = ''; }
+        if (ids.length === 0) { hide('collection'); return; }
+        clear(sel);
+        var all = el('option', null, 'All collections');
+        all.value = '';
+        sel.appendChild(all);
+        ids.sort(function(a, b) {
+            return state.collections[a].name.localeCompare(state.collections[b].name);
+        }).forEach(function(id) {
+            var c = state.collections[id];
+            var opt = el('option', null, c.name + (c.prompt_count ? ' (' + c.prompt_count + ')' : ''));
+            opt.value = id;
+            sel.appendChild(opt);
+        });
+        sel.value = state.collection;
+        sel.onchange = function() { state.collection = sel.value; renderBrowser(); };
+        show('collection');
+    }
+
+    function renderSorts() {
+        var sel = $('sort');
+        clear(sel);
+        SORTS.forEach(function(s) {
+            if (s.key === 'relevance' && !state.ranked) { return; }
+            var opt = el('option', null, s.label);
+            opt.value = s.key;
+            sel.appendChild(opt);
+        });
+        sel.value = currentSort();
+        sel.onchange = function() { state.sort = sel.value; renderBrowser(); };
+    }
+
+    function renderTags() {
+        var wrap = $('tags');
+        clear(wrap);
+        var counts = {};
+        state.prompts.forEach(function(p) {
+            (p.tags || []).forEach(function(t) { counts[t] = (counts[t] || 0) + 1; });
+        });
+        var tags = Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a]; }).slice(0, 12);
+        if (state.tag && tags.indexOf(state.tag) === -1) { tags.push(state.tag); }
+        tags.forEach(function(t) {
+            var chip = el('button', 'tag-chip' + (state.tag === t ? ' active' : ''), t);
+            chip.addEventListener('click', function() {
+                state.tag = state.tag === t ? '' : t;
+                renderBrowser();
+            });
+            wrap.appendChild(chip);
+        });
+    }
+
+    function renderCards() {
+        var list = visiblePrompts();
+        $('count').textContent = list.length ? '(' + list.length + ')' : '';
+        var wrap = $('cards');
+        clear(wrap);
+        if (list.length === 0) {
+            var msg = state.prompts.length === 0
+                ? (state.query
+                    ? 'No prompts match this search.'
+                    : 'No prompts in the library yet. Create one with manage_prompt or in the portal.')
+                : 'No prompts match the selected filters.';
+            $('empty').textContent = msg;
+            show('empty');
+            return;
+        }
+        hide('empty');
+        list.forEach(function(p) { wrap.appendChild(buildCard(p)); });
+    }
+
+    function buildCard(p) {
+        var card = el('div', 'card');
+        var head = el('div', 'card-head');
+        head.appendChild(el('span', 'card-name', displayName(p)));
+        head.appendChild(scopeBadge(p));
+        var st = statusBadge(p);
+        if (st) { head.appendChild(st); }
+        if (p.version) { head.appendChild(el('span', 'badge version', 'v' + p.version)); }
+        card.appendChild(head);
+        if (p.description) { card.appendChild(el('div', 'card-desc', p.description)); }
+
+        var meta = el('div', 'card-meta');
+        var runs = runsLabel(p);
+        if (runs) { meta.appendChild(el('span', null, runs)); }
+        if (p.approved_by) {
+            meta.appendChild(el('span', null, 'approved by ' + p.approved_by
+                + (p.approved_at ? ' on ' + fmtDate(p.approved_at) : '')));
+        }
+        if (p.collection_id && state.collections[p.collection_id]) {
+            meta.appendChild(el('span', null, state.collections[p.collection_id].name));
+        }
+        (p.tags || []).slice(0, 4).forEach(function(t) {
+            meta.appendChild(el('span', 'tag-chip', t));
+        });
+        if (meta.firstChild) { card.appendChild(meta); }
+
+        card.addEventListener('click', function() { openDetail(p); });
+        return card;
+    }
+
+    // ---------------------------------------------------------------------
+    // Detail view: provenance, argument form, content preview, run
+    // ---------------------------------------------------------------------
+    // arg name -> input element for the open detail view. Null-prototype so
+    // argument names like __proto__ or toString stay plain keys.
+    var argInputs = Object.create(null);
+
+    function openDetail(p) {
+        hide('browser');
+        var root = $('detail');
+        clear(root);
+        argInputs = Object.create(null);
+
+        var back = el('button', 'back-btn', '‹ Back to library');
+        back.addEventListener('click', function() { hide('detail'); show('browser'); });
+        root.appendChild(back);
+
+        var head = el('div', 'detail-head');
+        head.appendChild(el('span', 'detail-title', displayName(p)));
+        head.appendChild(scopeBadge(p));
+        var st = statusBadge(p);
+        if (st) { head.appendChild(st); }
+        if (p.version) { head.appendChild(el('span', 'badge version', 'v' + p.version)); }
+        root.appendChild(head);
+        if (p.description) { root.appendChild(el('div', 'detail-desc', p.description)); }
+
+        root.appendChild(buildProvenance(p));
+
+        root.appendChild(el('div', 'section-label', 'Arguments'));
+        root.appendChild(buildArgForm(p));
+
+        root.appendChild(el('div', 'section-label', 'Prompt content'));
+        var pre = el('pre', 'content-pre');
+        pre.id = 'content-preview';
+        root.appendChild(pre);
+        renderContentPreview(p, pre);
+
+        var actions = el('div', 'actions');
+        var runBtn = el('button', 'btn primary', 'Run prompt');
+        runBtn.id = 'run-btn';
+        runBtn.addEventListener('click', function() { runPrompt(p); });
+        actions.appendChild(runBtn);
+        var copyBtn = el('button', 'btn', 'Copy content');
+        copyBtn.addEventListener('click', function() {
+            copyText(substitutedContent(p), copyBtn);
+        });
+        actions.appendChild(copyBtn);
+        root.appendChild(actions);
+
+        var status = el('div', 'run-status');
+        status.id = 'run-result';
+        root.appendChild(status);
+
+        show('detail');
+    }
+
+    function buildProvenance(p) {
+        var box = el('div', 'prov');
+        function row(k, v, mono) {
+            if (!v) { return; }
+            var pair = el('div');
+            pair.appendChild(el('span', 'k', k + ': '));
+            pair.appendChild(el('span', 'v' + (mono ? ' mono' : ''), v));
+            box.appendChild(pair);
+        }
+        row('Invoke as', p.name, true);
+        row('Version', p.version ? 'v' + p.version : '');
+        row('Status', p.status);
+        row('Approved by', p.approved_by ? p.approved_by + (p.approved_at ? ' on ' + fmtDate(p.approved_at) : '') : '');
+        row('Owner', p.owner_email);
+        row('Runs', runsLabel(p));
+        row('Last run', fmtDate(p.last_run_at));
+        row('Updated', fmtDate(p.updated_at));
+        if (p.collection_id && state.collections[p.collection_id]) {
+            row('Collection', state.collections[p.collection_id].name);
+        }
+        row('Tags', (p.tags || []).join(', '));
+        return box;
+    }
+
+    function buildArgForm(p) {
+        var args = p.arguments || [];
+        if (args.length === 0) {
+            return el('div', 'no-args', 'This prompt takes no arguments.');
+        }
+        var form = el('div');
+        args.forEach(function(a) {
+            var row = el('div', 'arg-row');
+            var label = el('div', 'arg-label');
+            label.appendChild(el('span', 'arg-name', a.name));
+            if (a.required) { label.appendChild(el('span', 'arg-req', 'required')); }
+            if (a.description) { label.appendChild(el('span', 'arg-hint', a.description)); }
+            row.appendChild(label);
+            var input = el('input', 'arg-input');
+            input.type = 'text';
+            input.autocomplete = 'off';
+            input.addEventListener('input', function() {
+                input.classList.remove('missing');
+                renderContentPreview(p, $('content-preview'));
+            });
+            argInputs[a.name] = input;
+            row.appendChild(input);
+            form.appendChild(row);
+        });
+        return form;
+    }
+
+    function argValues() {
+        var vals = Object.create(null);
+        Object.keys(argInputs).forEach(function(name) {
+            var v = argInputs[name].value;
+            if (v !== '') { vals[name] = v; }
+        });
+        return vals;
+    }
+
+    // placeholderRe matches both {{name}} and {name} placeholders, double
+    // brace first, mirroring the server's substituteArgs.
+    var placeholderRe = /\{\{([a-zA-Z0-9_-]+)\}\}|\{([a-zA-Z0-9_-]+)\}/g;
+
+    function substitutedContent(p) {
+        var vals = argValues();
+        return (p.content || '').replace(placeholderRe, function(m, dbl, single) {
+            var name = dbl !== undefined ? dbl : single;
+            return vals[name] !== undefined ? vals[name] : m;
+        });
+    }
+
+    // renderContentPreview shows the prompt content with {placeholders}
+    // highlighted, replaced live by typed argument values.
+    function renderContentPreview(p, pre) {
+        clear(pre);
+        var vals = argValues();
+        var content = p.content || '';
+        var re = new RegExp(placeholderRe.source, 'g');
+        var last = 0;
+        var m;
+        while ((m = re.exec(content)) !== null) {
+            if (m.index > last) {
+                pre.appendChild(document.createTextNode(content.slice(last, m.index)));
+            }
+            var name = m[1] !== undefined ? m[1] : m[2];
+            if (vals[name] !== undefined) {
+                pre.appendChild(el('span', 'sub', vals[name]));
+            } else {
+                pre.appendChild(el('span', 'ph', m[0]));
+            }
+            last = m.index + m[0].length;
+        }
+        if (last < content.length) {
+            pre.appendChild(document.createTextNode(content.slice(last)));
+        }
+    }
+
+    function missingRequired(p) {
+        var missing = [];
+        (p.arguments || []).forEach(function(a) {
+            if (a.required && (!argInputs[a.name] || argInputs[a.name].value === '')) {
+                missing.push(a.name);
+            }
+        });
+        return missing;
+    }
+
+    function runPrompt(p) {
+        var status = $('run-result');
+        clear(status);
+        status.className = 'run-status';
+
+        var missing = missingRequired(p);
+        if (missing.length > 0) {
+            missing.forEach(function(name) { argInputs[name].classList.add('missing'); });
+            argInputs[missing[0]].focus();
+            status.className = 'run-status err';
+            status.textContent = 'Fill the required arguments: ' + missing.join(', ');
+            return;
+        }
+
+        var btn = $('run-btn');
+        btn.disabled = true;
+        btn.textContent = 'Running…';
+
+        var handle = p.id ? 'mcp:prompt:' + p.id : p.name;
+        callTool(TOOL_NAME, { command: 'use', name: handle, args: argValues() }, isUsePayload)
+            .then(function(d) {
+                if (d.status !== 'resolved') {
+                    throw new Error(d.message || 'The prompt could not be resolved.');
+                }
+                if (d.missing_required_arguments && d.missing_required_arguments.length) {
+                    throw new Error('Missing required arguments: ' + d.missing_required_arguments.join(', '));
+                }
+                return deliverToConversation(d.content, status);
+            })
+            .catch(function(err) {
+                status.className = 'run-status err';
+                status.textContent = err.message;
+            })
+            .then(function() {
+                btn.disabled = false;
+                btn.textContent = 'Run prompt';
+            });
+    }
+
+    // deliverToConversation hands the resolved prompt to the agent via
+    // ui/message. A host that advertised the message capability gets the full
+    // timeout; other hosts get a short attempt (they may support ui/message
+    // without advertising it, or ignore the request entirely). On rejection
+    // or timeout the rendered content is offered for copy instead.
+    function deliverToConversation(content, status) {
+        return sendUserMessage(content, canMessage ? CALL_TIMEOUT_MS : 4000)
+            .then(function() {
+                status.className = 'run-status ok';
+                status.textContent = 'Prompt sent to the conversation.';
+            })
+            .catch(function() {
+                showCopyFallback(content, status);
+            });
+    }
+
+    function showCopyFallback(content, status) {
+        clear(status);
+        status.className = 'run-status ok';
+        status.appendChild(document.createTextNode('Prompt resolved and recorded.'));
+        var note = el('div', 'run-note',
+            'This host does not insert messages from apps. Copy the rendered prompt below and paste it into the chat, or ask the agent to run it by name.');
+        status.appendChild(note);
+        var pre = el('pre', 'content-pre', content);
+        status.appendChild(pre);
+        var copyBtn = el('button', 'btn', 'Copy rendered prompt');
+        copyBtn.style.marginTop = '8px';
+        copyBtn.addEventListener('click', function() { copyText(content, copyBtn); });
+        status.appendChild(copyBtn);
+    }
+
+    function copyText(text, btn) {
+        var done = function() {
+            var prev = btn.textContent;
+            btn.textContent = 'Copied';
+            setTimeout(function() { btn.textContent = prev; }, 1500);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done, function() { legacyCopy(text, done); });
+        } else {
+            legacyCopy(text, done);
+        }
+    }
+
+    function legacyCopy(text, done) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) { /* clipboard unavailable */ }
+        document.body.removeChild(ta);
+    }
+
+    // ---------------------------------------------------------------------
+    // Search-as-you-type (debounced; server-side ranked query)
+    // ---------------------------------------------------------------------
+    var searchTimer = null;
+    $('search').addEventListener('input', function() {
+        var q = this.value.trim();
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function() {
+            if (q === state.query) { return; }
+            state.query = q;
+            state.sort = '';
+            loadList(q);
+        }, 300);
+    });
+</script>
+</body>
+</html>

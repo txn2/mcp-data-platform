@@ -1566,6 +1566,50 @@ func TestInitMCPApps_EnabledByDefault(t *testing.T) {
 	if app == nil {
 		t.Error("built-in platform-info should be registered by default")
 	}
+	pb := p.mcpAppsRegistry.Get("prompt-browser")
+	if pb == nil {
+		t.Fatal("built-in prompt-browser should be registered by default")
+	}
+	if len(pb.ToolNames) != 1 || pb.ToolNames[0] != "manage_prompt" {
+		t.Errorf("prompt-browser ToolNames = %v, want [manage_prompt]", pb.ToolNames)
+	}
+	if pb.ResourceURI != "ui://prompt-browser" {
+		t.Errorf("prompt-browser ResourceURI = %q, want ui://prompt-browser", pb.ResourceURI)
+	}
+	if got := p.mcpAppsRegistry.GetForTool("manage_prompt"); got != pb {
+		t.Error("manage_prompt should resolve to the prompt-browser app")
+	}
+}
+
+// TestInitMCPApps_BuiltinPromptBrowserOperatorMerge proves an operator config
+// entry for the built-in prompt-browser merges (config override) without
+// double-registering the app.
+func TestInitMCPApps_BuiltinPromptBrowserOperatorMerge(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		MCPApps: MCPAppsConfig{
+			Apps: map[string]AppConfig{
+				"prompt-browser": {
+					Config: map[string]any{"accent": "blue"},
+				},
+			},
+		},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	app := p.mcpAppsRegistry.Get("prompt-browser")
+	if app == nil {
+		t.Fatal("prompt-browser should be registered")
+	}
+	m, ok := app.Config.(map[string]any)
+	if !ok || m["accent"] != "blue" {
+		t.Errorf("operator config not merged into built-in prompt-browser, got %v", app.Config)
+	}
 }
 
 func TestInitMCPApps_DisabledExplicitly(t *testing.T) {

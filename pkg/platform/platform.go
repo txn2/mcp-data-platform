@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"embed"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -109,6 +110,10 @@ const logKeyCount = "count"
 
 // builtinPlatformInfoName is the canonical name for the built-in platform-info MCP app.
 const builtinPlatformInfoName = "platform-info"
+
+// builtinPromptBrowserName is the registry name of the embedded prompt-browser
+// MCP app (#1011), bound to the manage_prompt tool.
+const builtinPromptBrowserName = "prompt-browser"
 
 // logKeyError is the slog key for error values in log messages.
 const logKeyError = "error"
@@ -1913,9 +1918,21 @@ func (p *Platform) initMCPApps() error {
 		return err
 	}
 
+	// Built-in prompt-browser app (#1011): a browse/search/preview/run UI
+	// bound to the manage_prompt tool for MCP Apps-capable hosts. The app is
+	// presentation only; the bound tool's structured JSON results stand alone
+	// in clients that do not render apps.
+	promptBrowser, err := builtinAppDefinition(p.config.MCPApps.Apps, builtinPromptBrowserName, promptlayer.ToolNameManagePrompt, apps.PromptBrowser)
+	if err != nil {
+		return err
+	}
+	if err := registerBuiltinApp(p.mcpAppsRegistry, promptBrowser); err != nil {
+		return err
+	}
+
 	for appName, appCfg := range p.config.MCPApps.Apps {
-		if appName == builtinPlatformInfoName {
-			// Already registered as built-in (possibly with operator branding applied).
+		if appName == builtinPlatformInfoName || appName == builtinPromptBrowserName {
+			// Already registered as built-in (possibly with operator config applied).
 			continue
 		}
 		if !appCfg.Enabled {
@@ -1929,21 +1946,22 @@ func (p *Platform) initMCPApps() error {
 	return nil
 }
 
-// registerBuiltinPlatformInfo registers the embedded platform-info app.
-// If the operator has a builtinPlatformInfoName entry in config, branding config is
-// merged in; an explicit assets_path overrides the embedded HTML entirely.
-func (p *Platform) registerBuiltinPlatformInfo() error {
-	subFS, err := fs.Sub(apps.PlatformInfo, builtinPlatformInfoName)
+// builtinAppDefinition builds the AppDefinition for an embedded built-in app
+// bound to a single tool. An operator config entry for the app merges in:
+// config overrides the injected app-config JSON, and an explicit assets_path
+// replaces the embedded HTML entirely.
+func builtinAppDefinition(operatorApps map[string]AppConfig, name, toolName string, embedded embed.FS) (*mcpapps.AppDefinition, error) {
+	subFS, err := fs.Sub(embedded, name)
 	if err != nil {
-		return fmt.Errorf("embed %s: %w", builtinPlatformInfoName, err)
+		return nil, fmt.Errorf("embed %s: %w", name, err)
 	}
 
 	app := &mcpapps.AppDefinition{
-		Name:        builtinPlatformInfoName,
-		ToolNames:   []string{defaultInitTool},
+		Name:        name,
+		ToolNames:   []string{toolName},
 		Content:     subFS,
 		EntryPoint:  entryPointHTML,
-		ResourceURI: "ui://platform-info",
+		ResourceURI: "ui://" + name,
 		CSP: &mcpapps.CSPConfig{
 			Permissions: &mcpapps.PermissionsConfig{
 				ClipboardWrite: &struct{}{},
@@ -1951,8 +1969,7 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 		},
 	}
 
-	// Merge operator config (branding) if present.
-	if cfg, ok := p.config.MCPApps.Apps[builtinPlatformInfoName]; ok {
+	if cfg, ok := operatorApps[name]; ok {
 		if cfg.Config != nil {
 			app.Config = cfg.Config
 		}
@@ -1963,21 +1980,38 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 		}
 	}
 
-	// Auto-inject portal logo when the operator hasn't set one explicitly.
-	app.Config = p.branding.InjectPortalLogo(app.Config)
+	return app, nil
+}
 
+// registerBuiltinApp validates and registers a built-in app definition.
+func registerBuiltinApp(reg *mcpapps.Registry, app *mcpapps.AppDefinition) error {
 	if app.AssetsPath != "" {
 		if err := app.ValidateAssets(); err != nil {
-			return fmt.Errorf("app %s: %w", builtinPlatformInfoName, err)
+			return fmt.Errorf("app %s: %w", app.Name, err)
 		}
 	}
 
-	if err := p.mcpAppsRegistry.Register(app); err != nil {
-		return fmt.Errorf("registering %s app: %w", builtinPlatformInfoName, err)
+	if err := reg.Register(app); err != nil {
+		return fmt.Errorf("registering %s app: %w", app.Name, err)
 	}
 
-	slog.Info("registered MCP app", "app", builtinPlatformInfoName, "resource_uri", app.ResourceURI)
+	slog.Info("registered MCP app", "app", app.Name, "resource_uri", app.ResourceURI)
 	return nil
+}
+
+// registerBuiltinPlatformInfo registers the embedded platform-info app.
+// If the operator has a builtinPlatformInfoName entry in config, branding config is
+// merged in; an explicit assets_path overrides the embedded HTML entirely.
+func (p *Platform) registerBuiltinPlatformInfo() error {
+	app, err := builtinAppDefinition(p.config.MCPApps.Apps, builtinPlatformInfoName, defaultInitTool, apps.PlatformInfo)
+	if err != nil {
+		return err
+	}
+
+	// Auto-inject portal logo when the operator hasn't set one explicitly.
+	app.Config = p.branding.InjectPortalLogo(app.Config)
+
+	return registerBuiltinApp(p.mcpAppsRegistry, app)
 }
 
 // registerMCPApp creates, validates, and registers a single MCP app.
