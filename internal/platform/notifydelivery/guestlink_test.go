@@ -84,7 +84,7 @@ func TestNew_UnsubscribeURLReachesRenderer(t *testing.T) {
 		Recipient: "bob@example.com",
 		Category:  notification.CategoryShare,
 		Payload:   notification.Payload{Kind: notification.KindAsset, ItemTitle: "R", Actor: "a@b.io"},
-	}})
+	}}, notification.Footer{})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}

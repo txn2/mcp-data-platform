@@ -58,6 +58,13 @@ func buildMessage(settings SMTPSettings, email Email) (*mail.Msg, error) {
 	if err := msg.To(email.To); err != nil {
 		return nil, fmt.Errorf("invalid recipient address %q: %w", email.To, err)
 	}
+	// Reply-To gives recipient replies a monitored destination when the From
+	// address is a no-reply mailbox (#1023). Unset leaves the header off.
+	if settings.ReplyTo != "" {
+		if err := msg.ReplyTo(settings.ReplyTo); err != nil {
+			return nil, fmt.Errorf("invalid reply-to address %q: %w", settings.ReplyTo, err)
+		}
+	}
 	msg.Subject(email.Subject)
 	// Gmail and Yahoo require RFC 8058 one-click unsubscribe for bulk senders
 	// and demote mail without it; the in-body footer link alone does not

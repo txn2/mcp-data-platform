@@ -631,6 +631,9 @@ const smtpSettings = {
   password_set: true,
   from: "platform@example.com",
   from_name: "Data Platform",
+  reply_to: "",
+  about_text: "",
+  support_contact: "",
   tls_mode: "starttls",
   updated_by: "sarah.chen@example.com",
   updated_at: "2026-04-10T15:30:00Z",
@@ -2601,10 +2604,23 @@ export const handlers = [
     }
     smtpSettings.from = String(body.from ?? "");
     smtpSettings.from_name = String(body.from_name ?? "");
+    smtpSettings.reply_to = String(body.reply_to ?? "");
+    smtpSettings.about_text = String(body.about_text ?? "");
+    smtpSettings.support_contact = String(body.support_contact ?? "");
     smtpSettings.tls_mode = String(body.tls_mode ?? "starttls");
     smtpSettings.updated_by = "sarah.chen@example.com";
     smtpSettings.updated_at = new Date().toISOString();
     return HttpResponse.json(smtpSettings);
+  }),
+
+  // Recipient opt-out state for the test-send notice (#1022). The fixture
+  // address optedout@example.com reads as opted out; everything else does not.
+  http.get(`${ADMIN_BASE}/settings/smtp/recipient-status`, ({ request }) => {
+    const to = (new URL(request.url).searchParams.get("to") ?? "").toLowerCase();
+    if (!to.includes("@")) {
+      return HttpResponse.json({ detail: "to must be a valid email address" }, { status: 400 });
+    }
+    return HttpResponse.json({ to, opted_out: to === "optedout@example.com" });
   }),
 
   http.post(`${ADMIN_BASE}/settings/smtp/test`, async ({ request }) => {

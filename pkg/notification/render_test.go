@@ -43,7 +43,7 @@ func TestRender_ShareEmail(t *testing.T) {
 			Message:   "Take a look before Friday.",
 			Link:      "https://data.example.com/portal/view/tok123",
 		},
-	}})
+	}}, Footer{})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestRender_SubjectVariants(t *testing.T) {
 			email, err := r.Render([]Notification{{
 				Recipient: "a@b.io",
 				Payload:   Payload{Kind: tc.kind, ItemTitle: "T", Actor: "x@y.z"},
-			}})
+			}}, Footer{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -106,7 +106,7 @@ func TestRender_Digest(t *testing.T) {
 	email, err := r.Render([]Notification{
 		{Recipient: "a@b.io", Payload: Payload{Kind: KindAsset, ItemTitle: "One", Actor: "x@y.z"}},
 		{Recipient: "a@b.io", Payload: Payload{Kind: KindComment, ItemTitle: "Two", Actor: "q@y.z"}},
-	})
+	}, Footer{})
 	if err != nil {
 		t.Fatalf("Render digest: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestRender_Digest(t *testing.T) {
 
 func TestRender_Empty(t *testing.T) {
 	r := testRenderer(t)
-	if _, err := r.Render(nil); err == nil {
+	if _, err := r.Render(nil, Footer{}); err == nil {
 		t.Fatal("expected error for empty batch")
 	}
 }
@@ -138,7 +138,7 @@ func TestRender_EscapesHTML(t *testing.T) {
 			Kind: KindComment, ItemTitle: "T",
 			Actor: "x@y.z", Message: `<script>alert("x")</script>`,
 		},
-	}})
+	}}, Footer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestRender_EscapesHTML(t *testing.T) {
 
 func TestRenderTest(t *testing.T) {
 	r := testRenderer(t)
-	email, err := r.RenderTest("admin@example.com")
+	email, err := r.RenderTest("admin@example.com", Footer{})
 	if err != nil {
 		t.Fatalf("RenderTest: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestRender_InlineLogo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	email, err := r.RenderTest("admin@example.com")
+	email, err := r.RenderTest("admin@example.com", Footer{})
 	if err != nil {
 		t.Fatalf("RenderTest: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestRender_InlineLogo(t *testing.T) {
 // no raster logo gets the wordmark alone and no dangling cid: reference, which
 // would otherwise render as a broken image.
 func TestRender_NoLogoWithoutConfig(t *testing.T) {
-	email, err := testRenderer(t).RenderTest("admin@example.com")
+	email, err := testRenderer(t).RenderTest("admin@example.com", Footer{})
 	if err != nil {
 		t.Fatalf("RenderTest: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestRender_LegalFooterLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	email, err := r.RenderTest("admin@example.com")
+	email, err := r.RenderTest("admin@example.com", Footer{})
 	if err != nil {
 		t.Fatalf("RenderTest: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestRender_LegalFooterLinksPartial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	email, err := r.RenderTest("admin@example.com")
+	email, err := r.RenderTest("admin@example.com", Footer{})
 	if err != nil {
 		t.Fatalf("RenderTest: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestRender_LegalFooterLinksPartial(t *testing.T) {
 // TestRender_NoLegalFooterWithoutConfig pins the default: no legal footer
 // line at all when neither URL is configured.
 func TestRender_NoLegalFooterWithoutConfig(t *testing.T) {
-	email, err := testRenderer(t).RenderTest("admin@example.com")
+	email, err := testRenderer(t).RenderTest("admin@example.com", Footer{})
 	if err != nil {
 		t.Fatalf("RenderTest: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestExecute_TemplateErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Render([]Notification{{Recipient: "a@b.io"}}); err == nil {
+	if _, err := r.Render([]Notification{{Recipient: "a@b.io"}}, Footer{}); err == nil {
 		t.Error("expected html execution error")
 	}
 
@@ -342,7 +342,7 @@ func TestExecute_TemplateErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r2.RenderTest("a@b.io"); err == nil {
+	if _, err := r2.RenderTest("a@b.io", Footer{}); err == nil {
 		t.Error("expected text execution error")
 	}
 }

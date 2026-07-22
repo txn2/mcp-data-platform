@@ -348,6 +348,8 @@ func (h *Handler) registerRoutes() {
 			h.rateLimiter.Middleware(http.HandlerFunc(h.deps.ShareGuest.HandleRequestLink)))
 		h.publicMux.Handle("GET /portal/view/{token}/guest",
 			h.rateLimiter.Middleware(http.HandlerFunc(h.deps.ShareGuest.HandleClaim)))
+		h.publicMux.Handle("POST /portal/view/{token}/resubscribe",
+			h.rateLimiter.Middleware(http.HandlerFunc(h.deps.ShareGuest.HandleResubscribe)))
 	}
 }
 

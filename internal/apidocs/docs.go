@@ -6356,7 +6356,51 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/smtp/recipient-status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reports whether the given address has opted out of notification emails. Informational only; a test send is never blocked by it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Notification opt-out state of an address",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Recipient email address",
+                        "name": "to",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
                         }
                     }
                 }
@@ -6407,19 +6451,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/settingsapi.problemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/settingsapi.problemDetail"
                         }
                     },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/settingsapi.problemDetail"
                         }
                     }
                 }
@@ -16359,6 +16403,11 @@ const docTemplate = `{
         "notification.SMTPSettingsInput": {
             "type": "object",
             "properties": {
+                "about_text": {
+                    "description": "AboutText and SupportContact render as an optional footer block on all\noutgoing mail (#1023).",
+                    "type": "string",
+                    "example": "The ACME data portal delivers curated datasets and reports."
+                },
                 "enabled": {
                     "type": "boolean",
                     "example": true
@@ -16383,6 +16432,15 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 587
                 },
+                "reply_to": {
+                    "description": "ReplyTo is optional; when set it must be a single RFC 5322 address.",
+                    "type": "string",
+                    "example": "support@example.com"
+                },
+                "support_contact": {
+                    "type": "string",
+                    "example": "help@example.com"
+                },
                 "tls_mode": {
                     "type": "string",
                     "example": "starttls"
@@ -16396,6 +16454,10 @@ const docTemplate = `{
         "notification.SMTPSettingsView": {
             "type": "object",
             "properties": {
+                "about_text": {
+                    "type": "string",
+                    "example": "The ACME data portal delivers curated datasets and reports."
+                },
                 "enabled": {
                     "type": "boolean",
                     "example": true
@@ -16419,6 +16481,14 @@ const docTemplate = `{
                 "port": {
                     "type": "integer",
                     "example": 587
+                },
+                "reply_to": {
+                    "type": "string",
+                    "example": "support@example.com"
+                },
+                "support_contact": {
+                    "type": "string",
+                    "example": "help@example.com"
                 },
                 "tls_mode": {
                     "type": "string",
@@ -18464,6 +18534,27 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 42
+                }
+            }
+        },
+        "settingsapi.problemDetail": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string",
+                    "example": "resource not found"
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 404
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Not Found"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "about:blank"
                 }
             }
         },

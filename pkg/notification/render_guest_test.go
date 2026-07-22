@@ -13,7 +13,7 @@ func TestRenderGuestLink(t *testing.T) {
 	require.NoError(t, err)
 
 	link := "https://platform.example.com/portal/view/tok1/guest?otk=abc123"
-	email, err := r.RenderGuestLink("bob@example.com", link)
+	email, err := r.RenderGuestLink("bob@example.com", link, Footer{})
 	require.NoError(t, err)
 
 	assert.Equal(t, "bob@example.com", email.To)
@@ -42,7 +42,7 @@ func TestRenderIncludesUnsubscribeFooter(t *testing.T) {
 			Kind: KindAsset, ItemID: "a1", ItemTitle: "Report",
 			Actor: "alice@example.com", Link: "https://platform.example.com/portal/view/tok1",
 		},
-	}})
+	}}, Footer{})
 	require.NoError(t, err)
 
 	for _, body := range []string{email.HTML, email.Text} {
@@ -60,7 +60,7 @@ func TestRenderOmitsUnsubscribeFooterWithoutBuilder(t *testing.T) {
 		Recipient: "bob@example.com",
 		Category:  CategoryShare,
 		Payload:   Payload{Kind: KindAsset, ItemTitle: "Report", Actor: "alice@example.com"},
-	}})
+	}}, Footer{})
 	require.NoError(t, err)
 	assert.NotContains(t, email.HTML, "unsubscribe")
 	assert.NotContains(t, email.Text, "Unsubscribe")

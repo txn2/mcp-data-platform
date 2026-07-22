@@ -546,6 +546,7 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	// Email notification settings surface (nil-safe: absent without a DB).
 	deps.NotificationSettings = notify.Settings()
 	deps.SendTestEmail = notify.SendTest
+	deps.NotificationPrefs = notify.Prefs()
 
 	return admin.NewHandler(deps, buildAdminAuth(p))
 }

@@ -40,7 +40,8 @@
           <td style="padding:20px 32px 28px 32px;">
             {{if .PrefsURL}}<p style="margin:0;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">You are receiving this because of your notification preferences. <a href="{{.PrefsURL}}" style="color:#2563eb;">Manage preferences</a></p>{{end}}
             {{if .UnsubURL}}<p style="margin:6px 0 0 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">No account or signed out? <a href="{{.UnsubURL}}" style="color:#2563eb;">Unsubscribe from these emails</a></p>{{end}}
-            {{if or .Brand.TermsURL .Brand.PrivacyURL}}<p style="margin:6px 0 0 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">{{if .Brand.TermsURL}}<a href="{{.Brand.TermsURL}}" style="color:#6b7280;">Terms of Service</a>{{end}}{{if and .Brand.TermsURL .Brand.PrivacyURL}} &middot; {{end}}{{if .Brand.PrivacyURL}}<a href="{{.Brand.PrivacyURL}}" style="color:#6b7280;">Privacy Policy</a>{{end}}</p>{{end}}
+            {{if or .Brand.TermsURL .Brand.PrivacyURL}}<p style="margin:6px 0 0 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">{{if .Brand.TermsURL}}<a href="{{.Brand.TermsURL}}" style="color:#6b7280;">Terms of Service</a>{{end}}{{if and .Brand.TermsURL .Brand.PrivacyURL}} &middot; {{end}}{{if .Brand.PrivacyURL}}<a href="{{.Brand.PrivacyURL}}" style="color:#6b7280;">Privacy Policy</a>{{end}}</p>{{end}}{{if or .AboutText .SupportContact}}
+            <p style="margin:14px 0 0 0;padding-top:12px;border-top:1px solid #e9ebee;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">{{if .AboutText}}{{.AboutText}}{{end}}{{if and .AboutText .SupportContact}} {{end}}{{if .SupportContact}}Need help? Contact {{if .SupportHref}}<a href="{{.SupportHref}}" style="color:#2563eb;">{{.SupportContact}}</a>{{else}}{{.SupportContact}}{{end}}.{{end}}</p>{{end}}
           </td>
         </tr>
       </table>

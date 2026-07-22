@@ -119,6 +119,9 @@ linters:
         # cmd/ delegates the mux and route table to (#895). Nothing lower
         # in the stack (toolkits, providers, middleware, platform) may
         # reach up into it. A toolkit importing pkg/admin fails here.
+        # pkg/admin's own tree is excluded: the leaf may compose its own
+        # decomposition subpackages (e.g. pkg/admin/settingsapi) without
+        # counting as a lower layer reaching up.
         admin-is-a-leaf:
           list-mode: lax
           files:
@@ -126,6 +129,7 @@ linters:
             - "!**/*_test.go"
             - "!**/cmd/**"
             - "!**/internal/httpserver/**"
+            - "!**/pkg/admin/**"
           deny:
             - pkg: github.com/txn2/mcp-data-platform/pkg/admin
               desc: "pkg/admin is a top-level composition leaf wired only by the cmd/ + internal/httpserver composition root; lower layers must not import it (see CONTRIBUTING.md)."

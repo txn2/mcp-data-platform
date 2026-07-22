@@ -162,7 +162,7 @@ func (h *Handle) SendGuestLink(ctx context.Context, to, link string) error {
 	if err != nil {
 		return err
 	}
-	email, err := h.renderer.RenderGuestLink(to, link)
+	email, err := h.renderer.RenderGuestLink(to, link, settings.Footer())
 	if err != nil {
 		return fmt.Errorf("rendering guest link email: %w", err)
 	}
@@ -201,7 +201,7 @@ func (h *Handle) SendTest(ctx context.Context, to string) error {
 	if err != nil {
 		return err
 	}
-	email, err := h.renderer.RenderTest(to)
+	email, err := h.renderer.RenderTest(to, settings.Footer())
 	if err != nil {
 		return fmt.Errorf("rendering test email: %w", err)
 	}

@@ -486,10 +486,13 @@ dialog falls back to free-typed email only.
 The Settings page holds global platform settings; the first section is
 **Email (SMTP)**, which configures outbound mail for [email
 notifications](notifications.md). Host, port, credentials, sender address,
-and TLS mode are stored in the database (the password encrypted at rest and
+optional Reply-To address, optional footer help/about text, and TLS mode
+are stored in the database (the password encrypted at rest and
 write-only), and a **Send test** action verifies the configuration by
-delivering a test email. Like other admin configuration, editing requires
-database config mode.
+delivering a test email; when the target address has opted out of
+notification emails, an informational notice appears next to the send
+action (the test still sends). Like other admin configuration, editing
+requires database config mode.
 
 ## Change Log
 

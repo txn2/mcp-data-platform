@@ -45,6 +45,34 @@ type Branding struct {
 // references it as cid:<this>, so the two must stay in sync.
 const logoContentID = "logo.png"
 
+// Footer is the admin-configured help/about footer rendered on all outgoing
+// mail (#1023). Unlike Branding it comes from the stored SMTP settings, so it
+// is passed per render call rather than fixed at renderer construction: an
+// admin edit applies to the next send. Zero value renders nothing.
+type Footer struct {
+	// AboutText is a sentence or two describing the platform.
+	AboutText string
+	// SupportContact is an email address or http(s) URL for help.
+	SupportContact string
+}
+
+// Footer returns the footer block carried by the stored SMTP settings.
+func (s *SMTPSettings) Footer() Footer {
+	return Footer{AboutText: s.AboutText, SupportContact: s.SupportContact}
+}
+
+// supportHref returns the link target for the support contact: mailto: for an
+// address, the URL itself for http(s), empty (render as plain text) otherwise.
+func supportHref(contact string) string {
+	if strings.HasPrefix(contact, "http://") || strings.HasPrefix(contact, "https://") {
+		return contact
+	}
+	if strings.Contains(contact, "@") {
+		return "mailto:" + contact
+	}
+	return ""
+}
+
 // Email is one rendered message ready for an SMTP sender.
 type Email struct {
 	To      string
@@ -104,12 +132,14 @@ func newRendererFromFS(fsys fs.FS, b Branding) (*Renderer, error) {
 
 // Render renders one email covering the given notifications. A single
 // notification renders the per-event template; multiple render the digest
-// layout. All notifications must target the same recipient.
-func (r *Renderer) Render(ns []Notification) (*Email, error) {
+// layout. All notifications must target the same recipient. f carries the
+// admin-configured footer block; the zero value omits it.
+func (r *Renderer) Render(ns []Notification, f Footer) (*Email, error) {
 	if len(ns) == 0 {
 		return nil, errors.New("rendering email: no notifications")
 	}
 	data := r.buildData(ns)
+	data.applyFooter(f)
 	if r.unsubURL != nil {
 		data.UnsubURL = r.unsubURL(ns[0].Recipient)
 	}
@@ -144,7 +174,7 @@ func (r *Renderer) execute(to string, data emailData) (*Email, error) {
 // requests from the landing page (#1001). It is transactional, not a
 // notification: the recipient asked for it, so it carries no unsubscribe
 // footer and its delivery bypasses the queue and preference gating.
-func (r *Renderer) RenderGuestLink(to, link string) (*Email, error) {
+func (r *Renderer) RenderGuestLink(to, link string, f Footer) (*Email, error) {
 	data := emailData{
 		Brand:   r.branding,
 		Subject: fmt.Sprintf("%s: your one-time view link", r.branding.Name),
@@ -157,12 +187,13 @@ func (r *Renderer) RenderGuestLink(to, link string) (*Email, error) {
 			LinkText: "Open the shared item",
 		}},
 	}
+	data.applyFooter(f)
 	return r.execute(to, data)
 }
 
 // RenderTest renders the admin "send test email" message used to verify a
 // new SMTP configuration end to end.
-func (r *Renderer) RenderTest(to string) (*Email, error) {
+func (r *Renderer) RenderTest(to string, f Footer) (*Email, error) {
 	data := emailData{
 		Brand:    r.branding,
 		Subject:  fmt.Sprintf("%s SMTP test", r.branding.Name),
@@ -172,6 +203,7 @@ func (r *Renderer) RenderTest(to string) (*Email, error) {
 			Message: "This is a test email. Receiving it confirms the SMTP configuration works.",
 		}},
 	}
+	data.applyFooter(f)
 	return r.execute(to, data)
 }
 
@@ -190,6 +222,18 @@ type emailData struct {
 	// UnsubURL is the no-login unsubscribe link for this recipient. Empty
 	// omits the footer line; see SetUnsubscribeURLFn.
 	UnsubURL string
+	// AboutText, SupportContact, and SupportHref render the admin-configured
+	// help/about footer block (#1023); all empty omits the block entirely.
+	AboutText      string
+	SupportContact string
+	SupportHref    string
+}
+
+// applyFooter copies the footer block into the template context.
+func (d *emailData) applyFooter(f Footer) {
+	d.AboutText = f.AboutText
+	d.SupportContact = f.SupportContact
+	d.SupportHref = supportHref(f.SupportContact)
 }
 
 // emailItem is one event line in an email.

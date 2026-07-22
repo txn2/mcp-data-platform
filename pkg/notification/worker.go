@@ -219,7 +219,7 @@ func (w *Worker) deliver(ctx context.Context, settings *SMTPSettings, batch []No
 	if len(batch) == 0 {
 		return
 	}
-	email, err := w.cfg.Renderer.Render(batch)
+	email, err := w.cfg.Renderer.Render(batch, settings.Footer())
 	if err != nil {
 		// A render failure is deterministic; retrying cannot fix it.
 		w.resolve(ctx, batch, err, true)

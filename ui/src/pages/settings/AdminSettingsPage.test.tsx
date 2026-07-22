@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { AdminSettingsPage } from "./AdminSettingsPage";
 import type { SMTPSettings } from "@/api/admin/hooks/settings";
 
@@ -10,6 +10,7 @@ vi.mock("@/api/admin/hooks", () => ({
   useSMTPSettings: vi.fn(),
   useSetSMTPSettings: vi.fn(),
   useSendTestEmail: vi.fn(),
+  useSMTPRecipientStatus: vi.fn(),
 }));
 
 import {
@@ -17,12 +18,14 @@ import {
   useSMTPSettings,
   useSetSMTPSettings,
   useSendTestEmail,
+  useSMTPRecipientStatus,
 } from "@/api/admin/hooks";
 
 const mockUseSystemInfo = vi.mocked(useSystemInfo);
 const mockUseSMTPSettings = vi.mocked(useSMTPSettings);
 const mockUseSetSMTPSettings = vi.mocked(useSetSMTPSettings);
 const mockUseSendTestEmail = vi.mocked(useSendTestEmail);
+const mockUseSMTPRecipientStatus = vi.mocked(useSMTPRecipientStatus);
 
 function makeSettings(overrides: Partial<SMTPSettings> = {}): SMTPSettings {
   return {
@@ -33,6 +36,9 @@ function makeSettings(overrides: Partial<SMTPSettings> = {}): SMTPSettings {
     password_set: false,
     from: "platform@example.com",
     from_name: "Data Platform",
+    reply_to: "",
+    about_text: "",
+    support_contact: "",
     tls_mode: "starttls",
     updated_by: "admin@example.com",
     updated_at: "2026-04-10T15:30:00Z",
@@ -62,9 +68,15 @@ beforeEach(() => {
     mutate: testMutate,
     isPending: false,
   } as unknown as ReturnType<typeof useSendTestEmail>);
+  mockUseSMTPRecipientStatus.mockReturnValue({
+    data: undefined,
+  } as unknown as ReturnType<typeof useSMTPRecipientStatus>);
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("AdminSettingsPage: loading and loaded states", () => {
   it("shows a loading indicator while settings load", () => {
@@ -136,6 +148,9 @@ describe("AdminSettingsPage: saving", () => {
         password: "",
         from: "platform@example.com",
         from_name: "Data Platform",
+        reply_to: "",
+        about_text: "",
+        support_contact: "",
         tls_mode: "starttls",
       },
       expect.anything(),
@@ -239,5 +254,100 @@ describe("AdminSettingsPage: send test email", () => {
       target: { value: "user@example.com" },
     });
     expect(screen.getByRole("button", { name: /Sending/ })).toBeDisabled();
+  });
+});
+
+describe("AdminSettingsPage: test-send opt-out notice (#1022)", () => {
+  const OPT_OUT_NOTICE = /opted out of notification emails; the test will still send/;
+
+  it("shows the informational notice for an opted-out target", () => {
+    vi.useFakeTimers();
+    mockUseSMTPRecipientStatus.mockReturnValue({
+      data: { to: "optedout@example.com", opted_out: true },
+    } as unknown as ReturnType<typeof useSMTPRecipientStatus>);
+
+    render(<AdminSettingsPage />);
+    // Mixed case in the input must still match the canonical status address.
+    fireEvent.change(screen.getByPlaceholderText("recipient@example.com"), {
+      target: { value: "OptedOut@example.com" },
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(screen.getByText(OPT_OUT_NOTICE)).toBeInTheDocument();
+    // Informational only: the send action stays enabled.
+    expect(screen.getByRole("button", { name: /Send test/ })).toBeEnabled();
+  });
+
+  it("shows no notice when the target has not opted out", () => {
+    vi.useFakeTimers();
+    mockUseSMTPRecipientStatus.mockReturnValue({
+      data: { to: "user@example.com", opted_out: false },
+    } as unknown as ReturnType<typeof useSMTPRecipientStatus>);
+
+    render(<AdminSettingsPage />);
+    fireEvent.change(screen.getByPlaceholderText("recipient@example.com"), {
+      target: { value: "user@example.com" },
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(screen.queryByText(OPT_OUT_NOTICE)).not.toBeInTheDocument();
+  });
+
+  it("shows no stale notice for a different address than the status answers", () => {
+    vi.useFakeTimers();
+    mockUseSMTPRecipientStatus.mockReturnValue({
+      data: { to: "optedout@example.com", opted_out: true },
+    } as unknown as ReturnType<typeof useSMTPRecipientStatus>);
+
+    render(<AdminSettingsPage />);
+    fireEvent.change(screen.getByPlaceholderText("recipient@example.com"), {
+      target: { value: "other@example.com" },
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+
+    expect(screen.queryByText(OPT_OUT_NOTICE)).not.toBeInTheDocument();
+  });
+});
+
+describe("AdminSettingsPage: reply-to and footer fields (#1023)", () => {
+  it("renders stored values and saves edits", () => {
+    mockUseSMTPSettings.mockReturnValue({
+      data: makeSettings({
+        reply_to: "support@example.com",
+        about_text: "The ACME portal delivers curated datasets.",
+        support_contact: "help@example.com",
+      }),
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useSMTPSettings>);
+
+    render(<AdminSettingsPage />);
+
+    expect(screen.getByDisplayValue("support@example.com")).toBeInTheDocument();
+    expect(
+      screen.getByDisplayValue("The ACME portal delivers curated datasets."),
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("help@example.com")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue("The ACME portal delivers curated datasets."), {
+      target: { value: "New about text." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save/ }));
+
+    expect(saveMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reply_to: "support@example.com",
+        about_text: "New about text.",
+        support_contact: "help@example.com",
+      }),
+      expect.anything(),
+    );
   });
 });

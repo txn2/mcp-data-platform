@@ -134,6 +134,7 @@ internal/platform/utilconn -> pkg/toolkits/apigateway/utilhandler
 internal/server -> pkg/platform
 pkg/admin -> internal/logsan
 pkg/admin -> internal/server
+pkg/admin -> pkg/admin/settingsapi
 pkg/admin -> pkg/audit
 pkg/admin -> pkg/auth
 pkg/admin -> pkg/authevents
@@ -162,6 +163,7 @@ pkg/admin -> pkg/toolkits/gateway
 pkg/admin -> pkg/toolkits/gateway/enrichment
 pkg/admin -> pkg/toolkits/knowledge
 pkg/admin -> pkg/user
+pkg/admin/settingsapi -> pkg/notification
 pkg/audit -> pkg/observability
 pkg/audit/postgres -> pkg/audit
 pkg/audit/postgres -> pkg/prompt
