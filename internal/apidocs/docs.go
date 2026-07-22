@@ -16403,11 +16403,6 @@ const docTemplate = `{
         "notification.SMTPSettingsInput": {
             "type": "object",
             "properties": {
-                "about_text": {
-                    "description": "AboutText and SupportContact render as an optional footer block on all\noutgoing mail (#1023).",
-                    "type": "string",
-                    "example": "The ACME data portal delivers curated datasets and reports."
-                },
                 "enabled": {
                     "type": "boolean",
                     "example": true
@@ -16432,15 +16427,6 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 587
                 },
-                "reply_to": {
-                    "description": "ReplyTo is optional; when set it must be a single RFC 5322 address.",
-                    "type": "string",
-                    "example": "support@example.com"
-                },
-                "support_contact": {
-                    "type": "string",
-                    "example": "help@example.com"
-                },
                 "tls_mode": {
                     "type": "string",
                     "example": "starttls"
@@ -16454,10 +16440,6 @@ const docTemplate = `{
         "notification.SMTPSettingsView": {
             "type": "object",
             "properties": {
-                "about_text": {
-                    "type": "string",
-                    "example": "The ACME data portal delivers curated datasets and reports."
-                },
                 "enabled": {
                     "type": "boolean",
                     "example": true
@@ -16481,14 +16463,6 @@ const docTemplate = `{
                 "port": {
                     "type": "integer",
                     "example": 587
-                },
-                "reply_to": {
-                    "type": "string",
-                    "example": "support@example.com"
-                },
-                "support_contact": {
-                    "type": "string",
-                    "example": "help@example.com"
                 },
                 "tls_mode": {
                     "type": "string",

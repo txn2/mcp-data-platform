@@ -59,10 +59,11 @@ func buildMessage(settings SMTPSettings, email Email) (*mail.Msg, error) {
 		return nil, fmt.Errorf("invalid recipient address %q: %w", email.To, err)
 	}
 	// Reply-To gives recipient replies a monitored destination when the From
-	// address is a no-reply mailbox (#1023). Unset leaves the header off.
-	if settings.ReplyTo != "" {
-		if err := msg.ReplyTo(settings.ReplyTo); err != nil {
-			return nil, fmt.Errorf("invalid reply-to address %q: %w", settings.ReplyTo, err)
+	// address is a no-reply mailbox (#1023). The renderer stamps it from the
+	// implementor-configured branding; unset leaves the header off.
+	if email.ReplyTo != "" {
+		if err := msg.ReplyTo(email.ReplyTo); err != nil {
+			return nil, fmt.Errorf("invalid reply-to address %q: %w", email.ReplyTo, err)
 		}
 	}
 	msg.Subject(email.Subject)

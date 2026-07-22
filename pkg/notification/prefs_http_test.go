@@ -262,17 +262,6 @@ func TestSMTPSettingsInput_Validate(t *testing.T) {
 			name: "465 with implicit",
 			in:   SMTPSettingsInput{Enabled: true, Host: "h", Port: 465, From: "p@example.com", TLSMode: TLSModeImplicit},
 		},
-		// #1023: reply_to and the footer fields are optional but validated
-		// when present, even on a disabled config.
-		{name: "valid reply_to", in: SMTPSettingsInput{ReplyTo: "support@example.com"}},
-		{name: "bad reply_to", in: SMTPSettingsInput{ReplyTo: "not an address"}, wantErr: true},
-		{name: "email support contact", in: SMTPSettingsInput{SupportContact: "help@example.com"}},
-		{name: "url support contact", in: SMTPSettingsInput{SupportContact: "https://help.example.com/x"}},
-		{name: "bad support contact", in: SMTPSettingsInput{SupportContact: "room 4"}, wantErr: true},
-		{name: "schemeless url support contact", in: SMTPSettingsInput{SupportContact: "help.example.com"}, wantErr: true},
-		{name: "hostless url support contact", in: SMTPSettingsInput{SupportContact: "https://"}, wantErr: true},
-		{name: "about text at cap", in: SMTPSettingsInput{AboutText: strings.Repeat("a", 500)}},
-		{name: "about text over cap", in: SMTPSettingsInput{AboutText: strings.Repeat("a", 501)}, wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -291,7 +280,6 @@ func TestSMTPSettingsView(t *testing.T) {
 	s := SMTPSettings{
 		Enabled: true, Host: "h", Port: 587, Username: "u",
 		Password: "secret", From: "f@example.com", FromName: "F",
-		ReplyTo: "support@example.com", AboutText: "About.", SupportContact: "help@example.com",
 		TLSMode: TLSModeStartTLS, UpdatedBy: "a@b.io",
 	}
 	v := s.View()
@@ -300,9 +288,6 @@ func TestSMTPSettingsView(t *testing.T) {
 	}
 	if v.Host != "h" || v.Username != "u" || v.UpdatedBy != "a@b.io" {
 		t.Errorf("view mapping wrong: %+v", v)
-	}
-	if v.ReplyTo != "support@example.com" || v.AboutText != "About." || v.SupportContact != "help@example.com" {
-		t.Errorf("view must carry the reply-to and footer fields: %+v", v)
 	}
 	s.Password = ""
 	if s.View().PasswordSet {
@@ -330,7 +315,6 @@ func TestSMTPSettingsInput_SettingsMapping(t *testing.T) {
 	in := SMTPSettingsInput{
 		Enabled: true, Host: "h", Username: "u", Password: "p",
 		From: "f@example.com", FromName: "F",
-		ReplyTo: "support@example.com", AboutText: "About.", SupportContact: "help@example.com",
 	}
 	if msg := in.Validate(); msg != "" {
 		t.Fatalf("Validate: %s", msg)
@@ -341,8 +325,5 @@ func TestSMTPSettingsInput_SettingsMapping(t *testing.T) {
 	}
 	if s.Host != "h" || s.Password != "p" || s.From != "f@example.com" {
 		t.Errorf("mapping wrong: %+v", s)
-	}
-	if s.ReplyTo != "support@example.com" || s.AboutText != "About." || s.SupportContact != "help@example.com" {
-		t.Errorf("mapping must carry the reply-to and footer fields: %+v", s)
 	}
 }

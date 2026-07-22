@@ -494,6 +494,9 @@ portal:
     url: "https://acme.com"
   terms_url: "https://example.com/terms"          # Optional terms-of-service link (notification email footers)
   privacy_url: "https://example.com/privacy"      # Optional privacy-policy link (notification email footers)
+  about_text: "The ACME data portal delivers curated datasets and reports."  # Optional footer block on all outgoing email
+  support_contact: "help@example.com"             # Optional help contact (email or URL) rendered with about_text
+  reply_to: "support@example.com"                 # Optional Reply-To header on all outgoing email
   rate_limit:                                     # Public portal viewer rate limiting
     requests_per_minute: 60
     burst_size: 10
@@ -526,6 +529,9 @@ portal:
 | `implementor.url` | string | - | Clickable link wrapping the implementor name and logo |
 | `terms_url` | string | - | Terms-of-service URL rendered as a small footer link in notification emails. Omitted when unset |
 | `privacy_url` | string | - | Privacy-policy URL rendered as a small footer link in notification emails. Omitted when unset |
+| `about_text` | string | - | A sentence or two about the platform, rendered as a help/about footer block on all outgoing email (HTML and text parts). Gives first-contact recipients sender context and adds body text content filters look for. Omitted when unset |
+| `support_contact` | string | - | Help contact rendered with `about_text`: an email address (linked as `mailto:`) or an http(s) URL. Omitted when unset |
+| `reply_to` | string | - | Reply-To address applied to every outgoing email so recipient replies reach a monitored mailbox. Validated at startup; unset leaves the header off |
 | `rate_limit.requests_per_minute` | int | `60` | Public portal viewer per-IP rate limit |
 | `rate_limit.burst_size` | int | `10` | Public portal viewer per-IP burst allowance |
 | `rate_limit.trusted_proxies` | list | `[]` | CIDRs whose `X-Forwarded-For` is trusted for client attribution. Empty trusts none: the direct peer address is used and forwarding headers are ignored. Set this to your ingress/load-balancer CIDRs so per-client limiting works behind a proxy without being spoofable. A global backstop bounds total throughput regardless of attribution |

@@ -36,9 +36,6 @@ function makeSettings(overrides: Partial<SMTPSettings> = {}): SMTPSettings {
     password_set: false,
     from: "platform@example.com",
     from_name: "Data Platform",
-    reply_to: "",
-    about_text: "",
-    support_contact: "",
     tls_mode: "starttls",
     updated_by: "admin@example.com",
     updated_at: "2026-04-10T15:30:00Z",
@@ -148,9 +145,6 @@ describe("AdminSettingsPage: saving", () => {
         password: "",
         from: "platform@example.com",
         from_name: "Data Platform",
-        reply_to: "",
-        about_text: "",
-        support_contact: "",
         tls_mode: "starttls",
       },
       expect.anything(),
@@ -312,42 +306,5 @@ describe("AdminSettingsPage: test-send opt-out notice (#1022)", () => {
     });
 
     expect(screen.queryByText(OPT_OUT_NOTICE)).not.toBeInTheDocument();
-  });
-});
-
-describe("AdminSettingsPage: reply-to and footer fields (#1023)", () => {
-  it("renders stored values and saves edits", () => {
-    mockUseSMTPSettings.mockReturnValue({
-      data: makeSettings({
-        reply_to: "support@example.com",
-        about_text: "The ACME portal delivers curated datasets.",
-        support_contact: "help@example.com",
-      }),
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    } as unknown as ReturnType<typeof useSMTPSettings>);
-
-    render(<AdminSettingsPage />);
-
-    expect(screen.getByDisplayValue("support@example.com")).toBeInTheDocument();
-    expect(
-      screen.getByDisplayValue("The ACME portal delivers curated datasets."),
-    ).toBeInTheDocument();
-    expect(screen.getByDisplayValue("help@example.com")).toBeInTheDocument();
-
-    fireEvent.change(screen.getByDisplayValue("The ACME portal delivers curated datasets."), {
-      target: { value: "New about text." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Save/ }));
-
-    expect(saveMutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        reply_to: "support@example.com",
-        about_text: "New about text.",
-        support_contact: "help@example.com",
-      }),
-      expect.anything(),
-    );
   });
 });

@@ -5,32 +5,45 @@ import (
 	"testing"
 )
 
-// footerFixture is the configured footer most tests render with.
-func footerFixture() Footer {
-	return Footer{
-		AboutText:      "The ACME data portal delivers curated datasets and reports.",
-		SupportContact: "help@example.com",
+// footerBranding is the configured help/about footer most tests render with.
+func footerBranding() Branding {
+	return Branding{
+		Name:            "ACME Data Platform",
+		BaseURL:         "https://data.example.com",
+		ImplementorName: "ACME Corp",
+		ImplementorURL:  "https://acme.example.com",
+		AboutText:       "The ACME data portal delivers curated datasets and reports.",
+		SupportContact:  "help@example.com",
 	}
+}
+
+func footerRenderer(t *testing.T) *Renderer {
+	t.Helper()
+	r, err := NewRenderer(footerBranding())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }
 
 // TestRender_FooterOnAllMailTypes proves the about/support block reaches the
 // HTML and text parts of every outgoing mail type (#1023): notifications,
 // one-time guest links, and the admin test send.
 func TestRender_FooterOnAllMailTypes(t *testing.T) {
-	r := testRenderer(t)
-	f := footerFixture()
+	r := footerRenderer(t)
+	about := footerBranding().AboutText
 
 	renderAll := map[string]func() (*Email, error){
 		"notification": func() (*Email, error) {
 			return r.Render([]Notification{{
 				Recipient: "a@b.io",
 				Payload:   Payload{Kind: KindAsset, ItemTitle: "T", Actor: "x@y.z"},
-			}}, f)
+			}})
 		},
 		"guest link": func() (*Email, error) {
-			return r.RenderGuestLink("a@b.io", "https://x.io/portal/view/t/guest?otk=o", f)
+			return r.RenderGuestLink("a@b.io", "https://x.io/portal/view/t/guest?otk=o")
 		},
-		"admin test": func() (*Email, error) { return r.RenderTest("a@b.io", f) },
+		"admin test": func() (*Email, error) { return r.RenderTest("a@b.io") },
 	}
 	for name, render := range renderAll {
 		t.Run(name, func(t *testing.T) {
@@ -38,7 +51,7 @@ func TestRender_FooterOnAllMailTypes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("render: %v", err)
 			}
-			for _, want := range []string{f.AboutText, "help@example.com"} {
+			for _, want := range []string{about, "help@example.com"} {
 				if !strings.Contains(email.HTML, want) {
 					t.Errorf("HTML missing %q", want)
 				}
@@ -59,7 +72,7 @@ func TestRender_FooterOnAllMailTypes(t *testing.T) {
 // into, so the bytes match pre-feature output exactly.
 func TestRender_UnsetFooterIsByteIdentical(t *testing.T) {
 	r := testRenderer(t)
-	withZero, err := r.RenderTest("a@b.io", Footer{})
+	withZero, err := r.RenderTest("a@b.io")
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -90,8 +103,8 @@ func TestRender_UnsetFooterIsByteIdentical(t *testing.T) {
 // block splices in on its own line after the existing footer content in both
 // parts, with no doubled blank lines.
 func TestRender_FooterSpliceSeams(t *testing.T) {
-	r := testRenderer(t)
-	email, err := r.RenderTest("a@b.io", footerFixture())
+	r := footerRenderer(t)
+	email, err := r.RenderTest("a@b.io")
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -99,7 +112,7 @@ func TestRender_FooterSpliceSeams(t *testing.T) {
 		t.Error("HTML footer block must splice in on its own indented line before the cell closes")
 	}
 	wantTextTail := "Provided by ACME Corp (https://acme.example.com)\n\n" +
-		footerFixture().AboutText + "\nNeed help? Contact: help@example.com\n"
+		footerBranding().AboutText + "\nNeed help? Contact: help@example.com\n"
 	if !strings.HasSuffix(email.Text, wantTextTail) {
 		t.Errorf("text footer block tail wrong, got %q", email.Text[max(0, len(email.Text)-160):])
 	}
@@ -107,8 +120,14 @@ func TestRender_FooterSpliceSeams(t *testing.T) {
 
 // TestRender_FooterURLContact covers the URL spelling of the support contact.
 func TestRender_FooterURLContact(t *testing.T) {
-	r := testRenderer(t)
-	email, err := r.RenderTest("a@b.io", Footer{SupportContact: "https://help.example.com/support"})
+	r, err := NewRenderer(Branding{
+		Name:           "ACME Data Platform",
+		SupportContact: "https://help.example.com/support",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	email, err := r.RenderTest("a@b.io")
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -126,8 +145,11 @@ func TestRender_FooterURLContact(t *testing.T) {
 // TestRender_FooterAboutOnly covers the about-text-only spelling: no support
 // line, no dangling "Need help" copy.
 func TestRender_FooterAboutOnly(t *testing.T) {
-	r := testRenderer(t)
-	email, err := r.RenderTest("a@b.io", Footer{AboutText: "About this portal."})
+	r, err := NewRenderer(Branding{Name: "ACME Data Platform", AboutText: "About this portal."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	email, err := r.RenderTest("a@b.io")
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -155,25 +177,37 @@ func TestSupportHref(t *testing.T) {
 	}
 }
 
-// TestSMTPSettings_Footer covers the settings-to-footer projection the send
-// paths use.
-func TestSMTPSettings_Footer(t *testing.T) {
-	s := SMTPSettings{AboutText: "About.", SupportContact: "help@example.com"}
-	f := s.Footer()
-	if f.AboutText != "About." || f.SupportContact != "help@example.com" {
-		t.Errorf("Footer() = %+v", f)
+// TestRender_ReplyToStamped proves the branding Reply-To reaches every
+// rendered Email so the sender can emit the header, and stays empty when
+// unconfigured.
+func TestRender_ReplyToStamped(t *testing.T) {
+	r, err := NewRenderer(Branding{Name: "ACME Data Platform", ReplyTo: "support@example.com"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if (&SMTPSettings{}).Footer() != (Footer{}) {
-		t.Error("unset settings must project the zero footer")
+	email, err := r.RenderTest("a@b.io")
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if email.ReplyTo != "support@example.com" {
+		t.Errorf("ReplyTo = %q; want the branding address", email.ReplyTo)
+	}
+
+	plain, err := testRenderer(t).RenderTest("a@b.io")
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if plain.ReplyTo != "" {
+		t.Errorf("unconfigured branding must leave ReplyTo empty, got %q", plain.ReplyTo)
 	}
 }
 
-// TestBuildMessage_ReplyTo proves the configured Reply-To reaches the wire
-// and that an unset one leaves the header off entirely (#1023).
+// TestBuildMessage_ReplyTo proves the rendered Reply-To reaches the wire and
+// that an unset one leaves the header off entirely (#1023).
 func TestBuildMessage_ReplyTo(t *testing.T) {
-	email := Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>h</p>"}
+	email := Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>h</p>", ReplyTo: "support@example.com"}
 
-	msg, err := buildMessage(SMTPSettings{From: "p@example.com", ReplyTo: "support@example.com"}, email)
+	msg, err := buildMessage(SMTPSettings{From: "p@example.com"}, email)
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
 	}
@@ -185,6 +219,7 @@ func TestBuildMessage_ReplyTo(t *testing.T) {
 		t.Errorf("message missing Reply-To header:\n%s", out.String())
 	}
 
+	email.ReplyTo = ""
 	msg, err = buildMessage(SMTPSettings{From: "p@example.com"}, email)
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
@@ -200,8 +235,8 @@ func TestBuildMessage_ReplyTo(t *testing.T) {
 
 func TestBuildMessage_InvalidReplyTo(t *testing.T) {
 	_, err := buildMessage(
-		SMTPSettings{From: "p@example.com", ReplyTo: "not an address"},
-		Email{To: "a@b.io", Subject: "s", Text: "t", HTML: "<p>h</p>"})
+		SMTPSettings{From: "p@example.com"},
+		Email{To: "a@b.io", Subject: "s", Text: "t", HTML: "<p>h</p>", ReplyTo: "not an address"})
 	if err == nil {
 		t.Fatal("expected error for invalid reply-to")
 	}

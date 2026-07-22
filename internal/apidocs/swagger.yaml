@@ -2405,12 +2405,6 @@ definitions:
     type: object
   notification.SMTPSettingsInput:
     properties:
-      about_text:
-        description: |-
-          AboutText and SupportContact render as an optional footer block on all
-          outgoing mail (#1023).
-        example: The ACME data portal delivers curated datasets and reports.
-        type: string
       enabled:
         example: true
         type: boolean
@@ -2429,13 +2423,6 @@ definitions:
       port:
         example: 587
         type: integer
-      reply_to:
-        description: ReplyTo is optional; when set it must be a single RFC 5322 address.
-        example: support@example.com
-        type: string
-      support_contact:
-        example: help@example.com
-        type: string
       tls_mode:
         example: starttls
         type: string
@@ -2445,9 +2432,6 @@ definitions:
     type: object
   notification.SMTPSettingsView:
     properties:
-      about_text:
-        example: The ACME data portal delivers curated datasets and reports.
-        type: string
       enabled:
         example: true
         type: boolean
@@ -2466,12 +2450,6 @@ definitions:
       port:
         example: 587
         type: integer
-      reply_to:
-        example: support@example.com
-        type: string
-      support_contact:
-        example: help@example.com
-        type: string
       tls_mode:
         example: starttls
         type: string

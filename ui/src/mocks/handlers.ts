@@ -631,9 +631,6 @@ const smtpSettings = {
   password_set: true,
   from: "platform@example.com",
   from_name: "Data Platform",
-  reply_to: "",
-  about_text: "",
-  support_contact: "",
   tls_mode: "starttls",
   updated_by: "sarah.chen@example.com",
   updated_at: "2026-04-10T15:30:00Z",
@@ -2604,9 +2601,6 @@ export const handlers = [
     }
     smtpSettings.from = String(body.from ?? "");
     smtpSettings.from_name = String(body.from_name ?? "");
-    smtpSettings.reply_to = String(body.reply_to ?? "");
-    smtpSettings.about_text = String(body.about_text ?? "");
-    smtpSettings.support_contact = String(body.support_contact ?? "");
     smtpSettings.tls_mode = String(body.tls_mode ?? "starttls");
     smtpSettings.updated_by = "sarah.chen@example.com";
     smtpSettings.updated_at = new Date().toISOString();

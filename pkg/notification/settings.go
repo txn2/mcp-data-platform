@@ -30,18 +30,6 @@ type SMTPSettings struct {
 	From string `json:"from"`
 	// FromName is the optional display name for the From address.
 	FromName string `json:"from_name"`
-	// ReplyTo, when set, is applied as the Reply-To header on every outgoing
-	// message so recipient replies reach a monitored mailbox instead of
-	// bouncing off a no-reply From address (#1023).
-	ReplyTo string `json:"reply_to,omitempty"`
-	// AboutText is an optional sentence or two describing the platform,
-	// rendered as a footer block on all outgoing mail (#1023). It gives
-	// first-contact recipients context and lifts short notifications out of
-	// the image-heavy/low-text band content filters penalize.
-	AboutText string `json:"about_text,omitempty"`
-	// SupportContact is an optional email address or URL where recipients can
-	// get help, rendered with AboutText in the footer (#1023).
-	SupportContact string `json:"support_contact,omitempty"`
 	// TLSMode is one of the TLSMode* constants.
 	TLSMode string `json:"tls_mode"`
 	// UpdatedBy and UpdatedAt describe the last admin write.

@@ -333,6 +333,9 @@ type PortalConfig struct {
 	Implementor     ImplementorConfig     `yaml:"implementor"`       // optional implementor brand (far-left header zone)
 	TermsURL        string                `yaml:"terms_url"`         // optional terms-of-service link rendered in notification email footers
 	PrivacyURL      string                `yaml:"privacy_url"`       // optional privacy-policy link rendered in notification email footers
+	AboutText       string                `yaml:"about_text"`        // optional sentence or two about the platform, rendered as a footer block on all outgoing email
+	SupportContact  string                `yaml:"support_contact"`   // optional help contact (email address or http(s) URL) rendered with about_text in email footers
+	ReplyTo         string                `yaml:"reply_to"`          // optional Reply-To address applied to all outgoing email; unset leaves the header off
 	RateLimit       PortalRateLimitConfig `yaml:"rate_limit"`
 	Export          PortalExportConfig    `yaml:"export"` // trino_export configuration
 }

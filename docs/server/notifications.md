@@ -59,8 +59,6 @@ write-only: no API response ever includes it.
 | `host`, `port` | SMTP server address. Port 587 for STARTTLS, 465 for implicit TLS. |
 | `username`, `password` | SMTP AUTH credentials. The auth mechanism is negotiated automatically from what the server advertises (SCRAM-SHA-1/256, LOGIN, PLAIN, CRAM-MD5, and others). Leave username empty for unauthenticated relays. An empty password on update keeps the stored one. |
 | `from`, `from_name` | Sender address and optional display name. |
-| `reply_to` | Optional Reply-To address applied to every outgoing message, so recipient replies reach a monitored mailbox instead of bouncing off a no-reply From address. Validated as a single address on save; unset leaves the header off. |
-| `about_text`, `support_contact` | Optional help/about footer rendered on all outgoing mail (notifications, one-time guest links, admin tests): a sentence or two describing the platform, and an email address or http(s) URL for help. Gives first-contact recipients context about the sender and lifts short image-bearing messages out of the low-text band content filters penalize. Omitted entirely when unset. |
 | `tls_mode` | `starttls` (default), `implicit`, or `none` (closed-network relays only). |
 
 The **Send test** action delivers a test email through the stored settings
@@ -150,12 +148,20 @@ When `portal.terms_url` or `portal.privacy_url` is set, the footer also
 renders the corresponding legal link; useful when the portal runs on a
 different domain than the mail From address, since it gives recipients and
 content filters body links that associate with the sending identity. When
-the admin SMTP settings carry `about_text` or `support_contact`, a small
-help/about block renders below the legal links in both the HTML and plain
-text parts (an email support contact links as `mailto:`, an http(s) URL
-links directly). Each message's `Message-ID` domain is taken from the
-configured From address rather than the server hostname, so IDs resolve to
-the sending domain in containerized deployments.
+`portal.about_text` or `portal.support_contact` is set, a small help/about
+block renders below the legal links in both the HTML and plain text parts
+of every mail type (an email support contact links as `mailto:`, an
+http(s) URL links directly): it gives first-contact recipients context
+about the sender and lifts short image-bearing messages out of the
+low-text band content filters penalize. When `portal.reply_to` is set,
+every outgoing message carries it as the Reply-To header so recipient
+replies reach a monitored mailbox instead of bouncing off a no-reply From
+address. Like the rest of the email branding these are YAML config, owned
+by the implementor rather than the runtime admin settings, so fully
+managed deployments keep them out of admin hands. Each message's
+`Message-ID` domain is taken from the configured From address rather than
+the server hostname, so IDs resolve to the sending domain in containerized
+deployments.
 Share links for assets and collections use the token viewer; prompt shares
 link to the in-app prompt page. The emailed link is not a bearer credential:
 a share addressed to a person is restricted to that person, so the viewer

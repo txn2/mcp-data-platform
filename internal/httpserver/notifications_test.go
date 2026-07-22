@@ -139,3 +139,15 @@ type passthroughStringEncryptor struct{}
 
 func (passthroughStringEncryptor) Encrypt(s string) (string, error) { return s, nil }
 func (passthroughStringEncryptor) Decrypt(s string) (string, error) { return s, nil }
+
+func TestEmailReplyTo(t *testing.T) {
+	if got := emailReplyTo(""); got != "" {
+		t.Errorf("unset reply_to must stay empty, got %q", got)
+	}
+	if got := emailReplyTo("support@example.com"); got != "support@example.com" {
+		t.Errorf("valid reply_to must pass through, got %q", got)
+	}
+	if got := emailReplyTo("not an address"); got != "" {
+		t.Errorf("invalid reply_to must be dropped with a warning, got %q", got)
+	}
+}

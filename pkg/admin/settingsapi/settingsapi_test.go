@@ -196,7 +196,6 @@ func TestSetSMTP_Validation(t *testing.T) {
 		{name: "negative port", req: notification.SMTPSettingsInput{Port: -1}},
 		{name: "enabled without host", req: notification.SMTPSettingsInput{Enabled: true, Port: 587}},
 		{name: "enabled with bad from", req: notification.SMTPSettingsInput{Enabled: true, Host: "h", Port: 587, From: "nope"}},
-		{name: "bad reply_to", req: notification.SMTPSettingsInput{Port: 587, ReplyTo: "not an address"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -3,6 +3,7 @@ package httpserver
 import (
 	"log"
 	"net/http"
+	"net/mail"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
@@ -30,6 +31,9 @@ func buildNotifications(p *platform.Platform) *notifydelivery.Handle {
 			ImplementorURL:  p.Config().Portal.Implementor.URL,
 			TermsURL:        p.Config().Portal.TermsURL,
 			PrivacyURL:      p.Config().Portal.PrivacyURL,
+			AboutText:       p.Config().Portal.AboutText,
+			SupportContact:  p.Config().Portal.SupportContact,
+			ReplyTo:         emailReplyTo(p.Config().Portal.ReplyTo),
 			LogoPNG:         emailLogo(p.Config().Portal.LogoEmail),
 		},
 		DigestHourUTC:  p.Config().Notifications.DigestHour(),
@@ -45,6 +49,20 @@ func buildNotifications(p *platform.Platform) *notifydelivery.Handle {
 		log.Println("Email notifications enabled (queue + send worker)")
 	}
 	return handle
+}
+
+// emailReplyTo validates the configured portal.reply_to once at startup. An
+// invalid address is dropped with a warning rather than failing every send
+// with an opaque per-message error.
+func emailReplyTo(addr string) string {
+	if addr == "" {
+		return ""
+	}
+	if _, err := mail.ParseAddress(addr); err != nil {
+		log.Println("WARNING: portal.reply_to is not a valid email address; leaving Reply-To off:", err)
+		return ""
+	}
+	return addr
 }
 
 // emailLogo resolves the raster logo for notification emails once at startup,

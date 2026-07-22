@@ -13,9 +13,6 @@ export interface SMTPSettings {
   password_set: boolean;
   from: string;
   from_name: string;
-  reply_to: string;
-  about_text: string;
-  support_contact: string;
   tls_mode: string;
   updated_by?: string;
   updated_at?: string;
@@ -31,9 +28,6 @@ export interface SMTPSettingsInput {
   password: string;
   from: string;
   from_name: string;
-  reply_to: string;
-  about_text: string;
-  support_contact: string;
   tls_mode: string;
 }
 

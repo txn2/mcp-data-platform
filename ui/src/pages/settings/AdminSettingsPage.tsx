@@ -64,9 +64,6 @@ interface FormState {
   password: string;
   from: string;
   from_name: string;
-  reply_to: string;
-  about_text: string;
-  support_contact: string;
   tls_mode: string;
 }
 
@@ -78,9 +75,6 @@ const DEFAULT_FORM: FormState = {
   password: "",
   from: "",
   from_name: "",
-  reply_to: "",
-  about_text: "",
-  support_contact: "",
   tls_mode: "starttls",
 };
 
@@ -208,14 +202,6 @@ function SMTPFields({
           onChange={(v) => onChange({ from_name: v })}
           placeholder="Data Platform"
         />
-        <ConfigField
-          label="Reply-To address"
-          help="Optional. Recipient replies go here; empty leaves the header off"
-          value={form.reply_to}
-          onChange={(v) => onChange({ reply_to: v })}
-          placeholder="support@example.com"
-          mono
-        />
         <div>
           <label className="mb-1 block text-xs font-medium">TLS mode</label>
           <select
@@ -230,28 +216,6 @@ function SMTPFields({
             ))}
           </select>
         </div>
-        <div className="sm:col-span-2">
-          <label className="mb-1 block text-xs font-medium">About text</label>
-          <textarea
-            value={form.about_text}
-            onChange={(e) => onChange({ about_text: e.target.value })}
-            placeholder="A sentence or two describing this portal, shown in the footer of every email"
-            rows={2}
-            maxLength={500}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-          />
-          <p className="mt-1 text-xs text-muted-foreground">
-            Optional. Gives first-contact recipients context about the sender; omitted when empty
-          </p>
-        </div>
-        <ConfigField
-          label="Support contact"
-          help="Optional. Email address or URL for help, shown with the about text"
-          value={form.support_contact}
-          onChange={(v) => onChange({ support_contact: v })}
-          placeholder="help@example.com"
-          mono
-        />
       </div>
     </>
   );
@@ -422,9 +386,6 @@ export function AdminSettingsPage() {
       password: "",
       from: settings.from,
       from_name: settings.from_name,
-      reply_to: settings.reply_to ?? "",
-      about_text: settings.about_text ?? "",
-      support_contact: settings.support_contact ?? "",
       tls_mode: settings.tls_mode || "starttls",
     });
     setDirty(false);
@@ -448,9 +409,6 @@ export function AdminSettingsPage() {
         password: form.password,
         from: form.from.trim(),
         from_name: form.from_name.trim(),
-        reply_to: form.reply_to.trim(),
-        about_text: form.about_text.trim(),
-        support_contact: form.support_contact.trim(),
         tls_mode: form.tls_mode,
       },
       {
