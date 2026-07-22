@@ -39,7 +39,7 @@ The test harness provides:
 
 ### 2. Edit and Test
 
-1. Edit `./apps/platform-info/index.html` (or `./apps/query-results/index.html` for that app)
+1. Edit `./apps/platform-info/index.html` (or `./apps/prompt-browser/index.html` / `./apps/query-results/index.html` for those apps)
 2. Click **Reload App** in the test harness
 3. Click **Send Test Data**
 4. See changes immediately
@@ -128,6 +128,7 @@ window.addEventListener('message', (event) => {
    ```
    apps/
    ├── platform-info/
+   ├── prompt-browser/
    ├── query-results/
    └── my-new-app/
        └── index.html

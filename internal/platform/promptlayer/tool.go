@@ -16,6 +16,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
 
+// ToolNameManagePrompt is the MCP tool name of the prompt-management tool,
+// exported for composition roots that bind UI apps to it.
+const ToolNameManagePrompt = "manage_prompt"
+
 const (
 	promptErrGet    = "failed to get prompt"
 	promptLogKey    = "name"
@@ -75,7 +79,7 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 	}
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:  "manage_prompt",
+		Name:  ToolNameManagePrompt,
 		Title: "Manage Prompts",
 		Description: "Create, update, delete, list, get, or use prompts. " +
 			"When a user names a report, procedure, or recurring task ('run the daily sales report'), " +
@@ -440,10 +444,41 @@ func (h *Handle) handlePromptList(ctx context.Context, input managePromptInput) 
 		prompts = h.mergeExtraScopes(ctx, prompts, &enabled)
 	}
 
-	return promptJSONResult(map[string]any{
+	ptrs := make([]*prompt.Prompt, len(prompts))
+	for i := range prompts {
+		ptrs[i] = &prompts[i]
+	}
+	return h.browseResponse(ctx, ptrs, map[string]any{
 		"prompts": prompts,
 		"count":   len(prompts),
 	})
+}
+
+// browseResponse finalizes a list or search response: it batch-applies
+// audit-derived usage to the returned prompts and attaches the shared
+// collection list (#1010) when the store supports collections, so MCP clients
+// and the prompt-browser app see the same organization model as the portal.
+func (h *Handle) browseResponse(ctx context.Context, prompts []*prompt.Prompt, resp map[string]any) (*mcp.CallToolResult, any, error) {
+	h.applyUsageAll(ctx, prompts)
+	if cols := h.listCollections(ctx); len(cols) > 0 {
+		resp["collections"] = cols
+	}
+	return promptJSONResult(resp)
+}
+
+// listCollections returns the shared collection list, or nil when the store
+// lacks the collection capability or the read fails.
+func (h *Handle) listCollections(ctx context.Context) []prompt.Collection {
+	cs := prompt.AsCollectionStore(h.store)
+	if cs == nil {
+		return nil
+	}
+	cols, err := cs.ListCollections(ctx)
+	if err != nil {
+		slog.Warn("failed to list prompt collections", logKeyError, err)
+		return nil
+	}
+	return cols
 }
 
 // mergeExtraScopes appends global and persona-scoped prompts for non-admin users.
@@ -512,7 +547,11 @@ func (h *Handle) handlePromptSearch(ctx context.Context, input managePromptInput
 		return h.promptErrorDetail(ctx, "failed to search prompts", err), nil, nil
 	}
 
-	return promptJSONResult(map[string]any{
+	ptrs := make([]*prompt.Prompt, len(scored))
+	for i := range scored {
+		ptrs[i] = &scored[i].Prompt
+	}
+	return h.browseResponse(ctx, ptrs, map[string]any{
 		"prompts": scored,
 		"count":   len(scored),
 		"ranking": ranking,

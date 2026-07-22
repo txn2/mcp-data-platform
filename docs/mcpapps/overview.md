@@ -63,6 +63,19 @@ mcpapps:
 
 All branding fields are optional. When unset the app falls back to the server name and a default data-graph logo.
 
+## Built-in App: prompt-browser
+
+The platform also ships with `prompt-browser` embedded in the binary, bound to the `manage_prompt` tool. In an MCP Apps-capable host, a prompt discovery call renders an interactive prompt library browser:
+
+- Search-as-you-type over the ranked prompt query, with My Prompts / Library buckets, collection and tag filters, and usage-based sorting
+- Cards showing display name, description, version, approval provenance, and run count
+- A detail view with full prompt content, provenance, and a form generated from the prompt's argument specs
+- Run resolves the prompt through the `manage_prompt` `use` command with the filled arguments; when the host supports conversation insertion (`ui/message`), the rendered prompt is placed directly into the chat, otherwise the app offers the rendered content for copy
+
+The app is presentation only: the same `manage_prompt` calls return complete structured JSON in clients that do not render apps, so nothing is lost outside app-capable hosts. It follows the same organization model as the portal library (collections, buckets, usage) with no app-local state.
+
+Like `platform-info`, an operator `mcpapps.apps.prompt-browser` entry can override the injected config or replace the embedded HTML entirely via `assets_path`.
+
 ## Example App: query-results
 
 The repository includes a community example app at `apps/query-results/` that demonstrates sortable tables, charts, search/filter, and dark mode for `trino_query` output. It is not built into the binary — operators deploy it as a custom app by mounting the assets directory. See [Configuration](configuration.md) for details.
