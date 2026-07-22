@@ -126,10 +126,14 @@ func mountNotificationUnsubscribe(mux *http.ServeMux, p *platform.Platform, noti
 	if notify == nil || notify.Prefs() == nil || master == nil {
 		return
 	}
-	mux.Handle("GET "+unsubscribePath, &notification.UnsubscribeHandler{
+	handler := &notification.UnsubscribeHandler{
 		Prefs:     notify.Prefs(),
 		Key:       shareguest.DeriveKey(master, unsubscribeKeyLabel),
 		BrandName: portalBrandName(p),
-	})
+	}
+	mux.Handle("GET "+unsubscribePath, handler)
+	// RFC 8058 one-click: mail providers POST to the same URL the header
+	// names, so the opt-out records without any page interaction.
+	mux.Handle("POST "+unsubscribePath, handler)
 	log.Println("Notification unsubscribe endpoint enabled on " + unsubscribePath)
 }

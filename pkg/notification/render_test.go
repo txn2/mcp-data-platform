@@ -218,6 +218,83 @@ func TestRender_NoLogoWithoutConfig(t *testing.T) {
 	}
 }
 
+// TestRender_LegalFooterLinks covers the optional terms/privacy footer links
+// in both templates, including the separator that renders only when both are
+// set.
+func TestRender_LegalFooterLinks(t *testing.T) {
+	r, err := NewRenderer(Branding{
+		Name:       "ACME Data Platform",
+		TermsURL:   "https://legal.example.com/terms",
+		PrivacyURL: "https://legal.example.com/privacy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	email, err := r.RenderTest("admin@example.com")
+	if err != nil {
+		t.Fatalf("RenderTest: %v", err)
+	}
+	for _, want := range []string{
+		`<a href="https://legal.example.com/terms"`, "Terms of Service",
+		`<a href="https://legal.example.com/privacy"`, "Privacy Policy",
+		"&middot;",
+	} {
+		if !strings.Contains(email.HTML, want) {
+			t.Errorf("HTML missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"Terms of service: https://legal.example.com/terms",
+		"Privacy policy: https://legal.example.com/privacy",
+	} {
+		if !strings.Contains(email.Text, want) {
+			t.Errorf("Text missing %q", want)
+		}
+	}
+}
+
+// TestRender_LegalFooterLinksPartial pins one-of-two rendering: no dangling
+// separator, and the unset link stays absent.
+func TestRender_LegalFooterLinksPartial(t *testing.T) {
+	r, err := NewRenderer(Branding{
+		Name:       "ACME Data Platform",
+		PrivacyURL: "https://legal.example.com/privacy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	email, err := r.RenderTest("admin@example.com")
+	if err != nil {
+		t.Fatalf("RenderTest: %v", err)
+	}
+	if !strings.Contains(email.HTML, "Privacy Policy") {
+		t.Error("HTML missing the configured privacy link")
+	}
+	if strings.Contains(email.HTML, "Terms of Service") {
+		t.Error("HTML renders an unconfigured terms link")
+	}
+	if strings.Contains(email.HTML, "&middot;") {
+		t.Error("separator must not render with only one legal link")
+	}
+	if strings.Contains(email.Text, "Terms of service") {
+		t.Error("Text renders an unconfigured terms link")
+	}
+}
+
+// TestRender_NoLegalFooterWithoutConfig pins the default: no legal footer
+// line at all when neither URL is configured.
+func TestRender_NoLegalFooterWithoutConfig(t *testing.T) {
+	email, err := testRenderer(t).RenderTest("admin@example.com")
+	if err != nil {
+		t.Fatalf("RenderTest: %v", err)
+	}
+	for _, absent := range []string{"Terms of Service", "Privacy Policy"} {
+		if strings.Contains(email.HTML, absent) {
+			t.Errorf("unconfigured legal link %q must not render", absent)
+		}
+	}
+}
+
 func TestNewRendererFromFS_ParseErrors(t *testing.T) {
 	goodText := &fstest.MapFile{Data: []byte("ok")}
 	tests := []struct {

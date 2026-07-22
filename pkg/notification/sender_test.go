@@ -77,6 +77,115 @@ func TestBuildMessage_NoLogoNoRelatedPart(t *testing.T) {
 	}
 }
 
+// TestBuildMessage_ListUnsubscribeHeaders proves the RFC 8058 headers reach
+// the wire when the email carries the footer opt-out link. Gmail and Yahoo
+// require them for bulk senders; the in-body link alone does not qualify.
+func TestBuildMessage_ListUnsubscribeHeaders(t *testing.T) {
+	unsub := "https://platform.example.com/portal/notifications/unsubscribe?tok=abc"
+	msg, err := buildMessage(SMTPSettings{From: "p@example.com"},
+		Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>", UnsubURL: unsub})
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	var out strings.Builder
+	if _, err := msg.WriteTo(&out); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	// Unfold RFC 5322 continuation lines: go-mail folds the long URL header.
+	raw := strings.NewReplacer("\r\n ", " ", "\n ", " ").Replace(out.String())
+	for _, want := range []string{
+		"List-Unsubscribe: <" + unsub + ">",
+		"List-Unsubscribe-Post: List-Unsubscribe=One-Click",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("message missing %q; got:\n%s", want, raw)
+		}
+	}
+}
+
+// TestBuildMessage_NonHTTPSUnsubURLNoOneClick pins the RFC 8058 conformance
+// fallback: a non-https unsubscribe URL advertises the plain List-Unsubscribe
+// URI but not the one-click POST header, which the RFC restricts to https.
+func TestBuildMessage_NonHTTPSUnsubURLNoOneClick(t *testing.T) {
+	unsub := "http://internal.example.com/portal/notifications/unsubscribe?tok=abc"
+	msg, err := buildMessage(SMTPSettings{From: "p@example.com"},
+		Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>", UnsubURL: unsub})
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	var out strings.Builder
+	if _, err := msg.WriteTo(&out); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	raw := strings.NewReplacer("\r\n ", " ", "\n ", " ").Replace(out.String())
+	if !strings.Contains(raw, "List-Unsubscribe: <"+unsub+">") {
+		t.Errorf("message missing the plain List-Unsubscribe header:\n%s", raw)
+	}
+	if strings.Contains(raw, "List-Unsubscribe-Post") {
+		t.Errorf("one-click header must not advertise a non-https target:\n%s", raw)
+	}
+}
+
+// TestBuildMessage_NoUnsubURLNoHeaders pins the transactional default:
+// recipient-requested mail (guest links, admin tests) carries no unsubscribe
+// headers, mirroring its footer.
+func TestBuildMessage_NoUnsubURLNoHeaders(t *testing.T) {
+	msg, err := buildMessage(SMTPSettings{From: "p@example.com"},
+		Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>"})
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	var out strings.Builder
+	if _, err := msg.WriteTo(&out); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	if strings.Contains(out.String(), "List-Unsubscribe") {
+		t.Errorf("no UnsubURL, yet the message carries unsubscribe headers:\n%s", out.String())
+	}
+}
+
+// TestBuildMessage_MessageIDUsesFromDomain proves the Message-ID right-hand
+// side is the From domain, not the local hostname a containerized deployment
+// would otherwise leak.
+func TestBuildMessage_MessageIDUsesFromDomain(t *testing.T) {
+	msg, err := buildMessage(SMTPSettings{From: "p@example.com"},
+		Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>"})
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	id := msg.GetMessageID()
+	if id == "" {
+		t.Fatal("no Message-ID set")
+	}
+	if !strings.HasSuffix(id, "@example.com>") {
+		t.Errorf("Message-ID domain must come from the From address: %q", id)
+	}
+	other, err := buildMessage(SMTPSettings{From: "p@example.com"}, Email{To: "a@b.io"})
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	if other.GetMessageID() == id {
+		t.Error("Message-ID left-hand side must be random per message")
+	}
+}
+
+func TestMessageIDDomain(t *testing.T) {
+	tests := []struct {
+		from, want string
+	}{
+		{"p@example.com", "example.com"},
+		{"Data Platform <p@example.com>", "example.com"},
+		{"no-at-sign", ""},
+		{"trailing@", ""},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		if got := messageIDDomain(tc.from); got != tc.want {
+			t.Errorf("messageIDDomain(%q) = %q, want %q", tc.from, got, tc.want)
+		}
+	}
+}
+
 func TestBuildMessage_NoFromName(t *testing.T) {
 	msg, err := buildMessage(SMTPSettings{From: "p@example.com"}, Email{To: "a@b.io"})
 	if err != nil {

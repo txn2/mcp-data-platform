@@ -331,6 +331,8 @@ type PortalConfig struct {
 	PublicBaseURL   string                `yaml:"public_base_url"`   // base URL for portal links (e.g., "https://portal.example.com")
 	MaxContentSize  int                   `yaml:"max_content_size"`  // max artifact size in bytes (default: 10MB)
 	Implementor     ImplementorConfig     `yaml:"implementor"`       // optional implementor brand (far-left header zone)
+	TermsURL        string                `yaml:"terms_url"`         // optional terms-of-service link rendered in notification email footers
+	PrivacyURL      string                `yaml:"privacy_url"`       // optional privacy-policy link rendered in notification email footers
 	RateLimit       PortalRateLimitConfig `yaml:"rate_limit"`
 	Export          PortalExportConfig    `yaml:"export"` // trino_export configuration
 }

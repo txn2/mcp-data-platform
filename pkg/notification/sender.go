@@ -3,7 +3,10 @@ package notification
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"fmt"
+	netmail "net/mail"
+	"strings"
 
 	mail "github.com/wneessen/go-mail"
 )
@@ -56,6 +59,25 @@ func buildMessage(settings SMTPSettings, email Email) (*mail.Msg, error) {
 		return nil, fmt.Errorf("invalid recipient address %q: %w", email.To, err)
 	}
 	msg.Subject(email.Subject)
+	// Gmail and Yahoo require RFC 8058 one-click unsubscribe for bulk senders
+	// and demote mail without it; the in-body footer link alone does not
+	// satisfy the requirement. UnsubURL is set only on mail that carries the
+	// footer opt-out, so recipient-requested sends (guest links, admin tests)
+	// stay header-free. RFC 8058 requires an https POST target; for a
+	// non-https portal base URL, advertise the plain List-Unsubscribe URI
+	// alone rather than a non-conformant one-click pair.
+	if email.UnsubURL != "" {
+		if err := msg.SetListUnsubscribeOneClick(email.UnsubURL); err != nil {
+			msg.SetListUnsubscribe(email.UnsubURL)
+		}
+	}
+	// Left unset, go-mail derives the Message-ID domain from the local
+	// hostname, which in containers is the pod name: a right-hand side that
+	// never resolves trips content-filter heuristics and leaks internal
+	// naming. Use the From domain instead, keeping a random left-hand side.
+	if domain := messageIDDomain(settings.From); domain != "" {
+		msg.SetMessageIDWithValue(rand.Text() + "@" + domain)
+	}
 	msg.SetBodyString(mail.TypeTextPlain, email.Text)
 	msg.AddAlternativeString(mail.TypeTextHTML, email.HTML)
 	// Embed rather than link the logo: an inline part renders on first open,
@@ -67,6 +89,20 @@ func buildMessage(settings SMTPSettings, email Email) (*mail.Msg, error) {
 		msg.EmbedReadSeeker(logoContentID, bytes.NewReader(email.LogoPNG))
 	}
 	return msg, nil
+}
+
+// messageIDDomain extracts the domain of the configured From address for use
+// as the Message-ID right-hand side. Empty means no domain could be derived
+// and the caller leaves Message-ID generation to go-mail.
+func messageIDDomain(from string) string {
+	if addr, err := netmail.ParseAddress(from); err == nil {
+		from = addr.Address
+	}
+	at := strings.LastIndex(from, "@")
+	if at < 0 || at == len(from)-1 {
+		return ""
+	}
+	return from[at+1:]
 }
 
 // buildClient constructs a go-mail client from the admin SMTP settings.

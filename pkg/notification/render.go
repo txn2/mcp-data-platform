@@ -27,6 +27,12 @@ type Branding struct {
 	// ImplementorName and ImplementorURL render in the footer when set.
 	ImplementorName string
 	ImplementorURL  string
+	// TermsURL and PrivacyURL render as small legal links in the footer when
+	// set. When the portal runs on a different domain than the mail From
+	// address, they give recipients and content filters body links that
+	// associate with the sending identity.
+	TermsURL   string
+	PrivacyURL string
 	// LogoPNG is the raster logo from portal.logo_email, resolved once at
 	// startup. When non-empty it is attached to every message as an inline
 	// (cid:) part and rendered above the wordmark; recipients never fetch it
@@ -48,6 +54,11 @@ type Email struct {
 	// LogoPNG is the inline logo the sender must attach under logoContentID
 	// when non-empty. The HTML references it but cannot carry the bytes.
 	LogoPNG []byte
+	// UnsubURL is the recipient's no-login unsubscribe link when the message
+	// carries the footer opt-out (notifications only; transactional sends
+	// leave it empty). The sender emits the RFC 8058 List-Unsubscribe headers
+	// from it, so header presence tracks the footer link exactly.
+	UnsubURL string
 }
 
 // Renderer renders queued notifications into branded multipart emails.
@@ -120,11 +131,12 @@ func (r *Renderer) execute(to string, data emailData) (*Email, error) {
 		return nil, fmt.Errorf("rendering text email: %w", err)
 	}
 	return &Email{
-		To:      to,
-		Subject: data.Subject,
-		HTML:    htmlBuf.String(),
-		Text:    textBuf.String(),
-		LogoPNG: r.branding.LogoPNG,
+		To:       to,
+		Subject:  data.Subject,
+		HTML:     htmlBuf.String(),
+		Text:     textBuf.String(),
+		LogoPNG:  r.branding.LogoPNG,
+		UnsubURL: data.UnsubURL,
 	}, nil
 }
 

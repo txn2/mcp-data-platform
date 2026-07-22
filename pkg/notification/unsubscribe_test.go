@@ -119,6 +119,55 @@ func TestUnsubscribeHandlerRejectsBadToken(t *testing.T) {
 	assert.Empty(t, prefs.set, "an invalid token writes nothing")
 }
 
+// oneClickRequest builds the RFC 8058 POST a mail provider sends: the token
+// URL from the List-Unsubscribe header with the fixed form body.
+func oneClickRequest(tok string) *http.Request {
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/portal/notifications/unsubscribe?tok="+tok,
+		strings.NewReader("List-Unsubscribe=One-Click"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return r
+}
+
+// TestUnsubscribeHandlerOneClickPost proves the RFC 8058 path records the
+// opt-out with no page: the caller is a mail provider, not a browser.
+func TestUnsubscribeHandlerOneClickPost(t *testing.T) {
+	prefs := newMemPrefsStore()
+	h := &UnsubscribeHandler{Prefs: prefs, Key: unsubKey, BrandName: "ACME Data"}
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, oneClickRequest(UnsubToken(unsubKey, "bob@example.com")))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.NotContains(t, w.Body.String(), "<html", "one-click must not return a page requiring interaction")
+
+	stored, err := prefs.Get(context.Background(), "bob@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, ModeOff, stored.Mode, "a one-click POST writes delivery mode off")
+}
+
+func TestUnsubscribeHandlerOneClickRejectsBadToken(t *testing.T) {
+	prefs := newMemPrefsStore()
+	h := &UnsubscribeHandler{Prefs: prefs, Key: unsubKey}
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, oneClickRequest("not-a-token"))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Empty(t, prefs.set, "an invalid token writes nothing")
+}
+
+func TestUnsubscribeHandlerOneClickReportsStoreFailure(t *testing.T) {
+	prefs := newMemPrefsStore()
+	prefs.setErr = errors.New("db down")
+	h := &UnsubscribeHandler{Prefs: prefs, Key: unsubKey}
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, oneClickRequest(UnsubToken(unsubKey, "bob@example.com")))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func TestUnsubscribeHandlerReportsStoreFailure(t *testing.T) {
 	prefs := newMemPrefsStore()
 	prefs.setErr = errors.New("db down")

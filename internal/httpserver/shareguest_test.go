@@ -209,6 +209,21 @@ func TestMountNotificationUnsubscribe(t *testing.T) {
 		t.Error("expected the branded refusal page")
 	}
 
+	// The RFC 8058 one-click POST route is mounted on the same path and
+	// reaches the handler (a bad token is refused with a bare status, no
+	// page).
+	postReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		unsubscribePath+"?tok=garbage", strings.NewReader("List-Unsubscribe=One-Click"))
+	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	wPost := httptest.NewRecorder()
+	mux.ServeHTTP(wPost, postReq)
+	if wPost.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for a bad one-click token, got %d", wPost.Code)
+	}
+	if strings.Contains(wPost.Body.String(), "<html") {
+		t.Error("one-click refusal must not render a page")
+	}
+
 	// Without a key, nothing mounts.
 	mux2 := http.NewServeMux()
 	pNoKey := newTestPlatform(t, &platform.Config{})

@@ -24,6 +24,7 @@ func TestRenderGuestLink(t *testing.T) {
 	}
 	assert.Contains(t, email.HTML, "Open the shared item", "the guest link button carries its own label")
 	assert.NotContains(t, email.HTML, "Unsubscribe", "a transactional send carries no unsubscribe footer")
+	assert.Empty(t, email.UnsubURL, "a transactional send must not trigger List-Unsubscribe headers")
 }
 
 func TestRenderIncludesUnsubscribeFooter(t *testing.T) {
@@ -47,6 +48,8 @@ func TestRenderIncludesUnsubscribeFooter(t *testing.T) {
 	for _, body := range []string{email.HTML, email.Text} {
 		assert.Contains(t, body, "/portal/notifications/unsubscribe?tok=TOK-bob@example.com")
 	}
+	assert.Equal(t, "https://platform.example.com/portal/notifications/unsubscribe?tok=TOK-bob@example.com",
+		email.UnsubURL, "the sender needs the link to emit List-Unsubscribe headers")
 }
 
 func TestRenderOmitsUnsubscribeFooterWithoutBuilder(t *testing.T) {
@@ -61,4 +64,5 @@ func TestRenderOmitsUnsubscribeFooterWithoutBuilder(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, email.HTML, "unsubscribe")
 	assert.NotContains(t, email.Text, "Unsubscribe")
+	assert.Empty(t, email.UnsubURL)
 }
