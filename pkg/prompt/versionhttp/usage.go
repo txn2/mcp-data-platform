@@ -3,6 +3,7 @@ package versionhttp
 import (
 	"context"
 	"net/http"
+	"slices"
 
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
@@ -42,12 +43,7 @@ func (h *Handler) adminUsage(w http.ResponseWriter, r *http.Request) {
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /portal/prompts/usage [get]
-func (h *Handler) portalUsage(w http.ResponseWriter, r *http.Request) {
-	user := h.deps.PortalUser(r)
-	if user == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
+func (h *Handler) portalUsage(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
 	ids, err := h.visiblePromptIDs(r.Context(), user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list prompts")
@@ -56,12 +52,16 @@ func (h *Handler) portalUsage(w http.ResponseWriter, r *http.Request) {
 	h.writeUsage(r.Context(), w, ids)
 }
 
-// portalListVersions returns a prompt's version history to its owner (or an
-// admin). Shared-scope history is an admin curation surface; non-admin viewers
-// see only the served version.
+// portalListVersions returns a prompt's version history to any caller who can
+// view the prompt itself (#1010): version history with per-version approval
+// provenance is the library's verification surface, so a reader of an
+// approved shared prompt may audit what they are running. Personal prompts
+// remain owner-or-admin; a personal prompt shared person-to-person via the
+// portal share system does not expose its history (recipients see only the
+// served version, and the UI omits the section on 403).
 //
 // @Summary      List prompt versions (portal)
-// @Description  Returns the version history of a prompt the caller owns; admins may read any prompt's history.
+// @Description  Returns the version history of a prompt visible to the caller: their own personal prompts, and enabled shared (global or persona-matching) prompts.
 // @Tags         Prompts
 // @Produce      json
 // @Param        id  path  string  true  "Prompt ID"
@@ -73,21 +73,71 @@ func (h *Handler) portalUsage(w http.ResponseWriter, r *http.Request) {
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /portal/prompts/{id}/versions [get]
-func (h *Handler) portalListVersions(w http.ResponseWriter, r *http.Request) {
-	user := h.deps.PortalUser(r)
-	if user == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return
-	}
+func (h *Handler) portalListVersions(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
 	pr, ok := h.loadPrompt(w, r)
 	if !ok {
 		return
 	}
-	if !user.IsAdmin && (pr.Scope != prompt.ScopePersonal || pr.OwnerEmail != user.Email) {
-		writeError(w, http.StatusForbidden, "only the owner or an admin can view a prompt's version history")
+	if !canViewPrompt(user, pr) {
+		writeError(w, http.StatusForbidden, "you do not have access to this prompt's version history")
 		return
 	}
-	h.writeVersionList(r.Context(), w, pr.ID)
+	versions, err := h.deps.Versions.ListVersions(r.Context(), pr.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, errListVers)
+		return
+	}
+	// Admins curate everything; a personal prompt's history is its owner's
+	// (canViewPrompt already restricted personal scope to the owner). Every
+	// other viewer of a shared prompt gets the served history only.
+	if !user.IsAdmin && pr.Scope != prompt.ScopePersonal {
+		versions = redactVersionsForViewer(versions)
+	}
+	if versions == nil {
+		versions = []prompt.Version{}
+	}
+	writeJSON(w, http.StatusOK, versionListResponse{Data: versions, Total: len(versions)})
+}
+
+// redactVersionsForViewer reduces a shared prompt's history to what a
+// non-privileged viewer may verify: applied snapshots in full (they were
+// served), and the pending draft as a metadata stub — its existence is the
+// at-a-glance re-review signal, but its content was never served and stays
+// admin/author-only until approved. Rejected and superseded drafts were never
+// served and are dropped entirely.
+func redactVersionsForViewer(versions []prompt.Version) []prompt.Version {
+	out := make([]prompt.Version, 0, len(versions))
+	for _, v := range versions {
+		switch v.Status {
+		case prompt.VersionStatusApplied:
+			out = append(out, v)
+		case prompt.VersionStatusDraft:
+			v.DisplayName, v.Description, v.Content = "", "", ""
+			v.Arguments, v.Tags = []prompt.Argument{}, []string{}
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// canViewPrompt mirrors the portal prompt list's visibility rule: admins see
+// everything; owners see their own personal prompts; enabled global prompts
+// are visible to all; enabled persona prompts are visible to members of a
+// listed persona.
+func canViewPrompt(user *PortalIdentity, pr *prompt.Prompt) bool {
+	if user.IsAdmin {
+		return true
+	}
+	switch pr.Scope {
+	case prompt.ScopePersonal:
+		return pr.OwnerEmail == user.Email
+	case prompt.ScopeGlobal:
+		return pr.Enabled
+	case prompt.ScopePersona:
+		return pr.Enabled && user.Persona != "" && slices.Contains(pr.Personas, user.Persona)
+	default:
+		return false
+	}
 }
 
 // writeUsage writes the usage map for the given prompt ids. Without a usage
@@ -143,6 +193,13 @@ func (h *Handler) visiblePromptIDs(ctx context.Context, user *PortalIdentity) ([
 			return nil, err
 		}
 		ids = append(ids, personas...)
+	}
+	if h.deps.SharedPromptIDs != nil {
+		shared, err := h.deps.SharedPromptIDs(ctx, user.UserID, user.Email)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, shared...)
 	}
 	return ids, nil
 }

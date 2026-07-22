@@ -64,6 +64,7 @@ func unversionedFieldsChanged(before, after *Prompt) bool {
 func identityFieldsChanged(before, after *Prompt) bool {
 	return before.Name != after.Name ||
 		before.Category != after.Category ||
+		before.CollectionID != after.CollectionID ||
 		before.Scope != after.Scope ||
 		!slices.Equal(before.Personas, after.Personas) ||
 		before.OwnerEmail != after.OwnerEmail ||

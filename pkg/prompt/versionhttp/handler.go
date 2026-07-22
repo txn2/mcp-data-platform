@@ -1,13 +1,13 @@
 // Package versionhttp exposes prompt version history, draft review actions,
-// and audit-derived usage stats over REST (#1009). It serves both operator
-// surfaces — the admin API (any prompt, approve/reject) and the portal API
-// (own prompts, read-only history plus usage for the caller's visible set) —
-// from one implementation. It lives beside pkg/prompt rather than inside
-// pkg/admin or pkg/portal so those packages stay within the package-size
-// budget; the composition root (internal/httpserver) mounts it under each
-// surface's path prefix wrapped in that surface's own authentication
-// middleware, and injects the identity accessors, so this package never
-// imports either surface.
+// audit-derived usage stats (#1009), and prompt collection management (#1010)
+// over REST. It serves both operator surfaces — the admin API (any prompt,
+// approve/reject) and the portal API (visible prompts, read-only history plus
+// usage for the caller's visible set, collection CRUD and assignment) — from
+// one implementation. It lives beside pkg/prompt rather than inside pkg/admin
+// or pkg/portal so those packages stay within the package-size budget; the
+// composition root (internal/httpserver) mounts it under each surface's path
+// prefix wrapped in that surface's own authentication middleware, and injects
+// the identity accessors, so this package never imports either surface.
 package versionhttp
 
 import (
@@ -29,6 +29,7 @@ type Registrar interface {
 
 // PortalIdentity is the portal caller resolved by the injected accessor.
 type PortalIdentity struct {
+	UserID  string
 	Email   string
 	Persona string
 	IsAdmin bool
@@ -36,20 +37,26 @@ type PortalIdentity struct {
 
 // Deps carries the collaborators the version handlers need. Store and
 // Versions are required; Usage is optional (audit disabled leaves usage
-// empty); Registrar is optional. AdminEmail and PortalUser are the surface
-// identity accessors injected by the composition root — each Register* call
-// requires its accessor.
+// empty); Registrar is optional; Collections is optional (nil skips the
+// collection routes). AdminEmail and PortalUser are the surface identity
+// accessors injected by the composition root — each Register* call requires
+// its accessor.
 type Deps struct {
-	Store     prompt.Store
-	Versions  prompt.VersionStore
-	Usage     prompt.UsageReader
-	Registrar Registrar
+	Store       prompt.Store
+	Versions    prompt.VersionStore
+	Usage       prompt.UsageReader
+	Registrar   Registrar
+	Collections prompt.CollectionStore
 
 	// AdminEmail returns the authenticated admin's email for approval stamps.
 	AdminEmail func(r *http.Request) string
 	// PortalUser resolves the authenticated portal caller, or nil when the
 	// request carries no user.
 	PortalUser func(r *http.Request) *PortalIdentity
+	// SharedPromptIDs returns the ids of prompts shared person-to-person with
+	// the caller, so their usage is as visible as the prompts themselves.
+	// Optional: nil when the deployment has no portal share store.
+	SharedPromptIDs func(ctx context.Context, userID, email string) ([]string, error)
 }
 
 // Handler serves the prompt version and usage routes.
@@ -82,13 +89,30 @@ func (h *Handler) RegisterAdmin(mux *http.ServeMux, prefix string, wrap func(htt
 	mux.Handle("GET "+prefix+"/prompts/{id}/versions/{version}", wrap(http.HandlerFunc(h.adminGetVersion)))
 	mux.Handle("POST "+prefix+"/prompts/{id}/versions/{version}/approve", wrap(http.HandlerFunc(h.approveVersion)))
 	mux.Handle("POST "+prefix+"/prompts/{id}/versions/{version}/reject", wrap(http.HandlerFunc(h.rejectVersion)))
+	h.registerAdminCollections(mux, prefix, wrap)
 }
 
 // RegisterPortal mounts the portal version routes, wrapped in the portal auth
-// middleware.
+// middleware. Every portal handler goes through portalHandler, which resolves
+// the caller identity and 401s unauthenticated requests in one place.
 func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) http.Handler) {
-	mux.Handle("GET /api/v1/portal/prompts/usage", wrap(http.HandlerFunc(h.portalUsage)))
-	mux.Handle("GET /api/v1/portal/prompts/{id}/versions", wrap(http.HandlerFunc(h.portalListVersions)))
+	mux.Handle("GET /api/v1/portal/prompts/usage", wrap(h.portalHandler(h.portalUsage)))
+	mux.Handle("GET /api/v1/portal/prompts/{id}/versions", wrap(h.portalHandler(h.portalListVersions)))
+	h.registerPortalCollections(mux, wrap)
+}
+
+// portalHandler adapts a portal handler by resolving the caller identity
+// first, responding 401 when the request carries no user. Every portal route
+// in this package registers through it.
+func (h *Handler) portalHandler(fn func(w http.ResponseWriter, r *http.Request, user *PortalIdentity)) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := h.deps.PortalUser(r)
+		if user == nil {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		fn(w, r, user)
+	})
 }
 
 // versionListResponse is the version history payload.

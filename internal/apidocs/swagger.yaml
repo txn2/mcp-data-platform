@@ -3656,6 +3656,30 @@ definitions:
         example: true
         type: boolean
     type: object
+  prompt.Collection:
+    properties:
+      created_at:
+        example: "2026-07-01T14:30:00Z"
+        type: string
+      created_by:
+        example: jane@example.com
+        type: string
+      description:
+        example: Weekly and daily sales SOPs
+        type: string
+      id:
+        example: col_a1b2c3d4
+        type: string
+      name:
+        example: Sales Reporting
+        type: string
+      prompt_count:
+        example: 7
+        type: integer
+      updated_at:
+        example: "2026-07-01T14:30:00Z"
+        type: string
+    type: object
   prompt.EditOutcome:
     properties:
       applied:
@@ -3681,6 +3705,13 @@ definitions:
         type: array
       category:
         example: analysis
+        type: string
+      collection_id:
+        description: |-
+          CollectionID places the prompt in at most one collection (#1010); empty
+          means uncollected. Placement is organizational metadata, not reviewable
+          substance: it is never versioned and changing it never triggers review.
+        example: col_a1b2c3d4
         type: string
       content:
         example: Analyze sales data for {date} grouped by region.
@@ -3874,6 +3905,31 @@ definitions:
         type: string
       reachable:
         type: boolean
+    type: object
+  versionhttp.assignCollectionRequest:
+    properties:
+      collection_id:
+        example: col_a1b2c3d4
+        type: string
+    type: object
+  versionhttp.collectionListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/prompt.Collection'
+        type: array
+      total:
+        example: 3
+        type: integer
+    type: object
+  versionhttp.collectionRequest:
+    properties:
+      description:
+        example: Weekly and daily sales SOPs
+        type: string
+      name:
+        example: Sales Reporting
+        type: string
     type: object
   versionhttp.versionListResponse:
     properties:
@@ -7247,6 +7303,162 @@ paths:
       summary: Preview a persona's decision for a tool
       tags:
       - Personas
+  /admin/prompt-collections:
+    get:
+      description: Returns every prompt collection with its member prompt count, ordered
+        by name.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/versionhttp.collectionListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List prompt collections
+      tags:
+      - Prompts
+    post:
+      consumes:
+      - application/json
+      description: Creates a named collection organizing the prompt library. Names
+        are unique case-insensitively.
+      parameters:
+      - description: Collection
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/versionhttp.collectionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/prompt.Collection'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create prompt collection
+      tags:
+      - Prompts
+  /admin/prompt-collections/{id}:
+    delete:
+      description: Deletes a collection; member prompts are released to the default
+        (uncollected) group.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete prompt collection
+      tags:
+      - Prompts
+    put:
+      consumes:
+      - application/json
+      description: Renames or re-describes a collection.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Collection
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/versionhttp.collectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/prompt.Collection'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update prompt collection
+      tags:
+      - Prompts
   /admin/prompts:
     get:
       description: Returns all prompts across all scopes, including system-registered
@@ -7462,6 +7674,62 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Approve prompt promotion
+      tags:
+      - Prompts
+  /admin/prompts/{id}/collection:
+    put:
+      consumes:
+      - application/json
+      description: 'Places a prompt in a collection, or clears the assignment with
+        an empty collection_id. Placement is organizational metadata: no version is
+        produced and no review is triggered.'
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Assignment
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/versionhttp.assignCollectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/prompt.Prompt'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Assign prompt to collection
       tags:
       - Prompts
   /admin/prompts/{id}/reject:
@@ -10419,6 +10687,199 @@ paths:
       summary: Update my notification preferences
       tags:
       - Notifications
+  /portal/prompt-collections:
+    get:
+      description: Returns every prompt collection with its member prompt count, ordered
+        by name.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/versionhttp.collectionListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List prompt collections (portal)
+      tags:
+      - Prompts
+    post:
+      consumes:
+      - application/json
+      description: Creates a named collection organizing the prompt library. Names
+        are unique case-insensitively.
+      parameters:
+      - description: Collection
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/versionhttp.collectionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/prompt.Collection'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create prompt collection (portal)
+      tags:
+      - Prompts
+  /portal/prompt-collections/{id}:
+    delete:
+      description: Deletes a collection the caller created; admins may delete any
+        collection. Member prompts are released to the default (uncollected) group.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete prompt collection (portal)
+      tags:
+      - Prompts
+    put:
+      consumes:
+      - application/json
+      description: Renames or re-describes a collection the caller created; admins
+        may update any collection.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Collection
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/versionhttp.collectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/prompt.Collection'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update prompt collection (portal)
+      tags:
+      - Prompts
   /portal/prompts:
     get:
       description: Returns the user's personal prompts plus available global, persona,
@@ -10580,6 +11041,68 @@ paths:
       summary: Update personal prompt
       tags:
       - Prompts
+  /portal/prompts/{id}/collection:
+    put:
+      consumes:
+      - application/json
+      description: Places a prompt in a collection, or clears the assignment with
+        an empty collection_id. Owners organize their own prompts; admins organize
+        shared prompts.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Assignment
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/versionhttp.assignCollectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/prompt.Prompt'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Assign prompt to collection (portal)
+      tags:
+      - Prompts
   /portal/prompts/{id}/shares:
     get:
       description: Returns all shares for a prompt. Only the owner can view them.
@@ -10664,8 +11187,9 @@ paths:
       - Prompts
   /portal/prompts/{id}/versions:
     get:
-      description: Returns the version history of a prompt the caller owns; admins
-        may read any prompt's history.
+      description: 'Returns the version history of a prompt visible to the caller:
+        their own personal prompts, and enabled shared (global or persona-matching)
+        prompts.'
       parameters:
       - description: Prompt ID
         in: path

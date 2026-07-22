@@ -15,6 +15,7 @@ package httpserver
 // mounts.go where their coverage is measured normally.
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -148,12 +149,28 @@ func promptVersionDeps(p *platform.Platform) (versionhttp.Deps, bool) {
 		return versionhttp.Deps{}, false
 	}
 	deps := versionhttp.Deps{
-		Store:     store,
-		Versions:  versions,
-		Registrar: p,
+		Store:       store,
+		Versions:    versions,
+		Registrar:   p,
+		Collections: prompt.AsCollectionStore(store),
 	}
 	if s := p.AuditStore(); s != nil {
 		deps.Usage = s
+	}
+	// Prompts shared person-to-person are as visible as the caller's own, so
+	// their usage joins the portal rollup (#1010).
+	if ss := p.PortalShareStore(); ss != nil {
+		deps.SharedPromptIDs = func(ctx context.Context, userID, email string) ([]string, error) {
+			refs, err := ss.ListSharedPromptsWithUser(ctx, userID, email)
+			if err != nil {
+				return nil, err //nolint:wrapcheck // handler maps any failure to one HTTP error
+			}
+			ids := make([]string, 0, len(refs))
+			for _, ref := range refs {
+				ids = append(ids, ref.PromptID)
+			}
+			return ids, nil
+		}
 	}
 	return deps, true
 }

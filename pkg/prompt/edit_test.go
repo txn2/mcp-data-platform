@@ -175,6 +175,7 @@ func TestApplyEdit_MixedGatedEditRejected(t *testing.T) {
 		{"scope change", func(p *Prompt) { p.Scope = ScopePersona }},
 		{"status change", func(p *Prompt) { p.Status = StatusDeprecated }},
 		{"category change", func(p *Prompt) { p.Category = "other" }},
+		{"collection change", func(p *Prompt) { p.CollectionID = "col-1" }},
 		{"rename", func(p *Prompt) { p.Name = "renamed" }},
 		{"personas change", func(p *Prompt) { p.Personas = []string{"analyst"} }},
 		{"enabled change", func(p *Prompt) { p.Enabled = false }},

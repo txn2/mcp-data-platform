@@ -38,7 +38,7 @@ func expectLockPrompt(mock sqlmock.Sqlmock, p *prompt.Prompt, argsJSON []byte) {
 			p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
 			pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt, p.SupersededBy,
 			p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas), p.Version,
-			testRowTime, testRowTime,
+			p.CollectionID, testRowTime, testRowTime,
 		))
 }
 

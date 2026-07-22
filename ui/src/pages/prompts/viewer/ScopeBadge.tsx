@@ -1,15 +1,17 @@
-import { Globe, Users, User, MessageSquare } from "lucide-react";
+import { BookOpen, User, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ScopeBadge renders the small pill indicating a prompt's scope (global,
-// persona, personal, system). Extracted verbatim from PromptViewerPage.tsx
-// (#819).
+// ScopeBadge renders the small pill placing a prompt in the user's two-bucket
+// model (#1010): personal prompts are "Personal", approved shared prompts
+// (global or persona scope) are "Library", system prompts are "System". The
+// underlying scope taxonomy is an authoring/admin concept and is deliberately
+// not shown here; it appears only in the promote and admin flows.
 
-export type ScopeStyle = { label: string; icon: typeof Globe; color: string };
+export type ScopeStyle = { label: string; icon: typeof User; color: string };
 
 const scopeStyles: Record<string, ScopeStyle> = {
-  global: { label: "Global", icon: Globe, color: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
-  persona: { label: "Persona", icon: Users, color: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
+  global: { label: "Library", icon: BookOpen, color: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+  persona: { label: "Library", icon: BookOpen, color: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
   personal: { label: "Personal", icon: User, color: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20" },
   system: { label: "System", icon: MessageSquare, color: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
 };

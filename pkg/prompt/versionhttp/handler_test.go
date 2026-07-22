@@ -330,16 +330,17 @@ func TestPortalListVersions_Authorization(t *testing.T) {
 	mux := newTestMux(t, deps)
 	assert.Equal(t, http.StatusUnauthorized, doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p2/versions").Code)
 
-	// The owner reads their own history.
+	// The owner reads their own history, and — history being the library's
+	// verification surface (#1010) — any viewer reads an enabled global
+	// prompt's history.
 	deps.PortalUser = func(*http.Request) *PortalIdentity {
 		return &PortalIdentity{Email: "sarah@example.com"}
 	}
 	mux = newTestMux(t, deps)
 	assert.Equal(t, http.StatusOK, doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p2/versions").Code)
-	// But not a shared prompt's history (admin curation surface).
-	assert.Equal(t, http.StatusForbidden, doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p1/versions").Code)
+	assert.Equal(t, http.StatusOK, doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p1/versions").Code)
 
-	// A non-owner is denied; an admin is not.
+	// Another user's personal prompt stays hidden; an admin reads anything.
 	deps.PortalUser = func(*http.Request) *PortalIdentity {
 		return &PortalIdentity{Email: "bob@example.com"}
 	}
@@ -351,6 +352,90 @@ func TestPortalListVersions_Authorization(t *testing.T) {
 	}
 	mux = newTestMux(t, deps)
 	assert.Equal(t, http.StatusOK, doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p1/versions").Code)
+	assert.Equal(t, http.StatusOK, doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p2/versions").Code)
+}
+
+func TestPortalListVersions_SharedScopeVisibility(t *testing.T) {
+	fx := seededDeps()
+	deps, store := fx.deps, fx.store
+	store.prompts["p5"] = &prompt.Prompt{
+		ID: "p5", Name: "team-sop", Scope: prompt.ScopePersona,
+		Personas: []string{"analyst"}, Enabled: true, Status: prompt.StatusApproved, Version: 1,
+	}
+	store.prompts["p6"] = &prompt.Prompt{
+		ID: "p6", Name: "retired", Scope: prompt.ScopeGlobal,
+		Enabled: false, Status: prompt.StatusApproved, Version: 1,
+	}
+
+	// A persona member reads their persona's history; an outsider does not.
+	deps.PortalUser = func(*http.Request) *PortalIdentity {
+		return &PortalIdentity{Email: "sarah@example.com", Persona: "analyst"}
+	}
+	mux := newTestMux(t, deps)
+	assert.Equal(t, http.StatusOK, doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p5/versions").Code)
+
+	deps.PortalUser = func(*http.Request) *PortalIdentity {
+		return &PortalIdentity{Email: "bob@example.com", Persona: "engineer"}
+	}
+	mux = newTestMux(t, deps)
+	assert.Equal(t, http.StatusForbidden, doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p5/versions").Code)
+
+	// A disabled shared prompt is as invisible as the prompt itself.
+	assert.Equal(t, http.StatusForbidden, doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p6/versions").Code)
+}
+
+func TestPortalListVersions_RedactsUnservedContentForViewers(t *testing.T) {
+	fx := seededDeps()
+	deps, versions := fx.deps, fx.versions
+	versions.versions["p1"] = append(versions.versions["p1"],
+		prompt.Version{ID: "v0r", PromptID: "p1", Version: 0, Content: "declined", Status: prompt.VersionStatusRejected, Author: "eve@example.com"},
+	)
+
+	// A non-admin viewer of the shared prompt sees applied snapshots in full
+	// and the pending draft as a content-less stub; rejected rows are absent.
+	deps.PortalUser = func(*http.Request) *PortalIdentity {
+		return &PortalIdentity{Email: "sarah@example.com"}
+	}
+	mux := newTestMux(t, deps)
+	rec := doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p1/versions")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out versionListResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Equal(t, 2, out.Total, "rejected rows are dropped")
+	assert.Equal(t, prompt.VersionStatusDraft, out.Data[0].Status)
+	assert.Empty(t, out.Data[0].Content, "pending draft content was never served")
+	assert.Equal(t, "jane@example.com", out.Data[0].Author, "the at-a-glance signal keeps its author")
+	assert.Equal(t, prompt.VersionStatusApplied, out.Data[1].Status)
+	assert.Equal(t, "live", out.Data[1].Content, "served snapshots stay complete")
+
+	// An admin reads everything unredacted.
+	deps.PortalUser = func(*http.Request) *PortalIdentity {
+		return &PortalIdentity{Email: "root@example.com", IsAdmin: true}
+	}
+	mux = newTestMux(t, deps)
+	rec = doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p1/versions")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, 3, out.Total)
+	assert.Equal(t, "draft", out.Data[0].Content)
+}
+
+func TestPortalListVersions_OwnerReadsPersonalHistoryInFull(t *testing.T) {
+	fx := seededDeps()
+	deps, versions := fx.deps, fx.versions
+	versions.versions["p2"] = []prompt.Version{
+		{ID: "p2v1", PromptID: "p2", Version: 1, Content: "mine", Status: prompt.VersionStatusApplied, Author: "sarah@example.com"},
+	}
+	deps.PortalUser = func(*http.Request) *PortalIdentity {
+		return &PortalIdentity{Email: "sarah@example.com"}
+	}
+	mux := newTestMux(t, deps)
+	rec := doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/p2/versions")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out versionListResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Equal(t, 1, out.Total)
+	assert.Equal(t, "mine", out.Data[0].Content, "personal history is the owner's, unredacted")
 }
 
 func TestPortalUsage_ScopesToVisiblePrompts(t *testing.T) {
@@ -375,6 +460,26 @@ func TestPortalUsage_ScopesToVisiblePrompts(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.ElementsMatch(t, []string{"p1", "p2", "p3"}, usage.gotIDs,
 		"own personal + global + persona prompts; never another user's personal prompt")
+}
+
+func TestPortalUsage_IncludesSharedPrompts(t *testing.T) {
+	deps := seededDeps().deps
+	usage := &fakeUsage{usage: map[string]prompt.Usage{}}
+	deps.Usage = usage
+	deps.SharedPromptIDs = func(_ context.Context, userID, email string) ([]string, error) {
+		assert.Equal(t, "uid-sarah", userID)
+		assert.Equal(t, "sarah@example.com", email)
+		return []string{"p-shared"}, nil
+	}
+	deps.PortalUser = func(*http.Request) *PortalIdentity {
+		return &PortalIdentity{UserID: "uid-sarah", Email: "sarah@example.com"}
+	}
+	mux := newTestMux(t, deps)
+
+	rec := doReq(t, mux, http.MethodGet, "/api/v1/portal/prompts/usage")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, usage.gotIDs, "p-shared",
+		"prompts shared person-to-person are as visible as the caller's own")
 }
 
 func TestPortalUsage_AdminSeesAll(t *testing.T) {

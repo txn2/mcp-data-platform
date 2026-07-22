@@ -1,4 +1,4 @@
-import type { Prompt } from "@/api/admin/types";
+import type { Prompt, PromptCollection, PromptUsage, PromptVersion } from "@/api/admin/types";
 
 const now = new Date();
 function daysAgo(n: number): string {
@@ -502,6 +502,182 @@ phrased as a question with options. If there are none, write "No asks this week.
 };
 
 // ---------------------------------------------------------------------------
+// Collections (#1010): named groups organizing the library. Assignments and
+// served versions are stamped onto the prompt fixtures via withMeta so every
+// list (portal, admin, search) serves consistent rows.
+// ---------------------------------------------------------------------------
+
+export const mockPromptCollections: PromptCollection[] = [
+  {
+    id: "pcol-001",
+    name: "Sales Reporting",
+    description: "Daily and weekly sales SOPs",
+    created_by: "alice@example.com",
+    prompt_count: 4,
+    created_at: daysAgo(40),
+    updated_at: daysAgo(6),
+  },
+  {
+    id: "pcol-002",
+    name: "Data Operations",
+    description: "Pipeline and quality runbooks",
+    created_by: "dave@example.com",
+    prompt_count: 2,
+    created_at: daysAgo(35),
+    updated_at: daysAgo(10),
+  },
+  {
+    id: "pcol-003",
+    name: "Executive Briefings",
+    description: "Leadership-facing summaries",
+    created_by: "alice@example.com",
+    prompt_count: 1,
+    created_at: daysAgo(20),
+    updated_at: daysAgo(20),
+  },
+];
+
+const promptMeta: Record<string, { collection_id?: string; version?: number }> = {
+  "prompt-003": { collection_id: "pcol-001", version: 3 },
+  "prompt-005": { collection_id: "pcol-002", version: 1 },
+  "prompt-006": { collection_id: "pcol-003", version: 2 },
+  "prompt-007": { collection_id: "pcol-002", version: 1 },
+  "prompt-008": { collection_id: "pcol-001", version: 1 },
+  "prompt-009": { collection_id: "pcol-001", version: 1 },
+  "prompt-010": { collection_id: "pcol-001", version: 2 },
+};
+
+function withMeta(p: Prompt): Prompt {
+  const m = promptMeta[p.id];
+  return m ? { ...p, version: 1, ...m } : { ...p, version: 1 };
+}
+
+// ---------------------------------------------------------------------------
+// Usage rollup (#1009): run count + last run per prompt id. Prompts absent
+// from the map have never been served, and read as inactive in the library.
+// ---------------------------------------------------------------------------
+
+export const mockPromptUsage: Record<string, PromptUsage> = {
+  "prompt-003": { run_count: 128, last_run_at: daysAgo(1) },
+  "prompt-005": { run_count: 7, last_run_at: daysAgo(92) },
+  "prompt-006": { run_count: 41, last_run_at: daysAgo(9) },
+  "prompt-007": { run_count: 12, last_run_at: daysAgo(45) },
+  "prompt-009": { run_count: 23, last_run_at: daysAgo(3) },
+  "prompt-010": { run_count: 9, last_run_at: daysAgo(2) },
+  "prompt-shared-001": { run_count: 4, last_run_at: daysAgo(12) },
+};
+
+// ---------------------------------------------------------------------------
+// Version history (#1009): per-version author + approval provenance. The
+// daily sales report carries a realistic arc: applied history, the currently
+// served approved version, and a pending draft awaiting review.
+// ---------------------------------------------------------------------------
+
+export const mockPromptVersions: Record<string, PromptVersion[]> = {
+  // The v3 snapshot matches the served prompt-003 content exactly (the live
+  // row serves the applied version), so diffs against "current" are honest.
+  "prompt-003": [
+    {
+      id: "pver-003-4",
+      prompt_id: "prompt-003",
+      version: 4,
+      display_name: "Daily Sales Report",
+      description: "Generate daily sales report by region",
+      content:
+        "Generate a daily sales summary for {{date}} broken down by region. Include total revenue, transaction count, and average order value. Flag any region with revenue below {{threshold}}.\nFinish with a short narrative summary for the sales channel.",
+      arguments: [
+        { name: "date", description: "Report date in YYYY-MM-DD format", required: true },
+        { name: "threshold", description: "Minimum expected revenue in dollars", required: false },
+      ],
+      tags: [],
+      author: "bob@example.com",
+      status: "draft",
+      created_at: daysAgo(1),
+    },
+    {
+      id: "pver-003-3",
+      prompt_id: "prompt-003",
+      version: 3,
+      display_name: "Daily Sales Report",
+      description: "Generate daily sales report by region",
+      content:
+        "Generate a daily sales summary for {{date}} broken down by region. Include total revenue, transaction count, and average order value. Flag any region with revenue below {{threshold}}.",
+      arguments: [
+        { name: "date", description: "Report date in YYYY-MM-DD format", required: true },
+        { name: "threshold", description: "Minimum expected revenue in dollars", required: false },
+      ],
+      tags: [],
+      author: "carol@example.com",
+      status: "applied",
+      approved_by: "alice@example.com",
+      approved_at: daysAgo(6),
+      created_at: daysAgo(7),
+    },
+    {
+      id: "pver-003-2",
+      prompt_id: "prompt-003",
+      version: 2,
+      display_name: "Daily Sales Report",
+      description: "Generate daily sales report by region",
+      content:
+        "Generate a daily sales summary for {{date}} broken down by region.\nInclude total revenue and transaction count.",
+      arguments: [{ name: "date", description: "Report date in YYYY-MM-DD format", required: true }],
+      tags: [],
+      author: "carol@example.com",
+      status: "superseded",
+      created_at: daysAgo(15),
+    },
+    {
+      id: "pver-003-1",
+      prompt_id: "prompt-003",
+      version: 1,
+      display_name: "Daily Sales Report",
+      description: "Generate daily sales report",
+      content: "Generate a daily sales summary for {{date}}.",
+      arguments: [{ name: "date", description: "Report date in YYYY-MM-DD format", required: true }],
+      tags: [],
+      author: "alice@example.com",
+      status: "applied",
+      approved_by: "alice@example.com",
+      approved_at: daysAgo(30),
+      created_at: daysAgo(30),
+    },
+  ],
+  // v2 matches the served prompt-010 content exactly (the live row serves the
+  // applied version), keeping the current-version diff empty as on the real
+  // server.
+  "prompt-010": [
+    {
+      id: "pver-010-2",
+      prompt_id: "prompt-010",
+      version: 2,
+      display_name: "My Weekly Summary",
+      description: "Personal weekly data activity summary",
+      content:
+        "Summarize my data platform activity for the past week, including queries run, artifacts created, and top tables accessed. Highlight anything unusual.",
+      arguments: [],
+      tags: [],
+      author: "j.martinez@example.com",
+      status: "applied",
+      created_at: daysAgo(1),
+    },
+    {
+      id: "pver-010-1",
+      prompt_id: "prompt-010",
+      version: 1,
+      display_name: "My Weekly Summary",
+      description: "Personal weekly data activity summary",
+      content: "Summarize my data platform activity for the past week.",
+      arguments: [],
+      tags: [],
+      author: "j.martinez@example.com",
+      status: "applied",
+      created_at: daysAgo(14),
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -539,7 +715,7 @@ export const mockAdminPrompts: Prompt[] = [
     requested_scope: "persona",
     requested_personas: ["finance-executive"],
   },
-];
+].map(withMeta);
 
 const personalPrompts: Prompt[] = [
   myWeeklySummary,
@@ -547,7 +723,7 @@ const personalPrompts: Prompt[] = [
   customSqlTemplate,
   incidentRetro,
   weeklyBusinessReview,
-];
+].map(withMeta);
 
 const availablePrompts: Prompt[] = [
   discoverDataDomains,
@@ -559,7 +735,7 @@ const availablePrompts: Prompt[] = [
   etlPipelineStatus,
   stockLevelAlert,
   revenueForecast,
-];
+].map(withMeta);
 
 export const mockPortalPrompts: { personal: Prompt[]; available: Prompt[] } = {
   personal: personalPrompts,
@@ -567,8 +743,9 @@ export const mockPortalPrompts: { personal: Prompt[]; available: Prompt[] } = {
 };
 
 // ---------------------------------------------------------------------------
-// Prompts shared directly with the current user (surfaced on the Prompts page
-// "Shared" tab). These are runnable as `shared-<name>`.
+// Prompts shared directly with the current user (merged into the "My Prompts"
+// bucket with a shared-by attribution). Presented over MCP as shared-<name>;
+// the agent also resolves them from the bare name via manage_prompt use.
 // ---------------------------------------------------------------------------
 
 export interface MockSharedPrompt {

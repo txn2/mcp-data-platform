@@ -51,7 +51,10 @@ func (h *Handle) notifyListChanged() {
 // beyond prompt.Store are Search (prompt.Searcher) and the versioning methods
 // (prompt.VersionStore, asserted by prompt.ApplyEdit and the composition
 // root). If a future extension interface is introduced, it must be forwarded
-// here too, or the wrapper will silently drop it.
+// here too, or the wrapper will silently drop it. Capabilities that need no
+// write hook (prompt.CollectionStore) are instead exposed through the
+// prompt.CollectionProvider accessor on notifyingStore, which every wrapper
+// shape inherits, so they add no combinations here.
 func wrapStore(base prompt.Store, notify func()) prompt.Store {
 	ns := &notifyingStore{Store: base, notify: notify}
 	searcher, hasSearch := base.(prompt.Searcher)
@@ -102,6 +105,15 @@ type notifyingSearchStore struct {
 // / knowledge.PromptSearcher capability through the wrapper.
 func (s *notifyingSearchStore) Search(ctx context.Context, q prompt.SearchQuery) ([]prompt.ScoredPrompt, error) {
 	return s.searcher.Search(ctx, q) //nolint:wrapcheck // transparent decorator: pass the searcher's error through unchanged
+}
+
+// Collections exposes the wrapped store's collection capability (#1010) via
+// prompt.CollectionProvider. Collection writes organize the portal library
+// only — they never change the MCP prompt list, so they need no list_changed
+// hook and pass through undecorated. Defined on the embedded base wrapper so
+// every capability-combination shape built in wrapStore inherits it.
+func (s *notifyingStore) Collections() prompt.CollectionStore {
+	return prompt.AsCollectionStore(s.Store)
 }
 
 // Create persists a new prompt and notifies on success.
@@ -193,12 +205,14 @@ type atomicNotifier = atomic.Pointer[ListChangedNotifier]
 // extension (and thus knowledge.PromptSearcher, which is Search + the embedded
 // GetByID) so the up-casts across the codebase continue to succeed.
 var (
-	_ prompt.Store        = (*notifyingStore)(nil)
-	_ prompt.Store        = (*notifyingSearchStore)(nil)
-	_ prompt.Searcher     = (*notifyingSearchStore)(nil)
-	_ prompt.Store        = (*notifyingVersionOnlyStore)(nil)
-	_ prompt.VersionStore = (*notifyingVersionOnlyStore)(nil)
-	_ prompt.Store        = (*notifyingSearchVersionStore)(nil)
-	_ prompt.Searcher     = (*notifyingSearchVersionStore)(nil)
-	_ prompt.VersionStore = (*notifyingSearchVersionStore)(nil)
+	_ prompt.Store              = (*notifyingStore)(nil)
+	_ prompt.CollectionProvider = (*notifyingStore)(nil)
+	_ prompt.CollectionProvider = (*notifyingSearchVersionStore)(nil)
+	_ prompt.Store              = (*notifyingSearchStore)(nil)
+	_ prompt.Searcher           = (*notifyingSearchStore)(nil)
+	_ prompt.Store              = (*notifyingVersionOnlyStore)(nil)
+	_ prompt.VersionStore       = (*notifyingVersionOnlyStore)(nil)
+	_ prompt.Store              = (*notifyingSearchVersionStore)(nil)
+	_ prompt.Searcher           = (*notifyingSearchVersionStore)(nil)
+	_ prompt.VersionStore       = (*notifyingSearchVersionStore)(nil)
 )
