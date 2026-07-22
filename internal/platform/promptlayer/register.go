@@ -44,6 +44,7 @@ type PromptArgSpec struct {
 // config types and defaulting rules.
 type PromptSpec struct {
 	Name        string
+	DisplayName string
 	Description string
 	Content     string
 	Arguments   []PromptArgSpec
@@ -183,6 +184,7 @@ func (h *Handle) registerPromptWithCategory(server *mcp.Server, spec PromptSpec,
 
 	server.AddPrompt(&mcp.Prompt{
 		Name:        spec.Name,
+		Title:       displayOrName(spec.DisplayName, spec.Name),
 		Description: spec.Description,
 		Arguments:   mcpArgs,
 	}, func(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
@@ -193,6 +195,7 @@ func (h *Handle) registerPromptWithCategory(server *mcp.Server, spec PromptSpec,
 	// Collect metadata
 	info := registry.PromptInfo{
 		Name:        spec.Name,
+		DisplayName: spec.DisplayName,
 		Description: spec.Description,
 		Category:    category,
 		Content:     spec.Content,
@@ -247,6 +250,7 @@ func workflowPrompts() []workflowPrompt {
 		{
 			spec: PromptSpec{
 				Name:        promptExploreAvailableData,
+				DisplayName: "Explore Available Data",
 				Description: "Discover what data is available about a topic",
 				Content: `Explore what data is available about {topic}.
 
@@ -263,6 +267,7 @@ func workflowPrompts() []workflowPrompt {
 		{
 			spec: PromptSpec{
 				Name:        "create-interactive-dashboard",
+				DisplayName: "Create an Interactive Dashboard",
 				Description: "Discover data, build a visualization, and save it as a shareable asset",
 				Content: `Create an interactive dashboard about {topic}.
 
@@ -279,6 +284,7 @@ func workflowPrompts() []workflowPrompt {
 		{
 			spec: PromptSpec{
 				Name:        "create-a-report",
+				DisplayName: "Create a Report",
 				Description: "Analyze data and produce a structured Markdown report",
 				Content: `Generate a comprehensive report about {topic}.
 
@@ -295,6 +301,7 @@ func workflowPrompts() []workflowPrompt {
 		{
 			spec: PromptSpec{
 				Name:        "trace-data-lineage",
+				DisplayName: "Trace Data Lineage",
 				Description: "Trace where data comes from and what depends on it",
 				Content: `Trace the data lineage for {dataset}.
 
@@ -443,6 +450,7 @@ func (h *Handle) registerDatabasePrompt(pr *prompt.Prompt) {
 	}
 	info := registry.PromptInfo{
 		Name:        pr.Name,
+		DisplayName: pr.DisplayName,
 		Description: pr.Description,
 		Category:    pr.Scope,
 		Content:     pr.Content,
@@ -482,11 +490,22 @@ const (
 	promptPrefixShared   = "shared-"
 )
 
+// displayOrName returns the human display name, falling back to the machine
+// name, for the MCP Title field.
+func displayOrName(display, name string) string {
+	if display != "" {
+		return display
+	}
+	return name
+}
+
 // promptDescriptor builds an MCP prompt descriptor under a presented (prefixed)
-// name from a stored prompt.
+// name from a stored prompt. Title carries the human display name so clients
+// can show "Daily Sales Report" while invoking by machine name.
 func promptDescriptor(presentedName string, pr *prompt.Prompt) *mcp.Prompt {
 	return &mcp.Prompt{
 		Name:        presentedName,
+		Title:       displayOrName(pr.DisplayName, pr.Name),
 		Description: pr.Description,
 		Arguments:   toMCPPromptArgs(pr.Arguments),
 	}
@@ -626,12 +645,23 @@ func (h *Handle) GetByName(ctx context.Context, email string, personas []string,
 // bare name. The first matching active share wins (consistent with the dedup in
 // listSharedDescriptors).
 func (h *Handle) getSharedPrompt(ctx context.Context, email, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
-	if email == "" || h.shareStore == nil {
+	pr := h.sharedPromptByName(ctx, email, bare)
+	if pr == nil {
 		return nil, false
+	}
+	return renderPrompt(pr, args)
+}
+
+// sharedPromptByName finds the prompt shared directly with the caller matching
+// the bare name, or nil. Only personal prompts are served via shares; the first
+// matching active share wins.
+func (h *Handle) sharedPromptByName(ctx context.Context, email, bare string) *prompt.Prompt {
+	if email == "" || h.shareStore == nil {
+		return nil
 	}
 	refs, err := h.shareStore.ListSharedPromptsWithUser(ctx, "", email)
 	if err != nil {
-		return nil, false
+		return nil
 	}
 	for _, ref := range refs {
 		pr, err := h.store.GetByID(ctx, ref.PromptID)
@@ -639,10 +669,10 @@ func (h *Handle) getSharedPrompt(ctx context.Context, email, bare string, args m
 			continue
 		}
 		if pr.Name == bare {
-			return renderPrompt(pr, args)
+			return pr
 		}
 	}
-	return nil, false
+	return nil
 }
 
 // getOwnedPersonalPrompt renders the caller's own personal prompt of the bare name.

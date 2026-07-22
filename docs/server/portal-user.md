@@ -293,6 +293,8 @@ Personal prompt names are unique per owner, so two users can each have a prompt 
 
 These prefixes are computed at serve time; the stored name stays bare. To make a personal prompt visible at the persona or global scope, rename it if a prompt with that name already exists at the target scope.
 
+You never need to type these names. Ask your agent to run a prompt by whatever handle you know: its name, its display name ("run the Daily Sales Report"), or a description of it. The agent resolves it against the prompt library with the `manage_prompt` `use` command.
+
 ## Settings
 
 The Settings page (user section of the sidebar) holds per-user preferences.

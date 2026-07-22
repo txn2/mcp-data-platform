@@ -20,8 +20,9 @@ const (
 	promptLogKey    = "name"
 	promptLogKeyErr = "error"
 
-	// Command name for the manage_prompt list command.
+	// Command names for the manage_prompt list and use commands.
 	cmdList = "list"
+	cmdUse  = "use"
 
 	// JSON field names used in result and schema maps. These share the
 	// same string value as promptLogKey/promptLogKeyErr but are kept
@@ -54,6 +55,10 @@ type managePromptInput struct {
 	Query string `json:"query,omitempty"`
 	Limit int    `json:"limit,omitempty"`
 
+	// Args (use command) carries argument values substituted into the resolved
+	// prompt's content.
+	Args map[string]string `json:"args,omitempty"`
+
 	// Promotion request (owner action on a personal prompt, applied by update).
 	// Setting RequestedScope flags the prompt for the admin promotion queue
 	// without changing its scope; an admin approves to apply it.
@@ -71,11 +76,17 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "manage_prompt",
 		Title: "Manage Prompts",
-		Description: "Create, update, delete, list, or get prompts. " +
+		Description: "Create, update, delete, list, get, or use prompts. " +
+			"When a user names a report, procedure, or recurring task ('run the daily sales report'), " +
+			"resolve it against the prompt library first with the 'use' command instead of listing: " +
+			"'use' accepts a prompt name, display name, mcp:prompt:<id> reference, or free text, and " +
+			"returns the rendered prompt with its argument specs and provenance, or ranked candidates " +
+			"when the handle is ambiguous. " +
 			"Non-admin users can manage their own personal prompts. " +
 			"Admins can manage prompts at all scope levels (global, persona, personal). " +
-			"This tool manages database-stored prompts only; static prompts from server " +
-			"configuration are not listed or editable here.",
+			"Management commands cover database-stored prompts only; static prompts from server " +
+			"configuration are not editable here, though 'use' resolves operator, workflow, and " +
+			"toolkit prompts too.",
 		InputSchema: managePromptSchema(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input managePromptInput) (*mcp.CallToolResult, any, error) {
 		return h.handleManagePrompt(ctx, input)
@@ -95,6 +106,8 @@ func (h *Handle) handleManagePrompt(ctx context.Context, input managePromptInput
 		return h.handlePromptList(ctx, input)
 	case "get":
 		return h.handlePromptGet(ctx, input)
+	case cmdUse:
+		return h.handlePromptUse(ctx, input)
 	default:
 		return promptErrorResult(fmt.Sprintf("unknown command: %s", input.Command)), nil, nil
 	}
@@ -604,13 +617,15 @@ func managePromptSchema() any {
 		schemaKeyType: "object",
 		"properties": map[string]any{
 			"command": map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyEnum:        []string{"create", "update", "delete", cmdList, "get"},
-				schemaKeyDescription: "The operation to perform",
+				schemaKeyType: schemaValString,
+				schemaKeyEnum: []string{"create", "update", "delete", cmdList, "get", cmdUse},
+				schemaKeyDescription: "The operation to perform. 'use' resolves any handle to a " +
+					"ready-to-run prompt; prefer it when the user names a procedure or report.",
 			},
 			fieldName: map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyDescription: "Prompt name (required for create, update, delete, get)",
+				schemaKeyType: schemaValString,
+				schemaKeyDescription: "Prompt name (required for create, update, delete, get, use). " +
+					"For use it may also be a display name, an mcp:prompt:<id> reference, or free text.",
 			},
 			"display_name": map[string]any{
 				schemaKeyType:        schemaValString,
@@ -676,6 +691,11 @@ func managePromptSchema() any {
 			"limit": map[string]any{
 				schemaKeyType:        "integer",
 				schemaKeyDescription: "Max ranked results to return when 'query' is set (default 20).",
+			},
+			"args": map[string]any{
+				schemaKeyType:          "object",
+				"additionalProperties": map[string]any{schemaKeyType: schemaValString},
+				schemaKeyDescription:   "Argument values for the 'use' command, substituted into the resolved prompt's content.",
 			},
 			"requested_scope": map[string]any{
 				schemaKeyType:        schemaValString,

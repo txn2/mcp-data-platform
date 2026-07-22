@@ -183,6 +183,7 @@ server:
       content: |
         Before querying, determine if you need ENTITY STATE or ANALYTICS...
     - name: explore-topic
+      display_name: "Explore a Topic"
       description: "Explore data about a specific topic"
       content: "Find all datasets related to {topic} and summarize key metrics."
       arguments:
@@ -194,6 +195,7 @@ server:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `server.prompts[].name` | string | required | Prompt name |
+| `server.prompts[].display_name` | string | - | Human-readable title served as the MCP prompt `title` (falls back to the name) |
 | `server.prompts[].description` | string | - | Prompt description |
 | `server.prompts[].content` | string | required | Prompt content (supports `{arg_name}` placeholders) |
 | `server.prompts[].arguments` | array | `[]` | Typed arguments for the prompt |
@@ -211,6 +213,8 @@ server:
 | `trace-data-lineage` | DataHub | Trace upstream/downstream lineage for a dataset |
 
 All registered prompts (platform + toolkit) are included in the `platform_info` tool response and visible in the platform-info app's Prompts tab.
+
+**Prompt titles and resolution.** Database prompts are served on the native MCP prompts surface under per-viewer scope-prefixed names (`global-<name>`, `<persona>-<name>`, `personal-<name>`, `shared-<name>`), which keeps the surface collision-free by construction; every descriptor carries a `title` from `display_name` so clients show the human name regardless. Users never need to know any machine name: agents resolve a prompt from whatever handle the user says (stored name, display name, `mcp:prompt:<id>`, or free text) with the `manage_prompt` `use` command.
 
 ### Streamable HTTP Configuration
 

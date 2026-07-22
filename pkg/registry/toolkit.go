@@ -47,6 +47,7 @@ type AggregateToolkitFactory func(defaultName string, instances map[string]map[s
 // PromptInfo describes a registered MCP prompt for metadata collection.
 type PromptInfo struct {
 	Name        string               `json:"name"`
+	DisplayName string               `json:"display_name,omitempty"`
 	Description string               `json:"description"`
 	Category    string               `json:"category,omitempty"`
 	Content     string               `json:"content,omitempty"`

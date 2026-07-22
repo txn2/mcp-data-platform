@@ -23,6 +23,7 @@ const (
 	toolFetch          = "fetch"
 	toolMemoryCapture  = "memory_capture"
 	toolApplyKnowledge = "apply_knowledge"
+	toolManagePrompt   = "manage_prompt"
 )
 
 // Build returns the platform-owned "how to operate this platform" instruction
@@ -54,6 +55,15 @@ func Build(accessibleTools []string) string {
 				"The answer may span several sources, or may not be in the data warehouse at all, so do "+
 				"not assume a backend and do not stop at the first result.",
 			reuseBullet(has[toolFetch]))
+	}
+	if has[toolManagePrompt] {
+		bullets = append(bullets,
+			"Named procedures are prompts. When the user names a report, procedure, or recurring "+
+				"task (\"run the daily sales report\"), resolve it against the prompt library first: "+
+				"call `manage_prompt` with command `use` and the name as given. It accepts display "+
+				"names, mcp:prompt:<id> references, and free text, returns the ready-to-run prompt "+
+				"content with its arguments, and lists candidates when ambiguous, so resolve rather "+
+				"than enumerate.")
 	}
 	if has[toolMemoryCapture] {
 		bullets = append(bullets,

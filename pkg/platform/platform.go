@@ -890,6 +890,7 @@ func promptSpecsFromConfig(cfgs []PromptConfig) []promptlayer.PromptSpec {
 	for _, c := range cfgs {
 		spec := promptlayer.PromptSpec{
 			Name:        c.Name,
+			DisplayName: c.DisplayName,
 			Description: c.Description,
 			Content:     c.Content,
 		}
