@@ -74,14 +74,6 @@
       "count": 2
     }
   },
-  "src/components/assetviewer/AssetContentView.tsx": {
-    "complexity": {
-      "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    }
-  },
   "src/components/assetviewer/AssetViewerModals.tsx": {
     "complexity": {
       "count": 1

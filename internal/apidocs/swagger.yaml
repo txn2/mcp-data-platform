@@ -2703,6 +2703,14 @@ definitions:
     type: object
   portal.Provenance:
     properties:
+      declared_content_type:
+        description: |-
+          DeclaredContentType is the media type the writer declared, recorded only
+          when detection replaced it. It is the audit trail for a reclassified
+          asset: it answers "what did the upstream actually say" without which a
+          stored type that disagrees with the source is unexplainable.
+        example: text/plain
+        type: string
       session_id:
         example: sess_abc123
         type: string

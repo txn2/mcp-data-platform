@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -189,13 +191,12 @@ func (h *Handler) getAdminAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if contentType == "" {
-		contentType = mimeTypeOctetStream
-	}
-	w.Header().Set(headerContentType, contentType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type
+	blobserve.Serve(w, r, blobserve.Options{
+		Name:        asset.Name,
+		ContentType: cmp.Or(contentType, asset.ContentType),
+		ModTime:     asset.UpdatedAt,
+		Data:        data,
+	})
 }
 
 // adminUpdateAssetRequest is the request body for admin asset updates.
@@ -447,11 +448,13 @@ func (h *Handler) getAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set(headerContentType, mimeTypePNG)
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- content served as image/png, not rendered as HTML
+	blobserve.Serve(w, r, blobserve.Options{
+		Name:        asset.ID + ".png",
+		ContentType: mimeTypePNG,
+		ModTime:     asset.UpdatedAt,
+		Data:        data,
+	})
 }
 
 // deleteAdminAsset soft-deletes any asset without owner restriction.
@@ -545,7 +548,8 @@ func (h *Handler) getAdminVersionContent(w http.ResponseWriter, r *http.Request)
 	}
 
 	id := r.PathValue(pathValueID)
-	if _, err := h.deps.AssetStore.Get(r.Context(), id); err != nil {
+	asset, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil {
 		writeError(w, http.StatusNotFound, errAdminAssetNotFound)
 		return
 	}
@@ -567,13 +571,12 @@ func (h *Handler) getAdminVersionContent(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "failed to retrieve version content")
 		return
 	}
-	if contentType == "" {
-		contentType = mimeTypeOctetStream
-	}
-	w.Header().Set(headerContentType, contentType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type
+	blobserve.Serve(w, r, blobserve.Options{
+		Name:        asset.Name,
+		ContentType: cmp.Or(contentType, ver.ContentType),
+		ModTime:     ver.CreatedAt,
+		Data:        data,
+	})
 }
 
 // revertAdminVersion creates a new version by reverting to a previous version's content.

@@ -16813,6 +16813,11 @@ const docTemplate = `{
         "portal.Provenance": {
             "type": "object",
             "properties": {
+                "declared_content_type": {
+                    "description": "DeclaredContentType is the media type the writer declared, recorded only\nwhen detection replaced it. It is the audit trail for a reclassified\nasset: it answers \"what did the upstream actually say\" without which a\nstored type that disagrees with the source is unexplainable.",
+                    "type": "string",
+                    "example": "text/plain"
+                },
                 "session_id": {
                     "type": "string",
                     "example": "sess_abc123"

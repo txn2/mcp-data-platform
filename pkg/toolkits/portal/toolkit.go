@@ -386,16 +386,23 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 		return toolkit.ErrorResult("internal error generating asset ID"), nil, nil
 	}
 
-	s3Key := t.buildS3Key(userID, assetID, input.ContentType)
+	// A generic declaration (text/plain, application/octet-stream) is replaced
+	// by the type detected from the content itself, so an agent that saved a
+	// JSON payload under a catch-all type still lands in the JSON viewer.
+	contentType := portal.ResolveContentType(input.ContentType, []byte(input.Content))
+	s3Key := t.buildS3Key(userID, assetID, contentType)
 
 	if t.s3Client == nil {
 		return toolkit.ErrorResult("content storage not configured"), nil, nil
 	}
-	if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, []byte(input.Content), input.ContentType); err != nil {
+	if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, []byte(input.Content), contentType); err != nil {
 		return toolkit.ErrorResult("failed to upload content: " + err.Error()), nil, nil
 	}
 
 	prov := buildProvenance(ctx, userID, sessionID)
+	if contentType != input.ContentType {
+		prov.DeclaredContentType = input.ContentType
+	}
 	slog.Info("save_artifact.provenance",
 		"session_id", sessionID,
 		"user_id", userID,
@@ -413,7 +420,7 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 		OwnerEmail:  userEmail,
 		Name:        input.Name,
 		Description: input.Description,
-		ContentType: input.ContentType,
+		ContentType: contentType,
 		S3Bucket:    t.s3Bucket,
 		S3Key:       s3Key,
 		SizeBytes:   int64(len(input.Content)),
@@ -436,7 +443,7 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 		AssetID:       assetID,
 		S3Key:         s3Key,
 		S3Bucket:      t.s3Bucket,
-		ContentType:   input.ContentType,
+		ContentType:   contentType,
 		SizeBytes:     int64(len(input.Content)),
 		CreatedBy:     userEmail,
 		ChangeSummary: "Initial version",
@@ -603,14 +610,21 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageArtifactInput) (
 	})
 }
 
+// uploadContentUpdate writes replacement content as a new version. Creating the
+// version is what moves the asset's own s3_key, content_type and size_bytes
+// forward — the version store does that in the same transaction — so a
+// replacement whose type differs from the asset's carries the asset with it.
 func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, input manageArtifactInput) error {
 	if t.maxContentSize > 0 && len(input.Content) > t.maxContentSize {
 		return fmt.Errorf("content size %d exceeds maximum %d bytes", len(input.Content), t.maxContentSize)
 	}
-	ct := input.ContentType
-	if ct == "" {
-		ct = asset.ContentType
+	// The caller's declaration wins when specific; otherwise the asset's
+	// existing type is the declaration, so an edit to a JSON asset stays JSON.
+	declared := input.ContentType
+	if declared == "" {
+		declared = asset.ContentType
 	}
+	ct := portal.ResolveContentType(declared, []byte(input.Content))
 
 	versionID, err := generateID()
 	if err != nil {

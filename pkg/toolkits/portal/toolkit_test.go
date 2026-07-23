@@ -480,6 +480,14 @@ func (s *inMemoryAssetStore) Update(_ context.Context, id string, updates portal
 	if updates.Tags != nil {
 		a.Tags = updates.Tags
 	}
+	// Mirror applyScalarUpdates: the real store writes content_type. Dropping
+	// it here would hide a content-type move that the viewer depends on.
+	if updates.ContentType != "" {
+		a.ContentType = updates.ContentType
+	}
+	if updates.S3Key != "" {
+		a.S3Key = updates.S3Key
+	}
 	s.assets[id] = a
 	return nil
 }
@@ -1016,10 +1024,22 @@ func TestRegisterPrompts(t *testing.T) {
 
 type inMemoryVersionStore struct {
 	versions map[string][]portal.AssetVersion
+	// assets, when set, receives the current-version pointer update the real
+	// store performs in the same transaction as the version insert. Without it
+	// the double reports success while leaving the asset row on its old
+	// s3_key, content_type and size — hiding every bug that depends on the
+	// pointer actually moving.
+	assets *inMemoryAssetStore
 }
 
 func newInMemoryVersionStore() *inMemoryVersionStore {
 	return &inMemoryVersionStore{versions: make(map[string][]portal.AssetVersion)}
+}
+
+// newLinkedVersionStore returns a version store that advances the given asset
+// store's rows, mirroring postgresVersionStore.CreateVersion.
+func newLinkedVersionStore(assets *inMemoryAssetStore) *inMemoryVersionStore {
+	return &inMemoryVersionStore{versions: make(map[string][]portal.AssetVersion), assets: assets}
 }
 
 func (s *inMemoryVersionStore) CreateVersion(_ context.Context, v portal.AssetVersion) (int, error) {
@@ -1033,6 +1053,16 @@ func (s *inMemoryVersionStore) CreateVersion(_ context.Context, v portal.AssetVe
 	nextVer := maxVer + 1
 	v.Version = nextVer
 	s.versions[v.AssetID] = append(s.versions[v.AssetID], v)
+
+	if s.assets != nil {
+		if a, ok := s.assets.assets[v.AssetID]; ok {
+			a.CurrentVersion = nextVer
+			a.S3Key = v.S3Key
+			a.ContentType = v.ContentType
+			a.SizeBytes = v.SizeBytes
+			s.assets.assets[v.AssetID] = a
+		}
+	}
 	return nextVer, nil
 }
 

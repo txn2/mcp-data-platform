@@ -2177,6 +2177,54 @@ The organization's prompt library, presented as two buckets (#1010): My Prompts 
 
 ---
 
+# Content Types and Viewers
+
+Every asset and managed resource is stored under a media type, and that type decides how the portal renders it.
+
+## Content-type detection
+
+The platform does not take a declared content type on faith. An upstream API that answers a JSON endpoint with `Content-Type: text/plain`, a browser that sends `application/octet-stream` for an unfamiliar extension, and an agent that saves a payload under a catch-all type would all otherwise produce an asset the viewer can only show as raw text.
+
+Detection runs on every write path that accepts outside content: `save_artifact` (the tool's `content_type`), `manage_artifact action=update` (the tool's `content_type` or the asset's existing type), `api_export` (the upstream response's `Content-Type` header), and resource upload (the multipart part's `Content-Type`). `trino_export` sets an exact type from its own formatter and is not sniffed.
+
+Rules:
+
+- A specific declaration wins. Detection only runs when the declaration is absent, `application/octet-stream`, or `text/plain`.
+- Binary families (images, audio, video, PDF, archives) come from the first 512 bytes of magic bytes.
+- Structured text is layered on top, because JSON, NDJSON, XML, YAML, CSV and TSV all look like plain text to a byte sniffer. Each has its own heuristic over a bounded 8 KB prefix: a JSON token scan, per-line JSON validity for NDJSON, an XML declaration or non-active root element, YAML document markers, and delimiter consistency across at least three whole lines for CSV/TSV.
+- Detection reads a prefix, never the whole payload, so a streaming export stays streaming: the prefix is replayed ahead of the untouched remainder.
+- Aliases normalize to one canonical type per family (`text/json` and `application/json` both store as `application/json`), and the stored object key follows the detected type, so a bucket listing shows `.json` rather than `.bin`.
+- When detection replaces a declaration, the original is recorded in the asset's provenance as `declared_content_type`.
+
+The active-type rule: detection may reclassify content into passive families only (JSON, images, audio, video, PDF, CSV, XML, YAML, plain text). It can never promote content to `text/html`, `text/jsx`, `image/svg+xml` or JavaScript, which render as executing markup and render only when an author declared them deliberately. A payload that sniffs as HTML but was declared `text/plain` is stored and rendered as plain text; with no declaration at all it becomes `text/plain`.
+
+Assets stored before detection existed still carry whatever generic type they were saved with. The portal applies the same rules on the client when it opens one, so an older `application/octet-stream` asset holding JSON still reaches the JSON viewer, with no data migration and under the same active-type restriction.
+
+## Viewers
+
+One shared renderer registry drives every surface: the portal asset viewer, the public and guest viewers, collection items, and the resources detail view, so a content type renders identically wherever it is opened.
+
+- JSON (`application/json`): collapsible tree with search across keys and values, match count and jump-to-match, JSONPath breadcrumb with copy-path and copy-value, type-aware value display, and raw/formatted/tree views. Virtualized. Editable in CodeMirror with a JSON parse-error gutter.
+- JSON Lines (`application/x-ndjson`): one expandable row per record, each opening into the JSON viewer. Editable.
+- Tabular (`text/csv`, `text/tab-separated-values`): sortable, searchable table. Editable.
+- Images (`image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/avif`, ...): zoom and pan, checkerboard backing for transparency, dimensions and size readout, fit/actual-size toggle. View-only.
+- SVG (`image/svg+xml`): sanitized inline render with a source editor.
+- Audio (`audio/mpeg`, `audio/wav`, `audio/ogg`, `audio/mp4`, `audio/flac`) and video (`video/mp4`, `video/webm`, `video/ogg`): native players with working seek. View-only; the platform stores media, it does not transcode it.
+- PDF (`application/pdf`): embedded viewer through an `<object>` over the content URL, with a download fallback. View-only. Deliberately not a sandboxed iframe: Chrome refuses to instantiate its PDF plugin inside any sandboxed frame, so a sandboxed PDF frame renders a broken-plugin icon instead of the document; containment comes from the serving guarantees (parsed application/pdf plus nosniff) and the CSP's object-src 'self'.
+- Markup (`text/html`, `text/jsx`, `text/markdown`): existing sandboxed/sanitized renderers with a source editor.
+- Structured text and code (`application/xml`, `application/yaml`, `application/sql`, `text/x-python`, `text/javascript`, `text/plain`): read-only CodeMirror with syntax highlighting, folding, line numbers and a wrap toggle. Editable for text types.
+- Anything else: a metadata card naming the type and size with a download action, never raw bytes rendered as text.
+
+The inline preview limit is per family, not global. Media and PDF stream from the content endpoint and have no limit; the JSON and tabular viewers virtualize and hold a 32 MB limit, so a multi-megabyte JSON document opens in the tree rather than being refused; families rendered as one continuous block of text keep a 2 MB cutoff with a download fallback.
+
+## Serving raw content
+
+Every raw-content endpoint (portal assets, asset versions, thumbnails, public share content, managed resources) writes through one shared code path, so the same guarantees hold on all of them: `X-Content-Type-Options: nosniff`; a parsed, parameter-free `Content-Type`; `Content-Disposition: attachment` for active types (HTML, JSX, SVG, JavaScript), which never render inline on the platform's own origin, and `inline` for the passive families a viewer embeds; and byte-range support, so audio and video elements seek by requesting the range they need instead of downloading the whole object first.
+
+Binary content is served from these endpoints rather than embedded in the viewer page: the public viewer embeds text content in the page as a JSON string, which cannot carry arbitrary bytes, so images, audio, video and PDFs are handed a content URL instead. The public viewer's Content-Security-Policy carries `media-src` and `object-src` for those sources; active types keep their existing sandboxed iframe and DOMPurify treatment.
+
+---
+
 # Admin Portal
 
 The Admin Portal is a built-in web dashboard for monitoring and managing the platform. Enable with `portal.enabled: true` in configuration.

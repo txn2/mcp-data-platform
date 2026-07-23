@@ -323,6 +323,16 @@ portal:
   s3_connection: dev-s3
   s3_bucket: portal-assets
 
+# Managed resources share the portal bucket in dev. Without this block they
+# default to a "resources" bucket the dev SeaweedFS never creates, and every
+# upload fails at storage — which made the whole resources surface untestable
+# against the dev stack.
+resources:
+  managed:
+    enabled: true
+    s3_connection: dev-s3
+    s3_bucket: portal-assets
+
 memory:
   embedding:
     provider: ollama

@@ -5,6 +5,12 @@ import { ChevronUp, ChevronDown, Search, Download } from "lucide-react";
 interface Props {
   content: string;
   fileName?: string;
+  /**
+   * Field delimiter. Defaults to a comma; the registry passes a tab for
+   * text/tab-separated-values, which is otherwise the same format and the same
+   * viewer.
+   */
+  delimiter?: "," | "\t";
 }
 
 const MAX_DISPLAY_ROWS = 500;
@@ -13,7 +19,9 @@ function isNumeric(val: unknown): val is number {
   return typeof val === "number" && !isNaN(val);
 }
 
-export function CsvRenderer({ content, fileName = "data.csv" }: Props) {
+export function CsvRenderer({ content, fileName, delimiter = "," }: Props) {
+  const isTsv = delimiter === "\t";
+  const downloadName = fileName || (isTsv ? "data.tsv" : "data.csv");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [filterText, setFilterText] = useState("");
@@ -24,8 +32,9 @@ export function CsvRenderer({ content, fileName = "data.csv" }: Props) {
         header: true,
         skipEmptyLines: true,
         dynamicTyping: true,
+        delimiter,
       }),
-    [content],
+    [content, delimiter],
   );
 
   const columns = useMemo(() => parsed.meta.fields ?? [], [parsed]);
@@ -66,16 +75,18 @@ export function CsvRenderer({ content, fileName = "data.csv" }: Props) {
   }
 
   const handleDownload = useCallback(() => {
-    const blob = new Blob([content], { type: "text/csv" });
+    const blob = new Blob([content], {
+      type: isTsv ? "text/tab-separated-values" : "text/csv",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = fileName;
+    a.download = downloadName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [content, fileName]);
+  }, [content, downloadName, isTsv]);
 
   if (columns.length === 0) {
     return (
@@ -103,7 +114,7 @@ export function CsvRenderer({ content, fileName = "data.csv" }: Props) {
           type="button"
           onClick={handleDownload}
           className="flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent shrink-0"
-          title="Download CSV"
+          title={isTsv ? "Download TSV" : "Download CSV"}
         >
           <Download className="h-4 w-4" />
           Download

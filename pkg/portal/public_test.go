@@ -15,6 +15,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/pkg/portal/publicviewer"
 )
 
 // htmlNoticeText is the HTML-escaped default notice text for template assertions.
@@ -61,7 +63,7 @@ func TestPublicViewSuccess(t *testing.T) {
 	// Default brand on right: logo + "MCP Data Platform"
 	assert.Contains(t, body, "MCP Data Platform")
 	assert.Contains(t, body, `class="brand-logo"`)
-	assert.Contains(t, body, defaultLogoSVG)
+	assert.Contains(t, body, publicviewer.DefaultLogoSVG)
 	assert.Contains(t, body, `brand-platform`)
 
 	// No implementor on left by default (CSS has the class name, but no HTML element uses it)
@@ -158,7 +160,7 @@ func TestPublicViewCustomBrand(t *testing.T) {
 	// Right side: custom platform brand
 	assert.Contains(t, body, "Plexara")
 	assert.Contains(t, body, customLogo)
-	assert.NotContains(t, body, defaultLogoSVG)
+	assert.NotContains(t, body, publicviewer.DefaultLogoSVG)
 	assert.Contains(t, body, `href="https://plexara.io"`)
 
 	// Left side: implementor
@@ -197,7 +199,7 @@ func TestPublicViewImplementorOnly(t *testing.T) {
 
 	// Right side: default platform brand
 	assert.Contains(t, body, "MCP Data Platform")
-	assert.Contains(t, body, defaultLogoSVG)
+	assert.Contains(t, body, publicviewer.DefaultLogoSVG)
 	assert.Contains(t, body, `brand-platform`)
 }
 
@@ -347,7 +349,9 @@ func TestPublicViewNilS3Client(t *testing.T) {
 
 func TestPublicViewS3Error(t *testing.T) {
 	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
-	asset := &Asset{ID: "a1"}
+	// A textual type is what makes the viewer fetch content inline; binary
+	// families are served from the raw content endpoint and never reach S3 here.
+	asset := &Asset{ID: "a1", ContentType: "text/markdown"}
 	h := NewHandler(Deps{
 		AssetStore: &mockAssetStore{getAsset: asset},
 		ShareStore: &mockShareStore{getByTokenRes: share},
@@ -486,7 +490,7 @@ func TestPublicViewDarkModeToggle(t *testing.T) {
 // --- publicCSP ---
 
 func TestPublicCSPUnified(t *testing.T) {
-	csp := publicCSP()
+	csp := publicviewer.AssetCSP()
 	assert.Contains(t, csp, "default-src 'none'")
 	assert.Contains(t, csp, "frame-src blob:")
 	assert.Contains(t, csp, "script-src")
@@ -577,12 +581,12 @@ func TestPublicViewAllContentTypesUseSameTemplate(t *testing.T) {
 	}
 }
 
-// --- defaultLogoSVG ---
+// --- publicviewer.DefaultLogoSVG ---
 
 func TestDefaultLogoSVG(t *testing.T) {
-	assert.Contains(t, defaultLogoSVG, "<svg")
-	assert.Contains(t, defaultLogoSVG, "</svg>")
-	assert.Contains(t, defaultLogoSVG, "viewBox")
+	assert.Contains(t, publicviewer.DefaultLogoSVG, "<svg")
+	assert.Contains(t, publicviewer.DefaultLogoSVG, "</svg>")
+	assert.Contains(t, publicviewer.DefaultLogoSVG, "viewBox")
 }
 
 // --- Notice text tests ---
@@ -1191,7 +1195,7 @@ func TestPublicCollectionItemView(t *testing.T) {
 }
 
 func TestPublicCollectionCSP(t *testing.T) {
-	csp := publicCollectionCSP()
+	csp := publicviewer.CollectionCSP()
 	assert.Contains(t, csp, "default-src 'none'")
 	assert.Contains(t, csp, "frame-src 'self'")
 	assert.Contains(t, csp, "script-src")
@@ -1203,7 +1207,7 @@ func TestPublicCollectionCSP(t *testing.T) {
 	assert.Contains(t, csp, "connect-src")
 
 	// Regular public CSP should NOT contain 'self' in frame-src
-	regularCSP := publicCSP()
+	regularCSP := publicviewer.AssetCSP()
 	assert.NotContains(t, regularCSP, "frame-src 'self'")
 }
 

@@ -1,16 +1,20 @@
 package resource
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/pkg/blobserve"
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
 
 // MaxMultipartMemory is the max memory for multipart form parsing (10 MB).
@@ -180,7 +184,13 @@ func validateCreateInput(r *http.Request) (*createInput, error) {
 type uploadedFile struct {
 	data     []byte
 	filename string
+	// mimeType is the type the resource is stored under: the multipart part's
+	// declaration when it was specific, otherwise the type detected from the
+	// bytes.
 	mimeType string
+	// declaredMIMEType is the multipart part's own declaration, kept so the
+	// caller can tell whether detection replaced it.
+	declaredMIMEType string
 }
 
 // readUploadedFile reads and validates the uploaded file from the request.
@@ -195,11 +205,11 @@ func readUploadedFile(r *http.Request) (*uploadedFile, error) {
 		return nil, fmt.Errorf("file exceeds %d MB limit", MaxUploadBytes/(1<<20))
 	}
 
-	mimeType := header.Header.Get(headerContentType)
-	if mimeType == "" {
-		mimeType = mimeTypeOctetStream
-	}
-	if err := ValidateMIMEType(mimeType); err != nil {
+	declared := header.Header.Get(headerContentType)
+	// The declaration is checked against the deny list before the body is read
+	// so a rejected type costs nothing, and the detected type is checked again
+	// below: detection must not be able to route around the deny list.
+	if err := ValidateMIMEType(declared); err != nil {
 		return nil, err
 	}
 
@@ -216,10 +226,19 @@ func readUploadedFile(r *http.Request) (*uploadedFile, error) {
 		return nil, fmt.Errorf("file exceeds %d MB limit", MaxUploadBytes/(1<<20))
 	}
 
+	// Browsers send application/octet-stream for any extension they do not
+	// recognize, and non-browser clients often send nothing at all, so the
+	// declaration alone would leave most uploads without a usable preview.
+	mimeType := contenttype.DetectBytes(declared, data)
+	if err := ValidateMIMEType(mimeType); err != nil {
+		return nil, err
+	}
+
 	return &uploadedFile{
-		data:     data,
-		filename: filename,
-		mimeType: mimeType,
+		data:             data,
+		filename:         filename,
+		mimeType:         mimeType,
+		declaredMIMEType: declared,
 	}, nil
 }
 
@@ -314,6 +333,19 @@ func (h *Handler) persistResource(r *http.Request, claims *Claims, input *create
 
 	uri := BuildURI(h.uriScheme(), input.scope, input.scopeID, input.category, uf.filename)
 	s3Key := BuildS3Key(input.scope, input.scopeID, id, uf.filename)
+
+	// A stored type that disagrees with what the client sent is the one thing
+	// an operator cannot reconstruct after the fact, so record the swap. Both
+	// types trace back to a client-supplied header — the stored one is the
+	// normalized declaration whenever the client declared something specific —
+	// so both are sanitized before they reach the log.
+	if uf.mimeType != uf.declaredMIMEType {
+		slog.Info("resource upload: content type detected from content",
+			"resource_id", id,
+			"declared_mime_type", logsan.SanitizeForLog(uf.declaredMIMEType),
+			"stored_mime_type", logsan.SanitizeForLog(uf.mimeType),
+		)
+	}
 
 	res := Resource{
 		ID: id, Scope: input.scope, ScopeID: input.scopeID,
@@ -478,16 +510,6 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 
 // --- Get Content ---
 
-// sanitizeContentType extracts the base media type, discarding parameters.
-// Falls back to application/octet-stream for unparseable values.
-func sanitizeContentType(ct string) string {
-	mediaType, _, err := mime.ParseMediaType(ct)
-	if err != nil || mediaType == "" {
-		return mimeTypeOctetStream
-	}
-	return mediaType
-}
-
 // handleGetContent handles GET /api/v1/resources/{id}/content.
 //
 // @Summary      Download resource content
@@ -532,20 +554,12 @@ func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if contentType == "" {
-		contentType = res.MIMEType
-	}
-	safeType := sanitizeContentType(contentType)
-
-	disposition := "attachment"
-	if strings.HasPrefix(safeType, "text/") {
-		disposition = "inline"
-	}
-
-	w.Header().Set(headerContentType, safeType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q", disposition, res.Filename))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body) // #nosec G705 -- Content-Type is sanitized via mime.ParseMediaType above
+	blobserve.Serve(w, r, blobserve.Options{
+		Name:        res.Filename,
+		ContentType: cmp.Or(contentType, res.MIMEType),
+		ModTime:     res.UpdatedAt,
+		Data:        body,
+	})
 }
 
 // --- Update ---

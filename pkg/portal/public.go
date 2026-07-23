@@ -1,8 +1,8 @@
 package portal
 
 import (
+	"cmp"
 	"context"
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +16,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
+	"github.com/txn2/mcp-data-platform/pkg/blobserve"
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
+	"github.com/txn2/mcp-data-platform/pkg/portal/publicviewer"
 )
 
 // resolvePublicBaseURL returns the absolute URL prefix the public viewer
@@ -134,33 +137,6 @@ const publicViewPathPrefix = "/portal/view/"
 // can open the asset and leave feedback.
 const portalAppPath = "/portal/"
 
-// defaultLogoSVG is the MCP Data Platform logo used in the public viewer header
-// when no brand logo is configured. Matches the platform-info app's default icon.
-//
-//nolint:lll // SVG markup
-const defaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">` +
-	`<circle cx="20" cy="20" r="4.5" fill="currentColor" opacity=".95"/>` +
-	`<circle cx="6"  cy="11" r="3"   fill="currentColor" opacity=".65"/>` +
-	`<circle cx="34" cy="11" r="3"   fill="currentColor" opacity=".65"/>` +
-	`<circle cx="6"  cy="29" r="3"   fill="currentColor" opacity=".45"/>` +
-	`<circle cx="34" cy="29" r="3"   fill="currentColor" opacity=".45"/>` +
-	`<circle cx="20" cy="4"  r="2.2" fill="currentColor" opacity=".55"/>` +
-	`<circle cx="20" cy="36" r="2.2" fill="currentColor" opacity=".35"/>` +
-	`<line x1="20" y1="20" x2="6"  y2="11" stroke="currentColor" stroke-width="1.4" opacity=".3"/>` +
-	`<line x1="20" y1="20" x2="34" y2="11" stroke="currentColor" stroke-width="1.4" opacity=".3"/>` +
-	`<line x1="20" y1="20" x2="6"  y2="29" stroke="currentColor" stroke-width="1.4" opacity=".22"/>` +
-	`<line x1="20" y1="20" x2="34" y2="29" stroke="currentColor" stroke-width="1.4" opacity=".22"/>` +
-	`<line x1="20" y1="20" x2="20" y2="4"  stroke="currentColor" stroke-width="1.4" opacity=".28"/>` +
-	`<line x1="20" y1="20" x2="20" y2="36" stroke="currentColor" stroke-width="1.4" opacity=".18"/>` +
-	`</svg>`
-
-//go:embed templates/public_viewer.html templates/public_collection_viewer.html
-var templateFS embed.FS
-
-var viewerTemplate = template.Must(template.ParseFS(templateFS, "templates/public_viewer.html"))
-
-var collectionViewerTemplate = template.Must(template.ParseFS(templateFS, "templates/public_collection_viewer.html"))
-
 func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 	share := shareFromRequest(r)
 
@@ -202,6 +178,9 @@ type publicAssetData struct {
 	Asset    *Asset
 	Content  []byte
 	TooLarge bool
+	// ServeFromURL marks a binary asset the page must load from the raw
+	// content endpoint rather than from embedded bytes.
+	ServeFromURL bool
 }
 
 func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad publicAssetData, share *Share) { //nolint:revive // clear param naming
@@ -221,12 +200,18 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 		"sizeBytes":    asset.SizeBytes,
 		"tooLarge":     pad.TooLarge,
 		"downloadURL":  downloadURL,
+		// contentURL is the same endpoint as downloadURL, named for the role it
+		// plays for binary families: the <img>/<audio>/<video>/<iframe> source
+		// the viewer renders from instead of embedded bytes. It supports byte
+		// ranges, so media seek works without fetching the whole object.
+		"contentURL":   downloadURL,
+		"serveFromURL": pad.ServeFromURL,
 		"createdAt":    asset.CreatedAt.UTC().Format(time.RFC3339),
 		"updatedAt":    asset.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 	contentJSON, _ := json.Marshal(contentData) // #nosec G104 -- simple map marshaling cannot fail
 
-	csp := publicCSP()
+	csp := publicviewer.AssetCSP()
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set(headerContentType, "text/html; charset=utf-8")
 
@@ -236,7 +221,7 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 	}
 	brandLogo := h.deps.BrandLogoSVG
 	if brandLogo == "" {
-		brandLogo = defaultLogoSVG
+		brandLogo = publicviewer.DefaultLogoSVG
 	}
 
 	var expiresAtISO string
@@ -254,7 +239,7 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 		shareURL = baseURL + publicViewPathPrefix + share.Token
 	}
 
-	_ = viewerTemplate.Execute(w, map[string]any{
+	_ = publicviewer.AssetTemplate.Execute(w, map[string]any{
 		"Name":               asset.Name,
 		"ContentType":        asset.ContentType,
 		"Description":        asset.Description,
@@ -408,10 +393,12 @@ func (h *Handler) publicAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set(headerContentType, asset.ContentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", asset.Name))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- content served from S3
+	blobserve.Serve(w, r, blobserve.Options{
+		Name:        asset.Name,
+		ContentType: asset.ContentType,
+		ModTime:     asset.UpdatedAt,
+		Data:        data,
+	})
 }
 
 // publicAssetError categorizes errors from fetchPublicAsset.
@@ -447,8 +434,12 @@ func (h *Handler) fetchAssetContent(r *http.Request, assetID string) (*Asset, []
 	return asset, data, nil
 }
 
-// fetchPublicAsset retrieves an asset and optionally its S3 content for public viewing.
-// For assets exceeding largeAssetPreviewThreshold, content is not fetched and TooLarge is set.
+// fetchPublicAsset retrieves an asset and, when the viewer can use it, its S3
+// content. Content is not fetched — and TooLarge is set — for assets over
+// largeAssetPreviewThreshold. Content is also not fetched for binary families:
+// the page embeds text content as a JSON string, which cannot carry arbitrary
+// bytes, so images, audio, video and PDFs render from the raw content endpoint
+// instead and there is nothing for the page to hold.
 func (h *Handler) fetchPublicAsset(r *http.Request, assetID string) (publicAssetData, error) {
 	asset, err := h.deps.AssetStore.Get(r.Context(), assetID)
 	if err != nil {
@@ -465,6 +456,10 @@ func (h *Handler) fetchPublicAsset(r *http.Request, assetID string) (publicAsset
 	// Skip content fetch for large assets — they'll show a download prompt instead.
 	if asset.SizeBytes > largeAssetPreviewThreshold {
 		return publicAssetData{Asset: asset, TooLarge: true}, nil
+	}
+
+	if !contenttype.IsTextual(asset.ContentType) {
+		return publicAssetData{Asset: asset, ServeFromURL: true}, nil
 	}
 
 	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.S3Key)
@@ -534,7 +529,7 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 		"updatedAt":     coll.UpdatedAt.UTC().Format(time.RFC3339),
 	})
 
-	csp := publicCollectionCSP()
+	csp := publicviewer.CollectionCSP()
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set(headerContentType, "text/html; charset=utf-8")
 
@@ -544,7 +539,7 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 	}
 	brandLogo := h.deps.BrandLogoSVG
 	if brandLogo == "" {
-		brandLogo = defaultLogoSVG
+		brandLogo = publicviewer.DefaultLogoSVG
 	}
 
 	var expiresAtISO string
@@ -559,7 +554,7 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 		shareURL = baseURL + publicViewPathPrefix + share.Token
 	}
 
-	_ = collectionViewerTemplate.Execute(w, map[string]any{
+	_ = publicviewer.CollectionTemplate.Execute(w, map[string]any{
 		"Name":               coll.Name,
 		"Description":        coll.Description,
 		"CollectionJSON":     template.JS(collJSON),           // #nosec G203 -- json.Marshal output
@@ -624,9 +619,12 @@ func (h *Handler) publicCollectionItemContent(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	w.Header().Set(headerContentType, asset.ContentType)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- content served from S3, content-type set by uploader
+	blobserve.Serve(w, r, blobserve.Options{
+		Name:        asset.Name,
+		ContentType: asset.ContentType,
+		ModTime:     asset.UpdatedAt,
+		Data:        data,
+	})
 }
 
 // publicCollectionItemView renders the full public asset viewer for an item in a collection.
@@ -647,6 +645,24 @@ func (h *Handler) publicCollectionItemView(w http.ResponseWriter, r *http.Reques
 	h.renderAssetViewer(w, r, pad, share)
 }
 
+// servePublicThumbnail writes a thumbnail object as a publicly cacheable image
+// response. Any fetch failure is a 404: a public viewer cannot act on the
+// difference between "no thumbnail" and "storage is down", and the distinction
+// would leak whether the key exists.
+func (h *Handler) servePublicThumbnail(w http.ResponseWriter, r *http.Request, bucket, key string) {
+	data, contentType, err := h.deps.S3Client.GetObject(r.Context(), bucket, key)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	blobserve.Serve(w, r, blobserve.Options{
+		Name:        "thumbnail.png",
+		ContentType: cmp.Or(contentType, mimeTypePNG),
+		Data:        data,
+	})
+}
+
 // publicCollectionItemThumbnail serves an asset's thumbnail within a public collection share.
 func (h *Handler) publicCollectionItemThumbnail(w http.ResponseWriter, r *http.Request) {
 	if h.validateCollectionItemAccess(w, r) == nil {
@@ -664,16 +680,7 @@ func (h *Handler) publicCollectionItemThumbnail(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	data, contentType, s3Err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.ThumbnailS3Key)
-	if s3Err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
-	w.Header().Set(headerContentType, contentType)
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- thumbnail from S3, content-type set by uploader
+	h.servePublicThumbnail(w, r, asset.S3Bucket, asset.ThumbnailS3Key)
 }
 
 // publicAssetThumbnail serves the thumbnail for the asset behind a
@@ -698,16 +705,7 @@ func (h *Handler) publicAssetThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, contentType, s3Err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.ThumbnailS3Key)
-	if s3Err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
-	w.Header().Set(headerContentType, contentType)
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- thumbnail from S3, content-type set by uploader
+	h.servePublicThumbnail(w, r, asset.S3Bucket, asset.ThumbnailS3Key)
 }
 
 // resolveCollectionForThumbnail loads the non-deleted, thumbnailed collection
@@ -742,16 +740,7 @@ func (h *Handler) publicCollectionThumbnail(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	data, contentType, s3Err := h.deps.S3Client.GetObject(r.Context(), h.deps.S3Bucket, coll.ThumbnailS3Key)
-	if s3Err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
-	w.Header().Set(headerContentType, contentType)
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- thumbnail from S3, content-type set by uploader
+	h.servePublicThumbnail(w, r, h.deps.S3Bucket, coll.ThumbnailS3Key)
 }
 
 // collectAssetIDs extracts unique asset IDs from all collection items.
@@ -817,34 +806,4 @@ func collectionContainsAsset(coll *Collection, assetID string) bool {
 		}
 	}
 	return false
-}
-
-// publicCollectionCSP returns the CSP for the public collection viewer.
-// Adds 'self' to frame-src so the asset viewer iframe can load from the same origin.
-//
-//nolint:lll // CSP directives are necessarily long
-func publicCollectionCSP() string {
-	return "default-src 'none'; " +
-		"frame-src 'self' blob: data:; " +
-		"script-src 'unsafe-eval' 'unsafe-inline' blob: https: http:; " +
-		"style-src 'unsafe-inline' https:; " +
-		"img-src * data: blob:; " +
-		"font-src * data:; " +
-		"connect-src https: http:;"
-}
-
-// publicCSP returns the Content-Security-Policy header value for public view.
-// All content types are rendered client-side by the content viewer bundle.
-// JSX and HTML content use blob: URL iframes which inherit the parent CSP,
-// so the policy must allow external resources those content types may reference.
-//
-//nolint:lll // CSP directives are necessarily long
-func publicCSP() string {
-	return "default-src 'none'; " +
-		"frame-src blob: data:; " +
-		"script-src 'unsafe-eval' 'unsafe-inline' blob: https: http:; " +
-		"style-src 'unsafe-inline' https:; " +
-		"img-src * data: blob:; " +
-		"font-src * data:; " +
-		"connect-src https: http:;"
 }
