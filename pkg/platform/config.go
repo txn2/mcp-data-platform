@@ -308,13 +308,15 @@ type StalenessConfig struct {
 	BatchSize int           `yaml:"batch_size"`
 }
 
-// Default bucket and prefix for portal artifact storage.
+// Default bucket and prefix for portal asset storage. The prefix keeps its
+// historical "artifacts/" value: it addresses stored blobs, not the tool
+// surface #1029 renamed, so it is deliberately out of that rename's scope.
 const (
 	defaultPortalS3Bucket = "portal-assets"
 	defaultPortalS3Prefix = "artifacts/"
 )
 
-// PortalConfig configures the asset portal for saving AI-generated artifacts.
+// PortalConfig configures the asset portal for saving AI-generated assets.
 // Enabled by default when a database is available. Set enabled: false to disable.
 type PortalConfig struct {
 	Enabled         *bool                 `yaml:"enabled"`
@@ -326,10 +328,10 @@ type PortalConfig struct {
 	LogoDark        string                `yaml:"logo_dark"`         // URL to logo for dark theme
 	LogoEmail       string                `yaml:"logo_email"`        // URL to raster PNG logo for notification emails (clients strip SVG); unset renders the text wordmark alone
 	S3Connection    string                `yaml:"s3_connection"`     // name of the S3 toolkit instance to use
-	S3Bucket        string                `yaml:"s3_bucket"`         // bucket for artifact storage (default: "portal-assets")
+	S3Bucket        string                `yaml:"s3_bucket"`         // bucket for asset storage (default: "portal-assets")
 	S3Prefix        string                `yaml:"s3_prefix"`         // key prefix within the bucket (default: "artifacts/")
 	PublicBaseURL   string                `yaml:"public_base_url"`   // base URL for portal links (e.g., "https://portal.example.com")
-	MaxContentSize  int                   `yaml:"max_content_size"`  // max artifact size in bytes (default: 10MB)
+	MaxContentSize  int                   `yaml:"max_content_size"`  // max asset size in bytes (default: 10MB)
 	Implementor     ImplementorConfig     `yaml:"implementor"`       // optional implementor brand (far-left header zone)
 	TermsURL        string                `yaml:"terms_url"`         // optional terms-of-service link rendered in notification email footers
 	PrivacyURL      string                `yaml:"privacy_url"`       // optional privacy-policy link rendered in notification email footers
@@ -371,7 +373,7 @@ type PortalRateLimitConfig struct {
 	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
-// defaultMaxContentSize is the default maximum artifact size (10 MB).
+// defaultMaxContentSize is the default maximum asset size (10 MB).
 const defaultMaxContentSize = 10 * 1024 * 1024
 
 // ServerConfig configures the MCP server.

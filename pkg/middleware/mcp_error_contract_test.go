@@ -29,7 +29,7 @@ func TestErrorContract_EnrichesBareError(t *testing.T) {
 	leaf := func(context.Context, string, mcp.Request) (mcp.Result, error) {
 		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "asset not found"}}}, nil
 	}
-	req := createAuditTestRequest(t, "manage_artifact", nil)
+	req := createAuditTestRequest(t, "manage_asset", nil)
 	res, err := wrapErrorContract(t, leaf)(context.Background(), methodToolsCall, req)
 	require.NoError(t, err)
 
@@ -120,7 +120,7 @@ func TestErrorContract_EnrichUnwrapsLegacyJSON(t *testing.T) {
 	leaf := func(context.Context, string, mcp.Request) (mcp.Result, error) {
 		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: `{"error":"collection not found"}`}}}, nil
 	}
-	req := createAuditTestRequest(t, "manage_artifact", nil)
+	req := createAuditTestRequest(t, "manage_asset", nil)
 	res, _ := wrapErrorContract(t, leaf)(context.Background(), methodToolsCall, req)
 	assert.Equal(t, "collection not found", envelope(t, mustCTR(t, res)).Message)
 }

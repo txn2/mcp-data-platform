@@ -14,10 +14,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
-// saveAndGet runs save_artifact through the real handler and returns the stored
+// saveAndGet runs save_asset through the real handler and returns the stored
 // asset, so these tests assert on what the viewer will actually read rather
 // than on the detection function in isolation.
-func saveAndGet(t *testing.T, store *inMemoryAssetStore, input saveArtifactInput) *portal.Asset {
+func saveAndGet(t *testing.T, store *inMemoryAssetStore, input saveAssetInput) *portal.Asset {
 	t.Helper()
 
 	tk := New(Config{
@@ -28,11 +28,11 @@ func saveAndGet(t *testing.T, store *inMemoryAssetStore, input saveArtifactInput
 		UserID: "user1", UserEmail: "user1@example.com", SessionID: "sess1",
 	})
 
-	result, _, err := tk.handleSaveArtifact(ctx, nil, input)
+	result, _, err := tk.handleSaveAsset(ctx, nil, input)
 	require.NoError(t, err)
-	require.False(t, result.IsError, "save_artifact failed: %+v", result.Content)
+	require.False(t, result.IsError, "save_asset failed: %+v", result.Content)
 
-	var out saveArtifactOutput
+	var out saveAssetOutput
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
 	require.True(t, ok)
 	require.NoError(t, json.Unmarshal([]byte(tc.Text), &out))
@@ -42,10 +42,10 @@ func saveAndGet(t *testing.T, store *inMemoryAssetStore, input saveArtifactInput
 	return asset
 }
 
-// TestSaveArtifactDetectsContentType is the save_artifact half of issue #1007:
+// TestSaveAssetDetectsContentType is the save_asset half of issue #1007:
 // an agent that saved structured content under a catch-all type gets the asset
 // stored under the type the viewer needs.
-func TestSaveArtifactDetectsContentType(t *testing.T) {
+func TestSaveAssetDetectsContentType(t *testing.T) {
 	tests := []struct {
 		name         string
 		declared     string
@@ -97,8 +97,8 @@ func TestSaveArtifactDetectsContentType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := newInMemoryAssetStore()
-			asset := saveAndGet(t, store, saveArtifactInput{
-				Name: "artifact", Content: tt.content, ContentType: tt.declared,
+			asset := saveAndGet(t, store, saveAssetInput{
+				Name: "asset", Content: tt.content, ContentType: tt.declared,
 			})
 
 			assert.Equal(t, tt.wantType, asset.ContentType)
@@ -108,12 +108,12 @@ func TestSaveArtifactDetectsContentType(t *testing.T) {
 	}
 }
 
-// TestSaveArtifactNeverUpgradesToActiveType is the security rule at the write
+// TestSaveAssetNeverUpgradesToActiveType is the security rule at the write
 // path: content that sniffs as HTML but was declared text/plain must be stored
 // as text/plain, or the viewer would render it as markup.
-func TestSaveArtifactNeverUpgradesToActiveType(t *testing.T) {
+func TestSaveAssetNeverUpgradesToActiveType(t *testing.T) {
 	store := newInMemoryAssetStore()
-	asset := saveAndGet(t, store, saveArtifactInput{
+	asset := saveAndGet(t, store, saveAssetInput{
 		Name:        "not-really-a-page",
 		Content:     "<!DOCTYPE html>\n<html><body><script>alert(1)</script></body></html>",
 		ContentType: "text/plain",
@@ -122,18 +122,18 @@ func TestSaveArtifactNeverUpgradesToActiveType(t *testing.T) {
 	assert.Equal(t, "text/plain", asset.ContentType)
 }
 
-// TestSaveArtifactKeyExtensionFollowsDetectedType proves the storage key names
+// TestSaveAssetKeyExtensionFollowsDetectedType proves the storage key names
 // the family the asset was actually stored as, not the one it was declared as.
-func TestSaveArtifactKeyExtensionFollowsDetectedType(t *testing.T) {
+func TestSaveAssetKeyExtensionFollowsDetectedType(t *testing.T) {
 	store := newInMemoryAssetStore()
-	asset := saveAndGet(t, store, saveArtifactInput{
+	asset := saveAndGet(t, store, saveAssetInput{
 		Name: "export", Content: `{"a":1,"b":2}`, ContentType: "application/octet-stream",
 	})
 
 	assert.True(t, strings.HasSuffix(asset.S3Key, ".json"), "s3 key = %q", asset.S3Key)
 }
 
-// TestUpdateContentMovesAssetType covers manage_artifact update: replacement
+// TestUpdateContentMovesAssetType covers manage_asset update: replacement
 // content that resolves to a different type has to move the asset row too, or
 // the viewer keeps rendering the new content under the old family.
 func TestUpdateContentMovesAssetType(t *testing.T) {
@@ -151,7 +151,7 @@ func TestUpdateContentMovesAssetType(t *testing.T) {
 		ContentType: "application/octet-stream", S3Bucket: "b", S3Key: "assets/user1/a1/content.bin",
 	}))
 
-	result, _, err := tk.handleUpdate(ctx, manageArtifactInput{
+	result, _, err := tk.handleUpdate(ctx, manageAssetInput{
 		Action: actionUpdate, AssetID: "a1", Content: `{"rows":[1,2,3]}`,
 	})
 	require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestUpdateContentPreservesSpecificType(t *testing.T) {
 		ContentType: "application/json", S3Bucket: "b", S3Key: "assets/user1/a1/content.json",
 	}))
 
-	result, _, err := tk.handleUpdate(ctx, manageArtifactInput{
+	result, _, err := tk.handleUpdate(ctx, manageAssetInput{
 		Action: actionUpdate, AssetID: "a1", Content: `{"rows":[4,5,6]}`,
 	})
 	require.NoError(t, err)

@@ -133,7 +133,7 @@ toolkits:
 # Portal is enabled (DB-backed) so the portal-read scenario has live endpoints.
 # s3_bucket points at a bucket the E2E SeaweedFS setup actually creates
 # (docker-compose.e2e.yml makes test-data-lake / test-analytics), so
-# save_artifact can upload content and the public-viewer share seeds.
+# save_asset can upload content and the public-viewer share seeds.
 portal:
   enabled: true
   s3_connection: e2e

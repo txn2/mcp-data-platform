@@ -19,7 +19,7 @@
 
 mcp-data-platform fixes that. It is a single MCP server that connects AI assistants to your data infrastructure and enriches every response with business context from your semantic layer: query a table and get its meaning, owners, quality scores, and deprecation warnings in the same call.
 
-It is a platform, not just a bridge. The same endpoint gives agents persistent memory and a governed path to write knowledge back to the catalog, proxies third-party MCP servers and REST APIs through one authentication, persona, and audit pipeline, and ships a web portal where AI-generated artifacts are saved, organized into collections, and shared with teammates.
+It is a platform, not just a bridge. The same endpoint gives agents persistent memory and a governed path to write knowledge back to the catalog, proxies third-party MCP servers and REST APIs through one authentication, persona, and audit pipeline, and ships a web portal where AI-generated assets are saved, organized into collections, and shared with teammates.
 
 The only required backend is [DataHub](https://datahubproject.io/) as the semantic layer. Add [Trino](https://trino.io/) for SQL and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack.](https://mcp-data-platform.txn2.com/concepts/components/)
 
@@ -147,7 +147,7 @@ A built-in web portal serves both operators and end users. Enable with `portal.e
 
 ![Admin Dashboard](docs/images/screenshots/light/admin-admin-dashboard-light.webp)
 
-**For users**: AI-generated artifacts (reports, charts, documents) are saved from any session with the `save_artifact` tool, organized into shareable [collections](https://mcp-data-platform.txn2.com/server/portal-user/#collections), and shared with teammates or through public links. A [prompt library](https://mcp-data-platform.txn2.com/server/portal-user/#prompts), [feedback threads](https://mcp-data-platform.txn2.com/server/portal-user/#feedback) on any artifact, and personal knowledge and activity views round out the [User Portal](https://mcp-data-platform.txn2.com/server/portal-user/).
+**For users**: AI-generated assets (reports, charts, documents) are saved from any session with the `save_asset` tool, organized into shareable [collections](https://mcp-data-platform.txn2.com/server/portal-user/#collections), and shared with teammates or through public links. A [prompt library](https://mcp-data-platform.txn2.com/server/portal-user/#prompts), [feedback threads](https://mcp-data-platform.txn2.com/server/portal-user/#feedback) on any asset, and personal knowledge and activity views round out the [User Portal](https://mcp-data-platform.txn2.com/server/portal-user/).
 
 ![Collections](docs/images/screenshots/light/user-collection-view-light.webp)
 

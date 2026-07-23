@@ -18,7 +18,7 @@ import (
 // --- fakes ------------------------------------------------------------------
 
 // fakeThreadStore implements portal.ThreadStore with configurable returns and
-// captured inputs for the manage_artifact thread actions.
+// captured inputs for the manage_asset thread actions.
 type fakeThreadStore struct {
 	listResult  []portal.ThreadWithMeta
 	listTotal   int
@@ -275,7 +275,7 @@ func TestHandleListThreads(t *testing.T) {
 		res, _, err := tk.handleListThreads(ownerCtx(), manageFeedbackInput{})
 		require.NoError(t, err)
 		assert.False(t, res.IsError)
-		// First ListThreads call is the pending query: my owned/editable artifacts
+		// First ListThreads call is the pending query: my owned/editable assets
 		// + the general channel, unresolved, excluding my own threads.
 		require.GreaterOrEqual(t, len(fts.listFilters), 1)
 		pf := fts.listFilters[0]

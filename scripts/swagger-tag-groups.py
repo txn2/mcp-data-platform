@@ -15,7 +15,7 @@ TAG_DESCRIPTIONS = {
         "Timeseries, breakdowns, and summary statistics scoped to the calling user."
     ),
     "Assets": (
-        "AI-generated artifacts — dashboards, reports, visualizations, and data exports. "
+        "AI-generated assets — dashboards, reports, visualizations, and data exports. "
         "Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, "
         "thumbnails, and sharing."
     ),

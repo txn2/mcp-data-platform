@@ -497,7 +497,7 @@ INSERT INTO portal_assets (
   'text/html',
   'portal-assets', 'portal/apikey:admin/asset-001/v1/content.html', 4280,
   '["dashboard", "revenue", "weekly"]'::jsonb,
-  '{"tool": "save_artifact", "session_id": "sess-201"}'::jsonb,
+  '{"tool": "save_asset", "session_id": "sess-201"}'::jsonb,
   'sess-201', 1,
   NOW() - interval '6 days', NOW() - interval '6 days'
 ),
@@ -508,7 +508,7 @@ INSERT INTO portal_assets (
   'text/csv',
   'portal-assets', 'portal/apikey:admin/asset-002/v1/content.csv', 15720,
   '["inventory", "report", "csv"]'::jsonb,
-  '{"tool": "save_artifact", "session_id": "sess-202"}'::jsonb,
+  '{"tool": "save_asset", "session_id": "sess-202"}'::jsonb,
   'sess-202', 1,
   NOW() - interval '5 days', NOW() - interval '5 days'
 ),
@@ -519,7 +519,7 @@ INSERT INTO portal_assets (
   'text/jsx',
   'portal-assets', 'portal/apikey:admin/asset-003/v1/content.jsx', 6340,
   '["stores", "comparison", "interactive"]'::jsonb,
-  '{"tool": "save_artifact", "session_id": "sess-203"}'::jsonb,
+  '{"tool": "save_asset", "session_id": "sess-203"}'::jsonb,
   'sess-203', 1,
   NOW() - interval '4 days', NOW() - interval '4 days'
 ),
@@ -530,7 +530,7 @@ INSERT INTO portal_assets (
   'text/markdown',
   'portal-assets', 'portal/apikey:admin/asset-004/v1/content.md', 2890,
   '["architecture", "documentation", "pipeline"]'::jsonb,
-  '{"tool": "save_artifact", "session_id": "sess-204"}'::jsonb,
+  '{"tool": "save_asset", "session_id": "sess-204"}'::jsonb,
   'sess-204', 1,
   NOW() - interval '3 days', NOW() - interval '3 days'
 ),
@@ -541,7 +541,7 @@ INSERT INTO portal_assets (
   'image/svg+xml',
   'portal-assets', 'portal/apikey:admin/asset-005/v1/content.svg', 8150,
   '["visualization", "sales", "regional"]'::jsonb,
-  '{"tool": "save_artifact", "session_id": "sess-205"}'::jsonb,
+  '{"tool": "save_asset", "session_id": "sess-205"}'::jsonb,
   'sess-205', 1,
   NOW() - interval '2 days', NOW() - interval '2 days'
 ),
@@ -552,7 +552,7 @@ INSERT INTO portal_assets (
   'text/html',
   'portal-assets', 'portal/apikey:admin/asset-006/v1/content.html', 5420,
   '["finance", "quarterly", "dashboard"]'::jsonb,
-  '{"tool": "save_artifact", "session_id": "sess-206"}'::jsonb,
+  '{"tool": "save_asset", "session_id": "sess-206"}'::jsonb,
   'sess-206', 1,
   NOW() - interval '1 day', NOW() - interval '1 day'
 )
@@ -586,7 +586,7 @@ SELECT
     || (ARRAY['.html','.csv','.jsx','.md','.svg'])[(n % 5) + 1],
   (ARRAY[4280, 15720, 6340, 2890, 8150])[(n % 5) + 1],
   jsonb_build_array('demo', (ARRAY['sales','inventory','stores','pipeline','regional'])[(n % 5) + 1]),
-  '{"tool": "save_artifact", "session_id": "sess-demo"}'::jsonb,
+  '{"tool": "save_asset", "session_id": "sess-demo"}'::jsonb,
   'sess-demo-' || n, 1,
   NOW() - (n || ' hours')::interval, NOW() - (n || ' hours')::interval
 FROM generate_series(1, 120) AS n

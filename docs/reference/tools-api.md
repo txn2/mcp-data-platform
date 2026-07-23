@@ -1123,11 +1123,11 @@ See [Governance Workflow](../knowledge/governance.md) for detailed examples of e
 
 ## Portal Tools
 
-The portal toolkit persists AI-generated artifacts to S3 with PostgreSQL metadata. Requires `portal.enabled: true`.
+The portal toolkit persists AI-generated assets to S3 with PostgreSQL metadata. Requires `portal.enabled: true`.
 
-### save_artifact
+### save_asset
 
-Save an AI-generated artifact (JSX dashboard, HTML report, SVG chart, etc.) to the asset portal. Automatically captures provenance — which tool calls in the current session produced this artifact.
+Save AI-generated content (JSX dashboard, HTML report, SVG chart, etc.) to the asset portal as a versioned asset. Automatically captures provenance: which tool calls in the current session produced this asset.
 
 **Parameters:**
 
@@ -1164,9 +1164,9 @@ Content is stored in S3 at `{s3_prefix}{user_id}/{asset_id}/content.{ext}` where
 
 ---
 
-### manage_artifact
+### manage_asset
 
-List, retrieve, update, or delete saved artifacts. All mutations enforce ownership — users can only modify their own artifacts.
+List, retrieve, update, or delete saved assets. All mutations enforce ownership: users can only modify their own assets.
 
 **Parameters:**
 
@@ -1186,10 +1186,10 @@ List, retrieve, update, or delete saved artifacts. All mutations enforce ownersh
 
 | Action | Description | Required Params |
 |--------|-------------|-----------------|
-| `list` | Show current user's artifacts | None |
+| `list` | Show current user's assets | None |
 | `get` | Retrieve full asset metadata | `asset_id` |
 | `update` | Change metadata or replace content | `asset_id` |
-| `delete` | Soft-delete an artifact | `asset_id` |
+| `delete` | Soft-delete an asset | `asset_id` |
 | `search` | Rank the caller's own assets by relevance to `query` (hybrid vector + lexical, lexical-only fallback). Returns each match with a `score` plus a `ranking` field; scoped server-side to the caller's own assets by `owner_id` (the library's ownership key) and fails closed without an identity. | `query` |
 
 **Response Schema (list):**
@@ -1203,7 +1203,7 @@ List, retrieve, update, or delete saved artifacts. All mutations enforce ownersh
       "name": "Revenue Dashboard",
       "description": "Monthly revenue breakdown",
       "content_type": "text/html",
-      "s3_bucket": "portal-artifacts",
+      "s3_bucket": "portal-assets",
       "s3_key": "artifacts/user/asset-id/content.html",
       "size_bytes": 4096,
       "tags": ["dashboard", "revenue"],
@@ -1237,5 +1237,5 @@ List, retrieve, update, or delete saved artifacts. All mutations enforce ownersh
 |-----------|---------------|
 | Missing asset_id | `asset_id is required for {action} action` |
 | Asset not found | `asset not found: ...` |
-| Wrong owner | `you can only {action} your own artifacts` |
+| Wrong owner | `you can only {action} your own assets` |
 | Invalid action | `invalid action "...": must be one of: list, get, update, delete` |

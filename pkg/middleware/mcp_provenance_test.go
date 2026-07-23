@@ -62,7 +62,7 @@ func TestMCPProvenanceMiddleware_Records(t *testing.T) {
 		return &mcp.CallToolResult{}, nil
 	}
 
-	handler := MCPProvenanceMiddleware(tracker, "save_artifact")(base)
+	handler := MCPProvenanceMiddleware(tracker, "save_asset")(base)
 
 	args, _ := json.Marshal(map[string]any{"sql": "SELECT 1"})
 	req := newTestServerRequest(&mcp.CallToolParamsRaw{
@@ -94,10 +94,10 @@ func TestMCPProvenanceMiddleware_HarvestsOnSave(t *testing.T) {
 		return &mcp.CallToolResult{}, nil
 	}
 
-	handler := MCPProvenanceMiddleware(tracker, "save_artifact")(base)
+	handler := MCPProvenanceMiddleware(tracker, "save_asset")(base)
 
 	req := newTestServerRequest(&mcp.CallToolParamsRaw{
-		Name: "save_artifact",
+		Name: "save_asset",
 	})
 
 	ctx := WithPlatformContext(context.Background(), &PlatformContext{SessionID: "sess1"})
@@ -120,7 +120,7 @@ func TestMCPProvenanceMiddleware_NonToolsCall(t *testing.T) {
 		return &mcp.CallToolResult{}, nil
 	}
 
-	handler := MCPProvenanceMiddleware(tracker, "save_artifact")(base)
+	handler := MCPProvenanceMiddleware(tracker, "save_asset")(base)
 
 	_, err := handler(context.Background(), "tools/list", nil)
 	require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestMCPProvenanceMiddleware_NoSessionContext(t *testing.T) {
 		return &mcp.CallToolResult{}, nil
 	}
 
-	handler := MCPProvenanceMiddleware(tracker, "save_artifact")(base)
+	handler := MCPProvenanceMiddleware(tracker, "save_asset")(base)
 
 	req := newTestServerRequest(&mcp.CallToolParamsRaw{
 		Name: "trino_query",
@@ -173,7 +173,7 @@ func TestMCPProvenanceMiddleware_EmptyToolName(t *testing.T) {
 		return &mcp.CallToolResult{}, nil
 	}
 
-	handler := MCPProvenanceMiddleware(tracker, "save_artifact")(base)
+	handler := MCPProvenanceMiddleware(tracker, "save_asset")(base)
 
 	// Request with empty tool name — extractToolName succeeds but records it.
 	req := newTestServerRequest(&mcp.CallToolParamsRaw{Name: ""})

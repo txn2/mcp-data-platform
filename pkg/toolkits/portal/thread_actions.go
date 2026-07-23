@@ -12,15 +12,15 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
-// Feedback thread actions for manage_artifact (Phase 2 / #602). These are
-// additional actions on the existing tool, not new tools.
+// Feedback thread actions for manage_feedback (Phase 2 / #602, moved off the
+// asset tool by #618).
 //
-// Access model. #602 scopes these to "artifacts the caller owns or can edit".
+// Access model. #602 scopes these to the targets the caller owns or can edit.
 // The owner-or-editor check reuses the same predicate as the REST handler's
 // canEditAssetSilent / canEditCollectionSilent. This is deliberately narrower
 // than the portal's *read* surface (canAccessThreadTarget grants viewer and
 // collection-inherited shares; canModerateThread also grants the thread
-// author): the agent surface acts on artifacts the caller can edit, not merely
+// author): the agent surface acts on targets the caller can edit, not merely
 // view. The same call applies to reads and writes here, by design:
 //   - admin: full access.
 //   - asset / collection target: owner OR an active editor share grant.
@@ -52,7 +52,7 @@ func (t *Toolkit) handleListThreads(ctx context.Context, input manageFeedbackInp
 		return toolkit.ErrorResult(threadScopeErr), nil, nil
 	}
 	if !t.callerCanAccessTarget(ctx, targetType, input.AssetID, input.CollectionID) {
-		return toolkit.ErrorResult("you can only view feedback on artifacts you own or can edit"), nil, nil
+		return toolkit.ErrorResult("you can only view feedback on assets and collections you own or can edit"), nil, nil
 	}
 
 	threads, total, err := t.threadStore.ListThreads(ctx, portal.ThreadFilter{
@@ -76,7 +76,7 @@ func (t *Toolkit) handleListThreads(ctx context.Context, input manageFeedbackInp
 }
 
 // hasThreadTarget reports whether the input scopes feedback to a single target
-// (an object id or target_type). When false, list returns the cross-artifact
+// (an object id or target_type). When false, list returns the cross-target
 // pending feed.
 func hasThreadTarget(input manageFeedbackInput) bool {
 	return input.TargetType != "" || input.AssetID != "" ||
@@ -84,7 +84,7 @@ func hasThreadTarget(input manageFeedbackInput) bool {
 }
 
 // handleListPendingFeedback returns the caller's pending feedback across every
-// artifact they own or can edit AND the shared general channel: unresolved
+// asset and collection they own or can edit AND the shared general channel: unresolved
 // threads they did not author, plus threads awaiting their validation. This is
 // the agent's entry point for "review and act on any pending feedback".
 func (t *Toolkit) handleListPendingFeedback(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
@@ -99,11 +99,11 @@ func (t *Toolkit) handleListPendingFeedback(ctx context.Context, input manageFee
 	}
 	assetIDs, err := g.AssetIDs(ctx, portal.KeepEditorShares)
 	if err != nil {
-		return toolkit.ErrorResult("failed to gather your artifacts: " + err.Error()), nil, nil
+		return toolkit.ErrorResult("failed to gather your assets: " + err.Error()), nil, nil
 	}
 	collIDs, err := g.CollectionIDs(ctx, portal.KeepEditorShares)
 	if err != nil {
-		return toolkit.ErrorResult("failed to gather your artifacts: " + err.Error()), nil, nil
+		return toolkit.ErrorResult("failed to gather your collections: " + err.Error()), nil, nil
 	}
 
 	filter := portal.ThreadFilter{
@@ -227,7 +227,7 @@ func (t *Toolkit) handleRequestValidation(ctx context.Context, input manageFeedb
 
 // handleRespondValidation records the SME's answer to a validation request.
 // Unlike the other moderation actions, the responder is the original feedback
-// author (the SME the request was routed to), not the artifact owner.
+// author (the SME the request was routed to), not the asset owner.
 func (t *Toolkit) handleRespondValidation(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
 	if t.threadStore == nil {
 		return toolkit.ErrorResult(threadsUnavail), nil, nil
@@ -331,7 +331,7 @@ func (t *Toolkit) loadThread(ctx context.Context, threadID string, moderate bool
 		return nil, toolkit.ErrorResult("thread not found: " + err.Error())
 	}
 	if !t.callerCanActOnThread(ctx, thread, moderate) {
-		return nil, toolkit.ErrorResult("you can only act on feedback for artifacts you own or can edit")
+		return nil, toolkit.ErrorResult("you can only act on feedback for assets and collections you own or can edit")
 	}
 	return thread, nil
 }

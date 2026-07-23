@@ -10,3 +10,9 @@
 # memory_recall was folded into `search`; it is the reference that the deleted
 # bench/LOCOMO.md carried, and the reason this gate exists.
 memory_recall
+
+# save_artifact / manage_artifact were renamed to save_asset / manage_asset
+# (#1029): the portal's object is an asset everywhere else in the system, and
+# the old names returned an asset_id from a tool named for something else.
+save_artifact
+manage_artifact

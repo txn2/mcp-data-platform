@@ -73,13 +73,13 @@ func okAuth() middleware.Authenticator {
 // that reaches the client, and that the audit store observes the category end to
 // end through the real middleware chain.
 func TestIntegration_ErrorContract_BareToolkitError(t *testing.T) {
-	tool := &mcp.Tool{Name: "manage_artifact", InputSchema: json.RawMessage(`{"type":"object"}`)}
+	tool := &mcp.Tool{Name: "manage_asset", InputSchema: json.RawMessage(`{"type":"object"}`)}
 	session, auditStore := errorContractServer(t, okAuth(), tool,
 		func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "asset not found"}}}, nil
 		})
 
-	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "manage_artifact"})
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "manage_asset"})
 	require.NoError(t, err)
 
 	e := clientErrorEnvelope(t, res)

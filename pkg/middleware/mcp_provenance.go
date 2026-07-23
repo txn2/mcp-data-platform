@@ -111,7 +111,7 @@ func harvestProvenance(_ context.Context, tracker *ProvenanceTracker, sessionID 
 // MCPProvenanceMiddleware tracks tool calls per session and injects
 // accumulated provenance into the context when a harvest tool is called.
 // harvestToolNames are the tools that trigger provenance harvesting
-// (e.g., "save_artifact", "trino_export").
+// (e.g., "save_asset", "trino_export").
 func MCPProvenanceMiddleware(tracker *ProvenanceTracker, harvestToolNames ...string) mcp.Middleware {
 	harvestSet := make(map[string]bool, len(harvestToolNames))
 	for _, name := range harvestToolNames {

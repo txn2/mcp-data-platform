@@ -16,8 +16,8 @@ Detection runs on every write path that accepts outside content:
 
 | Write path | Declared type comes from |
 |---|---|
-| `save_artifact` | the tool's `content_type` argument |
-| `manage_artifact action=update` | the tool's `content_type`, or the asset's existing type |
+| `save_asset` | the tool's `content_type` argument |
+| `manage_asset action=update` | the tool's `content_type`, or the asset's existing type |
 | `api_export` | the upstream response's `Content-Type` header |
 | Resource upload | the multipart part's `Content-Type` header |
 

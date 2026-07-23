@@ -472,7 +472,7 @@ The admin portal provides a web-based dashboard for audit log exploration, tool 
 
 ## Portal Configuration
 
-The `portal` block enables the asset portal - the web UI plus REST API that persists AI-generated artifacts (JSX dashboards, HTML reports, SVG charts, exports) to S3 with PostgreSQL metadata tracking. See [Admin Portal](admin-portal.md) for branding and public-viewer walkthroughs and [User Portal](portal-user.md) for the end-user feature tour.
+The `portal` block enables the asset portal - the web UI plus REST API that persists AI-generated assets (JSX dashboards, HTML reports, SVG charts, exports) to S3 with PostgreSQL metadata tracking. See [Admin Portal](admin-portal.md) for branding and public-viewer walkthroughs and [User Portal](portal-user.md) for the end-user feature tour.
 
 ```yaml
 portal:
@@ -483,11 +483,11 @@ portal:
   logo: https://example.com/logo.svg              # Logo URL (fallback for both themes)
   logo_light: https://example.com/logo-light.svg  # Logo for light theme
   logo_dark: https://example.com/logo-dark.svg    # Logo for dark theme
-  s3_connection: primary        # S3 toolkit instance for artifact storage
-  s3_bucket: portal-artifacts   # Bucket for artifact content
-  s3_prefix: "artifacts/"       # Key prefix within the bucket
+  s3_connection: primary        # S3 toolkit instance for asset storage
+  s3_bucket: portal-assets      # Bucket for asset content
+  s3_prefix: "artifacts/"       # Key prefix within the bucket (storage key, unchanged)
   public_base_url: "https://portal.example.com"   # Base URL for portal links
-  max_content_size: 10485760    # Max artifact size in bytes (default: 10MB)
+  max_content_size: 10485760    # Max asset size in bytes (default: 10MB)
   implementor:                                    # Optional implementor brand (left zone of public viewer header)
     name: "ACME Corp"
     logo: "https://acme.com/logo.svg"
@@ -512,18 +512,18 @@ portal:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable the portal SPA frontend and artifact API |
+| `enabled` | bool | `false` | Enable the portal SPA frontend and asset API |
 | `title` | string | `MCP Data Platform` | Sidebar/branding title text |
 | `tagline` | string | `Sign in to access the platform.` | Login-screen subtitle text |
 | `oidc_button_label` | string | `Sign in with OIDC` | Login-screen SSO button text |
 | `logo` | string | - | URL to logo image (used for both themes if no theme-specific logo is set) |
 | `logo_light` | string | - | URL to logo for light theme (overrides `logo`) |
 | `logo_dark` | string | - | URL to logo for dark theme (overrides `logo`) |
-| `s3_connection` | string | - | Name of the S3 toolkit instance to use for artifact storage |
-| `s3_bucket` | string | `portal-assets` | S3 bucket for storing artifact content |
+| `s3_connection` | string | - | Name of the S3 toolkit instance to use for asset storage |
+| `s3_bucket` | string | `portal-assets` | S3 bucket for storing asset content |
 | `s3_prefix` | string | `artifacts/` | Key prefix within the bucket |
-| `public_base_url` | string | - | Base URL for portal links returned in `save_artifact` responses |
-| `max_content_size` | int | `10485760` | Maximum artifact size in bytes (10 MB) |
+| `public_base_url` | string | - | Base URL for portal links returned in `save_asset` responses |
+| `max_content_size` | int | `10485760` | Maximum asset size in bytes (10 MB) |
 | `implementor.name` | string | - | Implementor display name shown in the left zone of the public viewer header |
 | `implementor.logo` | string | - | URL to implementor SVG logo (fetched once at startup, max 1 MB) |
 | `implementor.url` | string | - | Clickable link wrapping the implementor name and logo |
@@ -542,7 +542,7 @@ portal:
 | `export.max_timeout` | string | `10m` | Maximum allowed query timeout for exports |
 
 !!! note "Prerequisites"
-    Portal requires `database.dsn` to be configured for metadata storage, and at least one S3 toolkit instance for artifact content storage.
+    Portal requires `database.dsn` to be configured for metadata storage, and at least one S3 toolkit instance for asset content storage.
 
 ## Audit Configuration
 

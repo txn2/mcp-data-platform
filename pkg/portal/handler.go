@@ -2523,7 +2523,7 @@ func validateCreateAssetRequest(req createAssetRequest) (name, contentType strin
 	// the same type the asset will be stored and rendered under.
 	contentType = ResolveContentType(req.ContentType, []byte(req.Content))
 	if _, ok := allowedCreateAssetContentTypes[contentType]; !ok {
-		return "", "", &httpError{http.StatusUnsupportedMediaType, "unsupported content_type for inline create; use the save_artifact tool for binary types"}
+		return "", "", &httpError{http.StatusUnsupportedMediaType, "unsupported content_type for inline create; use the save_asset tool for binary types"}
 	}
 	if int64(len(req.Content)) > MaxContentUploadBytes {
 		return "", "", &httpError{http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit"}
@@ -2540,7 +2540,7 @@ func validateCreateAssetRequest(req createAssetRequest) (name, contentType strin
 // createAsset handles POST /api/v1/portal/assets.
 //
 // @Summary      Create asset from inline content
-// @Description  Creates a new asset by uploading inline text content (markdown, HTML, SVG, JSON, etc.). Use this to snapshot generated content into the asset portal without going through the MCP save_artifact tool.
+// @Description  Creates a new asset by uploading inline text content (markdown, HTML, SVG, JSON, etc.). Use this to snapshot generated content into the asset portal without going through the MCP save_asset tool.
 // @Tags         Assets
 // @Accept       json
 // @Produce      json

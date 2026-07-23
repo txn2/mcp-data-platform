@@ -1,11 +1,11 @@
 // Package portalstore assembles the asset-portal store layer behind one Handle:
 // the five Postgres stores (asset, share, version, collection, thread), the
-// knowledge-page store, the S3 blob backend, and the save/manage-artifact
+// knowledge-page store, the S3 blob backend, and the save/manage-asset
 // toolkit built on top of them.
 //
 // Construction takes explicit inputs — a *sql.DB, the resolved portal.S3Client
 // (or nil for database-only mode), the embedding.Provider that powers ranked
-// artifact search, and the toolkit's Config knobs — so the subsystem is
+// asset search, and the toolkit's Config knobs — so the subsystem is
 // constructible and testable without a Platform. It imports pkg/portal,
 // pkg/portal/knowledgepage, and pkg/toolkits/portal, never pkg/platform. The
 // *sql.DB and embedding.Provider back many other subsystems, so they stay owned
@@ -29,8 +29,8 @@ import (
 )
 
 // Config carries the portal-toolkit knobs the owner needs to build the
-// save/manage-artifact toolkit. The stores themselves need only the *sql.DB;
-// these values shape the toolkit's blob addressing and artifact limits.
+// save/manage-asset toolkit. The stores themselves need only the *sql.DB;
+// these values shape the toolkit's blob addressing and asset limits.
 type Config struct {
 	// Name is the toolkit instance name (the platform passes its default).
 	Name string
@@ -40,16 +40,16 @@ type Config struct {
 	S3Prefix string
 	// BaseURL is the portal's public base URL used to render share links.
 	BaseURL string
-	// MaxContentSize caps artifact content size in bytes (0 = no limit).
+	// MaxContentSize caps asset content size in bytes (0 = no limit).
 	MaxContentSize int
 }
 
 // Handle owns the assembled portal store layer: the six stores, the S3 blob
-// backend, and the artifact toolkit. The read accessors expose the stores +
+// backend, and the asset toolkit. The read accessors expose the stores +
 // S3 client that Platform surfaces through its Portal* accessors (the admin
 // REST handler and portal REST wiring) and that the cross-toolkit export wiring
 // and search/enrichment provider assembly consume; Toolkit() exposes the
-// artifact toolkit for registration and as the memory thread linker. Close is
+// asset toolkit for registration and as the memory thread linker. Close is
 // the shutdown seam Platform wires into its own lifecycle (only the S3 client
 // needs closing — the stores share Platform's *sql.DB, which Platform closes).
 type Handle struct {
@@ -78,7 +78,7 @@ type Stores struct {
 	S3Client      portal.S3Client
 }
 
-// New assembles the six Postgres-backed stores and the artifact toolkit from an
+// New assembles the six Postgres-backed stores and the asset toolkit from an
 // explicit *sql.DB, the resolved S3 client (nil for database-only mode), the
 // embedding provider, and the toolkit Config. It returns nil when db is nil:
 // the portal is a no-op without a database, matching the platform precondition.
@@ -97,7 +97,7 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 	}, embedder, cfg)
 }
 
-// NewFromStores assembles the Handle and its artifact toolkit from already-built
+// NewFromStores assembles the Handle and its asset toolkit from already-built
 // store implementations. New delegates here after constructing the Postgres
 // stores; it is also the entry point for assembling a Handle over injected store
 // implementations (fakes or alternative backends) without a *sql.DB.
@@ -187,7 +187,11 @@ func (h *Handle) S3Client() portal.S3Client {
 	return h.s3Client
 }
 
-// Toolkit returns the save/manage-artifact toolkit for Platform to register
+// SaveToolName re-exports the portal toolkit's save-tool name so Platform can
+// configure provenance harvesting without importing pkg/toolkits/portal.
+const SaveToolName = portalkit.SaveToolName
+
+// Toolkit returns the save/manage-asset toolkit for Platform to register
 // into the shared toolkit registry and to wire as the memory thread linker, or
 // nil on a nil Handle.
 func (h *Handle) Toolkit() *portalkit.Toolkit {

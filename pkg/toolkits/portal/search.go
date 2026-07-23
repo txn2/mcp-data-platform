@@ -28,7 +28,7 @@ const (
 // Ranking is hybrid (semantic + lexical) when an embedding provider is
 // configured and lexical-only otherwise, reported as the "ranking" field so the
 // caller knows which path produced the results.
-func (t *Toolkit) handleSearch(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleSearch(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	searcher, ok := t.assetStore.(portal.AssetSearcher)
 	if !ok {
 		return middleware.UnavailableResult(
