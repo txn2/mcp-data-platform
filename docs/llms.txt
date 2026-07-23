@@ -74,7 +74,7 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. DataHub
 
 ## MCP Apps
 
-- [Overview](https://mcp-data-platform.txn2.com/mcpapps/overview/): Interactive UI panels rendered inline in the MCP host. Built-in platform-info and prompt-browser apps, branding via config, custom apps via assets_path
+- [Overview](https://mcp-data-platform.txn2.com/mcpapps/overview/): Interactive UI panels rendered inline in the MCP host. Built-in platform-info and prompt-browser apps (the prompt-browser binds to the presentation-only show_prompts tool so the agent's own prompt work renders no UI), branding via config, custom apps via assets_path
 - [Configuration](https://mcp-data-platform.txn2.com/mcpapps/configuration/): MCP Apps enabled by default; branding overrides, custom app registration, CSP settings
 - [Development](https://mcp-data-platform.txn2.com/mcpapps/development/): Docker-based development with a test harness and live-edit asset overrides; apps calling tools must handshake with platform_info and thread the session_id
 - [Tutorial](https://mcp-data-platform.txn2.com/mcpapps/tutorial/): Step-by-step guide building a platform-info app

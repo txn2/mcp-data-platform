@@ -41,8 +41,14 @@ func (m *mockPromptStore) Get(_ context.Context, name string) (*prompt.Prompt, e
 	if m.getErr != nil {
 		return nil, m.getErr
 	}
-	p := m.prompts[name]
-	return p, nil //nolint:nilnil // interface contract
+	// Mirror the real store: Get resolves only shared (non-personal) prompts;
+	// personal prompts are per-owner and served via GetPersonal.
+	for _, p := range m.prompts {
+		if p.Name == name && p.Scope != prompt.ScopePersonal {
+			return p, nil
+		}
+	}
+	return nil, nil //nolint:nilnil // interface contract
 }
 
 func (m *mockPromptStore) GetPersonal(_ context.Context, ownerEmail, name string) (*prompt.Prompt, error) {
@@ -67,6 +73,19 @@ func (m *mockPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt,
 		}
 	}
 	return nil, nil //nolint:nilnil // interface contract
+}
+
+func (m *mockPromptStore) ListPersonalByName(_ context.Context, name string) ([]prompt.Prompt, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	var out []prompt.Prompt
+	for _, p := range m.prompts {
+		if p.Scope == prompt.ScopePersonal && p.Name == name {
+			out = append(out, *p)
+		}
+	}
+	return out, nil
 }
 
 func (m *mockPromptStore) Update(_ context.Context, p *prompt.Prompt) error {

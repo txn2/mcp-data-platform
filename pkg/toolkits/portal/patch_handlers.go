@@ -107,7 +107,7 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 	if errResult != nil {
 		return errResult, nil, nil
 	}
-	if asset.OwnerID != resolveOwnerID(ctx) {
+	if !t.isAdmin(ctx) && asset.OwnerID != resolveOwnerID(ctx) {
 		return middleware.UnauthorizedResult("you can only patch your own assets",
 			"Ask the owner to apply the change, or save your own copy with save_asset."), nil, nil
 	}
@@ -292,7 +292,11 @@ func (t *Toolkit) loadReadableAsset(ctx context.Context, assetID string) (*porta
 // canReadAsset reports whether the caller owns the asset or holds any share
 // grant on it, directly or through a collection. Read access is deliberately
 // wider than the owner-only write checks: a viewer share is enough to read.
+// An admin is unrestricted by design and reads any asset.
 func (t *Toolkit) canReadAsset(ctx context.Context, asset *portal.Asset) bool {
+	if t.isAdmin(ctx) {
+		return true
+	}
 	userID, email := resolveOwnerID(ctx), resolveOwnerEmail(ctx)
 	if asset.OwnerID == userID {
 		return true

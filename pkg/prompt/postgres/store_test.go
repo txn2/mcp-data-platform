@@ -188,6 +188,61 @@ func TestGet_NotFound(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestListPersonalByName_MultipleOwners(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db)
+	argsJSON := []byte(`[]`)
+
+	mock.ExpectQuery("SELECT .+ FROM prompts WHERE name = .+ AND scope = 'personal'").
+		WithArgs("report").
+		WillReturnRows(sqlmock.NewRows(selectColumns).
+			AddRow(promptRow("id-a", "report", "personal", argsJSON, "a@example.com")...).
+			AddRow(promptRow("id-b", "report", "personal", argsJSON, "b@example.com")...))
+
+	got, err := store.ListPersonalByName(context.Background(), "report")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "a@example.com", got[0].OwnerEmail)
+	assert.Equal(t, "b@example.com", got[1].OwnerEmail)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestListPersonalByName_None(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db)
+
+	mock.ExpectQuery("SELECT .+ FROM prompts WHERE name = .+ AND scope = 'personal'").
+		WithArgs("missing").
+		WillReturnRows(sqlmock.NewRows(selectColumns))
+
+	got, err := store.ListPersonalByName(context.Background(), "missing")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestListPersonalByName_QueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db)
+
+	mock.ExpectQuery("SELECT .+ FROM prompts WHERE name = .+ AND scope = 'personal'").
+		WithArgs("boom").
+		WillReturnError(errors.New("connection refused"))
+
+	got, err := store.ListPersonalByName(context.Background(), "boom")
+	require.Error(t, err)
+	assert.Nil(t, got)
+}
+
 func TestGetByID_Success(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

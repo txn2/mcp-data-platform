@@ -51,6 +51,7 @@ type managePromptInput struct {
 	Arguments    []prompt.Argument `json:"arguments,omitempty"`
 	Category     string            `json:"category,omitempty"`
 	Scope        string            `json:"scope,omitempty"`
+	OwnerEmail   string            `json:"owner_email,omitempty"`
 	Personas     []string          `json:"personas,omitempty"`
 	Tags         []string          `json:"tags,omitempty"`
 	Status       string            `json:"status,omitempty"`
@@ -221,7 +222,13 @@ func (h *Handle) handlePromptUpdate(ctx context.Context, input managePromptInput
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	existing, errResult := h.editablePrompt(ctx, input)
+	// Resolve the prompt to edit by name, not by the target scope: on update
+	// input.Scope is the *new* scope to set, so passing it as a resolution filter
+	// would hide the caller's own personal prompt behind a shared-only lookup and
+	// report their prompt as "not found". The new scope is applied below.
+	resolveInput := input
+	resolveInput.Scope = ""
+	existing, errResult := h.editablePrompt(ctx, resolveInput)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -427,7 +434,7 @@ func (h *Handle) handlePromptDelete(ctx context.Context, input managePromptInput
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	existing, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
+	existing, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope, input.OwnerEmail)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, promptErrGet, err), nil, nil
@@ -620,7 +627,7 @@ func (h *Handle) handlePromptGet(ctx context.Context, input managePromptInput) (
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	pr, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
+	pr, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope, input.OwnerEmail)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, promptErrGet, err), nil, nil
@@ -641,18 +648,87 @@ func (h *Handle) handlePromptGet(ctx context.Context, input managePromptInput) (
 	return promptJSONResult(pr)
 }
 
+// ambiguousPersonalPromptError reports that more than one owner has a personal
+// prompt of the addressed name, so an admin's owner-agnostic lookup cannot pick
+// one. It carries the candidate owners so the caller can re-address with
+// owner_email.
+type ambiguousPersonalPromptError struct {
+	name   string
+	owners []string
+}
+
+func (e *ambiguousPersonalPromptError) Error() string {
+	return fmt.Sprintf("multiple personal prompts are named %q (owners: %s); pass owner_email to target one",
+		e.name, strings.Join(e.owners, ", "))
+}
+
+// foreignPersonalPromptError reports that a personal prompt of the addressed
+// name exists but is owned by another user, so a non-admin caller may not reach
+// it. It names the scope condition instead of collapsing to "not found"; the
+// owner is deliberately withheld from non-admins.
+type foreignPersonalPromptError struct {
+	name string
+}
+
+func (e *foreignPersonalPromptError) Error() string {
+	return fmt.Sprintf("a personal prompt named %q exists but is owned by another user; "+
+		"you can only access your own personal prompts", e.name)
+}
+
 // resolveManagedPrompt finds the prompt a manage_prompt command targets by
 // name. Personal names are unique only per owner, so by default the caller's own
 // personal prompt takes precedence; otherwise a globally-unique global/persona
 // prompt is returned. An explicit shared scope (global/persona) skips the
 // personal lookup so a caller who owns a same-named personal prompt can still
 // target the shared one.
-func (h *Handle) resolveManagedPrompt(ctx context.Context, name, email, scope string) (*prompt.Prompt, error) {
+//
+// An admin is unrestricted by design: admin list already surfaces every owner's
+// personal prompts, so the addressing verbs honor the same visibility. When the
+// caller is admin and neither the own-personal nor the shared lookup matches, a
+// personal prompt owned by any user resolves; owner disambiguates when more than
+// one owner shares the name. A non-admin who names another owner's personal
+// prompt gets an explicit scope error rather than a misleading "not found".
+func (h *Handle) resolveManagedPrompt(ctx context.Context, name, email, scope, owner string) (*prompt.Prompt, error) {
 	sharedOnly := scope == prompt.ScopeGlobal || scope == prompt.ScopePersona
+	isAdmin := h.isAdminPersona(ctx)
+
+	// An admin naming an owner commits to that owner's personal prompt: a miss is
+	// a miss and must not silently resolve a different owner's same-named prompt.
+	if isAdmin && owner != "" {
+		return h.getPersonalPrompt(ctx, owner, name)
+	}
+
+	pr, err := h.resolveOwnOrShared(ctx, name, email, sharedOnly)
+	if err != nil {
+		return nil, err
+	}
+	if pr != nil || sharedOnly {
+		return pr, nil
+	}
+
+	// Neither the caller's own personal prompt nor a shared prompt matched.
+	return h.resolvePersonalAcrossOwners(ctx, name, isAdmin)
+}
+
+// getPersonalPrompt fetches an owner's personal prompt with the resolver's error
+// context. Returns nil when no such prompt exists.
+func (h *Handle) getPersonalPrompt(ctx context.Context, owner, name string) (*prompt.Prompt, error) {
+	p, err := h.store.GetPersonal(ctx, owner, name)
+	if err != nil {
+		return nil, fmt.Errorf("resolving personal prompt: %w", err)
+	}
+	return p, nil
+}
+
+// resolveOwnOrShared returns the caller's own personal prompt, or the globally
+// unique shared (global/persona) prompt of the name, or nil when neither exists.
+// An explicit shared scope skips the personal lookup so a caller who owns a
+// same-named personal prompt can still target the shared one.
+func (h *Handle) resolveOwnOrShared(ctx context.Context, name, email string, sharedOnly bool) (*prompt.Prompt, error) {
 	if email != "" && !sharedOnly {
-		personal, err := h.store.GetPersonal(ctx, email, name)
+		personal, err := h.getPersonalPrompt(ctx, email, name)
 		if err != nil {
-			return nil, fmt.Errorf("resolving personal prompt: %w", err)
+			return nil, err
 		}
 		if personal != nil {
 			return personal, nil
@@ -662,7 +738,46 @@ func (h *Handle) resolveManagedPrompt(ctx context.Context, name, email, scope st
 	if err != nil {
 		return nil, fmt.Errorf("resolving shared prompt: %w", err)
 	}
-	return shared, nil
+	return shared, nil // nil when not found
+}
+
+// resolvePersonalAcrossOwners resolves a personal prompt by name regardless of
+// owner, the lookup the default resolver cannot reach. For an admin it returns
+// the single match, or an ambiguity error naming the owners when more than one
+// exists. For a non-admin a match becomes an explicit foreign-prompt error
+// (they may not reach it) rather than a misleading "not found". No match
+// resolves to nil.
+func (h *Handle) resolvePersonalAcrossOwners(ctx context.Context, name string, isAdmin bool) (*prompt.Prompt, error) {
+	matches, err := h.store.ListPersonalByName(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("resolving personal prompt across owners: %w", err)
+	}
+	if len(matches) == 0 {
+		return nil, nil //nolint:nilnil // resolver contract: nil, nil means not found
+	}
+	if !isAdmin {
+		return nil, &foreignPersonalPromptError{name: name}
+	}
+	if len(matches) == 1 {
+		return &matches[0], nil
+	}
+	return nil, &ambiguousPersonalPromptError{name: name, owners: personalPromptOwners(matches)}
+}
+
+// personalPromptOwners returns the distinct owner emails of the given prompts,
+// in the order the store returned them.
+func personalPromptOwners(prompts []prompt.Prompt) []string {
+	owners := make([]string, 0, len(prompts))
+	seen := make(map[string]struct{}, len(prompts))
+	for i := range prompts {
+		o := prompts[i].OwnerEmail
+		if _, ok := seen[o]; ok {
+			continue
+		}
+		seen[o] = struct{}{}
+		owners = append(owners, o)
+	}
+	return owners
 }
 
 // resolveEmail returns the user email from context.
@@ -690,6 +805,18 @@ func (h *Handle) isAdminPersona(ctx context.Context) bool {
 // the logs. Raw errors (which may carry SQL or schema detail) are never shown to
 // non-admins. The full error is always written to the server log by the caller.
 func (h *Handle) promptErrorDetail(ctx context.Context, public string, err error) *mcp.CallToolResult {
+	// Resolution outcomes carry their own caller-safe message: an admin's
+	// ambiguous owner lookup or a non-admin naming another owner's personal
+	// prompt. Surface it verbatim instead of the generic "failed to ..." prefix,
+	// and never through the admin-only raw-error branch below.
+	var amb *ambiguousPersonalPromptError
+	if errors.As(err, &amb) {
+		return promptErrorResult(amb.Error())
+	}
+	var foreign *foreignPersonalPromptError
+	if errors.As(err, &foreign) {
+		return promptErrorResult(foreign.Error())
+	}
 	if h.isAdminPersona(ctx) {
 		return promptErrorResult(fmt.Sprintf("%s: %v", public, err))
 	}
@@ -791,6 +918,13 @@ func managePromptSchema() any {
 				schemaKeyType:        schemaValString,
 				schemaKeyEnum:        []string{prompt.ScopeGlobal, prompt.ScopePersona, prompt.ScopePersonal},
 				schemaKeyDescription: "Visibility scope. Non-admins can only use 'personal'.",
+			},
+			"owner_email": map[string]any{
+				schemaKeyType: schemaValString,
+				schemaKeyDescription: "Owner of a personal prompt to target by name (get, delete, update, " +
+					"patch and the other content verbs). Admin only: lets an operator address or " +
+					"disambiguate another user's personal prompt that admin list already shows. " +
+					"Ignored for non-admins, who can only act on their own prompts.",
 			},
 			"personas": map[string]any{
 				schemaKeyType:        schemaValArray,

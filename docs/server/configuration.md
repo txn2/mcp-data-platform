@@ -639,14 +639,14 @@ sessions:
   handles:
     enabled: true      # mint, advertise, and validate handles (default on)
     ttl: 8h            # handle lifetime, refreshed on use
-    require: true      # refuse gated calls without a valid platform_info handle
+    require: true      # a gated caller must have an established session
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Mint a `session_id` from `platform_info`, advertise it on every tool's input schema, validate and strip it on each call. Set `false` for byte-identical legacy transport-session behavior. |
 | `ttl` | duration | `8h` | Handle lifetime, refreshed on use. |
-| `require` | bool | `true` | Refuse any gated tool call that does not carry a valid `platform_info`-minted handle with `SESSION_REQUIRED`. A transport-level `Mcp-Session-Id` (or the stdio sentinel) is **not** accepted as a fallback; it is the churning per-call value the handle exists to replace (issue #800). Set `false` for a softer landing during rollout, where a handle-less call falls back to the transport session instead of being refused. |
+| `require` | bool | `true` | Require a gated caller to have an established session, not that a handle is threaded on every call. A call carrying a valid handle uses it; a call without one adopts the caller's own most-recently-active session, resolved from their authenticated identity, so an MCP App's sandboxed calls (which cannot thread the handle) are scoped rather than refused. Only a caller with **no** session at all is refused with `SESSION_REQUIRED`, which keeps `platform_info` structurally required for a genuinely fresh agent. The model still threads and validates the handle exactly as before, so nothing about a compliant agent's behavior changes; the fallback only affects calls that arrive without a handle, which in practice are an app's. Set `false` to drop the requirement entirely, where a handle-less call falls back to the transport session. |
 
 Every tool advertises the injected `session_id` argument except `platform_info` (which mints it). Upstream toolkits never see the argument: the platform strips it before the handler runs. A handle presented by a different authenticated identity, or an unknown/expired handle, is refused with `SESSION_EXPIRED`. With `require: true`, `platform_info` mints and threads a handle on every transport (stdio, SSE, Streamable HTTP); there is no stdio carve-out. The `mcp_session_resolution_total{source}` metric (`explicit`, `transport`, `stdio`, `none`) shows how much traffic still relies on a transport session; with `require: true` only `explicit` and `none` occur on gated tools.
 

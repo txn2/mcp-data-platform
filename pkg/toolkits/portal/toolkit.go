@@ -620,7 +620,7 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 	}
 
 	ownerID := resolveOwnerID(ctx)
-	if asset.OwnerID != ownerID {
+	if !t.isAdmin(ctx) && asset.OwnerID != ownerID {
 		return toolkit.ErrorResult("you can only update your own assets"), nil, nil
 	}
 
@@ -735,7 +735,7 @@ func (t *Toolkit) handleDelete(ctx context.Context, input manageAssetInput) (*mc
 	}
 
 	ownerID := resolveOwnerID(ctx)
-	if asset.OwnerID != ownerID {
+	if !t.isAdmin(ctx) && asset.OwnerID != ownerID {
 		return toolkit.ErrorResult("you can only delete your own assets"), nil, nil
 	}
 
@@ -782,7 +782,7 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageAssetInput) (*mc
 	}
 
 	ownerID := resolveOwnerID(ctx)
-	if asset.OwnerID != ownerID {
+	if !t.isAdmin(ctx) && asset.OwnerID != ownerID {
 		return toolkit.ErrorResult("you can only revert your own assets"), nil, nil
 	}
 

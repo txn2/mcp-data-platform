@@ -1919,11 +1919,14 @@ func (p *Platform) initMCPApps() error {
 		return err
 	}
 
-	// Built-in prompt-browser app (#1011): a browse/search/preview/run UI
-	// bound to the manage_prompt tool for MCP Apps-capable hosts. The app is
-	// presentation only; the bound tool's structured JSON results stand alone
-	// in clients that do not render apps.
-	promptBrowser, err := builtinAppDefinition(p.config.MCPApps.Apps, builtinPromptBrowserName, promptlayer.ToolNameManagePrompt, apps.PromptBrowser)
+	// Built-in prompt-browser app (#1011): a browse/search/preview/run UI. It is
+	// bound to the presentation-only show_prompts tool, not to manage_prompt
+	// (#1040): the host renders an app on every call to the tool it is bound to,
+	// and an agent calls manage_prompt constantly for its own work, so binding
+	// the app there rendered the UI uninvited on every prompt operation.
+	// show_prompts exists only to open this browser for the human; the app then
+	// hydrates itself with its own manage_prompt calls.
+	promptBrowser, err := builtinAppDefinition(p.config.MCPApps.Apps, builtinPromptBrowserName, promptlayer.ToolNameShowPrompts, apps.PromptBrowser)
 	if err != nil {
 		return err
 	}
@@ -2840,6 +2843,7 @@ func (p *Platform) Start(ctx context.Context) error {
 	p.registerConnectionsTool()
 	p.registerFindToolsTool()
 	p.prompts.RegisterTool(p.mcpServer)
+	p.prompts.RegisterShowPromptsTool(p.mcpServer)
 
 	// Register platform-level prompts from config
 	p.prompts.RegisterPlatformPrompts(p.mcpServer)

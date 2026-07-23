@@ -92,6 +92,10 @@ func (*plainStore) GetByID(context.Context, string) (*Prompt, error) {
 	return nil, nil //nolint:nilnil // interface contract
 }
 
+func (*plainStore) ListPersonalByName(context.Context, string) ([]Prompt, error) {
+	return nil, nil
+}
+
 func (s *plainStore) Update(_ context.Context, p *Prompt) error {
 	if s.err != nil {
 		return s.err
