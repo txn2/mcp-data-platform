@@ -237,7 +237,7 @@ func (h *Handle) readablePrompt(ctx context.Context, input managePromptInput) (*
 	if input.Name == "" {
 		return nil, promptErrorResult("name is required")
 	}
-	pr, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
+	pr, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope, input.OwnerEmail)
 	if err != nil {
 		return nil, h.promptErrorDetail(ctx, promptErrGet, err)
 	}

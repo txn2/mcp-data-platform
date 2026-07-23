@@ -373,6 +373,36 @@ func TestManageAssetPatchRequiresOwnership(t *testing.T) {
 	assert.Equal(t, patchReport, f.storedBody(t))
 }
 
+// TestManageAssetPatchAllowsAdmin is the #1042 asset-side regression: an admin
+// is unrestricted by design and patches an asset they do not own, matching the
+// admin-wide access the platform grants everywhere else.
+func TestManageAssetPatchAllowsAdmin(t *testing.T) {
+	f := newPatchFixture(t, patchReport, "text/markdown")
+	f.ctx = middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "operator", UserEmail: "operator@example.com", IsAdmin: true,
+	})
+
+	_, result := f.call(t, manageAssetInput{
+		Action: actionPatch,
+		Edits:  []textpatch.Edit{{Find: "See the table above.", Replace: "See Table 1."}},
+	})
+	require.False(t, result.IsError, errorText(t, result))
+	assert.Contains(t, f.storedBody(t), "See Table 1.", "admin's patch landed on another user's asset")
+}
+
+// TestManageAssetReadVerbsAllowAdmin: an admin reads another user's asset
+// through the content verbs (canReadAsset admits the admin).
+func TestManageAssetReadVerbsAllowAdmin(t *testing.T) {
+	f := newPatchFixture(t, patchReport, "text/markdown")
+	f.ctx = middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "operator", UserEmail: "operator@example.com", IsAdmin: true,
+	})
+
+	got, result := f.call(t, manageAssetInput{Action: actionGetContent})
+	require.False(t, result.IsError, errorText(t, result))
+	assert.Equal(t, patchReport, got["content"])
+}
+
 func TestManageAssetContentVerbsRequireAnAssetID(t *testing.T) {
 	f := newPatchFixture(t, patchReport, "text/markdown")
 

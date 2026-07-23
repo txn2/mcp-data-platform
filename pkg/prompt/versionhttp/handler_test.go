@@ -40,6 +40,19 @@ func (s *fakeStore) GetByID(_ context.Context, id string) (*prompt.Prompt, error
 	}
 	return s.prompts[id], nil //nolint:nilnil // interface contract
 }
+
+func (s *fakeStore) ListPersonalByName(_ context.Context, name string) ([]prompt.Prompt, error) {
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+	var out []prompt.Prompt
+	for _, p := range s.prompts {
+		if p.Scope == prompt.ScopePersonal && p.Name == name {
+			out = append(out, *p)
+		}
+	}
+	return out, nil
+}
 func (*fakeStore) Update(context.Context, *prompt.Prompt) error { return nil }
 func (*fakeStore) Delete(context.Context, string) error         { return nil }
 func (*fakeStore) DeleteByID(context.Context, string) error     { return nil }

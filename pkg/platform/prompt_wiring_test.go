@@ -54,6 +54,16 @@ func (m *wiringPromptStore) GetByID(_ context.Context, id string) (*prompt.Promp
 	return nil, nil //nolint:nilnil // interface contract
 }
 
+func (m *wiringPromptStore) ListPersonalByName(_ context.Context, name string) ([]prompt.Prompt, error) {
+	var out []prompt.Prompt
+	for _, p := range m.prompts {
+		if p.Scope == prompt.ScopePersonal && p.Name == name {
+			out = append(out, *p)
+		}
+	}
+	return out, nil
+}
+
 func (m *wiringPromptStore) Update(_ context.Context, p *prompt.Prompt) error {
 	m.prompts[p.Name] = p
 	return nil
