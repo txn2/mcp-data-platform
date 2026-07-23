@@ -94,6 +94,34 @@ window.addEventListener('message', (event) => {
 });
 ```
 
+### Calling Tools from an App
+
+An app is not limited to the result that rendered it. It can call tools itself with `tools/call`, or `ui/call-tool` on hosts speaking protocol `2025-01-09`. Tool visibility defaults to `["model", "app"]`, so every tool this server exposes is app-callable.
+
+Those calls reach the server over the same MCP transport as the agent's and are gated the same way. When the session handle requirement is on, the platform refuses any tool call that does not carry a `session_id` minted by `platform_info`:
+
+```
+SESSION_REQUIRED: Call platform_info first. It returns a session_id you must
+pass as the session_id argument on every subsequent tool call.
+```
+
+An app that calls any tool other than `platform_info` must therefore handshake first:
+
+1. Call `platform_info` with empty arguments before the first data call. The result's first text content block is JSON carrying `session_id`.
+2. Thread that value as the `session_id` argument on every subsequent call. Do it in whatever wrapper issues the call, so no call site can forget it.
+3. On a rejection whose message contains `SESSION_REQUIRED`, `SESSION_EXPIRED`, or `SETUP_REQUIRED`, discard the stored handle, call `platform_info` again, and replay the call once. Handles expire on inactivity, so a long-lived app will hit this. `SETUP_REQUIRED` comes from the transport-keyed session gate a deployment may run instead of explicit handles; its remedy is the same call.
+4. Treat a handshake result with no `session_id` as "handles are not enabled in this deployment" and send no `session_id` argument. Threading nothing is correct there.
+
+`platform_info` is never gated, because it is the tool that mints the handle. The handshake itself cannot be refused for want of a handle.
+
+Do not make the handshake fatal. A deployment may have handles off, and a persona may allow your app's tool while denying `platform_info`, so a failed handshake should still let the first data call run and report whatever the platform actually says. Blanking the app on a `platform_info` failure breaks cases that worked before the handshake existed.
+
+`apps/prompt-browser/index.html` implements this. Its `handshake`, `withSession`, and `callTool` functions are the smallest complete version.
+
+One correlation hazard: hosts that deliver results as `ui/notifications/tool-result` notifications send no request id, so an app that matches responses by payload shape must be able to tell the `platform_info` result from its own tool's result. `config_version` and `features` are unconditional on the `platform_info` payload and identify it. Do not key on `prompts`: `platform_info` also carries a `prompts` array listing the server's registered MCP prompts.
+
+The test harness enforces this gate. It answers a `platform_info` call from any app other than `platform-info` with a handshake payload carrying a freshly minted `session_id`, and refuses any other tool call whose `session_id` is missing or stale with the same `SESSION_REQUIRED` / `SESSION_EXPIRED` text the platform returns. An app that skips the handshake therefore fails in development rather than only in a gated deployment. The **Expire Session** button revokes the live handle so the next call is refused, which is how you exercise the recovery path without waiting for a real expiry.
+
 ### Minimal Example
 
 ```html
@@ -200,6 +228,7 @@ graph LR
 |---------|----------|
 | Changes not appearing | Click Reload App, or hard refresh (Cmd+Shift+R) |
 | "No results to display" | Check browser console for errors |
+| App shows `SESSION_REQUIRED` | The app called a tool before handshaking; see [Calling Tools from an App](#calling-tools-from-an-app) |
 | Trino not responding | Wait for startup: `curl http://localhost:8090/v1/info` |
 | Port already in use | `docker compose -f docker-compose.dev.yml down` |
 

@@ -23,6 +23,12 @@ flowchart LR
 3. Host fetches the HTML app and renders it in an iframe
 4. App receives tool results via `postMessage` and displays interactive UI
 
+## Apps Calling Tools
+
+An app can call tools itself, not just render the result that opened it. Those calls travel the same MCP transport as the agent's and meet the same gates, so when the session handle requirement is on, an app must call `platform_info` first and thread the `session_id` it returns on every subsequent call. Skipping the handshake produces a `SESSION_REQUIRED` refusal on the app's first data call.
+
+`platform_info` itself is never gated, since it is the tool that mints the handle. See [Development](development.md#calling-tools-from-an-app) for the handshake, the expired-handle recovery path, and the response-correlation hazard on hosts that deliver results as notifications.
+
 ## Platform vs Apps
 
 **MCP Data Platform provides:**

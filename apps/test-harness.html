@@ -197,6 +197,7 @@
         </select>
         <button onclick="sendTestData()">Send Test Data</button>
         <button class="secondary" onclick="reloadApp()">Reload App</button>
+        <button class="secondary" onclick="expireSession()">Expire Session</button>
     </div>
     <div class="main">
         <div class="editor-panel">
@@ -360,6 +361,69 @@
             }
         };
 
+        // HANDSHAKE_RESPONSE is what the harness answers a platform_info call
+        // with, regardless of which app is selected or what the test-data
+        // textarea holds. An app must handshake before any other tool call: the
+        // platform mints the session handle here and refuses every other tool
+        // that does not carry it (SESSION_REQUIRED).
+        //
+        // It mirrors the real payload in the two ways an app depends on:
+        // config_version and features are what an app uses to tell an info
+        // payload from a tool payload on hosts that correlate responses by
+        // shape, and prompts is present because the real payload carries the
+        // server's registered MCP prompts. That prompts array is the reason an
+        // app cannot identify a list result by a prompts array alone, so a
+        // harness without it would hide the collision instead of reproducing it.
+        var HANDSHAKE_RESPONSE = {
+            name: 'mcp-data-platform',
+            version: '0.0.0-harness',
+            session_expires_at: '2099-01-01T00:00:00Z',
+            toolkits: ['platform'],
+            prompts: [
+                { name: 'registered-mcp-prompt', description: 'a server-registered MCP prompt, not a library prompt' }
+            ],
+            features: { semantic_enrichment: false, query_enrichment: false, audit_logging: false },
+            config_version: { api_version: 'v1', supported_versions: ['v1'], latest_version: 'v1' }
+        };
+
+        // The live handle. Each handshake mints a fresh one and supersedes the
+        // last, as the platform does, so a call presenting an older handle is
+        // refused rather than silently accepted.
+        var handleSeq = 0;
+        var currentHandle = '';
+
+        function mintHandle() {
+            handleSeq++;
+            currentHandle = 'sess_harness_' + handleSeq;
+            return currentHandle;
+        }
+
+        // sessionRefusal returns the platform's refusal text for a call whose
+        // session handle is missing or no longer valid, or '' when the handle is
+        // good. The SESSION_REQUIRED and SESSION_EXPIRED tokens are what an app
+        // matches on to decide to re-handshake, so they are reproduced verbatim
+        // from pkg/middleware/mcp_session_handle.go.
+        function sessionRefusal(sid) {
+            if (!sid) {
+                return 'SESSION_REQUIRED: Call platform_info first. It returns a session_id you must '
+                     + 'pass as the session_id argument on every subsequent tool call.';
+            }
+            if (sid !== currentHandle) {
+                return 'SESSION_EXPIRED: Your session_id is unknown or expired. Call platform_info again '
+                     + 'to mint a fresh session_id, then pass it on every subsequent tool call.';
+            }
+            return '';
+        }
+
+        // expireSession revokes the live handle so the next tool call is refused
+        // with SESSION_EXPIRED, making the app's expired-handle recovery
+        // exercisable in development. A correct app re-handshakes and replays
+        // the call without the user seeing an error.
+        function expireSession() {
+            currentHandle = '';
+            log('Session expired. The next tool call will be refused with SESSION_EXPIRED.', 'error');
+        }
+
         // buildUseResponse simulates the manage_prompt use command against the
         // prompt-browser test data: resolve by mcp:prompt:<id> or name, then
         // substitute {arg} placeholders.
@@ -508,9 +572,47 @@
             if (m.method === 'ui/call-tool') {
                 var app = appSelectEl.value;
                 var cfg = appTestData[app] || appTestData['query-results'];
+                var callName = (m.params && m.params.name) || cfg.toolName;
+                var callArgs = (m.params && m.params.arguments) || {};
+
+                // The session handshake. The platform-info app is excluded
+                // because platform_info is the tool it renders, so its call must
+                // still receive the editable test data from the textarea.
+                if (callName === 'platform_info' && app !== 'platform-info') {
+                    var info = JSON.parse(JSON.stringify(HANDSHAKE_RESPONSE));
+                    info.session_id = mintHandle();
+                    e.source.postMessage({
+                        jsonrpc: '2.0',
+                        method: 'ui/notifications/tool-result',
+                        params: {
+                            toolName: 'platform_info',
+                            content: [{ type: 'text', text: JSON.stringify(info) }]
+                        }
+                    }, '*');
+                    log('Handshake: issued session_id ' + info.session_id, 'success');
+                    return;
+                }
+
+                // Enforce the session handle gate the way a deployment does, so
+                // an app that skips the handshake or keeps a stale handle fails
+                // here rather than only in production.
+                var refusal = callName === 'platform_info' ? '' : sessionRefusal(callArgs.session_id);
+                if (refusal) {
+                    e.source.postMessage({
+                        jsonrpc: '2.0',
+                        method: 'ui/notifications/tool-result',
+                        params: {
+                            toolName: callName,
+                            isError: true,
+                            content: [{ type: 'text', text: refusal }]
+                        }
+                    }, '*');
+                    log('Refused ' + callName + ': ' + refusal.split(':')[0], 'error');
+                    return;
+                }
+
                 try {
                     var data;
-                    var callArgs = (m.params && m.params.arguments) || {};
                     if (app === 'prompt-browser' && callArgs.command === 'use') {
                         data = buildUseResponse(callArgs);
                     } else {

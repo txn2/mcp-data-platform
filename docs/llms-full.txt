@@ -2512,6 +2512,23 @@ Workflow:
 | `fullscreen` | Takes over entire viewport |
 | `pip` | Picture-in-picture floating window |
 
+### Apps Calling Tools (Session Handshake)
+
+An app can call tools itself with `tools/call`, or `ui/call-tool` on hosts speaking protocol `2025-01-09`. Tool visibility defaults to `["model", "app"]`, so every tool the server exposes is app-callable.
+
+App tool calls reach the server over the same MCP transport as the agent's and meet the same gates. When the session handle requirement is on, the platform refuses any call that does not carry a `session_id` minted by `platform_info` with `SESSION_REQUIRED`. An app that calls any tool other than `platform_info` must handshake:
+
+1. Call `platform_info` with empty arguments before the first data call. The result's first text content block is JSON carrying `session_id`.
+2. Thread that value as the `session_id` argument on every subsequent call, in whatever wrapper issues the call, so no call site can forget it.
+3. On a rejection whose message contains `SESSION_REQUIRED`, `SESSION_EXPIRED`, or `SETUP_REQUIRED` (the transport-keyed session gate a deployment may run instead), discard the handle, call `platform_info` again, and replay the call once. Handles expire on inactivity.
+4. A handshake result with no `session_id` means handles are not enabled in that deployment; send no `session_id` argument.
+
+`platform_info` is never gated, since it mints the handle, so the handshake itself cannot be refused.
+
+Correlation hazard: hosts that deliver results as `ui/notifications/tool-result` notifications send no request id, so an app matching responses by payload shape must distinguish the `platform_info` result from its own tool's result. `config_version` and `features` are unconditional on the `platform_info` payload. Do not key on `prompts`: `platform_info` also carries a `prompts` array listing the server's registered MCP prompts.
+
+`apps/prompt-browser/index.html` implements this (`handshake`, `withSession`, `callTool`). The test harness enforces the gate: it mints a `session_id` on `platform_info` and refuses any other call whose handle is missing or stale with the platform's own `SESSION_REQUIRED` / `SESSION_EXPIRED` text. Its **Expire Session** button revokes the live handle so the recovery path is exercisable in development.
+
 ## Tutorial
 
 For a complete step-by-step guide to building an MCP App, see the [MCP Apps Tutorial](mcpapps/tutorial.md). The tutorial walks through building a `platform-info` app and covers:
