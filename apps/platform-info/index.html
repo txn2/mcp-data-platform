@@ -99,6 +99,11 @@ if(__exports != exports)module.exports = exports;return module.exports}));
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
+        /* Fixed 500px app shell (#1043). The app declares its own height via the
+           MCP Apps size-changed contract rather than depending on how much content
+           happens to exist; the hero header is pinned and the content scrolls
+           inside the shell so the host iframe never grows or shrinks with content. */
+        html, body { height: 500px; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans',
                          Helvetica, Arial, sans-serif;
@@ -106,10 +111,16 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             line-height: 1.5;
             color: var(--text);
             background: var(--bg);
-            padding: 0;
             margin: 0;
             width: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
+
+        #content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+        #content .hero { flex-shrink: 0; }
+        .content-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 
         /* Loading */
         .loading {
@@ -767,6 +778,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
             </div>
         </div>
 
+        <div class="content-scroll">
         <!-- Tabs: Overview / Platform / Agent Instructions -->
         <div class="sec">
             <div id="tab-bar" class="tab-bar">
@@ -816,6 +828,7 @@ if(__exports != exports)module.exports = exports;return module.exports}));
         <div id="personas-sec" class="sec hidden">
             <div class="sec-label">Personas</div>
             <div id="persona-row" class="persona-row"></div>
+        </div>
         </div>
     </div>
 
@@ -906,11 +919,34 @@ if(__exports != exports)module.exports = exports;return module.exports}));
 
     function send(msg) { window.parent.postMessage(msg, '*'); }
 
+    // ---------------------------------------------------------------------
+    // MCP Apps height contract (#1043). The host sizes the iframe from the
+    // last ui/notifications/size-changed the view sends; without one the app
+    // renders in the host's default cramped window. The view declares a fixed
+    // 500px viewport (its shell height) and re-reports on any reflow via a
+    // ResizeObserver, mirroring the SDK's useAutoResize pattern. Kept
+    // byte-identical to the prompt-browser app so both speak one contract.
+    // ---------------------------------------------------------------------
+    var APP_HEIGHT = 500;
+    function sendSize() {
+        // Report height only. These apps are laid out at the host's conversation
+        // width, so width stays host-controlled (fluid); we own only the height.
+        send({ jsonrpc: '2.0', method: 'ui/notifications/size-changed',
+               params: { height: APP_HEIGHT } });
+    }
+    function watchSize() {
+        sendSize();
+        if (typeof ResizeObserver === 'function') {
+            new ResizeObserver(function() { sendSize(); }).observe(document.documentElement);
+        }
+    }
+
     window.addEventListener('message', function(e) {
         var m = e.data;
         if (!m || typeof m !== 'object') { return; }
         if (m.id === 1 && m.result !== undefined) {
             send({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
+            watchSize();
             if (!ready) { ready = true; callTool(); }
             return;
         }
@@ -1131,9 +1167,6 @@ if(__exports != exports)module.exports = exports;return module.exports}));
 
         document.getElementById('loading').classList.add('hidden');
         document.getElementById('content').classList.remove('hidden');
-
-        send({ jsonrpc: '2.0', method: 'ui/notifications/size-changed',
-               params: { width: document.body.scrollWidth, height: document.body.scrollHeight } });
     }
 
     // Prompt data stored for copy
