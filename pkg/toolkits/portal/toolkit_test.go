@@ -335,6 +335,31 @@ func TestManageAsset_UpdateWrongOwner(t *testing.T) {
 	assert.True(t, result.IsError)
 }
 
+// TestManageAsset_UpdateAdminAnyOwner is the #1042 asset-side regression for the
+// update verb: an admin updates an asset they do not own.
+func TestManageAsset_UpdateAdminAnyOwner(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Mine", Tags: []string{},
+		Provenance: portal.Provenance{},
+	})
+
+	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
+
+	ctx := middleware.WithPlatformContext(context.Background(),
+		&middleware.PlatformContext{UserID: "operator", IsAdmin: true})
+
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
+		Action: "update", AssetID: "a1", Name: "Renamed by admin",
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, errorText(t, result))
+
+	got, getErr := store.Get(context.Background(), "a1")
+	require.NoError(t, getErr)
+	assert.Equal(t, "Renamed by admin", got.Name)
+}
+
 func TestManageAsset_Delete(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
@@ -661,6 +686,31 @@ func TestManageAsset_DeleteWrongOwner(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
+}
+
+// TestManageAsset_DeleteAdminAnyOwner is the #1042 asset-side regression for the
+// delete verb: an admin deletes an asset they do not own.
+func TestManageAsset_DeleteAdminAnyOwner(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Mine", Tags: []string{},
+		Provenance: portal.Provenance{},
+	})
+
+	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
+
+	ctx := middleware.WithPlatformContext(context.Background(),
+		&middleware.PlatformContext{UserID: "operator", IsAdmin: true})
+
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
+		Action: "delete", AssetID: "a1",
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, errorText(t, result))
+
+	got, getErr := store.Get(context.Background(), "a1")
+	require.NoError(t, getErr)
+	assert.NotNil(t, got.DeletedAt)
 }
 
 func TestManageAsset_DeleteNotFound(t *testing.T) {
@@ -1193,6 +1243,31 @@ func TestHandleRevert(t *testing.T) {
 	require.True(t, ok)
 	require.NoError(t, json.Unmarshal([]byte(tc.Text), &parsed))
 	assert.Equal(t, float64(2), parsed["version"])
+}
+
+// TestHandleRevertAdminAnyOwner is the #1042 asset-side regression for the
+// revert verb: an admin reverts an asset they do not own.
+func TestHandleRevertAdminAnyOwner(t *testing.T) {
+	store := newInMemoryAssetStore()
+	vs := newInMemoryVersionStore()
+	s3 := &mockS3Client{getBody: []byte("<html>v1</html>"), getCT: "text/html"}
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: vs,
+		S3Client: s3, S3Bucket: "bucket", S3Prefix: "assets/",
+	})
+
+	setupCtx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+	require.NoError(t, store.Insert(setupCtx, portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 2}))
+	_, cvErr := vs.CreateVersion(setupCtx, portal.AssetVersion{
+		ID: "v1", AssetID: "a1", Version: 1, S3Key: "k1", S3Bucket: "bucket", ContentType: "text/html", SizeBytes: 10,
+	})
+	require.NoError(t, cvErr)
+
+	adminCtx := middleware.WithPlatformContext(context.Background(),
+		&middleware.PlatformContext{UserID: "operator", IsAdmin: true})
+	result, _, err := tk.handleManageAsset(adminCtx, nil, manageAssetInput{Action: "revert", AssetID: "a1", Version: 1})
+	require.NoError(t, err)
+	assert.False(t, result.IsError, errorText(t, result))
 }
 
 func TestHandleRevertMissingAssetID(t *testing.T) {

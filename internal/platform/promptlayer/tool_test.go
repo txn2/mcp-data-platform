@@ -527,12 +527,12 @@ func TestResolveManagedPrompt_ScopePreference(t *testing.T) {
 
 	ctx := context.Background()
 
-	got, err := h.resolveManagedPrompt(ctx, "report", "admin@x", "")
+	got, err := h.resolveManagedPrompt(ctx, "report", "admin@x", "", "")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "p", got.ID, "default resolution prefers the caller's personal prompt")
 
-	got, err = h.resolveManagedPrompt(ctx, "report", "admin@x", prompt.ScopeGlobal)
+	got, err = h.resolveManagedPrompt(ctx, "report", "admin@x", prompt.ScopeGlobal, "")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "g", got.ID, "explicit global scope targets the shared prompt")

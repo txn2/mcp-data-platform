@@ -169,6 +169,32 @@ func (s *Store) GetPersonal(ctx context.Context, ownerEmail, name string) (*prom
 	return s.queryOne(ctx, query, ownerEmail, name)
 }
 
+// ListPersonalByName retrieves every personal prompt with the given name across
+// all owners. Personal names are unique only within an owner, so this may return
+// more than one row; an admin uses it to resolve a personal prompt authored by
+// another user and to disambiguate by owner. Returns an empty slice if none match.
+func (s *Store) ListPersonalByName(ctx context.Context, name string) ([]prompt.Prompt, error) {
+	query := promptSelect + ` WHERE name = $1 AND scope = 'personal' ORDER BY owner_email`
+	rows, err := s.db.QueryContext(ctx, query, name)
+	if err != nil {
+		return nil, fmt.Errorf("list personal prompts by name: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []prompt.Prompt
+	for rows.Next() {
+		p, err := scanPrompt(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan prompt: %w", err)
+		}
+		result = append(result, *p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate personal prompts: %w", err)
+	}
+	return result, nil
+}
+
 // GetByID retrieves a prompt by ID. Returns nil, nil if not found.
 func (s *Store) GetByID(ctx context.Context, id string) (*prompt.Prompt, error) {
 	query := promptSelect + ` WHERE id = $1`
