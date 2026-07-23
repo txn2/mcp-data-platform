@@ -201,8 +201,11 @@ func (t *Toolkit) SetExportDeps(deps ExportDeps) {
 // idempotency_key, create_public_link).
 type exportInput struct {
 	Connection       string            `json:"connection"`
-	Method           string            `json:"method"`
-	Path             string            `json:"path"`
+	Method           string            `json:"method,omitempty"`
+	Path             string            `json:"path,omitempty"`
+	OperationID      string            `json:"operation_id,omitempty"`
+	Spec             string            `json:"spec,omitempty"`
+	PathParams       map[string]string `json:"path_params,omitempty"`
 	Query            map[string]any    `json:"query_params"`
 	Headers          map[string]string `json:"headers"`
 	Body             any               `json:"body"`
@@ -241,6 +244,7 @@ func (t *Toolkit) registerExportTool(s *mcp.Server) {
 		Title: "Export API Endpoint Response",
 		Description: "Invoke an upstream API endpoint and stream the response into a portal asset INSTEAD of returning it through the model context. " +
 			"Use this when api_invoke_endpoint reports body_truncated, when you expect a response too large to be useful through the model, or when you want to hand off the data to trino_query / s3_get_object / a portal share. " +
+			"Address the operation either by operation_id (with any path template values in path_params) or by method+path directly, exactly like api_invoke_endpoint; supply one form, not both. " +
 			"Returns asset metadata (id, URL, size, content type) — the data is NOT returned through this response. " +
 			"NAMING: keep `name` short and portable, ASCII letters / digits / spaces / hyphens / dots only. " +
 			"The name doubles as the download filename.",
@@ -286,6 +290,19 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	if uc == nil {
 		return toolkit.ErrorResult("authentication required for api_export"), nil, nil
 	}
+
+	// Resolve operation_id addressing into concrete method+path before
+	// route-policy and upstream work, so api_export speaks the same
+	// operation_id shortcut as api_invoke_endpoint (issue #1046).
+	// endpointPath (not "path") avoids shadowing the "path" import.
+	method, endpointPath, addrErr := operationAddressing{
+		Method: in.Method, Path: in.Path, OperationID: in.OperationID,
+		Spec: in.Spec, PathParams: in.PathParams,
+	}.resolve(c)
+	if addrErr != nil {
+		return toolkit.ErrorResult(addrErr.Error()), nil, nil
+	}
+	in.Method, in.Path = method, endpointPath
 
 	// Honor the same route policy that api_invoke_endpoint does so
 	// a persona scoped to GET /v1/users cannot export from
