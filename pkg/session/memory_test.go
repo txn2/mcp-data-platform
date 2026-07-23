@@ -45,6 +45,41 @@ func TestMemoryStore_CreateAndGet(t *testing.T) {
 	assert.Equal(t, "user-sess-1", got.UserID)
 }
 
+func TestMemoryStore_LatestHandleForUser(t *testing.T) {
+	store := NewMemoryStore(memTestTTL)
+	ctx := context.Background()
+	now := time.Now()
+
+	mk := func(id, user string, active time.Time, ttl time.Duration) {
+		require.NoError(t, store.Create(ctx, &Session{
+			ID: id, UserID: user, CreatedAt: active, LastActiveAt: active,
+			ExpiresAt: now.Add(ttl), State: map[string]any{},
+		}))
+	}
+	// Two handles for the target user; the more recently active one wins.
+	mk(HandlePrefix+"old", "user-1", now.Add(-time.Minute), memTestTTL)
+	mk(HandlePrefix+"new", "user-1", now, memTestTTL)
+	// A handle for a different user must never be adopted.
+	mk(HandlePrefix+"other", "user-2", now, memTestTTL)
+	// A transport session (no handle prefix) is excluded even for the target user.
+	mk("transport-xyz", "user-1", now.Add(time.Minute), memTestTTL)
+	// An expired handle for the target user is excluded.
+	mk(HandlePrefix+"expired", "user-1", now, -time.Minute)
+
+	got, err := store.LatestHandleForUser(ctx, "user-1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, HandlePrefix+"new", got.ID, "most-recently-active handle wins over transport and older handle")
+
+	other, err := store.LatestHandleForUser(ctx, "user-3")
+	require.NoError(t, err)
+	assert.Nil(t, other, "a user with no session gets nil")
+
+	empty, err := store.LatestHandleForUser(ctx, "")
+	require.NoError(t, err)
+	assert.Nil(t, empty, "an empty user gets nil")
+}
+
 func TestMemoryStore_GetNotFound(t *testing.T) {
 	store := NewMemoryStore(memTestTTL)
 	ctx := context.Background()

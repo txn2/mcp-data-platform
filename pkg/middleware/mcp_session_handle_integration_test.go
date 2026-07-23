@@ -115,6 +115,59 @@ func mintViaPlatformInfo(ctx context.Context, t *testing.T, sess *mcp.ClientSess
 	return tc.Text
 }
 
+// TestIntegration_SessionHandle_AdoptsHandleLessCall proves issue #1040 through
+// the real assembled chain: after platform_info establishes a session for the
+// caller, a subsequent gated call that carries NO session_id argument (as an MCP
+// App's sandboxed call does) is scoped to the caller's established session and
+// executes, instead of being refused with SESSION_REQUIRED. This is the exact
+// production shape that broke the prompt-browser app: the model's platform_info
+// mints the handle, the app's own call cannot thread it, and it must still work.
+func TestIntegration_SessionHandle_AdoptsHandleLessCall(t *testing.T) {
+	ctx := context.Background()
+	h := sessionHandleServer(t)
+	sess := mustConnect(ctx, t, h.server)
+	defer func() { _ = sess.Close() }()
+
+	// The model establishes a session for this identity.
+	handle := mintViaPlatformInfo(ctx, t, sess)
+
+	// A handle-less "search" (the app's call) is adopted onto the session and
+	// opens the discovery gate.
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "search"})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "handle-less authenticated call must be adopted, not refused: %v", res)
+
+	// A handle-less query after it executes, and is attributed to the adopted
+	// session in audit rather than dropped or refused.
+	res, err = sess.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "trino_query",
+		Arguments: map[string]any{"sql": "SELECT 1"},
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "handle-less query after search must execute: %v", res)
+
+	queryEvent, ok := waitForAuditEvent(h.audit, "trino_query", 2*time.Second)
+	require.True(t, ok, "expected an audit row for the adopted trino_query")
+	assert.Equal(t, handle, queryEvent.SessionID, "the handle-less call is scoped to the caller's own session")
+}
+
+// TestIntegration_SessionHandle_NoSessionStillRefused proves adoption does not
+// weaken the gate for a genuinely fresh caller: a handle-less call from an
+// identity that never called platform_info has no session to adopt and is
+// refused with SESSION_REQUIRED, preserving the discover-first requirement.
+func TestIntegration_SessionHandle_NoSessionStillRefused(t *testing.T) {
+	ctx := context.Background()
+	h := sessionHandleServer(t)
+	sess := mustConnect(ctx, t, h.server)
+	defer func() { _ = sess.Close() }()
+
+	// No platform_info: the caller has no session at all.
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "search"})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "a caller with no session must be refused")
+	assert.Equal(t, middleware.CodeSessionRequired, clientErrCode(t, res))
+}
+
 // TestIntegration_SessionHandle_ThreadedFlow proves the assembled chain end to
 // end: platform_info mints a handle, the handle threads through the resolver,
 // the search-first gate keys on it, and the audit rows share it (acceptance

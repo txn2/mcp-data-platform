@@ -124,6 +124,58 @@ func TestGet_NotFound(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestLatestHandleForUser(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{TTL: testTTL})
+	now := time.Now().UTC()
+	rows := sqlmock.NewRows(selectColumns).AddRow(
+		"dps_abc", "user-abc", now, now, now.Add(testTTL), []byte("{}"),
+	)
+	// The query filters by user, the handle prefix, and expiry, newest first.
+	mock.ExpectQuery("SELECT .+ FROM sessions .+ user_id = .+ id LIKE .+ ORDER BY last_active_at DESC").
+		WithArgs("user-abc", session.HandlePrefix+"%").
+		WillReturnRows(rows)
+
+	got, err := store.LatestHandleForUser(context.Background(), "user-abc")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "dps_abc", got.ID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestLatestHandleForUser_None(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{TTL: testTTL})
+	mock.ExpectQuery("SELECT .+ FROM sessions").
+		WithArgs("user-abc", session.HandlePrefix+"%").
+		WillReturnRows(sqlmock.NewRows(selectColumns))
+
+	got, err := store.LatestHandleForUser(context.Background(), "user-abc")
+	assert.NoError(t, err)
+	assert.Nil(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestLatestHandleForUser_EmptyUserSkipsQuery(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{TTL: testTTL})
+	// No ExpectQuery: an empty user must short-circuit without touching the DB.
+
+	got, err := store.LatestHandleForUser(context.Background(), "")
+	assert.NoError(t, err)
+	assert.Nil(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestGet_DBError(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

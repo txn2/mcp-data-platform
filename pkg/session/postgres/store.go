@@ -72,6 +72,26 @@ func (s *Store) Get(ctx context.Context, id string) (*session.Session, error) {
 	return s.scanSession(row)
 }
 
+// LatestHandleForUser returns userID's most-recently-active, non-expired
+// platform_info-minted handle, or nil, nil when they have none. The id prefix
+// filter excludes churning transport sessions, so only a durable handle an
+// agent could have threaded is ever adopted. The idx_sessions_user_id index
+// backs the user_id lookup.
+func (s *Store) LatestHandleForUser(ctx context.Context, userID string) (*session.Session, error) {
+	if userID == "" {
+		return nil, nil //nolint:nilnil // Store interface specifies nil,nil for no match
+	}
+	query := `
+		SELECT id, user_id, created_at, last_active_at, expires_at, state
+		FROM sessions
+		WHERE user_id = $1 AND id LIKE $2 AND expires_at > NOW()
+		ORDER BY last_active_at DESC
+		LIMIT 1
+	`
+	row := s.db.QueryRowContext(ctx, query, userID, session.HandlePrefix+"%")
+	return s.scanSession(row)
+}
+
 // Touch updates LastActiveAt and extends ExpiresAt by the store's TTL.
 func (s *Store) Touch(ctx context.Context, id string) error {
 	query := `
