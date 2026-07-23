@@ -15,7 +15,7 @@ type respondValidationRequest struct {
 // respondValidation handles POST /api/v1/portal/threads/{id}/validation
 // (Phase 3 / #603): the original feedback author records a validation outcome.
 // Disputing re-opens the thread. This is the human counterpart of the
-// manage_artifact respond_validation action.
+// manage_feedback respond_validation action.
 //
 // @Summary      Respond to a validation request
 // @Description  The feedback author marks a thread validated or disputed (with an optional reason). Disputing re-opens the thread.
@@ -82,7 +82,7 @@ func (h *Handler) loadThreadForValidationResponse(w http.ResponseWriter, r *http
 }
 
 // isThreadAuthor reports whether the user authored the thread, matching by user
-// id or case-insensitive email (the same predicate as the manage_artifact
+// id or case-insensitive email (the same predicate as the manage_feedback
 // respond_validation action, so the two surfaces agree on who the author is).
 func isThreadAuthor(user *User, thread *Thread) bool {
 	if thread.AuthorID == user.UserID {

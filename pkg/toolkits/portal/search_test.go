@@ -63,8 +63,8 @@ func errText(t *testing.T, r *mcp.CallToolResult) string {
 func TestHandleSearch_Unavailable(t *testing.T) {
 	// Plain in-memory store does not implement portal.AssetSearcher.
 	tk := New(Config{Name: "test", AssetStore: newInMemoryAssetStore(), S3Bucket: "b"})
-	r, _, _ := tk.handleManageArtifact(searchCtx(), nil,
-		manageArtifactInput{Action: actionSearch, Query: "x"})
+	r, _, _ := tk.handleManageAsset(searchCtx(), nil,
+		manageAssetInput{Action: actionSearch, Query: "x"})
 	require.True(t, r.IsError)
 	assert.Contains(t, errText(t, r), "unavailable")
 }
@@ -72,8 +72,8 @@ func TestHandleSearch_Unavailable(t *testing.T) {
 func TestHandleSearch_MissingQuery(t *testing.T) {
 	store := &searchableAssetStore{inMemoryAssetStore: newInMemoryAssetStore()}
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "b"})
-	r, _, _ := tk.handleManageArtifact(searchCtx(), nil,
-		manageArtifactInput{Action: actionSearch, Query: "   "})
+	r, _, _ := tk.handleManageAsset(searchCtx(), nil,
+		manageAssetInput{Action: actionSearch, Query: "   "})
 	require.True(t, r.IsError)
 	assert.Contains(t, errText(t, r), "required")
 }
@@ -82,8 +82,8 @@ func TestHandleSearch_FailClosedAnonymous(t *testing.T) {
 	store := &searchableAssetStore{inMemoryAssetStore: newInMemoryAssetStore()}
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "b"})
 	// No PlatformContext at all -> resolveOwnerEmail returns "anonymous".
-	r, _, _ := tk.handleManageArtifact(context.Background(), nil,
-		manageArtifactInput{Action: actionSearch, Query: "sales"})
+	r, _, _ := tk.handleManageAsset(context.Background(), nil,
+		manageAssetInput{Action: actionSearch, Query: "sales"})
 	require.True(t, r.IsError)
 	assert.Contains(t, errText(t, r), "user identity")
 }
@@ -92,7 +92,7 @@ func TestHandleSearch_FailClosedWhitespaceIdentity(t *testing.T) {
 	store := &searchableAssetStore{inMemoryAssetStore: newInMemoryAssetStore()}
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "b"})
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "   ", UserEmail: searchTestEmail})
-	r, _, _ := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: actionSearch, Query: "sales"})
+	r, _, _ := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: actionSearch, Query: "sales"})
 	require.True(t, r.IsError)
 	assert.Contains(t, errText(t, r), "user identity")
 }
@@ -103,8 +103,8 @@ func TestHandleSearch_Success(t *testing.T) {
 		result:             []portal.ScoredAsset{{Asset: portal.Asset{ID: "a-1", Name: "Cohort"}, Score: 0.8}},
 	}
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "b"})
-	r, _, _ := tk.handleManageArtifact(searchCtx(), nil,
-		manageArtifactInput{Action: actionSearch, Query: "cohort retention", Limit: 4})
+	r, _, _ := tk.handleManageAsset(searchCtx(), nil,
+		manageAssetInput{Action: actionSearch, Query: "cohort retention", Limit: 4})
 	require.False(t, r.IsError)
 
 	m := searchResultMap(t, r)
@@ -122,8 +122,8 @@ func TestHandleSearch_Success(t *testing.T) {
 func TestHandleSearch_StoreError(t *testing.T) {
 	store := &searchableAssetStore{inMemoryAssetStore: newInMemoryAssetStore(), err: assert.AnError}
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "b"})
-	r, _, _ := tk.handleManageArtifact(searchCtx(), nil,
-		manageArtifactInput{Action: actionSearch, Query: "x"})
+	r, _, _ := tk.handleManageAsset(searchCtx(), nil,
+		manageAssetInput{Action: actionSearch, Query: "x"})
 	require.True(t, r.IsError)
 	assert.Contains(t, searchResultMap(t, r)["error"], "failed to search assets")
 }

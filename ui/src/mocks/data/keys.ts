@@ -69,7 +69,7 @@ const keys: APIKeySummary[] = [
   {
     name: "airflow-orchestrator",
     email: "airflow@example.com",
-    description: "Airflow DAGs invoking trino_export and save_artifact",
+    description: "Airflow DAGs invoking trino_export and save_asset",
     roles: ["data_engineer"],
     expires_at: daysFromNow(365),
     source: "database",

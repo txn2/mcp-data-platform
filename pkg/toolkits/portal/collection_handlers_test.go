@@ -164,7 +164,7 @@ func TestCreateCollection_Success(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action:      "create_collection",
 		Name:        "My Collection",
 		Description: "A test collection",
@@ -191,7 +191,7 @@ func TestCreateCollection_WithSections(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "create_collection",
 		Name:   "With Sections",
 		Sections: []sectionInput{
@@ -218,7 +218,7 @@ func TestCreateCollection_MissingName(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "create_collection",
 	})
 	require.NoError(t, err)
@@ -232,7 +232,7 @@ func TestCreateCollection_InsertError(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "create_collection",
 		Name:   "Failing",
 	})
@@ -247,7 +247,7 @@ func TestCreateCollection_SetSectionsError(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action:   "create_collection",
 		Name:     "Failing Sections",
 		Sections: []sectionInput{{Title: "S1", Items: []itemInput{{AssetID: "a1"}}}},
@@ -264,7 +264,7 @@ func TestCreateCollection_InvalidSections(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action:   "create_collection",
 		Name:     "Bad Sections",
 		Sections: []sectionInput{{Title: "S1", Items: []itemInput{{AssetID: ""}}}},
@@ -283,7 +283,7 @@ func TestCreateCollection_NoBaseURL(t *testing.T) {
 	})
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "create_collection",
 		Name:   "No URL",
 	})
@@ -304,7 +304,7 @@ func TestListCollections_Success(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "list_collections",
 	})
 	require.NoError(t, err)
@@ -320,7 +320,7 @@ func TestListCollections_Empty(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "list_collections",
 	})
 	require.NoError(t, err)
@@ -338,7 +338,7 @@ func TestListCollections_FiltersByOwner(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "list_collections",
 	})
 	require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestListCollections_StoreError(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "list_collections",
 	})
 	require.NoError(t, err)
@@ -374,7 +374,7 @@ func TestGetCollection_Success(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "get_collection", CollectionID: "c1",
 	})
 	require.NoError(t, err)
@@ -389,7 +389,7 @@ func TestGetCollection_Success(t *testing.T) {
 func TestGetCollection_MissingID(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
 
-	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
 		Action: "get_collection",
 	})
 	require.NoError(t, err)
@@ -400,7 +400,7 @@ func TestGetCollection_MissingID(t *testing.T) {
 func TestGetCollection_NotFound(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
 
-	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
 		Action: "get_collection", CollectionID: "nonexistent",
 	})
 	require.NoError(t, err)
@@ -416,7 +416,7 @@ func TestGetCollection_Deleted(t *testing.T) {
 	}
 	tk := toolkitWithCollections(cs)
 
-	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
 		Action: "get_collection", CollectionID: "c1",
 	})
 	require.NoError(t, err)
@@ -434,7 +434,7 @@ func TestUpdateCollection_Success(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update_collection", CollectionID: "c1", Name: "New Name",
 	})
 	require.NoError(t, err)
@@ -454,7 +454,7 @@ func TestUpdateCollection_DescriptionOnly(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update_collection", CollectionID: "c1", Description: "New Desc",
 	})
 	require.NoError(t, err)
@@ -469,7 +469,7 @@ func TestUpdateCollection_MissingID(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update_collection",
 	})
 	require.NoError(t, err)
@@ -485,7 +485,7 @@ func TestUpdateCollection_WrongOwner(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("attacker", "attacker@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update_collection", CollectionID: "c1", Name: "Stolen",
 	})
 	require.NoError(t, err)
@@ -497,7 +497,7 @@ func TestUpdateCollection_NotFound(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update_collection", CollectionID: "nonexistent", Name: "X",
 	})
 	require.NoError(t, err)
@@ -514,7 +514,7 @@ func TestUpdateCollection_Deleted(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update_collection", CollectionID: "c1", Name: "Revive?",
 	})
 	require.NoError(t, err)
@@ -531,7 +531,7 @@ func TestUpdateCollection_StoreError(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update_collection", CollectionID: "c1", Name: "Attempt",
 	})
 	require.NoError(t, err)
@@ -549,7 +549,7 @@ func TestDeleteCollection_Success(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "delete_collection", CollectionID: "c1",
 	})
 	require.NoError(t, err)
@@ -566,7 +566,7 @@ func TestDeleteCollection_MissingID(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "delete_collection",
 	})
 	require.NoError(t, err)
@@ -582,7 +582,7 @@ func TestDeleteCollection_WrongOwner(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("attacker", "attacker@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "delete_collection", CollectionID: "c1",
 	})
 	require.NoError(t, err)
@@ -599,7 +599,7 @@ func TestDeleteCollection_Deleted(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "delete_collection", CollectionID: "c1",
 	})
 	require.NoError(t, err)
@@ -616,7 +616,7 @@ func TestDeleteCollection_StoreError(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "delete_collection", CollectionID: "c1",
 	})
 	require.NoError(t, err)
@@ -634,7 +634,7 @@ func TestSetSections_Success(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action:       "set_sections",
 		CollectionID: "c1",
 		Sections: []sectionInput{
@@ -665,7 +665,7 @@ func TestSetSections_ClearSections(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action:       "set_sections",
 		CollectionID: "c1",
 		Sections:     []sectionInput{},
@@ -680,7 +680,7 @@ func TestSetSections_MissingID(t *testing.T) {
 	tk := toolkitWithCollections(newInMemoryCollectionStore())
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "set_sections",
 	})
 	require.NoError(t, err)
@@ -696,7 +696,7 @@ func TestSetSections_WrongOwner(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("attacker", "attacker@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action:       "set_sections",
 		CollectionID: "c1",
 		Sections:     []sectionInput{{Title: "S1", Items: []itemInput{{AssetID: "a1"}}}},
@@ -715,7 +715,7 @@ func TestSetSections_Deleted(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action:       "set_sections",
 		CollectionID: "c1",
 		Sections:     []sectionInput{{Title: "S1", Items: []itemInput{{AssetID: "a1"}}}},
@@ -733,7 +733,7 @@ func TestSetSections_InvalidSection(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action:       "set_sections",
 		CollectionID: "c1",
 		Sections:     []sectionInput{{Title: "S1", Items: []itemInput{{AssetID: ""}}}},
@@ -752,7 +752,7 @@ func TestSetSections_StoreError(t *testing.T) {
 	tk := toolkitWithCollections(cs)
 	ctx := collCtx("user1", "user1@example.com")
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action:       "set_sections",
 		CollectionID: "c1",
 		Sections:     []sectionInput{{Title: "S1", Items: []itemInput{{AssetID: "a1"}}}},

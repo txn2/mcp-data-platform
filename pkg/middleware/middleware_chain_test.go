@@ -2425,7 +2425,7 @@ func TestDescriptionOverrides_ToolsList(t *testing.T) {
 func TestMiddlewareChain_AwareHandler_ProvenanceSessionID(t *testing.T) {
 	const (
 		queryToolName = "data_query"
-		saveToolName  = "save_artifact"
+		saveToolName  = "save_asset"
 	)
 
 	tracker := middleware.NewProvenanceTracker()
@@ -2454,7 +2454,7 @@ func TestMiddlewareChain_AwareHandler_ProvenanceSessionID(t *testing.T) {
 		}, nil
 	})
 
-	// save_artifact: reads provenance from context (injected by MCPProvenanceMiddleware)
+	// save_asset: reads provenance from context (injected by MCPProvenanceMiddleware)
 	// and returns the count so the test can assert it.
 	server.AddTool(&mcp.Tool{
 		Name:        saveToolName,
@@ -2469,7 +2469,7 @@ func TestMiddlewareChain_AwareHandler_ProvenanceSessionID(t *testing.T) {
 	})
 
 	// Middleware order (innermost first, outermost last):
-	// 1. Provenance (innermost) — records tool calls, harvests on save_artifact
+	// 1. Provenance (innermost) — records tool calls, harvests on save_asset
 	// 2. Auth (outermost) — creates PlatformContext with session ID
 	server.AddReceivingMiddleware(middleware.MCPProvenanceMiddleware(tracker, saveToolName))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: "http", AdminPersona: "admin"}))
@@ -2508,7 +2508,7 @@ func TestMiddlewareChain_AwareHandler_ProvenanceSessionID(t *testing.T) {
 		t.Fatalf("calling data_query: %v", err)
 	}
 
-	// Call save_artifact — MCPProvenanceMiddleware harvests the provenance
+	// Call save_asset — MCPProvenanceMiddleware harvests the provenance
 	// for this session and injects it into the context. The tool handler
 	// returns the count so we can verify the chain worked end-to-end.
 	result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
@@ -2516,10 +2516,10 @@ func TestMiddlewareChain_AwareHandler_ProvenanceSessionID(t *testing.T) {
 		Arguments: map[string]any{"name": "test-artifact"},
 	})
 	if err != nil {
-		t.Fatalf("calling save_artifact: %v", err)
+		t.Fatalf("calling save_asset: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("save_artifact returned error: %v", result.Content)
+		t.Fatalf("save_asset returned error: %v", result.Content)
 	}
 
 	// Verify provenance was captured (count > 0 means session IDs matched
@@ -2532,7 +2532,7 @@ func TestMiddlewareChain_AwareHandler_ProvenanceSessionID(t *testing.T) {
 				break
 			}
 			// Dump content for debugging if assertion fails
-			t.Logf("save_artifact content: %s", tc.Text)
+			t.Logf("save_asset content: %s", tc.Text)
 		}
 	}
 	if !found {

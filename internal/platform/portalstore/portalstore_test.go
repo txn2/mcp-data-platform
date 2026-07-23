@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
@@ -78,7 +80,7 @@ func TestNew_S3BackedWiresEveryStoreAndToolkit(t *testing.T) {
 		t.Error("S3Client() did not return the injected S3 client")
 	}
 	if h.Toolkit() == nil {
-		t.Error("Toolkit() = nil, want the assembled artifact toolkit for registration")
+		t.Error("Toolkit() = nil, want the assembled asset toolkit for registration")
 	}
 	if got := h.Toolkit().Kind(); got != "portal" {
 		t.Errorf("Toolkit().Kind() = %q, want %q", got, "portal")
@@ -214,5 +216,46 @@ func TestNilHandle_AccessorsAndCloseAreSafe(t *testing.T) {
 	}
 	if err := h.Close(); err != nil {
 		t.Errorf("nil Handle Close() = %v, want nil", err)
+	}
+}
+
+// TestSaveToolNameIsRegistered guards the provenance-harvest wiring: Platform
+// configures MCPProvenanceMiddleware with SaveToolName, and harvest is silent
+// when that string does not match a tool the toolkit actually registers. The
+// assertion runs against a real tools/list over an in-memory session rather
+// than against Tools(), which returns the same constant and so could not fail.
+func TestSaveToolNameIsRegistered(t *testing.T) {
+	t.Parallel()
+	h := NewFromStores(Stores{}, nil, Config{Name: "portal"})
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "portalstore-test", Version: "0.0.1"}, nil)
+	h.Toolkit().RegisterTools(server)
+
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("server.Connect: %v", err)
+	}
+	defer func() { _ = serverSession.Close() }()
+
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "0.0.1"}, nil).
+		Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client.Connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	res, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	advertised := make([]string, 0, len(res.Tools))
+	for _, tool := range res.Tools {
+		advertised = append(advertised, tool.Name)
+	}
+	if !slices.Contains(advertised, SaveToolName) {
+		t.Errorf("SaveToolName %q is not advertised by tools/list (%v); provenance harvest would silently stop",
+			SaveToolName, advertised)
 	}
 }

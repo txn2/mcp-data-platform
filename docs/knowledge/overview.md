@@ -205,9 +205,9 @@ The source field is optional when calling `memory_capture`. When omitted, it def
 
 ## Feedback Bridge
 
-Human feedback threads (left on portal artifacts via `manage_artifact`) connect to the knowledge loop, so an agent can resolve a thread by capturing the insight it represents and the chain stays visible end to end: **thread → insight → changeset → `target_urn`**.
+Human feedback threads (left from the portal UI on an asset, collection, prompt, or knowledge page) connect to the knowledge loop, so an agent can resolve a thread by capturing the insight it represents and the chain stays visible end to end: **thread → insight → changeset → `target_urn`**.
 
-**Resolving a thread into an insight.** `memory_capture` accepts an optional `thread_ids` array. When supplied, each named thread has its `insight_id` set, an `insight_linked` event appended to its timeline, and its status moved to `resolved`. Linking is **authorized with the same owns-or-edit check as `manage_feedback resolve`**: a thread the caller could not resolve (one on an artifact they neither own nor can edit) is refused and reported as unlinked, so `memory_capture` is not a back door around the access model. The call is best-effort (a link failure never fails the capture) and the result reports the outcome so the agent can detect a mistyped, unauthorized, or already-resolved thread:
+**Resolving a thread into an insight.** `memory_capture` accepts an optional `thread_ids` array. When supplied, each named thread has its `insight_id` set, an `insight_linked` event appended to its timeline, and its status moved to `resolved`. Linking is **authorized with the same owns-or-edit check as `manage_feedback resolve`**: a thread the caller could not resolve (one on a target they neither own nor can edit) is refused and reported as unlinked, so `memory_capture` is not a back door around the access model. The call is best-effort (a link failure never fails the capture) and the result reports the outcome so the agent can detect a mistyped, unauthorized, or already-resolved thread:
 
 | Field | Meaning |
 |-------|---------|
@@ -216,7 +216,7 @@ Human feedback threads (left on portal artifacts via `manage_artifact`) connect 
 
 Both fields are omitted entirely when `thread_ids` is not supplied, so a capture without threads is unchanged.
 
-**Working threads from the agent.** The dedicated `manage_feedback` tool gives agents a discoverable home for feedback: `list` (with no target = all pending feedback across the assets and collections the caller owns or can edit AND the general channel, unresolved, excluding their own threads, plus any awaiting their validation; with a target = threads on that one asset/collection/prompt, filterable by status, `requires_resolution`, `validation_state`), `get`, `reply`, `resolve`, `request_validation`, and `respond_validation`. These are scoped to artifacts the caller **owns or can edit** (admins see all; standalone/general threads are readable by any authenticated caller and moderated by the thread author or an admin). Calling `list` with no target is the "review and act on any pending feedback" entry point.
+**Working threads from the agent.** The dedicated `manage_feedback` tool gives agents a discoverable home for feedback: `list` (with no target = all pending feedback across the assets and collections the caller owns or can edit AND the general channel, unresolved, excluding their own threads, plus any awaiting their validation; with a target = threads on that one asset/collection/prompt, filterable by status, `requires_resolution`, `validation_state`), `get`, `reply`, `resolve`, `request_validation`, and `respond_validation`. These are scoped to the assets and collections the caller **owns or can edit** (admins see all; standalone/general threads are readable by any authenticated caller and moderated by the thread author or an admin). Calling `list` with no target is the "review and act on any pending feedback" entry point.
 
 **Reading the chain.** `GET /api/v1/portal/threads/{id}/chain` returns the resolved chain for a thread: its `insight_id` and the changesets that insight produced (each with `target_urn`, `change_type`, and rollback state). The portal feedback panel renders this as a "Knowledge chain" section on a resolved thread.
 
@@ -228,10 +228,10 @@ The loop closes with SME validation and worklists so nothing is dropped.
 
 **Worklists / inbox.** Two self-scoped views:
 
-- `GET /api/v1/portal/worklist/practitioner` — open, resolution-required threads across every artifact the caller owns or can edit.
+- `GET /api/v1/portal/worklist/practitioner`: open, resolution-required threads across every asset and collection the caller owns or can edit.
 - `GET /api/v1/portal/worklist/sme` — threads awaiting the caller's validation (validation requests routed back to them).
 
-**Sign-off aggregation.** `GET /api/v1/portal/assets/{id}/signoff` and `.../collections/{id}/signoff` return `signed_off` (N: distinct users who left an approval event on the artifact's threads) of `stakeholders` (M: the owner plus active share grantees). The portal renders this as "signed off by N of M".
+**Sign-off aggregation.** `GET /api/v1/portal/assets/{id}/signoff` and `.../collections/{id}/signoff` return `signed_off` (N: distinct users who left an approval event on the asset's threads) of `stakeholders` (M: the owner plus active share grantees). The portal renders this as "signed off by N of M".
 
 ## AI Agent Guidance
 

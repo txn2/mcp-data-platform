@@ -7217,7 +7217,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a new asset by uploading inline text content (markdown, HTML, SVG, JSON, etc.). Use this to snapshot generated content into the asset portal without going through the MCP save_artifact tool.",
+                "description": "Creates a new asset by uploading inline text content (markdown, HTML, SVG, JSON, etc.). Use this to snapshot generated content into the asset portal without going through the MCP save_asset tool.",
                 "consumes": [
                     "application/json"
                 ],
@@ -18621,7 +18621,7 @@
         },
         {
             "name": "Assets",
-            "description": "AI-generated artifacts \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."
+            "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."
         },
         {
             "name": "Collections",

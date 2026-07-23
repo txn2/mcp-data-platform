@@ -53,7 +53,7 @@ export const mockTools: ToolInfo[] = [
   { name: "s3_list_objects", toolkit: "acme-reports", kind: "s3", connection: "acme-reports", hidden: false },
   { name: "s3_get_object", toolkit: "acme-reports", kind: "s3", connection: "acme-reports", hidden: false },
   // acme-platform (platform) — platform utilities
-  { name: "save_artifact", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
+  { name: "save_asset", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
   { name: "memory_capture", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
   // acme-crm-gateway (mcp) — gateway-proxied upstream MCP server. These tools
   // carry semantic cross-enrichment rules (the platform's headline feature).
@@ -109,7 +109,7 @@ export const mockConnections: ConnectionInfo[] = [
     kind: "platform",
     name: "acme-platform",
     connection: "acme-platform",
-    tools: ["save_artifact", "memory_capture"],
+    tools: ["save_asset", "memory_capture"],
     hidden_tools: [],
   },
   {

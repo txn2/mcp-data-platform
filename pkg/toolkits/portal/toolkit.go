@@ -1,5 +1,5 @@
 // Package portal provides the MCP toolkit for saving and managing
-// AI-generated artifacts (JSX dashboards, HTML reports, SVG charts).
+// AI-generated assets (JSX dashboards, HTML reports, SVG charts).
 package portal
 
 import (
@@ -22,9 +22,16 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
+// Tool names registered by the portal toolkit. Exported because pkg/platform
+// needs the save tool's name to configure provenance harvesting.
 const (
-	saveToolName     = "save_artifact"
-	manageToolName   = "manage_artifact"
+	// SaveToolName is the name of the asset-save tool.
+	SaveToolName = "save_asset"
+	// ManageToolName is the name of the asset-management tool.
+	ManageToolName = "manage_asset"
+)
+
+const (
 	feedbackToolName = "manage_feedback"
 
 	// Prompt names registered by the portal toolkit.
@@ -40,7 +47,7 @@ const (
 	// validationFmt is the format string for wrapping validation errors.
 	validationFmt = "validation: %w"
 
-	// manage_artifact action names. These are the values of the "action"
+	// manage_asset action names. These are the values of the "action"
 	// input field that select which sub-handler runs. Defined as
 	// constants because the same string is referenced from the dispatch
 	// table, error messages, and (potentially) tests.
@@ -73,15 +80,15 @@ const (
 	fieldTotal   = "total"
 
 	// assetNotFoundHint is the corrective hint on an asset-not-found error.
-	assetNotFoundHint = "Verify the asset_id; call manage_artifact action=list to see your assets."
+	assetNotFoundHint = "Verify the asset_id; call manage_asset action=list to see your assets."
 
 	// anonymousUserName is the fallback owner identifier when the request has
 	// no authenticated user (no PlatformContext or empty user/email).
 	anonymousUserName = "anonymous"
 )
 
-// saveArtifactInput defines the input for save_artifact.
-type saveArtifactInput struct {
+// saveAssetInput defines the input for save_asset.
+type saveAssetInput struct {
 	Name        string   `json:"name"`
 	Content     string   `json:"content"`
 	ContentType string   `json:"content_type"`
@@ -89,8 +96,8 @@ type saveArtifactInput struct {
 	Tags        []string `json:"tags,omitempty"`
 }
 
-// manageArtifactInput defines the input for manage_artifact.
-type manageArtifactInput struct {
+// manageAssetInput defines the input for manage_asset.
+type manageAssetInput struct {
 	Action       string         `json:"action"`
 	AssetID      string         `json:"asset_id,omitempty"`
 	Content      string         `json:"content,omitempty"`
@@ -145,8 +152,8 @@ type itemInput struct {
 	AssetID string `json:"asset_id"`
 }
 
-// saveArtifactOutput is the success response for save_artifact.
-type saveArtifactOutput struct {
+// saveAssetOutput is the success response for save_asset.
+type saveAssetOutput struct {
 	AssetID            string `json:"asset_id"`
 	PortalURL          string `json:"portal_url,omitempty"`
 	Message            string `json:"message"`
@@ -166,7 +173,7 @@ type Config struct {
 	S3Bucket        string
 	S3Prefix        string
 	BaseURL         string
-	MaxContentSize  int // max artifact content size in bytes (0 = no limit)
+	MaxContentSize  int // max asset content size in bytes (0 = no limit)
 
 	// Embedder embeds search queries for the ranked `search` action. When nil
 	// or the noop placeholder, search degrades to lexical-only ranking (the
@@ -174,7 +181,7 @@ type Config struct {
 	Embedder embedding.Provider
 }
 
-// Toolkit implements the portal artifact toolkit.
+// Toolkit implements the portal asset toolkit.
 type Toolkit struct {
 	name            string
 	assetStore      portal.AssetStore
@@ -241,34 +248,42 @@ func (t *Toolkit) Name() string { return t.name }
 // Connection returns the connection name for audit logging.
 func (*Toolkit) Connection() string { return "" }
 
-// RegisterTools registers save_artifact and manage_artifact with the MCP server.
+// saveToolDescription is the advertised description of the canonical
+// save_asset tool.
+const saveToolDescription = "Saves AI-generated content (JSX dashboard, HTML report, SVG chart, etc.) " +
+	"to the asset portal as a versioned, viewable, shareable asset. " +
+	"IMPORTANT: When creating content that should be saved, call this tool directly with the content " +
+	"rather than first outputting it to the conversation and then saving separately - " +
+	"this avoids regenerating the whole asset. " +
+	"Automatically captures provenance (which tool calls produced this asset)."
+
+// manageToolDescription is the advertised description of the canonical
+// manage_asset tool.
+const manageToolDescription = "Manages saved assets and collections. " +
+	"Asset actions: list, get, update, delete, list_versions, revert, search. " +
+	"Collection actions: create_collection, list_collections, get_collection, " +
+	"update_collection, delete_collection, set_sections. " +
+	"Note: 'list' returns full metadata including provenance for each asset. " +
+	"Use 'get' with a specific asset_id for content retrieval. " +
+	"Use 'search' with a 'query' to rank your assets by relevance (semantic + " +
+	"keyword) instead of paging the whole list. " +
+	"Human feedback on assets is handled by the separate manage_feedback tool."
+
+// RegisterTools registers save_asset and manage_asset with the MCP server.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name:  saveToolName,
-		Title: "Save Artifact",
-		Description: "Saves an AI-generated artifact (JSX dashboard, HTML report, SVG chart, etc.) " +
-			"to the asset portal for persistence, viewing, and sharing. " +
-			"IMPORTANT: When creating content that should be saved, call this tool directly with the content " +
-			"rather than first outputting it to the conversation and then saving separately — " +
-			"this avoids regenerating the entire artifact. " +
-			"Automatically captures provenance (which tool calls produced this artifact).",
-		InputSchema: saveArtifactSchema,
-	}, t.handleSaveArtifact)
+		Name:        SaveToolName,
+		Title:       "Save Asset",
+		Description: saveToolDescription,
+		InputSchema: saveAssetSchema,
+	}, t.handleSaveAsset)
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:  manageToolName,
-		Title: "Manage Artifact",
-		Description: "Manages saved artifacts and collections. " +
-			"Asset actions: list, get, update, delete, list_versions, revert, search. " +
-			"Collection actions: create_collection, list_collections, get_collection, " +
-			"update_collection, delete_collection, set_sections. " +
-			"Note: 'list' returns full metadata including provenance for each asset. " +
-			"Use 'get' with a specific asset_id for content retrieval. " +
-			"Use 'search' with a 'query' to rank your assets by relevance (semantic + " +
-			"keyword) instead of paging the whole list. " +
-			"Human feedback on artifacts is handled by the separate manage_feedback tool.",
-		InputSchema: manageArtifactSchema,
-	}, t.handleManageArtifact)
+		Name:        ManageToolName,
+		Title:       "Manage Asset",
+		Description: manageToolDescription,
+		InputSchema: manageAssetSchema,
+	}, t.handleManageAsset)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  feedbackToolName,
@@ -291,7 +306,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 func (*Toolkit) registerPrompts(s *mcp.Server) {
 	s.AddPrompt(&mcp.Prompt{
 		Name:        saveAssetPromptName,
-		Description: "Save an artifact from this conversation as a viewable, shareable asset",
+		Description: "Save output from this conversation as a viewable, shareable asset",
 	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		return &mcp.GetPromptResult{
 			Messages: []*mcp.PromptMessage{
@@ -307,7 +322,7 @@ func (*Toolkit) registerPrompts(s *mcp.Server) {
 
 	s.AddPrompt(&mcp.Prompt{
 		Name:        showAssetsPromptName,
-		Description: "Browse your saved artifacts and assets",
+		Description: "Browse your saved assets",
 	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		return &mcp.GetPromptResult{
 			Messages: []*mcp.PromptMessage{
@@ -327,27 +342,27 @@ func (*Toolkit) PromptInfos() []registry.PromptInfo {
 	return []registry.PromptInfo{
 		{
 			Name:        saveAssetPromptName,
-			Description: "Save an artifact from this conversation as a viewable, shareable asset",
+			Description: "Save output from this conversation as a viewable, shareable asset",
 			Category:    "toolkit",
 			Content:     saveAssetPromptContent,
 		},
 		{
 			Name:        showAssetsPromptName,
-			Description: "Browse your saved artifacts and assets",
+			Description: "Browse your saved assets",
 			Category:    "toolkit",
 			Content:     showAssetsPromptContent,
 		},
 	}
 }
 
-const saveAssetPromptContent = `Save the most recent artifact or analysis from this conversation as a shareable asset.
+const saveAssetPromptContent = `Save the most recent output or analysis from this conversation as a shareable asset.
 
 1. Identify the key output from our conversation (dashboard, report, chart, or analysis)
 2. Package it with an appropriate name, description, and tags
-3. Save it as an artifact so it can be viewed and shared
+3. Save it as an asset so it can be viewed and shared
 4. Return the link to the saved asset`
 
-const showAssetsPromptContent = `List my saved assets and artifacts.
+const showAssetsPromptContent = `List my saved assets.
 
 1. Retrieve all assets I have saved
 2. Present them with names, descriptions, tags, and creation dates
@@ -355,7 +370,7 @@ const showAssetsPromptContent = `List my saved assets and artifacts.
 
 // Tools returns the list of tool names provided by this toolkit.
 func (*Toolkit) Tools() []string {
-	return []string{saveToolName, manageToolName, feedbackToolName}
+	return []string{SaveToolName, ManageToolName, feedbackToolName}
 }
 
 // SetSemanticProvider sets the semantic metadata provider.
@@ -371,8 +386,8 @@ func (t *Toolkit) SetQueryProvider(provider query.Provider) {
 // Close releases resources.
 func (*Toolkit) Close() error { return nil }
 
-// handleSaveArtifact persists an artifact to S3 and records metadata.
-func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest, input saveArtifactInput) (*mcp.CallToolResult, any, error) {
+// handleSaveAsset persists an asset to S3 and records metadata.
+func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, input saveAssetInput) (*mcp.CallToolResult, any, error) {
 	if err := t.validateAndCheckSize(input); err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
@@ -403,7 +418,7 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 	if contentType != input.ContentType {
 		prov.DeclaredContentType = input.ContentType
 	}
-	slog.Info("save_artifact.provenance",
+	slog.Info("save_asset.provenance",
 		"session_id", sessionID,
 		"user_id", userID,
 		"tool_calls", len(prov.ToolCalls),
@@ -455,8 +470,8 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 	return toolkit.JSONResultTyped(t.buildSaveOutput(assetID, prov))
 }
 
-// manageActionHandler is a function that handles a manage_artifact action.
-type manageActionHandler func(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error)
+// manageActionHandler is a function that handles a manage_asset action.
+type manageActionHandler func(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error)
 
 // feedbackActionHandler is a function that handles a manage_feedback action.
 type feedbackActionHandler func(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error)
@@ -503,8 +518,8 @@ func (t *Toolkit) buildFeedbackActions() map[string]feedbackActionHandler {
 	}
 }
 
-// handleManageArtifact dispatches to the appropriate action handler.
-func (t *Toolkit) handleManageArtifact(ctx context.Context, _ *mcp.CallToolRequest, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+// handleManageAsset dispatches to the appropriate action handler.
+func (t *Toolkit) handleManageAsset(ctx context.Context, _ *mcp.CallToolRequest, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	handler, ok := t.actions[input.Action]
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf(
@@ -515,7 +530,7 @@ func (t *Toolkit) handleManageArtifact(ctx context.Context, _ *mcp.CallToolReque
 	return handler(ctx, input)
 }
 
-func (t *Toolkit) handleList(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleList(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	ownerID := resolveOwnerID(ctx)
 
 	assets, total, err := t.assetStore.List(ctx, portal.AssetFilter{
@@ -537,7 +552,7 @@ func (t *Toolkit) handleList(ctx context.Context, input manageArtifactInput) (*m
 	return toolkit.JSONResultTyped(result)
 }
 
-func (t *Toolkit) handleGet(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleGet(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	if input.AssetID == "" {
 		return toolkit.ErrorResult("asset_id is required for get action"), nil, nil
 	}
@@ -554,7 +569,7 @@ func (t *Toolkit) handleGet(ctx context.Context, input manageArtifactInput) (*mc
 	return toolkit.JSONResultTyped(asset)
 }
 
-func (t *Toolkit) handleUpdate(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	if input.AssetID == "" {
 		return toolkit.ErrorResult("asset_id is required for update action"), nil, nil
 	}
@@ -566,27 +581,11 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageArtifactInput) (
 
 	ownerID := resolveOwnerID(ctx)
 	if asset.OwnerID != ownerID {
-		return toolkit.ErrorResult("you can only update your own artifacts"), nil, nil
+		return toolkit.ErrorResult("you can only update your own assets"), nil, nil
 	}
 
-	updates := portal.AssetUpdate{
-		Tags: input.Tags,
-	}
-	if input.Name != "" {
-		updates.Name = &input.Name
-	}
-	if input.Description != "" {
-		updates.Description = &input.Description
-	}
-
+	updates, hasMetadata := metadataUpdate(input)
 	hasContent := input.Content != ""
-	// Content is versioned separately via uploadContentUpdate, which updates the
-	// asset's current-version pointer. A metadata update is only present when one
-	// of the indexable fields was supplied. The metadata Update must not run for a
-	// content-only edit: the store's applyUpdateFields rejects an empty update
-	// with "no fields to update", which would report failure even though the
-	// content write already committed.
-	hasMetadata := updates.Name != nil || updates.Description != nil || updates.Tags != nil
 
 	if !hasContent && !hasMetadata {
 		return toolkit.ErrorResult("no fields to update: provide content, name, description, or tags"), nil, nil
@@ -610,11 +609,28 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageArtifactInput) (
 	})
 }
 
+// metadataUpdate builds the store update for the indexable fields and reports
+// whether any were supplied. Content is versioned separately by
+// uploadContentUpdate, which moves the asset's current-version pointer, so a
+// content-only edit must not reach the metadata Update: the store's
+// applyUpdateFields rejects an empty update with "no fields to update", which
+// would report failure even though the content write already committed.
+func metadataUpdate(input manageAssetInput) (update portal.AssetUpdate, present bool) {
+	update = portal.AssetUpdate{Tags: input.Tags}
+	if input.Name != "" {
+		update.Name = &input.Name
+	}
+	if input.Description != "" {
+		update.Description = &input.Description
+	}
+	return update, update.Name != nil || update.Description != nil || update.Tags != nil
+}
+
 // uploadContentUpdate writes replacement content as a new version. Creating the
 // version is what moves the asset's own s3_key, content_type and size_bytes
 // forward — the version store does that in the same transaction — so a
 // replacement whose type differs from the asset's carries the asset with it.
-func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, input manageArtifactInput) error {
+func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, input manageAssetInput) error {
 	if t.maxContentSize > 0 && len(input.Content) > t.maxContentSize {
 		return fmt.Errorf("content size %d exceeds maximum %d bytes", len(input.Content), t.maxContentSize)
 	}
@@ -657,7 +673,7 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 	return nil
 }
 
-func (t *Toolkit) handleDelete(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleDelete(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	if input.AssetID == "" {
 		return toolkit.ErrorResult("asset_id is required for delete action"), nil, nil
 	}
@@ -669,7 +685,7 @@ func (t *Toolkit) handleDelete(ctx context.Context, input manageArtifactInput) (
 
 	ownerID := resolveOwnerID(ctx)
 	if asset.OwnerID != ownerID {
-		return toolkit.ErrorResult("you can only delete your own artifacts"), nil, nil
+		return toolkit.ErrorResult("you can only delete your own assets"), nil, nil
 	}
 
 	if err := t.assetStore.SoftDelete(ctx, input.AssetID); err != nil {
@@ -682,7 +698,7 @@ func (t *Toolkit) handleDelete(ctx context.Context, input manageArtifactInput) (
 	})
 }
 
-func (t *Toolkit) handleListVersions(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleListVersions(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	if input.AssetID == "" {
 		return toolkit.ErrorResult("asset_id is required for list_versions action"), nil, nil
 	}
@@ -704,7 +720,7 @@ func (t *Toolkit) handleListVersions(ctx context.Context, input manageArtifactIn
 	})
 }
 
-func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleRevert(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	if !input.validForRevert() {
 		return toolkit.ErrorResult("asset_id and version (> 0) are required for revert action"), nil, nil
 	}
@@ -716,12 +732,12 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (
 
 	ownerID := resolveOwnerID(ctx)
 	if asset.OwnerID != ownerID {
-		return toolkit.ErrorResult("you can only revert your own artifacts"), nil, nil
+		return toolkit.ErrorResult("you can only revert your own assets"), nil, nil
 	}
 
 	targetVer, err := t.versionStore.GetByVersion(ctx, input.AssetID, input.Version)
 	if err != nil {
-		return middleware.NotFoundResult("version not found: "+err.Error(), "Call manage_artifact action=list_versions to see valid version numbers."), nil, nil
+		return middleware.NotFoundResult("version not found: "+err.Error(), "Call manage_asset action=list_versions to see valid version numbers."), nil, nil
 	}
 
 	if t.s3Client == nil {
@@ -766,7 +782,7 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (
 	})
 }
 
-func (m manageArtifactInput) validForRevert() bool {
+func (m manageAssetInput) validForRevert() bool {
 	return m.AssetID != "" && m.Version > 0
 }
 
@@ -803,7 +819,7 @@ func resolveOwnerEmail(ctx context.Context) string {
 	return anonymousUserName
 }
 
-func (t *Toolkit) validateAndCheckSize(input saveArtifactInput) error {
+func (t *Toolkit) validateAndCheckSize(input saveAssetInput) error {
 	if err := validateSaveInput(input); err != nil {
 		return err
 	}
@@ -826,10 +842,10 @@ func (t *Toolkit) buildS3Key(ownerID, assetID, contentType string) string {
 	return path.Join(t.s3Prefix, ownerID, assetID, "content"+ext)
 }
 
-func (t *Toolkit) buildSaveOutput(assetID string, prov portal.Provenance) saveArtifactOutput {
-	out := saveArtifactOutput{
+func (t *Toolkit) buildSaveOutput(assetID string, prov portal.Provenance) saveAssetOutput {
+	out := saveAssetOutput{
 		AssetID:            assetID,
-		Message:            "Artifact saved successfully.",
+		Message:            "Asset saved successfully.",
 		ProvenanceCaptured: len(prov.ToolCalls) > 0,
 		ToolCallsRecorded:  len(prov.ToolCalls),
 	}
@@ -839,7 +855,7 @@ func (t *Toolkit) buildSaveOutput(assetID string, prov portal.Provenance) saveAr
 	return out
 }
 
-func validateSaveInput(input saveArtifactInput) error {
+func validateSaveInput(input saveAssetInput) error {
 	if err := portal.ValidateAssetName(input.Name); err != nil {
 		return fmt.Errorf(validationFmt, err)
 	}

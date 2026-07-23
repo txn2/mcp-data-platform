@@ -24,7 +24,7 @@ type AssetSearcher interface {
 	Get(ctx context.Context, id string) (*portal.Asset, error)
 }
 
-// AssetsProvider exposes a caller's managed assets (saved artifacts) to the
+// AssetsProvider exposes a caller's managed portal assets to the
 // router. It is per-user: results are restricted to assets the caller owns
 // (assets.owner_id == caller UUID), which is why it keys on Caller.UserID
 // rather than the email the memory and insight providers use.
@@ -75,7 +75,7 @@ func (p *AssetsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 }
 
 // Fetch dereferences an mcp:asset:<id> reference to the asset's full metadata
-// (#694), folding what manage_artifact's get returns into the one fetch verb. It
+// (#694), folding what manage_asset's get returns into the one fetch verb. It
 // owns only the asset reference form; any other reference is declined
 // (owned=false). Assets are per-user, so the read is scoped to the caller exactly
 // as Search is: an asset the caller does not own, a missing id, or a soft-deleted

@@ -45,7 +45,7 @@ The logo is additive: the brand wordmark still renders beneath it, and doubles a
 
 ### Public Viewer Branding
 
-Shared artifact links (the public viewer at `/portal/view/{token}`) display a two-zone header. The **right zone** shows the platform brand (`portal.title` and `portal.logo`). The **left zone** is an optional implementor brand for the organization deploying the platform:
+Shared asset links (the public viewer at `/portal/view/{token}`) display a two-zone header. The **right zone** shows the platform brand (`portal.title` and `portal.logo`). The **left zone** is an optional implementor brand for the organization deploying the platform:
 
 ```yaml
 portal:

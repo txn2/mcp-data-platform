@@ -128,29 +128,29 @@ func TestSmoke_WriteToolsRoundTrip(t *testing.T) {
 		callRaw(ctx, s, "manage_prompt", map[string]any{"command": "delete", "name": name, "scope": "personal"})
 	})
 
-	t.Run("save_artifact", func(t *testing.T) {
+	t.Run("save_asset", func(t *testing.T) {
 		name := fmt.Sprintf("smoke-artifact-%d", stamp)
-		out := call(t, ctx, s, "save_artifact", map[string]any{
+		out := call(t, ctx, s, "save_asset", map[string]any{
 			"name":         name,
 			"content":      "# Smoke\nLive smoke artifact.",
 			"content_type": "text/markdown",
 		})
 		id, _ := out["asset_id"].(string)
 		if id == "" {
-			t.Fatalf("save_artifact: no asset_id in result: %v", out)
+			t.Fatalf("save_asset: no asset_id in result: %v", out)
 		}
 		// Read-back: the asset must be retrievable with its metadata intact.
-		got := call(t, ctx, s, "manage_artifact", map[string]any{"action": "get", "asset_id": id})
+		got := call(t, ctx, s, "manage_asset", map[string]any{"action": "get", "asset_id": id})
 		if got["name"] != name {
-			t.Fatalf("save_artifact read-back: name mismatch: got %q want %q", got["name"], name)
+			t.Fatalf("save_asset read-back: name mismatch: got %q want %q", got["name"], name)
 		}
 		if got["content_type"] != "text/markdown" {
-			t.Fatalf("save_artifact read-back: content_type mismatch: got %v", got["content_type"])
+			t.Fatalf("save_asset read-back: content_type mismatch: got %v", got["content_type"])
 		}
 		if size, _ := got["size_bytes"].(float64); size <= 0 {
-			t.Fatalf("save_artifact read-back: size_bytes not persisted: %v", got["size_bytes"])
+			t.Fatalf("save_asset read-back: size_bytes not persisted: %v", got["size_bytes"])
 		}
-		callRaw(ctx, s, "manage_artifact", map[string]any{"action": "delete", "asset_id": id})
+		callRaw(ctx, s, "manage_asset", map[string]any{"action": "delete", "asset_id": id})
 	})
 
 	t.Run("capture_insight", func(t *testing.T) {
@@ -248,7 +248,7 @@ func TestSmoke_ToolkitLiveness(t *testing.T) {
 		{"s3", "s3_list_buckets", map[string]any{}},
 		{"memory", "memory_recall", map[string]any{"query": "liveness"}},
 		{"knowledge", "recall_insight", map[string]any{"query": "liveness"}},
-		{"portal", "manage_artifact", map[string]any{"action": "list"}},
+		{"portal", "manage_asset", map[string]any{"action": "list"}},
 	}
 	for _, p := range probes {
 		if !present[p.kind] {

@@ -8567,7 +8567,7 @@ paths:
       - application/json
       description: Creates a new asset by uploading inline text content (markdown,
         HTML, SVG, JSON, etc.). Use this to snapshot generated content into the asset
-        portal without going through the MCP save_artifact tool.
+        portal without going through the MCP save_asset tool.
       parameters:
       - description: Asset content and metadata
         in: body
@@ -12426,7 +12426,7 @@ tags:
   - name: "Activity"
     description: "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."
   - name: "Assets"
-    description: "AI-generated artifacts — dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."
+    description: "AI-generated assets — dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."
   - name: "Collections"
     description: "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."
   - name: "Knowledge"

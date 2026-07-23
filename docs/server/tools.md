@@ -45,8 +45,8 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
-| Portal | `save_artifact` | Save an AI-generated artifact (JSX, HTML, SVG, etc.) |
-| Portal | `manage_artifact` | List, get, update, delete, or relevance-search saved artifacts and collections |
+| Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, etc.) |
+| Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, and get |
@@ -664,7 +664,7 @@ pointers with truncated snippets; `fetch` dereferences one pointer's `reference`
 back to its **complete content**, so the agent reads in full what it found. It is
 the single consumer of the `reference` every search hit already carries, and it
 collapses the previously fragmented scoped readers (`datahub_get_entity`,
-`manage_artifact` get, `manage_prompt` get) into one verb. Registered alongside
+`manage_asset` get, `manage_prompt` get) into one verb. Registered alongside
 `search`.
 
 A reference comes in one of two namespaces: `urn:li:...` is the external DataHub
@@ -849,23 +849,23 @@ Manages the lifecycle of existing persistent memory. Create new memory with `mem
 
 ## Portal Tools
 
-The portal toolkit persists AI-generated artifacts (JSX dashboards, HTML reports, SVG charts) to S3 with PostgreSQL metadata, enabling viewing and sharing. Automatically captures provenance (which tool calls produced the artifact).
+The portal toolkit persists AI-generated assets (JSX dashboards, HTML reports, SVG charts) to S3 with PostgreSQL metadata, enabling viewing and sharing. Automatically captures provenance (which tool calls produced the asset).
 
 !!! tip "Prerequisites"
     Portal tools require `portal.enabled: true`, a configured S3 connection (`portal.s3_connection`), and `database.dsn`. See [Configuration](configuration.md#portal-configuration).
 
-### save_artifact
+### save_asset
 
-Save an AI-generated artifact to the asset portal. Automatically captures provenance tracking which tool calls in the session led to this artifact.
+Save AI-generated content to the asset portal as a versioned asset. Automatically captures provenance tracking which tool calls in the session led to this asset.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `name` | string | Yes | - | Display name for the artifact (max 255 chars) |
-| `content` | string | Yes | - | The artifact content (JSX, HTML, SVG, Markdown, etc.) |
+| `name` | string | Yes | - | Display name for the asset (max 255 chars) |
+| `content` | string | Yes | - | The asset content (JSX, HTML, SVG, Markdown, etc.) |
 | `content_type` | string | Yes | - | MIME type: text/html, text/jsx, image/svg+xml, text/markdown, application/json, text/csv |
-| `description` | string | No | - | Description of the artifact (max 2000 chars) |
+| `description` | string | No | - | Description of the asset (max 2000 chars) |
 | `tags` | array | No | [] | Tags for categorization (max 20 tags, each max 100 chars) |
 
 **Response includes:**
@@ -876,9 +876,9 @@ Save an AI-generated artifact to the asset portal. Automatically captures proven
 
 ---
 
-### manage_artifact
+### manage_asset
 
-List, retrieve, update, or delete saved artifacts. All mutations enforce ownership (users can only modify their own artifacts).
+List, retrieve, update, or delete saved assets. All mutations enforce ownership (users can only modify their own assets).
 
 **Parameters:**
 
@@ -896,24 +896,24 @@ List, retrieve, update, or delete saved artifacts. All mutations enforce ownersh
 
 **Actions:**
 
-- **list**: Show the current user's artifacts with metadata
+- **list**: Show the current user's assets with metadata
 - **get**: Retrieve full asset metadata by ID
 - **update**: Change name, description, tags, or replace content
-- **delete**: Soft-delete an artifact
+- **delete**: Soft-delete an asset
 - **search**: Rank the caller's own assets by relevance to `query`. Uses the same hybrid (vector + lexical) ranking as the prompt and Knowledge & Memory search: weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise. Returns each match with a `score` and reports `ranking` (`hybrid` or `lexical`). Scoped server-side to the caller's own assets by `owner_id` — the same ownership key the asset library and update/delete checks use, so search returns exactly what you see in the library — and fails closed when the caller has no identity, so a user can never find an asset they cannot view.
 
 ---
 
 ### manage_feedback
 
-Review and respond to human feedback on your work. Feedback is its own tool (rather than actions on `manage_artifact`) so an agent discovers it by name. Threads live on an asset, collection, or prompt, or on the shared general channel.
+Review and respond to human feedback on your work. Feedback is its own tool (rather than actions on `manage_asset`) so an agent discovers it by name. Threads live on an asset, collection, or prompt, or on the shared general channel.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `action` | string | Yes | - | list, get, reply, resolve, request_validation, respond_validation |
-| `asset_id` / `collection_id` / `prompt_id` | string | No | - | Scope a `list` to one artifact |
+| `asset_id` / `collection_id` / `prompt_id` | string | No | - | Scope a `list` to one target |
 | `target_type` | string | No | - | `standalone` scopes a `list` to the general channel |
 | `thread_id` | string | Conditional | - | Required for get, reply, resolve, request_validation, respond_validation |
 | `body` | string | Conditional | - | Reply text (required for reply) |
@@ -932,7 +932,7 @@ Review and respond to human feedback on your work. Feedback is its own tool (rat
 - **request_validation**: Route a validation request to the thread author.
 - **respond_validation**: The thread author (or an admin) records `validated`/`disputed`; disputing re-opens the thread.
 
-**Access:** scoped to artifacts the caller owns or can edit (admins see all). General-channel threads are readable and replyable by any authenticated caller, and resolved only by the thread author or an admin. `memory_capture thread_ids=[...]` folds a thread into the knowledge loop and resolves it, gated by the same owns-or-edit check.
+**Access:** scoped to the assets and collections the caller owns or can edit (admins see all). General-channel threads are readable and replyable by any authenticated caller, and resolved only by the thread author or an admin. `memory_capture thread_ids=[...]` folds a thread into the knowledge loop and resolves it, gated by the same owns-or-edit check.
 
 ---
 

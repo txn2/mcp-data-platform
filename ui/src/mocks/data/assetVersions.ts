@@ -78,7 +78,7 @@ export const mockAssetVersions: Record<string, AssetVersion[]> = {
       content_type: "text/html",
       size_bytes: 2_900,
       created_by: "alice@example.com",
-      change_summary: "Initial dashboard from trino_query + save_artifact",
+      change_summary: "Initial dashboard from trino_query + save_asset",
       created_at: iso(3),
     },
   ],

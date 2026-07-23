@@ -5,7 +5,7 @@
 # in the two benchmark reference pages (docs/reference/benchmarks.md and
 # benchmark-report.md) that is neither listed here nor in
 # scripts/doc-check-nontools.txt. Non-prefixed tool names below (search, fetch,
-# apply_knowledge, manage_*, save_artifact, list_connections, platform_*) are not
+# apply_knowledge, manage_*, save_asset, list_connections, platform_*) are not
 # reached by that prefix audit; a retired/renamed tool of ANY shape is caught
 # instead by the denylist in scripts/retired-tools.txt (which is what would have
 # caught the `memory_recall` reference in the deleted bench/LOCOMO.md).
@@ -30,7 +30,7 @@ datahub_get_schema
 datahub_update
 fetch
 list_connections
-manage_artifact
+manage_asset
 manage_feedback
 manage_prompt
 memory_capture
@@ -45,7 +45,7 @@ s3_list_buckets
 s3_list_objects
 s3_presign_url
 s3_put_object
-save_artifact
+save_asset
 search
 trino_browse
 trino_describe_table

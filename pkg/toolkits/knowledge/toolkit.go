@@ -191,7 +191,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"Be an expert reviewer, not a mechanical one: " +
 				"(1) discover existing knowledge first by searching DataHub and knowledge pages for the topic, so every decision is update-vs-create, never blind-create; " +
 				"(2) compare each insight against what exists (new, a refinement, a correction, or already covered); " +
-				"(3) synthesize: merge related insights into one coherent statement and resolve contradictions, rather than writing one artifact per raw insight; " +
+				"(3) synthesize: merge related insights into one coherent statement and resolve contradictions, rather than writing one record per raw insight; " +
 				"(4) route: entity-tied facts update the DataHub entity (description, tags, glossary, curated queries); business or domain knowledge promotes to a knowledge page " +
 				"via sink=knowledge_page with a 'page' object, found-or-created by slug so repeat promotions consolidate and references accumulate; " +
 				"(5) update in place over duplicating, and create only when genuinely new: a create whose content closely matches an existing page is blocked and the candidate pages are returned, " +

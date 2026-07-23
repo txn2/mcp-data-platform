@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,11 +56,11 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, "portal", tk.Kind())
 	assert.Equal(t, "test", tk.Name())
 	assert.Equal(t, "", tk.Connection())
-	assert.Equal(t, []string{saveToolName, manageToolName, feedbackToolName}, tk.Tools())
+	assert.Equal(t, []string{SaveToolName, ManageToolName, feedbackToolName}, tk.Tools())
 	assert.NoError(t, tk.Close())
 }
 
-func TestSaveArtifact_Success(t *testing.T) {
+func TestSaveAsset_Success(t *testing.T) {
 	store := newInMemoryAssetStore()
 	s3 := &mockS3Client{}
 	tk := New(Config{
@@ -73,7 +74,7 @@ func TestSaveArtifact_Success(t *testing.T) {
 		SessionID: "sess1",
 	})
 
-	input := saveArtifactInput{
+	input := saveAssetInput{
 		Name:        "My Dashboard",
 		Content:     "<div>Hello</div>",
 		ContentType: "text/html",
@@ -81,17 +82,17 @@ func TestSaveArtifact_Success(t *testing.T) {
 		Tags:        []string{"test"},
 	}
 
-	result, _, err := tk.handleSaveArtifact(ctx, nil, input)
+	result, _, err := tk.handleSaveAsset(ctx, nil, input)
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
-	var output saveArtifactOutput
+	var output saveAssetOutput
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
 	require.True(t, ok)
 	require.NoError(t, json.Unmarshal([]byte(tc.Text), &output))
 	assert.NotEmpty(t, output.AssetID)
 	assert.Contains(t, output.PortalURL, output.AssetID)
-	assert.Equal(t, "Artifact saved successfully.", output.Message)
+	assert.Equal(t, "Asset saved successfully.", output.Message)
 
 	// Verify asset was stored
 	asset, getErr := store.Get(context.Background(), output.AssetID)
@@ -102,22 +103,22 @@ func TestSaveArtifact_Success(t *testing.T) {
 	assert.Equal(t, int64(len("<div>Hello</div>")), asset.SizeBytes)
 }
 
-func TestSaveArtifact_ValidationErrors(t *testing.T) {
+func TestSaveAsset_ValidationErrors(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 
 	tests := []struct {
 		name  string
-		input saveArtifactInput
+		input saveAssetInput
 		errIn string
 	}{
-		{"empty name", saveArtifactInput{Content: "x", ContentType: "text/html"}, "name is required"},
-		{"empty content", saveArtifactInput{Name: "x", ContentType: "text/html"}, "content is required"},
-		{"empty content_type", saveArtifactInput{Name: "x", Content: "x"}, "content_type is required"},
+		{"empty name", saveAssetInput{Content: "x", ContentType: "text/html"}, "name is required"},
+		{"empty content", saveAssetInput{Name: "x", ContentType: "text/html"}, "content is required"},
+		{"empty content_type", saveAssetInput{Name: "x", Content: "x"}, "content_type is required"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, _, err := tk.handleSaveArtifact(context.Background(), nil, tt.input)
+			result, _, err := tk.handleSaveAsset(context.Background(), nil, tt.input)
 			require.NoError(t, err)
 			assert.True(t, result.IsError)
 			tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
@@ -127,7 +128,7 @@ func TestSaveArtifact_ValidationErrors(t *testing.T) {
 	}
 }
 
-func TestSaveArtifact_WithProvenance(t *testing.T) {
+func TestSaveAsset_WithProvenance(t *testing.T) {
 	store := newInMemoryAssetStore()
 	tk := New(Config{Name: "test", AssetStore: store, S3Client: &mockS3Client{}, S3Bucket: "bucket"})
 
@@ -141,15 +142,15 @@ func TestSaveArtifact_WithProvenance(t *testing.T) {
 	})
 	ctx = middleware.WithProvenanceToolCalls(ctx, provCalls)
 
-	input := saveArtifactInput{
+	input := saveAssetInput{
 		Name: "Chart", Content: "<svg/>", ContentType: "image/svg+xml",
 	}
 
-	result, _, err := tk.handleSaveArtifact(ctx, nil, input)
+	result, _, err := tk.handleSaveAsset(ctx, nil, input)
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
-	var output saveArtifactOutput
+	var output saveAssetOutput
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
 	require.True(t, ok)
 	require.NoError(t, json.Unmarshal([]byte(tc.Text), &output))
@@ -157,7 +158,7 @@ func TestSaveArtifact_WithProvenance(t *testing.T) {
 	assert.Equal(t, 2, output.ToolCallsRecorded)
 }
 
-func TestManageArtifact_List(t *testing.T) {
+func TestManageAsset_List(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Asset 1", Tags: []string{},
@@ -172,7 +173,7 @@ func TestManageArtifact_List(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "list"})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "list"})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
@@ -185,7 +186,7 @@ func TestManageArtifact_List(t *testing.T) {
 	assert.Len(t, assets, 1) // Only user1's asset
 }
 
-func TestManageArtifact_Get(t *testing.T) {
+func TestManageAsset_Get(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Test", Tags: []string{},
@@ -194,24 +195,24 @@ func TestManageArtifact_Get(t *testing.T) {
 
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
 
-	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
 		Action: "get", AssetID: "a1",
 	})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 }
 
-func TestManageArtifact_GetMissing(t *testing.T) {
+func TestManageAsset_GetMissing(t *testing.T) {
 	tk := New(Config{Name: "test", AssetStore: newInMemoryAssetStore(), S3Bucket: "bucket"})
 
-	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
 		Action: "get", AssetID: "missing",
 	})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
 
-func TestManageArtifact_Update(t *testing.T) {
+func TestManageAsset_Update(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Old", Tags: []string{},
@@ -222,7 +223,7 @@ func TestManageArtifact_Update(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update", AssetID: "a1", Name: "New Name",
 	})
 	require.NoError(t, err)
@@ -232,7 +233,7 @@ func TestManageArtifact_Update(t *testing.T) {
 	assert.Equal(t, "New Name", asset.Name)
 }
 
-func TestManageArtifact_UpdateWithContent(t *testing.T) {
+func TestManageAsset_UpdateWithContent(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Old", ContentType: "text/html",
@@ -252,7 +253,7 @@ func TestManageArtifact_UpdateWithContent(t *testing.T) {
 	// version; the handler must not then run the empty metadata Update, which the
 	// store rejects with "no fields to update", reporting failure on a write that
 	// actually committed (#573).
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update", AssetID: "a1", Content: "<div>Updated</div>",
 	})
 	require.NoError(t, err)
@@ -262,7 +263,7 @@ func TestManageArtifact_UpdateWithContent(t *testing.T) {
 	assert.Len(t, vv, 1, "content update must create exactly one version")
 }
 
-func TestManageArtifact_UpdateNoFields(t *testing.T) {
+func TestManageAsset_UpdateNoFields(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Old", Tags: []string{},
@@ -278,7 +279,7 @@ func TestManageArtifact_UpdateNoFields(t *testing.T) {
 
 	// Neither content nor metadata: a genuine no-op must report an error and
 	// create no version.
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update", AssetID: "a1",
 	})
 	require.NoError(t, err)
@@ -288,7 +289,7 @@ func TestManageArtifact_UpdateNoFields(t *testing.T) {
 	assert.Empty(t, vv, "empty update must not create a version")
 }
 
-func TestManageArtifact_UpdateContentAndMetadata(t *testing.T) {
+func TestManageAsset_UpdateContentAndMetadata(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Old", ContentType: "text/html",
@@ -304,7 +305,7 @@ func TestManageArtifact_UpdateContentAndMetadata(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update", AssetID: "a1", Content: "<div>v2</div>", Name: "New Name",
 	})
 	require.NoError(t, err)
@@ -316,7 +317,7 @@ func TestManageArtifact_UpdateContentAndMetadata(t *testing.T) {
 	assert.Len(t, vv, 1, "content+metadata update must create one version")
 }
 
-func TestManageArtifact_UpdateWrongOwner(t *testing.T) {
+func TestManageAsset_UpdateWrongOwner(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Mine", Tags: []string{},
@@ -327,14 +328,14 @@ func TestManageArtifact_UpdateWrongOwner(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user2"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update", AssetID: "a1", Name: "Hijacked",
 	})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
 
-func TestManageArtifact_Delete(t *testing.T) {
+func TestManageAsset_Delete(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "To Delete", Tags: []string{},
@@ -345,7 +346,7 @@ func TestManageArtifact_Delete(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "delete", AssetID: "a1",
 	})
 	require.NoError(t, err)
@@ -356,20 +357,20 @@ func TestManageArtifact_Delete(t *testing.T) {
 	assert.NotNil(t, asset.DeletedAt)
 }
 
-func TestManageArtifact_InvalidAction(t *testing.T) {
+func TestManageAsset_InvalidAction(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 
-	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{Action: "invalid"})
+	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{Action: "invalid"})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
 
-func TestManageArtifact_MissingAssetID(t *testing.T) {
+func TestManageAsset_MissingAssetID(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 
 	for _, action := range []string{"get", "update", "delete"} {
 		t.Run(action, func(t *testing.T) {
-			result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{Action: action})
+			result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{Action: action})
 			require.NoError(t, err)
 			assert.True(t, result.IsError)
 		})
@@ -534,9 +535,47 @@ func TestRegisterTools(t *testing.T) {
 
 	// Verify tools are registered by checking Tools() returns them.
 	tools := tk.Tools()
-	assert.Contains(t, tools, saveToolName)
-	assert.Contains(t, tools, manageToolName)
+	assert.Contains(t, tools, SaveToolName)
+	assert.Contains(t, tools, ManageToolName)
 	assert.Contains(t, tools, feedbackToolName)
+}
+
+// TestToolsListVocabulary is the #1029 acceptance check on the advertised
+// surface: a real tools/list response names the portal tools save_asset and
+// manage_asset, and no portal tool's name, description, or input schema uses
+// the word "artifact" anywhere the model reads it.
+func TestToolsListVocabulary(t *testing.T) {
+	tk := New(Config{Name: "test", S3Bucket: "bucket"})
+	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
+	tk.RegisterTools(server)
+
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	require.NoError(t, err)
+	defer func() { _ = serverSession.Close() }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	require.NoError(t, err)
+	defer func() { _ = session.Close() }()
+
+	res, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(res.Tools))
+	for _, tool := range res.Tools {
+		names = append(names, tool.Name)
+		schemaJSON, err := json.Marshal(tool.InputSchema)
+		require.NoError(t, err)
+		surface := tool.Name + "\n" + tool.Title + "\n" + tool.Description + "\n" + string(schemaJSON)
+		assert.NotContains(t, strings.ToLower(surface), "artifact",
+			"advertised surface of %q must not use the word artifact", tool.Name)
+	}
+	assert.Contains(t, names, SaveToolName)
+	assert.Contains(t, names, ManageToolName)
+	assert.NotContains(t, names, "save_artifact")
+	assert.NotContains(t, names, "manage_artifact")
 }
 
 func TestSetProviders(t *testing.T) {
@@ -550,7 +589,7 @@ func TestSetProviders(t *testing.T) {
 	assert.NoError(t, tk.Close())
 }
 
-func TestSaveArtifact_S3Error(t *testing.T) {
+func TestSaveAsset_S3Error(t *testing.T) {
 	s3 := &mockS3Client{putErr: notFoundError{}}
 	tk := New(Config{
 		Name: "test", AssetStore: newInMemoryAssetStore(), S3Client: s3,
@@ -561,11 +600,11 @@ func TestSaveArtifact_S3Error(t *testing.T) {
 		UserID: "user1", SessionID: "sess1",
 	})
 
-	input := saveArtifactInput{
+	input := saveAssetInput{
 		Name: "Test", Content: "<div/>", ContentType: "text/html",
 	}
 
-	result, _, err := tk.handleSaveArtifact(ctx, nil, input)
+	result, _, err := tk.handleSaveAsset(ctx, nil, input)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
@@ -573,32 +612,32 @@ func TestSaveArtifact_S3Error(t *testing.T) {
 	assert.Contains(t, tc.Text, "failed to upload content")
 }
 
-func TestSaveArtifact_NoContext(t *testing.T) {
+func TestSaveAsset_NoContext(t *testing.T) {
 	store := newInMemoryAssetStore()
 	tk := New(Config{Name: "test", AssetStore: store, S3Client: &mockS3Client{}, S3Bucket: "bucket"})
 
 	// Call without PlatformContext — should default to anonymous.
-	input := saveArtifactInput{
+	input := saveAssetInput{
 		Name: "Test", Content: "<div/>", ContentType: "text/html",
 	}
 
-	result, _, err := tk.handleSaveArtifact(context.Background(), nil, input)
+	result, _, err := tk.handleSaveAsset(context.Background(), nil, input)
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 }
 
-func TestSaveArtifact_NilS3Client(t *testing.T) {
+func TestSaveAsset_NilS3Client(t *testing.T) {
 	tk := New(Config{Name: "test", AssetStore: newInMemoryAssetStore(), S3Client: nil, S3Bucket: "bucket"})
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
 		UserID: "user1", SessionID: "sess1",
 	})
 
-	input := saveArtifactInput{
+	input := saveAssetInput{
 		Name: "Test", Content: "<div/>", ContentType: "text/html",
 	}
 
-	result, _, err := tk.handleSaveArtifact(ctx, nil, input)
+	result, _, err := tk.handleSaveAsset(ctx, nil, input)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
@@ -606,7 +645,7 @@ func TestSaveArtifact_NilS3Client(t *testing.T) {
 	assert.Contains(t, tc.Text, "content storage not configured")
 }
 
-func TestManageArtifact_DeleteWrongOwner(t *testing.T) {
+func TestManageAsset_DeleteWrongOwner(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Mine", Tags: []string{},
@@ -617,24 +656,24 @@ func TestManageArtifact_DeleteWrongOwner(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user2"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "delete", AssetID: "a1",
 	})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
 
-func TestManageArtifact_DeleteNotFound(t *testing.T) {
+func TestManageAsset_DeleteNotFound(t *testing.T) {
 	tk := New(Config{Name: "test", AssetStore: newInMemoryAssetStore(), S3Bucket: "bucket"})
 
-	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
 		Action: "delete", AssetID: "missing",
 	})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
 
-func TestManageArtifact_GetDeletedAsset(t *testing.T) {
+func TestManageAsset_GetDeletedAsset(t *testing.T) {
 	store := newInMemoryAssetStore()
 	now := time.Now()
 	store.assets["a1"] = portal.Asset{
@@ -644,7 +683,7 @@ func TestManageArtifact_GetDeletedAsset(t *testing.T) {
 
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
 
-	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
 		Action: "get", AssetID: "a1",
 	})
 	require.NoError(t, err)
@@ -654,7 +693,7 @@ func TestManageArtifact_GetDeletedAsset(t *testing.T) {
 	assert.Contains(t, tc.Text, "deleted")
 }
 
-func TestManageArtifact_ListNoContext(t *testing.T) {
+func TestManageAsset_ListNoContext(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "anonymous", Name: "Anon Asset", Tags: []string{},
@@ -664,12 +703,12 @@ func TestManageArtifact_ListNoContext(t *testing.T) {
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
 
 	// Call without PlatformContext — should default to "anonymous".
-	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{Action: "list"})
+	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{Action: "list"})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 }
 
-func TestSaveArtifact_ValidationDescription(t *testing.T) {
+func TestSaveAsset_ValidationDescription(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 
 	longDesc := make([]byte, 2001)
@@ -677,7 +716,7 @@ func TestSaveArtifact_ValidationDescription(t *testing.T) {
 		longDesc[i] = 'a'
 	}
 
-	result, _, err := tk.handleSaveArtifact(context.Background(), nil, saveArtifactInput{
+	result, _, err := tk.handleSaveAsset(context.Background(), nil, saveAssetInput{
 		Name: "Test", Content: "x", ContentType: "text/html",
 		Description: string(longDesc),
 	})
@@ -685,7 +724,7 @@ func TestSaveArtifact_ValidationDescription(t *testing.T) {
 	assert.True(t, result.IsError)
 }
 
-func TestSaveArtifact_ValidationTags(t *testing.T) {
+func TestSaveAsset_ValidationTags(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 
 	tooMany := make([]string, 21)
@@ -693,7 +732,7 @@ func TestSaveArtifact_ValidationTags(t *testing.T) {
 		tooMany[i] = "tag"
 	}
 
-	result, _, err := tk.handleSaveArtifact(context.Background(), nil, saveArtifactInput{
+	result, _, err := tk.handleSaveAsset(context.Background(), nil, saveAssetInput{
 		Name: "Test", Content: "x", ContentType: "text/html",
 		Tags: tooMany,
 	})
@@ -738,7 +777,7 @@ func (s *errorAssetStore) Update(_ context.Context, _ string, _ portal.AssetUpda
 	return nil
 }
 
-func TestSaveArtifact_StoreInsertError(t *testing.T) {
+func TestSaveAsset_StoreInsertError(t *testing.T) {
 	store := &errorAssetStore{insertErr: notFoundError{}}
 	store.assets = make(map[string]portal.Asset)
 	tk := New(Config{Name: "test", AssetStore: store, S3Client: &mockS3Client{}, S3Bucket: "bucket"})
@@ -747,11 +786,11 @@ func TestSaveArtifact_StoreInsertError(t *testing.T) {
 		UserID: "user1", SessionID: "sess1",
 	})
 
-	input := saveArtifactInput{
+	input := saveAssetInput{
 		Name: "Test", Content: "<div/>", ContentType: "text/html",
 	}
 
-	result, _, err := tk.handleSaveArtifact(ctx, nil, input)
+	result, _, err := tk.handleSaveAsset(ctx, nil, input)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
@@ -759,14 +798,14 @@ func TestSaveArtifact_StoreInsertError(t *testing.T) {
 	assert.Contains(t, tc.Text, "failed to save asset metadata")
 }
 
-func TestManageArtifact_ListError(t *testing.T) {
+func TestManageAsset_ListError(t *testing.T) {
 	store := &errorAssetStore{listErr: notFoundError{}}
 	store.assets = make(map[string]portal.Asset)
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "list"})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "list"})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
@@ -774,7 +813,7 @@ func TestManageArtifact_ListError(t *testing.T) {
 	assert.Contains(t, tc.Text, "failed to list assets")
 }
 
-func TestManageArtifact_UpdateStoreError(t *testing.T) {
+func TestManageAsset_UpdateStoreError(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Test", Tags: []string{},
@@ -787,7 +826,7 @@ func TestManageArtifact_UpdateStoreError(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update", AssetID: "a1", Name: "New",
 	})
 	require.NoError(t, err)
@@ -797,7 +836,7 @@ func TestManageArtifact_UpdateStoreError(t *testing.T) {
 	assert.Contains(t, tc.Text, "failed to update asset")
 }
 
-func TestManageArtifact_UpdateNilS3Client(t *testing.T) {
+func TestManageAsset_UpdateNilS3Client(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Test", ContentType: "text/html",
@@ -808,7 +847,7 @@ func TestManageArtifact_UpdateNilS3Client(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update", AssetID: "a1", Content: "<div>Updated</div>",
 	})
 	require.NoError(t, err)
@@ -818,7 +857,7 @@ func TestManageArtifact_UpdateNilS3Client(t *testing.T) {
 	assert.Contains(t, tc.Text, "content storage not configured")
 }
 
-func TestManageArtifact_UpdateWithContentError(t *testing.T) {
+func TestManageAsset_UpdateWithContentError(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Test", ContentType: "text/html",
@@ -833,7 +872,7 @@ func TestManageArtifact_UpdateWithContentError(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update", AssetID: "a1", Content: "<div>Updated</div>",
 	})
 	require.NoError(t, err)
@@ -843,18 +882,18 @@ func TestManageArtifact_UpdateWithContentError(t *testing.T) {
 	assert.Contains(t, tc.Text, "failed to upload new content")
 }
 
-func TestSaveArtifact_ContentTooLarge(t *testing.T) {
+func TestSaveAsset_ContentTooLarge(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket", MaxContentSize: 10})
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
 		UserID: "user1", SessionID: "sess1",
 	})
 
-	input := saveArtifactInput{
+	input := saveAssetInput{
 		Name: "Test", Content: "12345678901", ContentType: "text/html", // 11 bytes > 10
 	}
 
-	result, _, err := tk.handleSaveArtifact(ctx, nil, input)
+	result, _, err := tk.handleSaveAsset(ctx, nil, input)
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
@@ -862,7 +901,7 @@ func TestSaveArtifact_ContentTooLarge(t *testing.T) {
 	assert.Contains(t, tc.Text, "exceeds maximum")
 }
 
-func TestManageArtifact_UpdateContentTooLarge(t *testing.T) {
+func TestManageAsset_UpdateContentTooLarge(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Test", ContentType: "text/html",
@@ -875,7 +914,7 @@ func TestManageArtifact_UpdateContentTooLarge(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "update", AssetID: "a1", Content: "12345678901", // 11 bytes > 10
 	})
 	require.NoError(t, err)
@@ -885,7 +924,7 @@ func TestManageArtifact_UpdateContentTooLarge(t *testing.T) {
 	assert.Contains(t, tc.Text, "exceeds maximum")
 }
 
-func TestManageArtifact_UpdateNoAuthDenied(t *testing.T) {
+func TestManageAsset_UpdateNoAuthDenied(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Mine", Tags: []string{},
@@ -895,17 +934,17 @@ func TestManageArtifact_UpdateNoAuthDenied(t *testing.T) {
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
 
 	// No PlatformContext — resolveOwnerID returns "anonymous" which != "user1"
-	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
 		Action: "update", AssetID: "a1", Name: "Hijacked",
 	})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
 	require.True(t, ok)
-	assert.Contains(t, tc.Text, "you can only update your own artifacts")
+	assert.Contains(t, tc.Text, "you can only update your own assets")
 }
 
-func TestManageArtifact_DeleteNoAuthDenied(t *testing.T) {
+func TestManageAsset_DeleteNoAuthDenied(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Mine", Tags: []string{},
@@ -915,14 +954,14 @@ func TestManageArtifact_DeleteNoAuthDenied(t *testing.T) {
 	tk := New(Config{Name: "test", AssetStore: store, S3Bucket: "bucket"})
 
 	// No PlatformContext — resolveOwnerID returns "anonymous" which != "user1"
-	result, _, err := tk.handleManageArtifact(context.Background(), nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(context.Background(), nil, manageAssetInput{
 		Action: "delete", AssetID: "a1",
 	})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
 	require.True(t, ok)
-	assert.Contains(t, tc.Text, "you can only delete your own artifacts")
+	assert.Contains(t, tc.Text, "you can only delete your own assets")
 }
 
 func TestResolveOwnerEmail(t *testing.T) {
@@ -940,7 +979,7 @@ func TestResolveOwnerEmail(t *testing.T) {
 	assert.Equal(t, "anonymous", resolveOwnerEmail(context.Background()))
 }
 
-func TestManageArtifact_SoftDeleteError(t *testing.T) {
+func TestManageAsset_SoftDeleteError(t *testing.T) {
 	store := newInMemoryAssetStore()
 	_ = store.Insert(context.Background(), portal.Asset{
 		ID: "a1", OwnerID: "user1", Name: "Test", Tags: []string{},
@@ -953,7 +992,7 @@ func TestManageArtifact_SoftDeleteError(t *testing.T) {
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
 		Action: "delete", AssetID: "a1",
 	})
 	require.NoError(t, err)
@@ -1108,7 +1147,7 @@ func TestHandleListVersions(t *testing.T) {
 	})
 	require.NoError(t, cvErr)
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "list_versions", AssetID: "a1"})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "list_versions", AssetID: "a1"})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
@@ -1122,7 +1161,7 @@ func TestHandleListVersions(t *testing.T) {
 func TestHandleListVersionsMissingAssetID(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 	ctx := context.Background()
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "list_versions"})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "list_versions"})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
@@ -1145,7 +1184,7 @@ func TestHandleRevert(t *testing.T) {
 	})
 	require.NoError(t, cvErr)
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "revert", AssetID: "a1", Version: 1})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
@@ -1159,7 +1198,7 @@ func TestHandleRevert(t *testing.T) {
 func TestHandleRevertMissingAssetID(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 	ctx := context.Background()
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert"})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "revert"})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
@@ -1167,7 +1206,7 @@ func TestHandleRevertMissingAssetID(t *testing.T) {
 func TestHandleRevertMissingVersion(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 	ctx := context.Background()
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1"})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "revert", AssetID: "a1"})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
@@ -1183,7 +1222,7 @@ func TestHandleRevertNotOwner(t *testing.T) {
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user2"})
 	require.NoError(t, store.Insert(ctx, portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 1}))
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "revert", AssetID: "a1", Version: 1})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
@@ -1199,7 +1238,7 @@ func TestHandleRevertVersionNotFound(t *testing.T) {
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 	require.NoError(t, store.Insert(ctx, portal.Asset{ID: "a1", OwnerID: "user1", CurrentVersion: 1}))
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 99})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "revert", AssetID: "a1", Version: 99})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
@@ -1219,7 +1258,7 @@ func TestHandleRevertNoS3Client(t *testing.T) {
 	})
 	require.NoError(t, cvErr)
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "revert", AssetID: "a1", Version: 1})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
@@ -1240,7 +1279,7 @@ func TestHandleRevertS3GetError(t *testing.T) {
 	})
 	require.NoError(t, cvErr)
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "revert", AssetID: "a1", Version: 1})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }
@@ -1261,7 +1300,7 @@ func TestHandleRevertS3PutError(t *testing.T) {
 	})
 	require.NoError(t, cvErr)
 
-	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: "revert", AssetID: "a1", Version: 1})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{Action: "revert", AssetID: "a1", Version: 1})
 	require.NoError(t, err)
 	assert.True(t, result.IsError)
 }

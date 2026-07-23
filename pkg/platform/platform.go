@@ -237,7 +237,7 @@ type Platform struct {
 
 	// portalStore owns the asset-portal store layer: the five Postgres stores
 	// (asset, share, version, collection, thread), the knowledge-page store, the
-	// S3 blob backend, and the save/manage-artifact toolkit. nil until initPortal
+	// S3 blob backend, and the save/manage-asset toolkit. nil until initPortal
 	// runs, which requires the portal enabled and a database connection. Read
 	// through its accessors by the Portal* accessors (admin/portal REST wiring),
 	// the trino/api export wiring, and the search/enrichment provider assembly.
@@ -1683,10 +1683,10 @@ func (p *Platform) initPortal() error {
 			return fmt.Errorf("creating portal S3 client: %w", clientErr)
 		}
 	} else {
-		slog.Warn("portal: no s3_connection configured; artifacts will be saved to database only")
+		slog.Warn("portal: no s3_connection configured; assets will be saved to database only")
 	}
 
-	// Assemble the portal store layer (six stores + S3 client + artifact
+	// Assemble the portal store layer (six stores + S3 client + asset
 	// toolkit) behind one handle from p.db + the resolved S3 client +
 	// embeddingProv (both stay owned by Platform).
 	p.portalStore = portalstore.New(p.db, s3Client, p.embeddingProv, portalstore.Config{
@@ -2266,7 +2266,7 @@ func personasForRolesFunc(pr *persona.Registry) middleware.PersonasForRoles {
 // addProvenanceMiddleware registers provenance tracking middleware when portal is enabled.
 func (p *Platform) addProvenanceMiddleware() {
 	if p.provenanceTracker != nil {
-		harvestTools := []string{"save_artifact"}
+		harvestTools := []string{portalstore.SaveToolName}
 		if p.hasTrinoExport() {
 			harvestTools = append(harvestTools, "trino_export")
 		}

@@ -31,7 +31,7 @@ export const mockAssets: Asset[] = [
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(3), parameters: { sql: "SELECT region, SUM(revenue) FROM sales.quarterly GROUP BY region" } },
         { tool_name: "datahub_search", timestamp: daysAgo(3), parameters: { query: "revenue table" } },
-        { tool_name: "save_artifact", timestamp: daysAgo(3), parameters: { name: "Q4 Revenue Dashboard" } },
+        { tool_name: "save_asset", timestamp: daysAgo(3), parameters: { name: "Q4 Revenue Dashboard" } },
       ],
     },
     session_id: "sess-aaa",
@@ -56,7 +56,7 @@ export const mockAssets: Asset[] = [
       user_id: "user-alice",
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(5), parameters: { sql: "SELECT stage, COUNT(*) FROM sales.pipeline GROUP BY stage" } },
-        { tool_name: "save_artifact", timestamp: daysAgo(5), parameters: { name: "Sales Pipeline Chart" } },
+        { tool_name: "save_asset", timestamp: daysAgo(5), parameters: { name: "Sales Pipeline Chart" } },
       ],
     },
     session_id: "sess-bbb",
@@ -81,7 +81,7 @@ export const mockAssets: Asset[] = [
       user_id: "user-alice",
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(2), parameters: { sql: "SELECT warehouse, SUM(qty) FROM inventory.levels GROUP BY warehouse" } },
-        { tool_name: "save_artifact", timestamp: daysAgo(2), parameters: { name: "Weekly Inventory Report" } },
+        { tool_name: "save_asset", timestamp: daysAgo(2), parameters: { name: "Weekly Inventory Report" } },
       ],
     },
     session_id: "sess-ccc",
@@ -107,7 +107,7 @@ export const mockAssets: Asset[] = [
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(7), parameters: { sql: "SELECT metric, value, trend FROM analytics.kpi_scores" } },
         { tool_name: "datahub_search", timestamp: daysAgo(7), parameters: { query: "KPI definitions" } },
-        { tool_name: "save_artifact", timestamp: daysAgo(7), parameters: { name: "KPI Scorecard Component" } },
+        { tool_name: "save_asset", timestamp: daysAgo(7), parameters: { name: "KPI Scorecard Component" } },
       ],
     },
     session_id: "sess-ddd",
@@ -133,7 +133,7 @@ export const mockAssets: Asset[] = [
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(10), parameters: { sql: "SELECT customer_id, purchase_date, amount FROM sales.transactions" } },
         { tool_name: "trino_query", timestamp: daysAgo(10), parameters: { sql: "SELECT customer_id, recency, frequency, monetary FROM analytics.rfm_scores" } },
-        { tool_name: "save_artifact", timestamp: daysAgo(10), parameters: { name: "Customer Segmentation Analysis" } },
+        { tool_name: "save_asset", timestamp: daysAgo(10), parameters: { name: "Customer Segmentation Analysis" } },
       ],
     },
     session_id: "sess-eee",
@@ -158,7 +158,7 @@ export const mockAssets: Asset[] = [
       user_id: "user-alice",
       tool_calls: [
         { tool_name: "datahub_search", timestamp: daysAgo(1), parameters: { query: "tables with quality issues" } },
-        { tool_name: "save_artifact", timestamp: daysAgo(1), parameters: { name: "Data Quality Summary" } },
+        { tool_name: "save_asset", timestamp: daysAgo(1), parameters: { name: "Data Quality Summary" } },
       ],
     },
     session_id: "sess-fff",
@@ -184,7 +184,7 @@ export const mockAssets: Asset[] = [
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(1), parameters: { sql: "SELECT store, year, SUM(revenue) FROM sales.annual GROUP BY store, year" } },
         { tool_name: "datahub_search", timestamp: daysAgo(1), parameters: { query: "store metadata" } },
-        { tool_name: "save_artifact", timestamp: daysAgo(1), parameters: { name: "ACME Corp Sales Dashboard" } },
+        { tool_name: "save_asset", timestamp: daysAgo(1), parameters: { name: "ACME Corp Sales Dashboard" } },
       ],
     },
     session_id: "sess-ggg",
@@ -209,7 +209,7 @@ export const mockAssets: Asset[] = [
       user_id: "user-alice",
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(2), parameters: { sql: "SELECT region, quarter, revenue, units FROM sales.regional" } },
-        { tool_name: "save_artifact", timestamp: daysAgo(2), parameters: { name: "Regional Sales Summary" } },
+        { tool_name: "save_asset", timestamp: daysAgo(2), parameters: { name: "Regional Sales Summary" } },
       ],
     },
     session_id: "sess-hhh",

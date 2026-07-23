@@ -137,7 +137,7 @@ func capabilityTable() []capabilityEntry {
 		{check: func(h map[string]bool) bool { return h[kindDataHub] }, text: "Explore available data and trace lineage through the data catalog"},
 		{check: func(h map[string]bool) bool { return h[kindTrino] }, text: "Query data using SQL across connected databases"},
 		{check: func(h map[string]bool) bool { return h[kindS3] }, text: "Browse and retrieve files from object storage"},
-		{check: func(h map[string]bool) bool { return h[kindPortal] }, text: "Save artifacts (dashboards, reports, charts) as viewable, shareable assets"},
+		{check: func(h map[string]bool) bool { return h[kindPortal] }, text: "Save generated content (dashboards, reports, charts) as viewable, shareable assets"},
 		{check: func(h map[string]bool) bool { return h[kindKnowledge] }, text: "Capture domain knowledge and insights to improve the data catalog. Knowledge is captured automatically from conversations, not just when asked"},
 		{check: func(h map[string]bool) bool { return h[kindMemory] }, text: "Remember corrections, preferences, and context across sessions. Agents store what they learn and apply it in future conversations"},
 		{check: func(h map[string]bool) bool { return h[kindDataHub] && h[kindTrino] }, text: "Generate reports by discovering data and querying it"},
@@ -274,7 +274,7 @@ func workflowPrompts() []workflowPrompt {
 1. Explore what data is available about this topic
 2. Query the most relevant datasets
 3. Build an interactive visualization with key metrics and trends
-4. Save it as an artifact I can view and share`,
+4. Save it as an asset I can view and share`,
 				Arguments: []PromptArgSpec{
 					{Name: promptArgTopic, Description: "What should the dashboard visualize?", Required: true},
 				},

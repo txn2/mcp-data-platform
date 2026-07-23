@@ -132,7 +132,7 @@ func (s *portalRead) firstAssetID(ctx context.Context, env *harness.Env) (string
 	return "", nil
 }
 
-// createAsset creates a markdown artifact via the save_artifact MCP tool and
+// createAsset creates a markdown artifact via the save_asset MCP tool and
 // returns the new asset id by re-listing.
 func (s *portalRead) createAsset(ctx context.Context, env *harness.Env) (string, error) {
 	sess, err := env.MCP.Connect(ctx)
@@ -140,7 +140,7 @@ func (s *portalRead) createAsset(ctx context.Context, env *harness.Env) (string,
 		return "", err
 	}
 	defer func() { _ = sess.Close() }()
-	res := mcpc.Call(ctx, sess, "save_artifact", map[string]any{
+	res := mcpc.Call(ctx, sess, "save_asset", map[string]any{
 		"name":         "loadgen-portal-seed",
 		"content":      "# loadgen seed\n\nSeed artifact for the portal-read public viewer path.",
 		"content_type": "text/markdown",

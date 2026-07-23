@@ -312,7 +312,7 @@ func TestDynamicOverviewContentWithToolkits(t *testing.T) {
 	assert.Contains(t, content, "Explore available data")
 	assert.Contains(t, content, "Query data using SQL")
 	assert.Contains(t, content, "Generate reports")
-	assert.NotContains(t, content, "Save artifacts")           // no portal
+	assert.NotContains(t, content, "Save generated content")   // no portal
 	assert.NotContains(t, content, "Capture domain knowledge") // no knowledge
 	assert.Contains(t, content, "platform_info")
 }
@@ -497,7 +497,7 @@ func TestCollectToolkitPromptInfos(t *testing.T) {
 	_ = reg.Register(&mockToolkitWithPrompts{
 		mockToolkit: mockToolkit{kind: "portal", name: "default"},
 		prompts: []registry.PromptInfo{
-			{Name: "save-this-as-an-asset", Description: "Save artifact"},
+			{Name: "save-this-as-an-asset", Description: "Save asset"},
 		},
 	})
 

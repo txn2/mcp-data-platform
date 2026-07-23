@@ -2,20 +2,20 @@ package portal
 
 import "encoding/json"
 
-// saveArtifactSchema is the JSON Schema for the save_artifact tool input.
-var saveArtifactSchema = json.RawMessage(`{
+// saveAssetSchema is the JSON Schema for the save_asset tool input.
+var saveAssetSchema = json.RawMessage(`{
   "type": "object",
   "required": ["name", "content", "content_type"],
   "additionalProperties": false,
   "properties": {
     "name": {
       "type": "string",
-      "description": "Display name for the artifact (max 255 chars)",
+      "description": "Display name for the asset (max 255 chars)",
       "maxLength": 255
     },
     "content": {
       "type": "string",
-      "description": "The artifact content (JSX, HTML, SVG, Markdown, etc.)"
+      "description": "The asset content (JSX, HTML, SVG, Markdown, etc.)"
     },
     "content_type": {
       "type": "string",
@@ -23,7 +23,7 @@ var saveArtifactSchema = json.RawMessage(`{
     },
     "description": {
       "type": "string",
-      "description": "Optional description of the artifact (max 2000 chars)",
+      "description": "Optional description of the asset (max 2000 chars)",
       "maxLength": 2000
     },
     "tags": {
@@ -35,15 +35,15 @@ var saveArtifactSchema = json.RawMessage(`{
   }
 }`)
 
-// manageArtifactSchema is the JSON Schema for the manage_artifact tool input.
-var manageArtifactSchema = json.RawMessage(`{
+// manageAssetSchema is the JSON Schema for the manage_asset tool input.
+var manageAssetSchema = json.RawMessage(`{
   "type": "object",
   "required": ["action"],
   "additionalProperties": false,
   "properties": {
     "action": {
       "type": "string",
-      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on artifacts is handled by the separate manage_feedback tool.)"
+      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on assets is handled by the separate manage_feedback tool.)"
     },
     "asset_id": {
       "type": "string",
@@ -156,7 +156,7 @@ var manageFeedbackSchema = json.RawMessage(`{
     },
     "target_type": {
       "type": "string",
-      "description": "Use 'standalone' to scope list to the general channel (feedback not tied to an artifact)"
+      "description": "Use 'standalone' to scope list to the general channel (feedback not tied to an asset, collection, or prompt)"
     },
     "thread_id": {
       "type": "string",

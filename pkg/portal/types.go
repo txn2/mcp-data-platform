@@ -1,5 +1,5 @@
 // Package portal provides the asset portal data layer for persisting
-// AI-generated artifacts (JSX dashboards, HTML reports, SVG charts).
+// AI-generated assets (JSX dashboards, HTML reports, SVG charts).
 package portal
 
 import (
@@ -24,7 +24,7 @@ type AssetCollectionRef struct {
 	Name string `json:"name" example:"Q4 Performance Review"`
 }
 
-// Asset represents a persisted AI-generated artifact.
+// Asset represents a persisted AI-generated asset.
 type Asset struct {
 	ID             string `json:"id" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
 	OwnerID        string `json:"owner_id" example:"550e8400-e29b-41d4-a716-446655440000"`
@@ -82,7 +82,7 @@ func ResolveContentType(declared string, content []byte) string {
 	return contenttype.DetectBytes(declared, content)
 }
 
-// Provenance records the tool call history that produced an artifact.
+// Provenance records the tool call history that produced an asset.
 type Provenance struct {
 	ToolCalls []ProvenanceToolCall `json:"tool_calls,omitempty"`
 	SessionID string               `json:"session_id,omitempty" example:"sess_abc123"`

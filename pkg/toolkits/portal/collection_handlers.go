@@ -22,7 +22,7 @@ func (t *Toolkit) getActiveCollection(ctx context.Context, id string) (*portal.C
 	coll, err := t.collectionStore.Get(ctx, id)
 	if err != nil {
 		return nil, middleware.NotFoundResult("collection not found: "+err.Error(),
-			"Verify the collection_id; call manage_artifact action=list_collections to see your collections.")
+			"Verify the collection_id; call manage_asset action=list_collections to see your collections.")
 	}
 	if coll.DeletedAt != nil {
 		return nil, toolkit.ErrorResult(collectionDeletedMsg)
@@ -30,7 +30,7 @@ func (t *Toolkit) getActiveCollection(ctx context.Context, id string) (*portal.C
 	return coll, nil
 }
 
-func (t *Toolkit) handleCreateCollection(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleCreateCollection(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	if err := portal.ValidateCollectionName(input.Name); err != nil {
 		return toolkit.ErrorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
 	}
@@ -81,7 +81,7 @@ func (t *Toolkit) handleCreateCollection(ctx context.Context, input manageArtifa
 	return toolkit.JSONResultTyped(result)
 }
 
-func (t *Toolkit) handleListCollections(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleListCollections(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	ownerID := resolveOwnerID(ctx)
 
 	collections, total, err := t.collectionStore.List(ctx, portal.CollectionFilter{
@@ -106,7 +106,7 @@ func (t *Toolkit) handleListCollections(ctx context.Context, input manageArtifac
 
 // handleGetCollection retrieves a collection by ID. No ownership check — read
 // access is intentionally broader than write, matching the asset get behavior.
-func (t *Toolkit) handleGetCollection(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleGetCollection(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	if input.CollectionID == "" {
 		return toolkit.ErrorResult("collection_id is required for get_collection action"), nil, nil
 	}
@@ -119,7 +119,7 @@ func (t *Toolkit) handleGetCollection(ctx context.Context, input manageArtifactI
 	return toolkit.JSONResultTyped(coll)
 }
 
-func (t *Toolkit) handleUpdateCollection(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleUpdateCollection(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	if input.CollectionID == "" {
 		return toolkit.ErrorResult("collection_id is required for update_collection action"), nil, nil
 	}
@@ -162,7 +162,7 @@ func (t *Toolkit) handleUpdateCollection(ctx context.Context, input manageArtifa
 	return toolkit.JSONResultTyped(updated)
 }
 
-func (t *Toolkit) handleDeleteCollection(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleDeleteCollection(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	if input.CollectionID == "" {
 		return toolkit.ErrorResult("collection_id is required for delete_collection action"), nil, nil
 	}
@@ -187,7 +187,7 @@ func (t *Toolkit) handleDeleteCollection(ctx context.Context, input manageArtifa
 	})
 }
 
-func (t *Toolkit) handleSetSections(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleSetSections(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
 	if input.CollectionID == "" {
 		return toolkit.ErrorResult("collection_id is required for set_sections action"), nil, nil
 	}
