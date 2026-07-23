@@ -87,6 +87,11 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 			"'use' accepts a prompt name, display name, mcp:prompt:<id> reference, or free text, and " +
 			"returns the rendered prompt with its argument specs and provenance, or ranked candidates " +
 			"when the handle is ambiguous. " +
+			"A resolved prompt may carry attached reference material (a report template, a checklist, a " +
+			"brand asset). Attached material is authoritative: fill an attached template rather than " +
+			"inventing a format, follow an attached checklist, and read any attachment delivered as a " +
+			"resource link before using it. When the response reports an attachment as unavailable or " +
+			"missing, proceed and say that your reference material was incomplete. " +
 			"Non-admin users can manage their own personal prompts. " +
 			"Admins can manage prompts at all scope levels (global, persona, personal). " +
 			"Editing the content or arguments of an approved global or persona prompt saves the change as a " +
@@ -227,7 +232,9 @@ func (h *Handle) handlePromptUpdate(ctx context.Context, input managePromptInput
 // other edit applies and re-registers.
 func (h *Handle) persistPromptUpdate(ctx context.Context, before, existing *prompt.Prompt, oldScope, email string) (*mcp.CallToolResult, any, error) {
 	outcome, err := prompt.ApplyEdit(ctx, h.store, before, existing, email)
-	if errors.Is(err, prompt.ErrReviewRequiredMixedEdit) {
+	// Both sentinels carry a message written for the author and are the author's
+	// to fix, so they surface verbatim instead of as a generic failure.
+	if errors.Is(err, prompt.ErrReviewRequiredMixedEdit) || errors.Is(err, prompt.ErrAttachmentScope) {
 		return promptErrorResult(err.Error()), nil, nil
 	}
 	if err != nil {

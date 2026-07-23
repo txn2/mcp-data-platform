@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -18,6 +19,19 @@ type Store interface {
 	List(ctx context.Context, filter Filter) ([]Resource, int, error)
 	Update(ctx context.Context, id string, u Update) error
 	Delete(ctx context.Context, id string) error
+}
+
+// IsNotFound reports whether an error from a Store read means the resource does
+// not exist, as opposed to the read having failed.
+//
+// The Postgres store surfaces a missing row as a wrapped sql.ErrNoRows rather
+// than as (nil, nil), so a caller that must distinguish "deleted" from "the
+// database is down" cannot do it by nil-checking the result. Getting that
+// distinction wrong is not cosmetic: a prompt attachment whose resource was
+// deleted has to degrade to a flagged broken link, while a failed read has to
+// fail closed.
+func IsNotFound(err error) bool {
+	return errors.Is(err, sql.ErrNoRows)
 }
 
 // S3Client abstracts blob storage operations for resources.

@@ -1429,6 +1429,66 @@ definitions:
         example: Johnson
         type: string
     type: object
+  attachhttp.AttachmentView:
+    properties:
+      attached_by:
+        type: string
+      broken:
+        description: |-
+          Broken marks an attachment whose resource was deleted. The row stays in
+          the list so an author can see and remove the dangling link; without it a
+          deleted template would simply vanish from the editor while the served
+          prompt kept reporting a missing material.
+        type: boolean
+      category:
+        type: string
+      description:
+        type: string
+      display_name:
+        type: string
+      mime_type:
+        type: string
+      position:
+        type: integer
+      resource_id:
+        type: string
+      scope:
+        type: string
+      scope_id:
+        type: string
+      size_bytes:
+        type: integer
+      unreadable:
+        description: |-
+          Unreadable marks an attachment that exists but that this caller cannot
+          read. It carries the position (so the row renders in place) and nothing
+          else about the resource or its attacher, for the same reason the serving
+          path withholds them.
+        type: boolean
+      uri:
+        type: string
+    type: object
+  attachhttp.attachRequest:
+    properties:
+      resource_id:
+        type: string
+    type: object
+  attachhttp.listResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/attachhttp.AttachmentView'
+        type: array
+      total:
+        type: integer
+    type: object
+  attachhttp.reorderRequest:
+    properties:
+      resource_ids:
+        items:
+          type: string
+        type: array
+    type: object
   audit.BreakdownEntry:
     properties:
       avg_duration_ms:
@@ -11092,6 +11152,231 @@ paths:
       summary: Update personal prompt
       tags:
       - Prompts
+  /portal/prompts/{id}/attachments:
+    get:
+      description: Returns the reference material attached to a prompt, in authored
+        order. Attachments whose resource was deleted are returned flagged as broken;
+        attachments outside the caller's scope are flagged unreadable and carry no
+        metadata.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/attachhttp.listResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List prompt attachments
+      tags:
+      - Prompts
+    post:
+      consumes:
+      - application/json
+      description: Links a managed resource to a prompt as reference material. The
+        resource must be readable by the caller and at least as widely visible as
+        the prompt; a narrower resource is refused with 409 and a message naming it.
+        Returns the prompt's new attachment list.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Resource to attach
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/attachhttp.attachRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/attachhttp.listResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Attach a resource to a prompt
+      tags:
+      - Prompts
+    put:
+      consumes:
+      - application/json
+      description: Rewrites the authored order of a prompt's attachments. The order
+        is what an agent receives them in. An id that is not already attached is refused;
+        omitting a currently attached id detaches it.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Attachments in the desired order
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/attachhttp.reorderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/attachhttp.listResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Reorder prompt attachments
+      tags:
+      - Prompts
+  /portal/prompts/{id}/attachments/{resourceID}:
+    delete:
+      description: Removes one attachment link. The resource itself is untouched.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Resource ID
+        in: path
+        name: resourceID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Detach a resource from a prompt
+      tags:
+      - Prompts
   /portal/prompts/{id}/collection:
     put:
       consumes:
@@ -11361,6 +11646,49 @@ paths:
       summary: Prompt usage stats (portal)
       tags:
       - Prompts
+  /portal/resources/{id}/prompts:
+    get:
+      description: 'Returns the prompts that attach a resource, so the cost of editing
+        or deleting it is visible first. Scoped to the caller: another user''s personal
+        prompt is never disclosed.'
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List prompts attaching a resource
+      tags:
+      - Resources
   /portal/search:
     get:
       description: One query fans across every source the caller can access (catalog,

@@ -36,6 +36,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/prompt/attachserve"
 	promptpostgres "github.com/txn2/mcp-data-platform/pkg/prompt/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
@@ -115,6 +116,13 @@ type Handle struct {
 	embedder   embedding.Provider
 	shareStore ShareLister
 
+	// attachments resolves a prompt's attached reference material for the
+	// caller (#1013). Bound after construction because it needs the resource
+	// store and blob backend, which are assembled later; nil serves every
+	// prompt without materials, which is exactly the behavior a deployment
+	// with managed resources disabled should get.
+	attachments *attachserve.Resolver
+
 	// auditLogger receives prompt_serve audit events on every successful
 	// database-prompt serve (prompts/get, manage_prompt use); usage reads the
 	// aggregation back for manage_prompt get. Both bound after construction
@@ -164,9 +172,16 @@ func New(cfg Config) *Handle {
 		// wrapStore preserves the store's capability extensions (search,
 		// versioning), so version writes that change what is served fire
 		// list_changed like every other write.
-		h.store = wrapStore(base, h.notifyListChanged)
+		h.store = wrapStore(base, h.notifyListChanged, h.guardAttachmentScope)
 	}
 	return h
+}
+
+// SetAttachmentResolver binds the resolver that turns a prompt's attached
+// resource links into served material. Called once the managed-resource layer
+// is assembled; nil (or never calling this) serves prompts without attachments.
+func (h *Handle) SetAttachmentResolver(r *attachserve.Resolver) {
+	h.attachments = r
 }
 
 // SetAuditLogger binds the audit logger that receives prompt_serve events.

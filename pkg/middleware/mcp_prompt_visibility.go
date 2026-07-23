@@ -55,21 +55,31 @@ func MCPPromptVisibilityMiddleware(cfg PromptVisibilityConfig) mcp.Middleware {
 	}
 }
 
-// resolvePromptCaller resolves the caller's email and persona memberships. A nil
-// PlatformContext (auth failed or absent) yields an empty identity, so only
-// global database prompts (and the always-visible built-ins) are served.
-func resolvePromptCaller(ctx context.Context, cfg PromptVisibilityConfig, req mcp.Request) (email string, personas []string) {
+// resolvePromptCaller resolves the caller's email and persona memberships, and
+// returns a context carrying the resolved PlatformContext. A nil
+// PlatformContext (auth failed or absent) yields an empty identity and the
+// original context, so only global database prompts (and the always-visible
+// built-ins) are served.
+//
+// The returned context matters beyond the returned identity: prompts/get is not
+// a tools/call, so MCPToolCallMiddleware never ran and nothing downstream has a
+// PlatformContext to read. Threading the one resolved here is what lets the
+// serving path apply per-caller checks that need more than an email, notably
+// the read check on a prompt's attached resources (#1013), which is keyed on
+// the caller's subject and persona memberships. The PlatformContext synthesized
+// on this path carries identity only; request and session ids belong to the
+// tools/call path and stay empty here.
+func resolvePromptCaller(ctx context.Context, cfg PromptVisibilityConfig, req mcp.Request) (callerCtx context.Context, email string, personas []string) {
 	pc := getOrAuthenticatePC(ctx, req, cfg.Authenticator, cfg.PersonasForRoles, "")
 	if pc == nil {
-		return "", nil
+		return ctx, "", nil
 	}
-	email = pc.UserEmail
 	if cfg.PersonasForRoles != nil {
 		personas = cfg.PersonasForRoles(pc.Roles)
 	} else if pc.PersonaName != "" {
 		personas = []string{pc.PersonaName}
 	}
-	return email, personas
+	return WithPlatformContext(ctx, pc), pc.UserEmail, personas
 }
 
 // injectDatabasePrompts appends the caller's visible database prompts (under
@@ -80,7 +90,7 @@ func injectDatabasePrompts(ctx context.Context, cfg PromptVisibilityConfig, req 
 	if !ok || listResult == nil || cfg.ListVisible == nil {
 		return result
 	}
-	email, personas := resolvePromptCaller(ctx, cfg, req)
+	ctx, email, personas := resolvePromptCaller(ctx, cfg, req)
 	listResult.Prompts = append(listResult.Prompts, cfg.ListVisible(ctx, email, personas)...)
 	return listResult
 }
@@ -107,7 +117,7 @@ func serveDatabaseGet(ctx context.Context, cfg PromptVisibilityConfig, req mcp.R
 	if params == nil || params.Name == "" {
 		return nil, false
 	}
-	email, personas := resolvePromptCaller(ctx, cfg, req)
+	ctx, email, personas := resolvePromptCaller(ctx, cfg, req)
 	res, ok := cfg.GetByName(ctx, email, personas, params.Name, params.Arguments)
 	if !ok {
 		return nil, false

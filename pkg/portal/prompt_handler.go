@@ -403,7 +403,7 @@ func checkPortalPromptPermission(user *User, existing *prompt.Prompt, adminRoles
 // changes conflicts. Returns true when the edit applied.
 func (h *Handler) applyPortalPromptEdit(w http.ResponseWriter, r *http.Request, before, existing *prompt.Prompt, author string) bool {
 	outcome, err := prompt.ApplyEdit(r.Context(), h.deps.PromptStore, before, existing, author)
-	if errors.Is(err, prompt.ErrReviewRequiredMixedEdit) {
+	if errors.Is(err, prompt.ErrReviewRequiredMixedEdit) || errors.Is(err, prompt.ErrAttachmentScope) {
 		writePortalError(w, http.StatusConflict, err.Error())
 		return false
 	}

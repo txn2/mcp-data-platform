@@ -1,6 +1,9 @@
 package resource
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // Claims represents the identity information needed for resource permission checks.
 type Claims struct {
@@ -10,6 +13,47 @@ type Claims struct {
 	Roles           []string // raw roles from auth (may have prefix, e.g., "dp_admin")
 	IsAdmin         bool     // resolved by the caller from persona config
 	AdminOfPersonas []string // persona names this user can admin (resolved by caller from role patterns)
+}
+
+// personaAdminInfix is the role substring that marks a persona-admin grant.
+// A role of any prefix carrying it (for example "dp_persona-admin:finance")
+// grants admin authority over the named persona's resources.
+const personaAdminInfix = "persona-admin:"
+
+// BuildClaims assembles permission claims from an authenticated caller's
+// identity. It owns the roles-to-persona-admin mapping so every surface that
+// must apply the resource read rule — the resources middleware, prompt
+// attachment serving (#1013), the attachment REST handler — derives claims
+// identically instead of each reimplementing it.
+//
+// persona is the caller's single resolved persona; pass "" when none is
+// resolved. It is separate from roles because persona membership is resolved
+// from roles by the platform's persona registry, which this package does not
+// see.
+func BuildClaims(sub, email, persona string, roles []string, isAdmin bool) Claims {
+	c := Claims{
+		Sub:             sub,
+		Email:           email,
+		Roles:           roles,
+		IsAdmin:         isAdmin,
+		AdminOfPersonas: PersonaAdminRoles(roles),
+	}
+	if persona != "" {
+		c.Personas = []string{persona}
+	}
+	return c
+}
+
+// PersonaAdminRoles extracts the persona names a role set grants admin
+// authority over, tolerating any role prefix.
+func PersonaAdminRoles(roles []string) []string {
+	var out []string
+	for _, r := range roles {
+		if _, name, ok := strings.Cut(r, personaAdminInfix); ok && name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // CanWriteScope checks whether the caller has write permission for the given scope.

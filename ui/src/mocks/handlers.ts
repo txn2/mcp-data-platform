@@ -70,6 +70,60 @@ import { mockIndexJobsSummary, mockIndexJobs, mockIndexJobsFailures } from "./da
 // state resets on page load, which is what the MSW-mode flows need.
 const statefulPromptCollections = mockPromptCollections.map((c) => ({ ...c }));
 
+// Mutable prompt-to-resource attachment map backing the #1013 handlers, keyed
+// by prompt id and holding resource ids in authored order.
+//
+// "res-deleted" and "res-restricted" are deliberately absent from
+// mockResources: the first renders the broken-link state an author must be able
+// to see and clean up, and the second renders the restricted state, so both
+// degraded paths are reachable in MSW mode without server-side setup.
+const statefulPromptAttachments: Record<string, string[]> = {
+  "prompt-010": ["res-001", "res-deleted"],
+  "prompt-003": ["res-restricted"],
+};
+
+// RESTRICTED_RESOURCE_IDS stand in for resources that exist but sit outside the
+// caller's scope. The server sends only the id and a flag for these.
+const RESTRICTED_RESOURCE_IDS = new Set(["res-restricted"]);
+
+// allMockPrompts flattens every prompt the mock serves, for the reverse lookup
+// from a resource to the prompts that attach it.
+function allMockPrompts() {
+  return [
+    ...mockPortalPrompts.personal,
+    ...mockPortalPrompts.available,
+    ...mockSharedPrompts.map((s) => s.prompt),
+  ];
+}
+
+// promptAttachmentList renders the server's attachment view for one prompt,
+// including the broken and restricted flags.
+function promptAttachmentList(promptId: string) {
+  const ids = statefulPromptAttachments[promptId] ?? [];
+  const data = ids.map((resourceId, position) => {
+    const base = { resource_id: resourceId, position, attached_by: "j.martinez@example.com" };
+    if (RESTRICTED_RESOURCE_IDS.has(resourceId)) {
+      return { ...base, unreadable: true };
+    }
+    const res = mockResources.resources.find((r) => r.id === resourceId);
+    if (!res) {
+      return { ...base, broken: true };
+    }
+    return {
+      ...base,
+      display_name: res.display_name,
+      description: res.description,
+      category: res.category,
+      mime_type: res.mime_type,
+      size_bytes: res.size_bytes,
+      uri: res.uri,
+      scope: res.scope,
+      scope_id: res.scope_id,
+    };
+  });
+  return { data, total: data.length };
+}
+
 const ADMIN_BASE = "/api/v1/admin";
 const PORTAL_BASE = "/api/v1/portal";
 const OBSERVABILITY_BASE = "/api/v1/observability";
@@ -2372,6 +2426,66 @@ export const handlers = [
 
   // Usage rollup (#1009): run count + last run per visible prompt id.
   http.get(`${PORTAL_BASE}/prompts/usage`, () => HttpResponse.json(mockPromptUsage)),
+
+  // Prompt resource attachments (#1013). Stateful in the mock so attach,
+  // reorder, and detach are exercisable end-to-end in MSW mode. A prompt starts
+  // with a readable template, a deleted resource (the broken-link state), and a
+  // persona resource the current user cannot read (the restricted state), so
+  // every rendered state is reachable without server-side setup.
+  http.get(`${PORTAL_BASE}/prompts/:id/attachments`, ({ params }) =>
+    HttpResponse.json(promptAttachmentList(String(params.id))),
+  ),
+
+  http.post(`${PORTAL_BASE}/prompts/:id/attachments`, async ({ params, request }) => {
+    const body = (await request.json()) as { resource_id?: string };
+    const promptId = String(params.id);
+    const resourceId = body.resource_id ?? "";
+    const res = mockResources.resources.find((r) => r.id === resourceId);
+    if (!res) {
+      return HttpResponse.json({ error: "resource not found" }, { status: 404 });
+    }
+    // Mirror the server's scope rule so the portal's error path is reachable:
+    // a user-scoped resource cannot go on a shared prompt.
+    const prompt = allMockPrompts().find((p) => p.id === promptId);
+    if (res.scope === "user" && prompt && prompt.scope !== "personal") {
+      return HttpResponse.json(
+        { error: `resource "${res.display_name}" cannot be attached: a private resource can only be attached to a personal prompt` },
+        { status: 409 },
+      );
+    }
+    const current = statefulPromptAttachments[promptId] ?? [];
+    if (!current.includes(resourceId)) {
+      statefulPromptAttachments[promptId] = [...current, resourceId];
+    }
+    return HttpResponse.json(promptAttachmentList(promptId));
+  }),
+
+  http.put(`${PORTAL_BASE}/prompts/:id/attachments`, async ({ params, request }) => {
+    const body = (await request.json()) as { resource_ids?: string[] };
+    const promptId = String(params.id);
+    statefulPromptAttachments[promptId] = body.resource_ids ?? [];
+    return HttpResponse.json(promptAttachmentList(promptId));
+  }),
+
+  http.delete(`${PORTAL_BASE}/prompts/:id/attachments/:resourceId`, ({ params }) => {
+    const promptId = String(params.id);
+    const current = statefulPromptAttachments[promptId] ?? [];
+    if (!current.includes(String(params.resourceId))) {
+      return HttpResponse.json({ error: "attachment not found" }, { status: 404 });
+    }
+    statefulPromptAttachments[promptId] = current.filter((id) => id !== String(params.resourceId));
+    return HttpResponse.json({ status: "detached" });
+  }),
+
+  http.get(`${PORTAL_BASE}/resources/:id/prompts`, ({ params }) => {
+    const resourceId = String(params.id);
+    const data = Object.entries(statefulPromptAttachments)
+      .filter(([, ids]) => ids.includes(resourceId))
+      .map(([promptId]) => allMockPrompts().find((p) => p.id === promptId))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p))
+      .map((p) => ({ id: p.id, name: p.name, display_name: p.display_name, scope: p.scope }));
+    return HttpResponse.json({ data, total: data.length });
+  }),
 
   // Version history (#1009/#1010): newest first, with approval provenance.
   http.get(`${PORTAL_BASE}/prompts/:id/versions`, ({ params }) => {

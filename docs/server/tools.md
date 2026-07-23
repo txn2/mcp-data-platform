@@ -1021,6 +1021,22 @@ Non-admins manage only their own personal prompts; admins manage every scope. On
 
 **Versioning and review.** Every mutation of a prompt's content, display name, description, arguments, or tags snapshots an immutable version with its author; approval stamps bind to the specific version approved. Editing the content or arguments of an **approved global or persona** prompt does not apply immediately: `update` returns `status: "pending_approval"` with the draft's `pending_version`, and every caller keeps being served the approved snapshot until an admin approves the draft (in the admin portal, or `POST /api/v1/admin/prompts/{id}/versions/{version}/approve`). A gated content edit cannot be combined with scope/status/other non-versioned changes in one call; submit them separately. Personal prompts and never-approved drafts version silently. `get` and `list` also report `run_count` and `last_run_at` per prompt, aggregated from prompt-serve audit events (each `prompts/get` and resolved `use` counts as a serve), and `list` results include the shared `collections` list (the portal's organization model) when the store supports collections.
 
+**Attached materials.** A prompt can carry the reference material its procedure depends on: the report template it fills, the checklist it follows, the brand header it embeds, the sample payload it matches. Attachments are links to [managed resources](portal-user.md#resources), stored by resource id, so editing the uploaded file updates every prompt that attaches it.
+
+A resolved prompt delivers them after the prompt text. Text material at or below 64 KiB arrives inline as an MCP embedded resource; anything binary or larger arrives as a resource link the client reads on demand. `use` also lists them in an `attachments` array carrying each item's URI, media type, size, and availability, so the agent can state what materials it received. The delivered material is framed as authoritative: an attached template is to be filled rather than reinvented, an attached checklist followed.
+
+An attachment must be at least as widely visible as the prompt that carries it, so a shared SOP never arrives with materials most of its audience cannot read:
+
+| resource scope | may be attached to |
+|---|---|
+| global | any prompt |
+| persona `P` | personal prompts, and persona prompts scoped to exactly `P` |
+| user | the author's own personal prompts only |
+
+The rule is enforced when the attachment is made and again when the prompt changes scope, so requesting promotion of a personal prompt that carries a private template is refused with a message naming the resource. It is checked a third time at serve time against the caller: a reader who cannot read an attachment receives the prompt with a note that some materials were not delivered, never their contents and never their names. Deleting an attached resource does not break the prompt; it still serves, and both the served result and the portal flag the material as missing.
+
+Authors manage attachments from the prompt viewer in the portal, and the resource detail view lists the prompts that attach a resource, so the cost of deleting it is visible first.
+
 **Prompt browser app.** In MCP Apps-capable hosts, `manage_prompt` is bound to the built-in `prompt-browser` app: discovery calls render an interactive library browser with search, facets, argument forms, and a Run action. See [MCP Apps: Overview](../mcpapps/overview.md#built-in-app-prompt-browser). The tool's JSON results are complete on their own in clients that do not render apps.
 
 ---

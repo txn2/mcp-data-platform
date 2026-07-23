@@ -151,6 +151,16 @@ The Resources page provides:
 - **Resource table** — Name, category, MIME type, tags, file size, uploader email, and last updated date
 - **Delete** — Trash icon to remove owned resources
 
+Opening a resource shows which prompts attach it as reference material. Deleting a resource that prompts depend on does not break them: they keep serving and report the material as missing, and the prompt viewer flags the broken link so its author can repair it.
+
+### Attaching resources to a prompt
+
+A prompt is a procedure, and a procedure usually depends on material: the template it fills, the checklist it follows, the brand header it embeds. The prompt viewer has an **Attached materials** panel where the prompt's owner (or an admin, for shared prompts) attaches resources from a searchable picker, orders them, and detaches them. The order is authored, not incidental, because it is the order the agent receives them in.
+
+Every agent that runs the prompt receives the attached material as authoritative: text files inline, larger or binary files as links it can read on demand.
+
+An attachment must be at least as widely visible as the prompt. A private resource belongs only on your own personal prompts, and a persona resource only on prompts for that same persona. Attaching something narrower is refused with a message naming the resource, and so is requesting promotion of a prompt that still carries it, because a shared prompt whose materials most readers cannot open is worse than one with no materials at all.
+
 ## Shared With Me
 
 Items that other users share with you appear in the corresponding pages, filtered by ownership scope:
