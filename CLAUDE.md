@@ -151,7 +151,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
-`pkg/` holds 45 top-level packages (all public API). Depth-2 subdirectories are
+`pkg/` holds 46 top-level packages (all public API). Depth-2 subdirectories are
 shown where they represent a distinct implementation (a storage backend, an
 adapter, an indexjobs consumer); helper subpackages are omitted for brevity.
 Regenerate this list with `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and
@@ -201,6 +201,7 @@ mcp-data-platform/
 │   ├── semantic/                   # Semantic layer abstraction (datahub/ = DataHub adapter)
 │   ├── session/                    # Session externalization (postgres/ = multi-replica backend)
 │   ├── storage/                    # Storage provider abstraction (s3/ = S3 adapter)
+│   ├── textpatch/                  # Kind-agnostic anchored text editing: outline, locate, patch, unified diff (patchmcp/ = MCP error adapter)
 │   ├── toolkit/                    # Shared types for toolkit implementations
 │   ├── toolkits/                   # Toolkit adapters registered with the platform:
 │   │   ├── apigateway/             #   HTTP API gateway proxy toolkit

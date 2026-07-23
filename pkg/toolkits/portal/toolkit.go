@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -65,6 +66,17 @@ const (
 	actionSetSections      = "set_sections"
 	actionSearch           = "search"
 
+	// Content editing and navigation actions (#1033). These make the cost of
+	// an edit proportional to the size of the edit rather than the size of
+	// the document; the grammar is shared with manage_prompt via
+	// pkg/textpatch.
+	actionPatch      = "patch"
+	actionLocate     = "locate"
+	actionGetContent = "get_content"
+	actionOutline    = "outline"
+	actionStats      = "stats"
+	actionDiff       = "diff"
+
 	// manage_feedback action names (#618). Feedback is its own tool so agents can
 	// discover it by name; these are the values of its "action" field.
 	fbActionList              = "list"
@@ -78,6 +90,10 @@ const (
 	fieldAssetID = "asset_id"
 	fieldMessage = "message"
 	fieldTotal   = "total"
+
+	// defaultChangeSummary labels a content version whose author supplied no
+	// change_summary.
+	defaultChangeSummary = "Content updated via MCP"
 
 	// assetNotFoundHint is the corrective hint on an asset-not-found error.
 	assetNotFoundHint = "Verify the asset_id; call manage_asset action=list to see your assets."
@@ -115,6 +131,21 @@ type manageAssetInput struct {
 	// Query (search action) ranks the caller's assets by relevance to a
 	// free-text query instead of the substring Search filter.
 	Query string `json:"query,omitempty"`
+
+	// Content editing and navigation arguments (#1033). Edits carries the
+	// ordered patch; the rest select what to read or search.
+	Edits         []textpatch.Edit `json:"edits,omitempty"`
+	BaseVersion   int              `json:"base_version,omitempty"`
+	DryRun        bool             `json:"dry_run,omitempty"`
+	ChangeSummary string           `json:"change_summary,omitempty"`
+	Find          string           `json:"find,omitempty"`
+	Pattern       string           `json:"pattern,omitempty"`
+	Section       string           `json:"section,omitempty"`
+	LineStart     int              `json:"line_start,omitempty"`
+	LineEnd       int              `json:"line_end,omitempty"`
+	ContextBytes  int              `json:"context_bytes,omitempty"`
+	FromVersion   int              `json:"from_version,omitempty"`
+	ToVersion     int              `json:"to_version,omitempty"`
 }
 
 // manageFeedbackInput defines the input for manage_feedback (#618).
@@ -261,12 +292,14 @@ const saveToolDescription = "Saves AI-generated content (JSX dashboard, HTML rep
 // manage_asset tool.
 const manageToolDescription = "Manages saved assets and collections. " +
 	"Asset actions: list, get, update, delete, list_versions, revert, search. " +
+	"Content actions: patch, locate, get_content, outline, stats, diff. " +
 	"Collection actions: create_collection, list_collections, get_collection, " +
 	"update_collection, delete_collection, set_sections. " +
 	"Note: 'list' returns full metadata including provenance for each asset. " +
-	"Use 'get' with a specific asset_id for content retrieval. " +
+	"Use 'get' with a specific asset_id for the metadata row and 'get_content' for the body. " +
 	"Use 'search' with a 'query' to rank your assets by relevance (semantic + " +
 	"keyword) instead of paging the whole list. " +
+	textpatch.VerbsDescription + " " +
 	"Human feedback on assets is handled by the separate manage_feedback tool."
 
 // RegisterTools registers save_asset and manage_asset with the MCP server.
@@ -503,6 +536,12 @@ func (t *Toolkit) buildActions() map[string]manageActionHandler {
 		actionDeleteCollection: t.handleDeleteCollection,
 		actionSetSections:      t.handleSetSections,
 		actionSearch:           t.handleSearch,
+		actionPatch:            t.handlePatch,
+		actionLocate:           t.handleLocate,
+		actionGetContent:       t.handleGetContent,
+		actionOutline:          t.handleOutline,
+		actionStats:            t.handleStats,
+		actionDiff:             t.handleDiff,
 	}
 }
 
@@ -524,6 +563,7 @@ func (t *Toolkit) handleManageAsset(ctx context.Context, _ *mcp.CallToolRequest,
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf(
 			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, "+
+				"patch, locate, get_content, outline, stats, diff, "+
 				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections",
 			input.Action)), nil, nil
 	}
@@ -592,7 +632,7 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 	}
 
 	if hasContent {
-		if contentErr := t.uploadContentUpdate(ctx, asset, input); contentErr != nil {
+		if _, contentErr := t.uploadContentUpdate(ctx, asset, input.Content, input.ContentType, input.ChangeSummary); contentErr != nil {
 			return toolkit.ErrorResult("failed to upload new content: " + contentErr.Error()), nil, nil
 		}
 	}
@@ -626,51 +666,62 @@ func metadataUpdate(input manageAssetInput) (update portal.AssetUpdate, present 
 	return update, update.Name != nil || update.Description != nil || update.Tags != nil
 }
 
-// uploadContentUpdate writes replacement content as a new version. Creating the
-// version is what moves the asset's own s3_key, content_type and size_bytes
-// forward — the version store does that in the same transaction — so a
-// replacement whose type differs from the asset's carries the asset with it.
-func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, input manageAssetInput) error {
-	if t.maxContentSize > 0 && len(input.Content) > t.maxContentSize {
-		return fmt.Errorf("content size %d exceeds maximum %d bytes", len(input.Content), t.maxContentSize)
+// uploadContentUpdate writes replacement content as a new version and returns
+// the version number assigned. Creating the version is what moves the asset's
+// own s3_key, content_type and size_bytes forward — the version store does that
+// in the same transaction — so a replacement whose type differs from the
+// asset's carries the asset with it.
+//
+// summary is recorded as the version's change summary, which is what makes the
+// version history readable; an empty summary falls back to the generic label.
+func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, content, declaredType, summary string) (int, error) {
+	if t.maxContentSize > 0 && len(content) > t.maxContentSize {
+		return 0, fmt.Errorf("content size %d exceeds maximum %d bytes", len(content), t.maxContentSize)
 	}
 	// The caller's declaration wins when specific; otherwise the asset's
 	// existing type is the declaration, so an edit to a JSON asset stays JSON.
-	declared := input.ContentType
+	declared := declaredType
 	if declared == "" {
 		declared = asset.ContentType
 	}
-	ct := portal.ResolveContentType(declared, []byte(input.Content))
+	// One conversion feeds both detection and the upload; the body can be
+	// megabytes, so converting per call site would copy it twice.
+	data := []byte(content)
+	ct := portal.ResolveContentType(declared, data)
 
 	versionID, err := generateID()
 	if err != nil {
-		return fmt.Errorf("generating version ID: %w", err)
+		return 0, fmt.Errorf("generating version ID: %w", err)
 	}
 	ext := portal.ExtensionForContentType(ct)
 	s3Key := path.Join(t.s3Prefix, asset.OwnerID, asset.ID, versionID, "content"+ext)
 
 	if t.s3Client == nil {
-		return errors.New("content storage not configured")
+		return 0, errors.New("content storage not configured")
 	}
-	if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, []byte(input.Content), ct); err != nil {
-		return fmt.Errorf("s3 put: %w", err)
+	if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, data, ct); err != nil {
+		return 0, fmt.Errorf("s3 put: %w", err)
 	}
 
+	if summary == "" {
+		summary = defaultChangeSummary
+	}
 	av := portal.AssetVersion{
 		ID:            versionID,
 		AssetID:       asset.ID,
 		S3Key:         s3Key,
 		S3Bucket:      t.s3Bucket,
 		ContentType:   ct,
-		SizeBytes:     int64(len(input.Content)),
+		SizeBytes:     int64(len(data)),
 		CreatedBy:     resolveOwnerEmail(ctx),
-		ChangeSummary: "Content updated via MCP",
+		ChangeSummary: summary,
 	}
-	if _, err = t.versionStore.CreateVersion(ctx, av); err != nil {
+	version, err := t.versionStore.CreateVersion(ctx, av)
+	if err != nil {
 		t.cleanupOrphanedS3(ctx, t.s3Bucket, s3Key)
-		return fmt.Errorf("creating version: %w", err)
+		return 0, fmt.Errorf("creating version: %w", err)
 	}
-	return nil
+	return version, nil
 }
 
 func (t *Toolkit) handleDelete(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
