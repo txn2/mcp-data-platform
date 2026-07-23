@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
 
 // ToolNameManagePrompt is the MCP tool name of the prompt-management tool,
@@ -64,6 +66,20 @@ type managePromptInput struct {
 	// prompt's content.
 	Args map[string]string `json:"args,omitempty"`
 
+	// Content editing and navigation arguments (#1033), shared verbatim with
+	// manage_asset through pkg/textpatch.
+	Edits        []textpatch.Edit `json:"edits,omitempty"`
+	BaseVersion  int              `json:"base_version,omitempty"`
+	DryRun       bool             `json:"dry_run,omitempty"`
+	Find         string           `json:"find,omitempty"`
+	Pattern      string           `json:"pattern,omitempty"`
+	Section      string           `json:"section,omitempty"`
+	LineStart    int              `json:"line_start,omitempty"`
+	LineEnd      int              `json:"line_end,omitempty"`
+	ContextBytes int              `json:"context_bytes,omitempty"`
+	FromVersion  int              `json:"from_version,omitempty"`
+	ToVersion    int              `json:"to_version,omitempty"`
+
 	// Promotion request (owner action on a personal prompt, applied by update).
 	// Setting RequestedScope flags the prompt for the admin promotion queue
 	// without changing its scope; an admin approves to apply it.
@@ -99,31 +115,45 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 			"being served until an admin approves the draft. " +
 			"Management commands cover database-stored prompts only; static prompts from server " +
 			"configuration are not editable here, though 'use' resolves operator, workflow, and " +
-			"toolkit prompts too.",
+			"toolkit prompts too. " +
+			textpatch.VerbsDescription,
 		InputSchema: managePromptSchema(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input managePromptInput) (*mcp.CallToolResult, any, error) {
 		return h.handleManagePrompt(ctx, input)
 	})
 }
 
+// promptCommandHandler handles one manage_prompt command.
+type promptCommandHandler func(context.Context, managePromptInput) (*mcp.CallToolResult, any, error)
+
+// promptCommands is the command dispatch table, built per call because the
+// handlers are bound to the receiver. A table rather than a switch keeps
+// dispatch flat as the command set grows, mirroring the portal toolkit's
+// buildActions.
+func (h *Handle) promptCommands() map[string]promptCommandHandler {
+	return map[string]promptCommandHandler{
+		"create":      h.handlePromptCreate,
+		"update":      h.handlePromptUpdate,
+		"delete":      h.handlePromptDelete,
+		cmdList:       h.handlePromptList,
+		"get":         h.handlePromptGet,
+		cmdUse:        h.handlePromptUse,
+		cmdPatch:      h.handlePromptPatch,
+		cmdLocate:     h.handlePromptLocate,
+		cmdGetContent: h.handlePromptGetContent,
+		cmdOutline:    h.handlePromptOutline,
+		cmdStats:      h.handlePromptStats,
+		cmdDiff:       h.handlePromptDiff,
+	}
+}
+
 // handleManagePrompt dispatches manage_prompt commands.
 func (h *Handle) handleManagePrompt(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
-	switch input.Command {
-	case "create":
-		return h.handlePromptCreate(ctx, input)
-	case "update":
-		return h.handlePromptUpdate(ctx, input)
-	case "delete":
-		return h.handlePromptDelete(ctx, input)
-	case cmdList:
-		return h.handlePromptList(ctx, input)
-	case "get":
-		return h.handlePromptGet(ctx, input)
-	case cmdUse:
-		return h.handlePromptUse(ctx, input)
-	default:
+	handler, ok := h.promptCommands()[input.Command]
+	if !ok {
 		return promptErrorResult(fmt.Sprintf("unknown command: %s", input.Command)), nil, nil
 	}
+	return handler(ctx, input)
 }
 
 // handlePromptCreate creates a new prompt.
@@ -191,22 +221,11 @@ func (h *Handle) handlePromptUpdate(ctx context.Context, input managePromptInput
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	existing, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
-	if err != nil {
-		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
-		return h.promptErrorDetail(ctx, promptErrGet, err), nil, nil
+	existing, errResult := h.editablePrompt(ctx, input)
+	if errResult != nil {
+		return errResult, nil, nil
 	}
-	if existing == nil {
-		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
-	}
-	if existing.Source == prompt.SourceSystem {
-		return promptErrorResult("this prompt is defined in server configuration or built in and is read-only; edit it in config"), nil, nil
-	}
-
 	email := resolveEmail(ctx)
-	if msg := authorizePromptMutation(existing, email, "update", h.isAdminPersona(ctx)); msg != "" {
-		return promptErrorResult(msg), nil, nil
-	}
 
 	// Snapshot the persisted state before mutation: ApplyEdit compares it
 	// against the edited copy to decide whether the edit needs admin review.
@@ -231,6 +250,28 @@ func (h *Handle) handlePromptUpdate(ctx context.Context, input managePromptInput
 // prompt (and its runtime metadata) stays on the approved snapshot; every
 // other edit applies and re-registers.
 func (h *Handle) persistPromptUpdate(ctx context.Context, before, existing *prompt.Prompt, oldScope, email string) (*mcp.CallToolResult, any, error) {
+	return h.persistPromptEdit(ctx, promptEdit{
+		before: before, after: existing, oldScope: oldScope, email: email,
+	})
+}
+
+// promptEdit is one edit on its way through the review gate: the persisted
+// pre-edit state, the fully mutated copy, the scope the prompt held before, the
+// acting author, and any extra response fields the caller wants merged into the
+// result (a patch's per-edit report and diff).
+type promptEdit struct {
+	before   *prompt.Prompt
+	after    *prompt.Prompt
+	oldScope string
+	email    string
+	extra    map[string]any
+}
+
+// persistPromptEdit lands an edit through prompt.ApplyEdit and renders the
+// outcome, so every mutation surface reports the same shape whether the edit
+// applied or became a pending draft.
+func (h *Handle) persistPromptEdit(ctx context.Context, e promptEdit) (*mcp.CallToolResult, any, error) {
+	before, existing, oldScope, email, extra := e.before, e.after, e.oldScope, e.email, e.extra
 	outcome, err := prompt.ApplyEdit(ctx, h.store, before, existing, email)
 	// Both sentinels carry a message written for the author and are the author's
 	// to fix, so they surface verbatim instead of as a generic failure.
@@ -242,23 +283,31 @@ func (h *Handle) persistPromptUpdate(ctx context.Context, before, existing *prom
 		return h.promptErrorDetail(ctx, "failed to update prompt", err), nil, nil
 	}
 	if !outcome.Applied {
-		return promptJSONResult(map[string]any{
+		return promptJSONResult(withExtra(map[string]any{
 			fieldStatus:       "pending_approval",
 			fieldName:         existing.Name,
 			"pending_version": outcome.PendingVersion,
 			"message": fmt.Sprintf("this prompt is approved and shared, so the content change was saved as "+
 				"draft version %d; the approved version continues to be served until an admin approves the "+
 				"draft in the admin portal or via the admin prompts API", outcome.PendingVersion),
-		})
+		}, extra))
 	}
 
 	h.reregisterAfterUpdate(existing, oldScope)
 
-	return promptJSONResult(map[string]any{
+	return promptJSONResult(withExtra(map[string]any{
 		fieldStatus: "updated",
 		fieldName:   existing.Name,
 		"version":   existing.Version,
-	})
+	}, extra))
+}
+
+// withExtra folds a caller's extra response fields into the outcome. The two
+// key sets are disjoint by construction: the outcome owns the status and
+// identity keys, extra carries only the patch report.
+func withExtra(base, extra map[string]any) map[string]any {
+	maps.Copy(base, extra)
+	return base
 }
 
 // checkPromotionNameFree guards a personal-to-shared promotion: the shared
@@ -696,13 +745,18 @@ func managePromptSchema() any {
 		"properties": map[string]any{
 			"command": map[string]any{
 				schemaKeyType: schemaValString,
-				schemaKeyEnum: []string{"create", "update", "delete", cmdList, "get", cmdUse},
+				schemaKeyEnum: []string{
+					"create", "update", "delete", cmdList, "get", cmdUse,
+					cmdPatch, cmdLocate, cmdGetContent, cmdOutline, cmdStats, cmdDiff,
+				},
 				schemaKeyDescription: "The operation to perform. 'use' resolves any handle to a " +
-					"ready-to-run prompt; prefer it when the user names a procedure or report.",
+					"ready-to-run prompt; prefer it when the user names a procedure or report. " +
+					"'patch' edits part of a prompt's content without resending the whole body.",
 			},
 			fieldName: map[string]any{
 				schemaKeyType: schemaValString,
-				schemaKeyDescription: "Prompt name (required for create, update, delete, get, use). " +
+				schemaKeyDescription: "Prompt name (required for create, update, delete, get, use, " +
+					"patch, locate, get_content, outline, stats, diff). " +
 					"For use it may also be a display name, an mcp:prompt:<id> reference, or free text.",
 			},
 			"display_name": map[string]any{
@@ -788,5 +842,22 @@ func managePromptSchema() any {
 		},
 		"required": []string{"command"},
 	}
+	addPatchProperties(schema)
 	return schema
+}
+
+// addPatchProperties splices the shared textpatch grammar into the manage_prompt
+// schema, so the patch and navigation arguments are the identical schema
+// manage_asset advertises. A name manage_prompt already defines keeps its own
+// wording.
+func addPatchProperties(schema map[string]any) {
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return
+	}
+	for name, prop := range textpatch.PropertiesMap() {
+		if _, exists := props[name]; !exists {
+			props[name] = prop
+		}
+	}
 }
