@@ -1637,11 +1637,16 @@ type SessionHandlesConfig struct {
 	// TTL is the handle lifetime, refreshed on use. Defaults to 8h.
 	TTL time.Duration `yaml:"ttl"`
 
-	// Require refuses any gated tool call that does not carry a valid
-	// platform_info-minted handle (SESSION_REQUIRED). A transport session is not
-	// accepted as a fallback (issue #800). Default on (nil = required); set
-	// require: false for a softer landing during rollout, where a handle-less
-	// call falls back to the transport session instead of being refused.
+	// Require means a gated caller must have an established session, not that a
+	// handle must be threaded on every call. A call carrying a valid handle uses
+	// it; a call without one adopts the caller's own most-recently-active
+	// session, resolved from their authenticated identity, so an MCP App's
+	// sandboxed calls (which cannot thread the handle) are scoped rather than
+	// refused (issue #1040). Only a caller with no session at all is refused with
+	// SESSION_REQUIRED, which preserves the platform_info-first requirement (#800)
+	// for genuinely fresh agents. Default on (nil = required); set require: false
+	// to disable the requirement entirely, where a handle-less call falls back to
+	// the transport session.
 	Require *bool `yaml:"require"`
 }
 
