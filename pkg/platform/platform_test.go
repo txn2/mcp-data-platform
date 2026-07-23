@@ -1570,14 +1570,19 @@ func TestInitMCPApps_EnabledByDefault(t *testing.T) {
 	if pb == nil {
 		t.Fatal("built-in prompt-browser should be registered by default")
 	}
-	if len(pb.ToolNames) != 1 || pb.ToolNames[0] != "manage_prompt" {
-		t.Errorf("prompt-browser ToolNames = %v, want [manage_prompt]", pb.ToolNames)
+	// #1040: the app binds to the presentation-only show_prompts tool, not to
+	// manage_prompt, so an agent's own prompt work never renders a UI uninvited.
+	if len(pb.ToolNames) != 1 || pb.ToolNames[0] != "show_prompts" {
+		t.Errorf("prompt-browser ToolNames = %v, want [show_prompts]", pb.ToolNames)
 	}
 	if pb.ResourceURI != "ui://prompt-browser" {
 		t.Errorf("prompt-browser ResourceURI = %q, want ui://prompt-browser", pb.ResourceURI)
 	}
-	if got := p.mcpAppsRegistry.GetForTool("manage_prompt"); got != pb {
-		t.Error("manage_prompt should resolve to the prompt-browser app")
+	if got := p.mcpAppsRegistry.GetForTool("show_prompts"); got != pb {
+		t.Error("show_prompts should resolve to the prompt-browser app")
+	}
+	if got := p.mcpAppsRegistry.GetForTool("manage_prompt"); got != nil {
+		t.Error("manage_prompt must NOT be bound to an app; it renders no UI (#1040)")
 	}
 }
 

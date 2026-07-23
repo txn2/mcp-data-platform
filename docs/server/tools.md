@@ -50,6 +50,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, and the content verbs (patch, locate, get_content, outline, stats, diff) |
+| Platform | `show_prompts` | Render the prompt library as an interactive browser for the human (presentation-only; call only when the user wants to see their prompts) |
 
 ---
 
@@ -1142,7 +1143,11 @@ The rule is enforced when the attachment is made and again when the prompt chang
 
 Authors manage attachments from the prompt viewer in the portal, and the resource detail view lists the prompts that attach a resource, so the cost of deleting it is visible first.
 
-**Prompt browser app.** In MCP Apps-capable hosts, `manage_prompt` is bound to the built-in `prompt-browser` app: discovery calls render an interactive library browser with search, facets, argument forms, and a Run action. See [MCP Apps: Overview](../mcpapps/overview.md#built-in-app-prompt-browser). The tool's JSON results are complete on their own in clients that do not render apps.
+**Prompt browser app.** In MCP Apps-capable hosts, the built-in `prompt-browser` app is bound to the `show_prompts` tool. `show_prompts` is presentation-only: its only job is to render the interactive library browser (search, facets, argument forms, a Run action) for the human, so an agent calls it only when the user wants to see their prompts. `manage_prompt` carries no app and renders nothing, so the agent's own prompt work (resolve, run, create, edit) never puts a UI in front of the user. The rendered app populates itself from its own `manage_prompt` calls. See [MCP Apps: Overview](../mcpapps/overview.md#built-in-app-prompt-browser). `manage_prompt`'s JSON results are complete on their own in clients that do not render apps.
+
+### show_prompts
+
+Renders the user's prompt library as an interactive browser for the human to look at. Call it only when the human wants to see, browse, or pick from their prompts visually ("show me my prompts", "open my prompt library"). It performs no data operation and returns only a short confirmation; the rendered app populates itself from its own `manage_prompt` calls. For running, creating, editing, or listing prompts as part of your own work, use `manage_prompt`, which returns data and renders no UI. Optional `search` pre-focuses the library.
 
 ---
 
