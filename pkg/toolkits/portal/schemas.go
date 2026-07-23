@@ -1,6 +1,35 @@
 package portal
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/txn2/mcp-data-platform/pkg/textpatch"
+)
+
+// withPatchProperties returns base with the shared textpatch grammar merged
+// into its properties, so the patch, locate, and navigation arguments are
+// literally the same schema every tool that adopts the grammar advertises.
+//
+// It panics on a malformed base schema or a name the base already defines, both
+// build-time authoring errors: the schemas are package-level constants, so a
+// failure here means the binary would advertise a broken or divergent tool.
+func withPatchProperties(base json.RawMessage) json.RawMessage {
+	var schema map[string]any
+	if err := json.Unmarshal(base, &schema); err != nil {
+		panic(fmt.Sprintf("portal: manage_asset schema is not valid JSON: %v", err))
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		panic("portal: manage_asset schema has no properties object")
+	}
+	textpatch.AddProperties(props)
+	merged, err := json.Marshal(schema)
+	if err != nil {
+		panic(fmt.Sprintf("portal: manage_asset schema does not re-marshal: %v", err))
+	}
+	return merged
+}
 
 // saveAssetSchema is the JSON Schema for the save_asset tool input.
 var saveAssetSchema = json.RawMessage(`{
@@ -35,15 +64,20 @@ var saveAssetSchema = json.RawMessage(`{
   }
 }`)
 
-// manageAssetSchema is the JSON Schema for the manage_asset tool input.
-var manageAssetSchema = json.RawMessage(`{
+// manageAssetSchema is the JSON Schema for the manage_asset tool input: the
+// asset and collection arguments below, plus the shared content-editing grammar
+// spliced in from pkg/textpatch so it reads identically on manage_prompt.
+var manageAssetSchema = withPatchProperties(manageAssetSchemaBase)
+
+// manageAssetSchemaBase holds the manage_asset arguments this toolkit owns.
+var manageAssetSchemaBase = json.RawMessage(`{
   "type": "object",
   "required": ["action"],
   "additionalProperties": false,
   "properties": {
     "action": {
       "type": "string",
-      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on assets is handled by the separate manage_feedback tool.)"
+      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Content actions: patch, locate, get_content, outline, stats, diff. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on assets is handled by the separate manage_feedback tool.)"
     },
     "asset_id": {
       "type": "string",
@@ -70,6 +104,10 @@ var manageAssetSchema = json.RawMessage(`{
     "content_type": {
       "type": "string",
       "description": "New content type (for update action, only when replacing content)"
+    },
+    "change_summary": {
+      "type": "string",
+      "description": "Human-readable summary of the change, recorded as the new version's change summary (update and patch actions). Defaults to a generated summary for a patch."
     },
     "limit": {
       "type": "integer",
