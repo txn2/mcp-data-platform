@@ -352,20 +352,14 @@ func scopesFromPlatformContext(pc *PlatformContext, cfg ManagedResourceConfig) [
 	return resource.VisibleScopes(claims)
 }
 
-// claimsFromPC builds resource Claims from PlatformContext.
+// claimsFromPC builds resource Claims from PlatformContext. The persona set
+// comes from the configured resolver when one is wired (a caller can hold
+// several personas), otherwise from the single resolved persona on the context.
 func claimsFromPC(pc *PlatformContext, cfg ManagedResourceConfig) resource.Claims {
-	claims := resource.Claims{
-		Sub:   pc.UserID,
-		Email: pc.UserEmail,
-		Roles: pc.Roles,
-	}
+	claims := resource.BuildClaims(pc.UserID, pc.UserEmail, pc.PersonaName, pc.Roles, pc.IsAdmin)
 	if cfg.PersonasForRoles != nil {
 		claims.Personas = cfg.PersonasForRoles(pc.Roles)
-	} else if pc.PersonaName != "" {
-		claims.Personas = []string{pc.PersonaName}
 	}
-	claims.IsAdmin = pc.IsAdmin
-	claims.AdminOfPersonas = extractPersonaAdminRoles(pc.Roles)
 	return claims
 }
 
@@ -420,21 +414,6 @@ func getOrAuthenticatePC(ctx context.Context, req mcp.Request, auth Authenticato
 		pc.IsAdmin = adminPersona != "" && slices.Contains(personas, adminPersona)
 	}
 	return pc
-}
-
-// personaAdminInfix is the role substring that marks a persona-admin grant.
-const personaAdminInfix = "persona-admin:"
-
-// extractPersonaAdminRoles extracts persona names from roles containing
-// the "persona-admin:" pattern, tolerating any prefix (e.g., "dp_persona-admin:finance").
-func extractPersonaAdminRoles(roles []string) []string {
-	var out []string
-	for _, r := range roles {
-		if _, name, ok := strings.Cut(r, personaAdminInfix); ok && name != "" {
-			out = append(out, name)
-		}
-	}
-	return out
 }
 
 // extractResourceURI extracts the URI from a resources/read request.

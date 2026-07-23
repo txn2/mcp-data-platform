@@ -629,6 +629,7 @@ func (h *Handle) GetByName(ctx context.Context, email string, personas []string,
 	}
 	h.auditPromptServe(ctx, pr, serveSurfacePromptsGet, email)
 	res := renderPrompt(pr, args)
+	h.appendAttachments(ctx, res, pr, personas)
 	attachProvenanceMeta(res, pr)
 	return res, true
 }

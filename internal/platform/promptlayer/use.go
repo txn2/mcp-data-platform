@@ -11,6 +11,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/prompt/attachserve"
 )
 
 // promptRefPrefix is the universal fetch-reference scheme for prompts, the same
@@ -66,7 +67,9 @@ func (h *Handle) useByID(ctx context.Context, id string, args map[string]string)
 // funnels through here so run counts see each of them.
 func (h *Handle) servePromptUse(ctx context.Context, pr *prompt.Prompt, args map[string]string) (*mcp.CallToolResult, any, error) {
 	h.auditPromptServe(ctx, pr, serveSurfaceUse, resolveEmail(ctx))
-	return promptUseResult(pr, args)
+	// The tool path has no resolved persona list of its own; PlatformContext's
+	// single persona is the caller's identity there.
+	return promptUseResult(pr, args, h.resolveAttachments(ctx, pr, nil))
 }
 
 // canViewPrompt applies the same visibility rule as manage_prompt get: global
@@ -331,9 +334,17 @@ func promptProvenance(pr *prompt.Prompt) map[string]any {
 }
 
 // promptUseResult renders a resolved prompt: content with the supplied argument
-// values substituted, the argument specs, provenance, and any required
-// arguments still missing.
-func promptUseResult(pr *prompt.Prompt, args map[string]string) (*mcp.CallToolResult, any, error) {
+// values substituted, the argument specs, provenance, any required arguments
+// still missing, and the prompt's attached reference material (#1013).
+//
+// Attachments appear twice by design. The JSON "attachments" list is the
+// provenance record, so the agent can state what materials it received and
+// which were withheld. The trailing MCP content items are the materials
+// themselves in protocol form — an embedded resource for inlined text, a
+// resource_link for anything binary or oversized — so a client that understands
+// resource content handles them natively instead of parsing them out of a JSON
+// string.
+func promptUseResult(pr *prompt.Prompt, args map[string]string, attached []attachserve.Resolved) (*mcp.CallToolResult, any, error) {
 	resp := map[string]any{
 		fieldStatus:  "resolved",
 		"prompt":     promptProvenance(pr),
@@ -343,7 +354,15 @@ func promptUseResult(pr *prompt.Prompt, args map[string]string) (*mcp.CallToolRe
 	if missing := missingRequiredArgs(pr.Arguments, args); len(missing) > 0 {
 		resp["missing_required_arguments"] = missing
 	}
-	return promptJSONResult(resp)
+	if summary := attachserve.Summary(attached); len(summary) > 0 {
+		resp["attachments"] = summary
+	}
+	res, out, err := promptJSONResult(resp)
+	if err != nil || res == nil || res.IsError {
+		return res, out, err
+	}
+	res.Content = append(res.Content, attachserve.Content(attached)...)
+	return res, out, err
 }
 
 // promptCandidatesResult returns the ambiguous-handle response: a short ranked

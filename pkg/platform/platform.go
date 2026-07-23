@@ -70,6 +70,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/prompt/attachserve"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -2190,6 +2191,15 @@ func (p *Platform) bindPromptCollaborators() {
 	if p.auditStore != nil {
 		p.prompts.SetUsageReader(p.auditStore)
 	}
+	// Prompt attachments (#1013): New returns nil when the deployment has no
+	// attachment-capable prompt store or no managed resources, and a nil
+	// resolver serves every prompt exactly as before.
+	p.prompts.SetAttachmentResolver(attachserve.New(attachserve.Deps{
+		Attachments: prompt.AsAttachmentStore(p.PromptStore()),
+		Resources:   p.ResourceStore(),
+		Blobs:       p.ResourceS3Client(),
+		Bucket:      p.config.Resources.Managed.S3Bucket,
+	}))
 }
 
 // addReflexiveCaptureMiddleware wires reflexive query-error capture (#635) via

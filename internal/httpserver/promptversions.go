@@ -5,7 +5,11 @@ import (
 	"slices"
 
 	"github.com/txn2/mcp-data-platform/pkg/admin"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/prompt/attachhttp"
 	"github.com/txn2/mcp-data-platform/pkg/prompt/versionhttp"
 )
 
@@ -56,4 +60,49 @@ func rolesIntersect(userRoles, targetRoles []string) bool {
 		}
 	}
 	return false
+}
+
+// promptAttachmentDeps assembles the prompt-attachment handler dependencies
+// shared by both surfaces (#1013). The attachment capability is asserted from
+// the prompt store, which the prompt layer's notifying wrapper preserves; a
+// deployment without it (no database) yields nil deps and attachhttp.New
+// declines to build a handler, so the routes are simply not mounted.
+func promptAttachmentDeps(p *platform.Platform, caller func(r *http.Request) *attachhttp.Identity) attachhttp.Deps {
+	store := p.PromptStore()
+	return attachhttp.Deps{
+		Store:       store,
+		Attachments: prompt.AsAttachmentStore(store),
+		Resources:   p.ResourceStore(),
+		Caller:      caller,
+	}
+}
+
+// adminAttachmentIdentity resolves the admin caller's resource claims. Every
+// authenticated admin API caller is an admin by construction (the surface sits
+// behind the admin auth middleware), so IsAdmin is unconditional; persona
+// memberships still come from the registry, because resource visibility grants
+// an admin no persona they do not belong to.
+func adminAttachmentIdentity(pr *persona.Registry, adminPersona string) func(r *http.Request) *attachhttp.Identity {
+	return func(r *http.Request) *attachhttp.Identity {
+		u := admin.GetUser(r.Context())
+		if u == nil {
+			return nil
+		}
+		claims := buildResourceClaims(&portal.User{UserID: u.UserID, Email: adminEmail(r), Roles: u.Roles}, pr, adminPersona)
+		claims.IsAdmin = true
+		return claims
+	}
+}
+
+// portalAttachmentIdentity adapts the portal auth context to the same resource
+// claims the resources REST surface builds, so the attachment routes apply an
+// identical read rule over the caller's full persona membership.
+func portalAttachmentIdentity(pr *persona.Registry, adminPersona string) func(r *http.Request) *attachhttp.Identity {
+	return func(r *http.Request) *attachhttp.Identity {
+		user := portal.GetUser(r.Context())
+		if user == nil {
+			return nil
+		}
+		return buildResourceClaims(user, pr, adminPersona)
+	}
 }

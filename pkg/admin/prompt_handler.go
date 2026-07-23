@@ -394,7 +394,7 @@ func (h *Handler) applyPromptEdit(w http.ResponseWriter, r *http.Request, before
 		return false
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update prompt")
+		writePromptUpdateError(w, err)
 		return false
 	}
 	if !outcome.Applied {
@@ -402,6 +402,18 @@ func (h *Handler) applyPromptEdit(w http.ResponseWriter, r *http.Request, before
 		return false
 	}
 	return true
+}
+
+// writePromptUpdateError maps a failed prompt write to a response. The store
+// refuses an edit whose attached materials would be unreachable at the prompt's
+// new scope (#1013); that message names the resource and belongs to the author,
+// so it surfaces as a conflict rather than as an opaque failure.
+func writePromptUpdateError(w http.ResponseWriter, err error) {
+	if errors.Is(err, prompt.ErrAttachmentScope) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeError(w, http.StatusInternalServerError, "failed to update prompt")
 }
 
 // applyAdminPromptUpdate validates name rename and applies field updates.
@@ -646,7 +658,7 @@ func (h *Handler) approvePromptPromotion(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := h.deps.PromptStore.Update(r.Context(), existing); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update prompt")
+		writePromptUpdateError(w, err)
 		return
 	}
 	if refreshed, _ := h.deps.PromptStore.GetByID(r.Context(), id); refreshed != nil {
@@ -693,7 +705,7 @@ func (h *Handler) rejectPromptPromotion(w http.ResponseWriter, r *http.Request) 
 
 	existing.RejectPromotion()
 	if err := h.deps.PromptStore.Update(r.Context(), existing); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update prompt")
+		writePromptUpdateError(w, err)
 		return
 	}
 	if refreshed, _ := h.deps.PromptStore.GetByID(r.Context(), id); refreshed != nil {

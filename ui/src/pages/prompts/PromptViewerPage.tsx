@@ -17,6 +17,7 @@ import { RequestPromotionDialog } from "./viewer/RequestPromotionDialog";
 import { InvocationHelp } from "./viewer/InvocationHelp";
 import { VersionHistory } from "./viewer/VersionHistory";
 import { CollectionPicker } from "./viewer/CollectionPicker";
+import { AttachmentsPanel } from "./viewer/AttachmentsPanel";
 import type { EditForm, ViewMode } from "./viewer/types";
 
 interface Props {
@@ -275,6 +276,9 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
       ) : (
         <>
           <PromptReadView prompt={prompt} viewMode={viewMode} setViewMode={setViewMode} />
+          {prompt.source !== "system" && (
+            <AttachmentsPanel prompt={prompt} canEdit={canOrganize} />
+          )}
           <InvocationHelp prompt={prompt} />
           {prompt.source !== "system" && <VersionHistory prompt={prompt} />}
         </>

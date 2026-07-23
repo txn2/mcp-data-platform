@@ -55,11 +55,11 @@ func (h *Handle) notifyListChanged() {
 // write hook (prompt.CollectionStore) are instead exposed through the
 // prompt.CollectionProvider accessor on notifyingStore, which every wrapper
 // shape inherits, so they add no combinations here.
-func wrapStore(base prompt.Store, notify func()) prompt.Store {
-	ns := &notifyingStore{Store: base, notify: notify}
+func wrapStore(base prompt.Store, notify func(), guard attachmentGuard) prompt.Store {
+	ns := &notifyingStore{Store: base, notify: notify, guard: guard}
 	searcher, hasSearch := base.(prompt.Searcher)
 	versions, hasVersions := base.(prompt.VersionStore)
-	nvs := notifyingVersionStore{VersionStore: versions, notify: notify}
+	nvs := notifyingVersionStore{VersionStore: versions, notify: notify, guard: guard}
 	switch {
 	case hasSearch && hasVersions:
 		return &notifyingSearchVersionStore{
@@ -85,6 +85,30 @@ func wrapStore(base prompt.Store, notify func()) prompt.Store {
 type notifyingStore struct {
 	prompt.Store
 	notify func()
+	guard  attachmentGuard
+}
+
+// attachmentGuard reports whether a prompt about to be written would leave one
+// of its attached resources unreachable for the audience the write gives it
+// (#1013). It is applied here, on the shared store, for the same reason
+// list_changed is: every path that writes a prompt crosses it, so making the
+// check a property of the write means no writer — the manage_prompt tool, the
+// portal editor, an admin promotion approval — can widen a prompt's scope past
+// its materials, and none of them needs its own copy of the rule.
+//
+// It governs scope, not readership. Sharing a personal prompt person-to-person
+// writes to the share store, not the prompt, so it does not pass through here;
+// a recipient of a prompt carrying the author's private template receives it
+// with that material reported as undelivered, which the serve-time check
+// guarantees. A nil guard skips the check.
+type attachmentGuard func(ctx context.Context, p *prompt.Prompt) error
+
+// checkAttachments applies the guard, if bound.
+func (s *notifyingStore) checkAttachments(ctx context.Context, p *prompt.Prompt) error {
+	if s.guard == nil {
+		return nil
+	}
+	return s.guard(ctx, p)
 }
 
 // notifyingSearchStore is notifyingStore for a base that also implements the
@@ -116,6 +140,14 @@ func (s *notifyingStore) Collections() prompt.CollectionStore {
 	return prompt.AsCollectionStore(s.Store)
 }
 
+// Attachments exposes the wrapped store's prompt-attachment capability (#1013)
+// via prompt.AttachmentProvider. Attachment writes change a prompt's reference
+// material, not the prompt list, so like collection writes they need no
+// list_changed hook and pass through undecorated.
+func (s *notifyingStore) Attachments() prompt.AttachmentStore {
+	return prompt.AsAttachmentStore(s.Store)
+}
+
 // Create persists a new prompt and notifies on success.
 func (s *notifyingStore) Create(ctx context.Context, p *prompt.Prompt) error {
 	if err := s.Store.Create(ctx, p); err != nil {
@@ -125,8 +157,13 @@ func (s *notifyingStore) Create(ctx context.Context, p *prompt.Prompt) error {
 	return nil
 }
 
-// Update modifies a prompt and notifies on success.
+// Update modifies a prompt and notifies on success. The attachment guard runs
+// first: a scope change that strands the prompt's materials must be refused
+// before it is persisted, not detected afterwards.
 func (s *notifyingStore) Update(ctx context.Context, p *prompt.Prompt) error {
+	if err := s.checkAttachments(ctx, p); err != nil {
+		return err
+	}
 	if err := s.Store.Update(ctx, p); err != nil {
 		return err //nolint:wrapcheck // transparent decorator: pass the store's error through unchanged
 	}
@@ -161,6 +198,7 @@ func (s *notifyingStore) DeleteByID(ctx context.Context, id string) error {
 type notifyingVersionStore struct {
 	prompt.VersionStore
 	notify func()
+	guard  attachmentGuard
 }
 
 // notifyingVersionOnlyStore combines the write hooks with the versioning
@@ -177,8 +215,14 @@ type notifyingSearchVersionStore struct {
 	notifyingVersionStore
 }
 
-// UpdateWithVersion applies a versioned update and notifies on success.
+// UpdateWithVersion applies a versioned update and notifies on success. Like
+// Update, it clears the attachment guard first.
 func (s *notifyingVersionStore) UpdateWithVersion(ctx context.Context, p *prompt.Prompt, author string) error {
+	if s.guard != nil {
+		if err := s.guard(ctx, p); err != nil {
+			return err
+		}
+	}
 	if err := s.VersionStore.UpdateWithVersion(ctx, p, author); err != nil {
 		return err //nolint:wrapcheck // transparent decorator: pass the store's error through unchanged
 	}
@@ -207,6 +251,7 @@ type atomicNotifier = atomic.Pointer[ListChangedNotifier]
 var (
 	_ prompt.Store              = (*notifyingStore)(nil)
 	_ prompt.CollectionProvider = (*notifyingStore)(nil)
+	_ prompt.AttachmentProvider = (*notifyingStore)(nil)
 	_ prompt.CollectionProvider = (*notifyingSearchVersionStore)(nil)
 	_ prompt.Store              = (*notifyingSearchStore)(nil)
 	_ prompt.Searcher           = (*notifyingSearchStore)(nil)

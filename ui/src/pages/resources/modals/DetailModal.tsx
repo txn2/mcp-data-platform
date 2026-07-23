@@ -6,6 +6,7 @@ import type { Resource } from "@/api/resources/types";
 import { scopeIcon, scopeLabel } from "./shared";
 import { Overlay } from "./Overlay";
 import { ResourcePreview } from "./ResourcePreview";
+import { UsedByPrompts } from "./UsedByPrompts";
 
 export function DetailModal({ resource: r, onClose, onEdit, onDelete, admin }: { resource: Resource; onClose: () => void; onEdit: () => void; onDelete: () => void; admin: boolean }) {
   const ScopeIcon = scopeIcon(r.scope);
@@ -64,6 +65,8 @@ export function DetailModal({ resource: r, onClose, onEdit, onDelete, admin }: {
             ))}
           </div>
         )}
+
+        <UsedByPrompts resourceId={r.id} />
 
         <div className="flex items-center gap-2 pt-2 border-t">
           <button

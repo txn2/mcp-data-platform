@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/prompt/attachhttp"
 	"github.com/txn2/mcp-data-platform/pkg/prompt/versionhttp"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -118,6 +119,8 @@ func mountPromptVersionAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix
 	}
 	deps.AdminEmail = adminEmail
 	versionhttp.New(deps).RegisterAdmin(mux, prefix, buildAdminAuth(p))
+	attachhttp.New(promptAttachmentDeps(p, adminAttachmentIdentity(p.PersonaRegistry(), p.Config().Admin.Persona))).
+		Register(mux, prefix, buildAdminAuth(p))
 }
 
 // mountPromptVersionPortalAPI registers the portal prompt-version routes.
@@ -136,6 +139,8 @@ func mountPromptVersionPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap 
 	}
 	deps.PortalUser = portalIdentityResolver(adminRoles, resolver)
 	versionhttp.New(deps).RegisterPortal(mux, wrap)
+	attachhttp.New(promptAttachmentDeps(p, portalAttachmentIdentity(p.PersonaRegistry(), p.Config().Admin.Persona))).
+		Register(mux, "/api/v1/portal", wrap)
 }
 
 // promptVersionDeps assembles the surface-independent handler dependencies,

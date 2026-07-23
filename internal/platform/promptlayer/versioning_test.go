@@ -342,7 +342,7 @@ func TestWrapStore_ForwardsVersionCapabilityAndNotifies(t *testing.T) {
 		Status: prompt.StatusApproved, Enabled: true, Version: 1,
 	}
 	notified := 0
-	wrapped := wrapStore(base, func() { notified++ })
+	wrapped := wrapStore(base, func() { notified++ }, nil)
 
 	vs, ok := wrapped.(prompt.VersionStore)
 	require.True(t, ok, "the wrapper preserves the versioning capability")
@@ -365,7 +365,7 @@ func TestWrapStore_VersionWriteErrorsDoNotNotify(t *testing.T) {
 	base := newMockVersionStore()
 	base.versionErr = errors.New("db down")
 	notified := 0
-	vs, ok := wrapStore(base, func() { notified++ }).(prompt.VersionStore)
+	vs, ok := wrapStore(base, func() { notified++ }, nil).(prompt.VersionStore)
 	require.True(t, ok)
 
 	err := vs.UpdateWithVersion(context.Background(), &prompt.Prompt{ID: "p1"}, "a@example.com")
@@ -389,13 +389,13 @@ func TestApplyUsage_ReaderErrorLeavesFieldsEmpty(t *testing.T) {
 // A search-only base (the pre-versioning shape) still round-trips without the
 // capability, and a plain base yields neither extension.
 func TestWrapStore_CapabilityMatrix(t *testing.T) {
-	plain := wrapStore(newMockPromptStore(), func() {})
+	plain := wrapStore(newMockPromptStore(), func() {}, nil)
 	_, hasVersions := plain.(prompt.VersionStore)
 	assert.False(t, hasVersions)
 	_, hasSearch := plain.(prompt.Searcher)
 	assert.False(t, hasSearch)
 
-	versioned := wrapStore(newMockVersionStore(), func() {})
+	versioned := wrapStore(newMockVersionStore(), func() {}, nil)
 	_, hasVersions = versioned.(prompt.VersionStore)
 	assert.True(t, hasVersions)
 	_, hasSearch = versioned.(prompt.Searcher)
