@@ -6,6 +6,34 @@ The toolkit exposes four MCP tools — `api_invoke_endpoint`, `api_list_endpoint
 
 OpenAPI specs that describe each upstream are stored separately in **API catalogs** — versioned, globally-owned bundles that many connections can reference. See [API Catalogs](api-catalogs.md) for the full surface.
 
+## Addressing an operation
+
+`api_invoke_endpoint` (and `api_export`, which mirrors its input) address an operation in one of two ways:
+
+- **By `operation_id`**: the stable identifier `api_list_endpoints` and `api_get_endpoint_schema` return (for example `getUser`). This is the natural continuation of the discovery flow: read a schema by `operation_id`, then invoke the same `operation_id`. The platform resolves it to the method and path template from the connection's catalog. For a templated path, pass the placeholder values in `path_params` and the platform substitutes and URL-escapes them, so you never hand-build `/v1/users/123` from `/v1/users/{id}`:
+
+  ```json
+  {
+    "connection": "vendor",
+    "operation_id": "getUser",
+    "path_params": { "id": "123" }
+  }
+  ```
+
+  When the same `operation_id` is defined by more than one component spec in the catalog, pass `spec` to disambiguate; the error names the candidate specs.
+
+- **By `method` + `path`**: the raw addressing for uncataloged calls or connections with no spec. You substitute any path parameters yourself:
+
+  ```json
+  {
+    "connection": "vendor",
+    "method": "GET",
+    "path": "/v1/users/123"
+  }
+  ```
+
+Supply one form or the other, not both. `path_params` is only valid alongside `operation_id`.
+
 ## When to use
 
 Use the API gateway for upstreams that expose a REST API and authenticate with a bearer token, an API key, or OAuth 2.1. Common targets:

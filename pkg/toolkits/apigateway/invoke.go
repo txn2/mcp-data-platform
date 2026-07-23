@@ -72,10 +72,20 @@ var methodsAllowingBody = map[string]bool{
 
 // InvokeInput is the parsed argument shape for api_invoke_endpoint.
 // Field names match the JSON schema.
+//
+// An operation is addressed one of two ways (issue #1046): by
+// OperationID (+ optional Spec, + optional PathParams substituted into
+// the resolved path template), or by the raw Method+Path. handleInvoke
+// resolves OperationID to Method+Path via operationAddressing before any
+// downstream processing, so every field below Method/Path sees the
+// concrete values regardless of which form the caller used.
 type InvokeInput struct {
 	Connection     string            `json:"connection"`
-	Method         string            `json:"method"`
-	Path           string            `json:"path"`
+	Method         string            `json:"method,omitempty"`
+	Path           string            `json:"path,omitempty"`
+	OperationID    string            `json:"operation_id,omitempty"`
+	Spec           string            `json:"spec,omitempty"`
+	PathParams     map[string]string `json:"path_params,omitempty"`
 	Query          map[string]any    `json:"query_params,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`
 	Body           any               `json:"body,omitempty"`

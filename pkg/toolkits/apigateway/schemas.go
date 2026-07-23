@@ -81,20 +81,33 @@ var getEndpointSchemaInputSchema = json.RawMessage(`{
 //nolint:gochecknoglobals // MCP tool schema must be a package-level var
 var apiExportInputSchema = json.RawMessage(`{
   "type": "object",
-  "required": ["connection", "method", "path", "name"],
+  "required": ["connection", "name"],
   "properties": {
     "connection": {
       "type": "string",
       "description": "Name of the registered API connection (kind=api). Required."
     },
+    "operation_id": {
+      "type": "string",
+      "description": "The operation_id returned by api_list_endpoints / api_get_endpoint_schema. Address the operation by this stable identifier instead of method+path; the platform resolves it to method and path from the connection's catalog. Supply either operation_id or method+path, not both. For a templated path, pass the placeholder values in path_params."
+    },
+    "path_params": {
+      "type": "object",
+      "description": "Values for the {placeholder} segments of the resolved operation's path template, e.g. {\"id\": \"123\"} for /v1/users/{id}. Only valid with operation_id. Every template placeholder must have a value; each value is URL-escaped into its segment.",
+      "additionalProperties": {"type": "string"}
+    },
+    "spec": {
+      "type": "string",
+      "description": "Optional component spec name, used only with operation_id to disambiguate when the same operation_id is defined by more than one spec in the connection's catalog."
+    },
     "method": {
       "type": "string",
       "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "MKCOL", "MOVE", "COPY"],
-      "description": "HTTP method. Required."
+      "description": "HTTP method. Required unless operation_id is supplied."
     },
     "path": {
       "type": "string",
-      "description": "Request path joined to the connection's base URL. Required. Must start with \"/\"."
+      "description": "Request path joined to the connection's base URL. Required unless operation_id is supplied. Must start with \"/\"."
     },
     "query_params": {
       "type": "object",
@@ -144,20 +157,33 @@ var apiExportInputSchema = json.RawMessage(`{
 //nolint:gochecknoglobals // MCP tool schema must be a package-level var
 var invokeEndpointSchema = json.RawMessage(`{
   "type": "object",
-  "required": ["connection", "method", "path"],
+  "required": ["connection"],
   "properties": {
     "connection": {
       "type": "string",
       "description": "Name of the registered API connection (kind=api). Required. Use list_connections to discover available connections."
     },
+    "operation_id": {
+      "type": "string",
+      "description": "The operation_id returned by api_list_endpoints / api_get_endpoint_schema. Address the operation by this stable identifier instead of method+path; the platform resolves it to the method and path template from the connection's catalog. Supply either operation_id or method+path, not both. For a templated path (e.g. /v1/users/{id}), pass the placeholder values in path_params rather than substituting them by hand."
+    },
+    "path_params": {
+      "type": "object",
+      "description": "Values for the {placeholder} segments of the resolved operation's path template, e.g. {\"id\": \"123\"} for /v1/users/{id}. Only valid with operation_id. Every template placeholder must have a value; each value is URL-escaped into its segment.",
+      "additionalProperties": {"type": "string"}
+    },
+    "spec": {
+      "type": "string",
+      "description": "Optional component spec name, used only with operation_id to disambiguate when the same operation_id is defined by more than one spec in the connection's catalog. The ambiguity error names the candidate specs."
+    },
     "method": {
       "type": "string",
       "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "MKCOL", "MOVE", "COPY"],
-      "description": "HTTP method. Required."
+      "description": "HTTP method. Required unless operation_id is supplied. Use for raw or uncataloged calls."
     },
     "path": {
       "type": "string",
-      "description": "Request path joined to the connection's base URL. Examples: \"/v1/users/123\", \"/api/items\". Required. Must start with \"/\"."
+      "description": "Request path joined to the connection's base URL. Examples: \"/v1/users/123\", \"/api/items\". Required unless operation_id is supplied. Must start with \"/\". When you use method+path you substitute any path parameters yourself."
     },
     "query_params": {
       "type": "object",

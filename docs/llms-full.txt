@@ -2955,6 +2955,10 @@ The API gateway toolkit (`kind: api`) proxies arbitrary REST/HTTP APIs through t
 
 OpenAPI specs are stored separately in **API catalogs** (see the next section), globally-owned and versioned bundles that many connections can reference.
 
+## Addressing an operation
+
+`api_invoke_endpoint` and `api_export` address an operation either by `operation_id` (the stable id `api_list_endpoints` / `api_get_endpoint_schema` return) or by raw `method` + `path`; supply one form, not both. With `operation_id` the platform resolves the method and path template from the catalog, and `path_params` (valid only with `operation_id`) fills the `{placeholder}` segments, URL-escaped for you, so a cataloged call never hand-substitutes `/v1/users/{id}`. Pass `spec` alongside `operation_id` to disambiguate when the id is defined by more than one component spec.
+
 ## When to use
 
 Use the API gateway for REST/HTTP upstreams (Salesforce, Google APIs, GitHub, Stripe, internal HTTP services). For upstream MCP servers, use the MCP gateway (`kind: mcp`) instead.

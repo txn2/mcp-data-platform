@@ -433,7 +433,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Description: "Make an authenticated HTTP request against a registered API connection. " +
 			"The connection's auth (none/bearer/api_key) is applied automatically; the model " +
 			"never handles credentials. Returns status, selected response headers, and the parsed " +
-			"or text response body. Method is restricted to GET, POST, PUT, DELETE, PATCH, HEAD, " +
+			"or text response body. Address the operation either by operation_id (the same id " +
+			"api_list_endpoints / api_get_endpoint_schema return, with any path template values " +
+			"passed in path_params) or by method+path directly; supply one form, not both. " +
+			"Method is restricted to GET, POST, PUT, DELETE, PATCH, HEAD, " +
 			"PROPFIND, MKCOL, MOVE, COPY; " +
 			"path is joined to the connection's base_url; response bodies above the connection's " +
 			"max_response_bytes are truncated and flagged. Use list_connections to discover " +
@@ -1127,6 +1130,19 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	if !ok {
 		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
 	}
+
+	// Resolve operation_id addressing into concrete method+path before
+	// any gating or upstream work, so the route policy, path validation,
+	// and audit all see the same values a plain method+path call would
+	// (issue #1046).
+	method, path, addrErr := operationAddressing{
+		Method: in.Method, Path: in.Path, OperationID: in.OperationID,
+		Spec: in.Spec, PathParams: in.PathParams,
+	}.resolve(c)
+	if addrErr != nil {
+		return toolkit.ErrorResult(addrErr.Error()), nil, nil
+	}
+	in.Method, in.Path = method, path
 
 	// Run the route policy BEFORE invoke() so an unauthorized call
 	// never produces an outbound HTTP request — and never appears in
