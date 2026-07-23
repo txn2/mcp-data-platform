@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"path"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -102,6 +102,9 @@ type ExportProvenance struct {
 	ToolCalls []ExportProvenanceCall
 	SessionID string
 	UserID    string
+	// DeclaredContentType is the upstream's Content-Type header, carried only
+	// when detection stored the asset under a different type.
+	DeclaredContentType string
 }
 
 // ExportProvenanceCall is one step in the provenance chain.
@@ -393,17 +396,23 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 		return nil, fmt.Errorf("upstream response (%d bytes) exceeds api_export cap of %d bytes — narrow the request (smaller page, fewer fields) or raise platform.export.max_bytes", resp.ContentLength, deps.Config.MaxBytes)
 	}
 
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	declaredType := resp.Header.Get("Content-Type")
+
+	// An upstream that omits Content-Type, or answers a JSON endpoint with
+	// text/plain, would otherwise produce an asset the viewer can only show as
+	// raw text. Detection reads a bounded prefix and hands back a reader that
+	// replays it, so the body still streams to storage unbuffered.
+	contentType, body, err := contenttype.DetectStream(declaredType, resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading upstream response: %s", scrubTransportError(err))
 	}
 
 	// Stream the upstream body straight to S3 (no full-body buffer). Bound
 	// the read by the export timeout via resp.Body, which is tied to
 	// exportCtx.
 	assetID, size, err := persistExportAsset(ctx, persistExportArgs{
-		deps: deps, uc: uc, in: in, body: resp.Body, maxBytes: deps.Config.MaxBytes,
-		contentType: contentType, status: resp.StatusCode,
+		deps: deps, uc: uc, in: in, body: body, maxBytes: deps.Config.MaxBytes,
+		contentType: contentType, declaredType: declaredType, status: resp.StatusCode,
 	})
 	if err != nil {
 		return nil, err
@@ -454,13 +463,17 @@ func buildExportRequest(ctx context.Context, p exportRequestParams) (*http.Reque
 
 // persistExportArgs bundles the inputs persistExportAsset needs.
 type persistExportArgs struct {
-	deps        *ExportDeps
-	uc          *ExportUserContext
-	in          exportInput
-	body        io.Reader
-	maxBytes    int64
+	deps     *ExportDeps
+	uc       *ExportUserContext
+	in       exportInput
+	body     io.Reader
+	maxBytes int64
+	// contentType is the type the asset is stored under, after detection.
 	contentType string
-	status      int
+	// declaredType is what the upstream's Content-Type header said, recorded
+	// in provenance when detection replaced it.
+	declaredType string
+	status       int
 }
 
 // persistExportAsset streams the response body to S3 and inserts the
@@ -501,7 +514,7 @@ func persistExportAsset(ctx context.Context, p persistExportArgs) (assetID strin
 		S3Key:          s3Key,
 		SizeBytes:      size,
 		Tags:           in.Tags,
-		Provenance:     buildExportProvenance(uc, in, status),
+		Provenance:     buildExportProvenance(uc, in, status, replacedDeclaration(p.declaredType, contentType)),
 		SessionID:      uc.SessionID,
 		IdempotencyKey: in.IdempotencyKey,
 	}
@@ -599,36 +612,11 @@ func buildExportS3Key(prefix, userID, assetID, contentType string) string {
 	return path.Join(parts...)
 }
 
-// extensionForContentType picks a file extension for a content-type
-// string. The Go std library's `mime` package has ExtensionsByType,
-// which returns a list (we take the first entry stripped of its
-// leading dot). Falls back to "bin" — a downloaded "blob.bin" is
-// always more useful than no extension.
+// extensionForContentType picks the file extension (without its leading dot)
+// for an object key. It delegates to the shared contenttype table so an export
+// key names the same family the viewer resolves the asset into.
 func extensionForContentType(contentType string) string {
-	if contentType == "" {
-		return "bin"
-	}
-	mediaType, _, err := mime.ParseMediaType(contentType)
-	if err != nil {
-		return "bin"
-	}
-	exts, _ := mime.ExtensionsByType(mediaType)
-	if len(exts) == 0 {
-		// Hand-roll the most common cases the std mime db
-		// often misses on Linux containers.
-		switch mediaType {
-		case "application/json":
-			return "json"
-		case "application/xml", "text/xml":
-			return "xml"
-		case "text/csv":
-			return "csv"
-		case "text/plain":
-			return "txt"
-		}
-		return "bin"
-	}
-	return strings.TrimPrefix(exts[0], ".")
+	return strings.TrimPrefix(contenttype.Extension(contentType), ".")
 }
 
 // buildExportPortalURL composes the portal asset URL. Empty BaseURL
@@ -641,12 +629,24 @@ func buildExportPortalURL(baseURL, assetID string) string {
 	return strings.TrimRight(baseURL, "/") + "/portal/assets/" + assetID
 }
 
+// replacedDeclaration returns the upstream's declared type when detection
+// stored the asset under a different one, and "" when the declaration stood.
+// Recording only the disagreement keeps provenance free of noise on the common
+// path where the upstream labeled its response correctly.
+func replacedDeclaration(declared, stored string) string {
+	if declared == "" || contenttype.Normalize(declared) == stored {
+		return ""
+	}
+	return declared
+}
+
 // buildExportProvenance records the api_export call so portal
 // viewers can render where the asset came from.
-func buildExportProvenance(uc *ExportUserContext, in exportInput, status int) ExportProvenance {
+func buildExportProvenance(uc *ExportUserContext, in exportInput, status int, declaredType string) ExportProvenance {
 	return ExportProvenance{
-		UserID:    uc.UserID,
-		SessionID: uc.SessionID,
+		UserID:              uc.UserID,
+		SessionID:           uc.SessionID,
+		DeclaredContentType: declaredType,
 		ToolCalls: []ExportProvenanceCall{
 			{
 				ToolName:  exportToolName,

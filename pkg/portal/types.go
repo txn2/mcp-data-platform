@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
 )
 
@@ -65,22 +66,20 @@ type AssetVersion struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
-// ExtensionForContentType returns a file extension based on content type.
+// ExtensionForContentType returns the file extension used in an asset's object
+// key for a content type. It delegates to the shared contenttype table, so a
+// key stops defaulting to ".bin" for every family the platform can now detect
+// (images, audio, video, PDF, YAML, NDJSON, ...).
 func ExtensionForContentType(ct string) string {
-	switch {
-	case strings.Contains(ct, "html") || strings.Contains(ct, "jsx"):
-		return extHTML
-	case strings.Contains(ct, "svg"):
-		return ".svg"
-	case strings.Contains(ct, "markdown"):
-		return ".md"
-	case strings.Contains(ct, "json"):
-		return ".json"
-	case strings.Contains(ct, "csv"):
-		return ".csv"
-	default:
-		return ".bin"
-	}
+	return contenttype.Extension(ct)
+}
+
+// ResolveContentType returns the content type to store for content whose
+// author declared declared. A specific declaration is honored; a generic or
+// absent one is replaced by the type detected from the bytes. Detection never
+// produces an active type — see pkg/contenttype.
+func ResolveContentType(declared string, content []byte) string {
+	return contenttype.DetectBytes(declared, content)
 }
 
 // Provenance records the tool call history that produced an artifact.
@@ -88,6 +87,11 @@ type Provenance struct {
 	ToolCalls []ProvenanceToolCall `json:"tool_calls,omitempty"`
 	SessionID string               `json:"session_id,omitempty" example:"sess_abc123"`
 	UserID    string               `json:"user_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
+	// DeclaredContentType is the media type the writer declared, recorded only
+	// when detection replaced it. It is the audit trail for a reclassified
+	// asset: it answers "what did the upstream actually say" without which a
+	// stored type that disagrees with the source is unexplainable.
+	DeclaredContentType string `json:"declared_content_type,omitempty" example:"text/plain"`
 }
 
 // ProvenanceToolCall records a single tool invocation in the provenance chain.

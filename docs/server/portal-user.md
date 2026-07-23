@@ -37,7 +37,7 @@ Features:
 
 ### Asset Viewer
 
-Click any asset to open the full-screen viewer. The viewer renders content natively based on type — HTML and JSX as interactive components, SVG as vector graphics, Markdown with full formatting, and CSV as sortable tables.
+Click any asset to open the full-screen viewer. The viewer renders content natively based on type: HTML and JSX as interactive components, SVG as vector graphics, Markdown with full formatting, CSV and TSV as sortable tables, JSON as a searchable collapsible tree, images with zoom and pan, audio and video with working seek, and PDFs in an embedded viewer. Anything with no viewer shows a metadata card and a download action rather than raw bytes. See [Content Types and Viewers](content-viewers.md) for the full family list and for how a mislabeled content type is detected and corrected at write time.
 
 ![Asset Viewer — HTML](../images/screenshots/light/user-asset-html-light.webp#only-light)![Asset Viewer — HTML](../images/screenshots/dark/user-asset-html-dark.webp#only-dark)
 

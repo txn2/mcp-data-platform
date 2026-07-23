@@ -138,6 +138,7 @@ pkg/admin -> pkg/admin/settingsapi
 pkg/admin -> pkg/audit
 pkg/admin -> pkg/auth
 pkg/admin -> pkg/authevents
+pkg/admin -> pkg/blobserve
 pkg/admin -> pkg/browsersession
 pkg/admin -> pkg/configstore
 pkg/admin -> pkg/connoauth
@@ -171,6 +172,7 @@ pkg/auth -> internal/logsan
 pkg/auth -> pkg/middleware
 pkg/auth -> pkg/oauth/signkey
 pkg/auth -> pkg/oidcdiscovery
+pkg/blobserve -> pkg/contenttype
 pkg/browsersession -> internal/logsan
 pkg/browsersession -> pkg/middleware
 pkg/browsersession -> pkg/user
@@ -311,11 +313,14 @@ pkg/platform/personastore -> pkg/persona
 pkg/portal -> internal/contentviewer
 pkg/portal -> internal/logsan
 pkg/portal -> pkg/audit
+pkg/portal -> pkg/blobserve
 pkg/portal -> pkg/browsersession
+pkg/portal -> pkg/contenttype
 pkg/portal -> pkg/embedding
 pkg/portal -> pkg/memory
 pkg/portal -> pkg/middleware
 pkg/portal -> pkg/portal/knowledgepage
+pkg/portal -> pkg/portal/publicviewer
 pkg/portal -> pkg/portal/shareaccess
 pkg/portal -> pkg/portal/shareguest
 pkg/portal -> pkg/portal/threads
@@ -353,6 +358,9 @@ pkg/registry -> pkg/toolkits/datahub
 pkg/registry -> pkg/toolkits/gateway
 pkg/registry -> pkg/toolkits/s3
 pkg/registry -> pkg/toolkits/trino
+pkg/resource -> internal/logsan
+pkg/resource -> pkg/blobserve
+pkg/resource -> pkg/contenttype
 pkg/semantic/datahub -> pkg/observability
 pkg/semantic/datahub -> pkg/semantic
 pkg/semantic/datahub -> pkg/urnbuild
@@ -364,6 +372,7 @@ pkg/storage/s3 -> pkg/urnbuild
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> pkg/authevents
 pkg/toolkits/apigateway -> pkg/connoauth
+pkg/toolkits/apigateway -> pkg/contenttype
 pkg/toolkits/apigateway -> pkg/embedding
 pkg/toolkits/apigateway -> pkg/mcpcontext
 pkg/toolkits/apigateway -> pkg/observability

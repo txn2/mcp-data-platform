@@ -21,6 +21,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/blobserve"
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -599,13 +601,12 @@ func (h *Handler) getAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if contentType == "" {
-		contentType = mimeTypeOctetStream
-	}
-	w.Header().Set(headerContentType, contentType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type, not rendered as HTML
+	blobserve.Serve(w, r, blobserve.Options{
+		Name:        asset.Name,
+		ContentType: cmp.Or(contentType, asset.ContentType),
+		ModTime:     asset.UpdatedAt,
+		Data:        data,
+	})
 }
 
 // updateAssetContent handles PUT /api/v1/portal/assets/{id}/content.
@@ -667,11 +668,15 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	versionID := uuid.New().String()
-	ext := ExtensionForContentType(asset.ContentType)
-	versionedKey := fmt.Sprintf("portal/%s/%s/%s/content%s", asset.OwnerID, id, versionID, ext)
+	// The asset's existing type is the declaration for the replacement. It
+	// wins when specific, so editing a JSON asset keeps it JSON; when the
+	// asset was stored under a generic type, the new content settles it.
+	ct := ResolveContentType(asset.ContentType, data)
 
-	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, versionedKey, data, asset.ContentType); err != nil {
+	versionID := uuid.New().String()
+	versionedKey := fmt.Sprintf("portal/%s/%s/%s/content%s", asset.OwnerID, id, versionID, ExtensionForContentType(ct))
+
+	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, versionedKey, data, ct); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload content")
 		return
 	}
@@ -681,7 +686,7 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 		AssetID:       id,
 		S3Key:         versionedKey,
 		S3Bucket:      asset.S3Bucket,
-		ContentType:   asset.ContentType,
+		ContentType:   ct,
 		SizeBytes:     int64(len(data)),
 		CreatedBy:     user.Email,
 		ChangeSummary: changeSummaryFromHeader(r, "Content updated"),
@@ -862,11 +867,13 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set(headerContentType, mimeTypePNG)
 	w.Header().Set("Cache-Control", "private, max-age=3600")
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- content served as image/png, not rendered as HTML
+	blobserve.Serve(w, r, blobserve.Options{
+		Name:        asset.ID + ".png",
+		ContentType: mimeTypePNG,
+		ModTime:     asset.UpdatedAt,
+		Data:        data,
+	})
 }
 
 // Thumbnail variant identifiers and the S3 filenames they map to. Light is the
@@ -1176,10 +1183,12 @@ func (h *Handler) getVersionContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to retrieve version content")
 		return
 	}
-	w.Header().Set(headerContentType, cmp.Or(contentType, mimeTypeOctetStream))
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data) // #nosec G705 -- content served with explicit Content-Type
+	blobserve.Serve(w, r, blobserve.Options{
+		Name:        asset.Name,
+		ContentType: cmp.Or(contentType, ver.ContentType),
+		ModTime:     ver.CreatedAt,
+		Data:        data,
+	})
 }
 
 // revertToVersion handles POST /api/v1/portal/assets/{id}/versions/{version}/revert.
@@ -2469,16 +2478,29 @@ type createAssetRequest struct {
 }
 
 // allowedCreateAssetContentTypes lists the MIME types accepted by the inline
-// asset-create endpoint. Binary types (images, etc.) must continue to go
-// through the MCP save_artifact tool, which handles base64 decoding.
+// asset-create endpoint. The request body is a JSON string, so only textual
+// families can travel through it; binary types (images, audio, video, PDF) must
+// go through a path that carries bytes.
+//
+// Keys are canonical types, so a caller may declare any alias of a family
+// (text/json, text/xml, ...) and still be admitted.
 var allowedCreateAssetContentTypes = map[string]struct{}{
-	"text/markdown":    {},
-	"text/plain":       {},
-	"text/html":        {},
-	"text/jsx":         {},
-	"text/csv":         {},
-	"image/svg+xml":    {},
-	"application/json": {},
+	contenttype.Markdown:    {},
+	contenttype.PlainText:   {},
+	contenttype.HTML:        {},
+	contenttype.JSX:         {},
+	contenttype.CSV:         {},
+	contenttype.TSV:         {},
+	contenttype.SVG:         {},
+	contenttype.JSON:        {},
+	contenttype.NDJSON:      {},
+	contenttype.XML:         {},
+	contenttype.YAML:        {},
+	contenttype.JavaScript:  {},
+	contenttype.OctetStream: {},
+	"application/sql":       {},
+	"text/x-python":         {},
+	"text/css":              {},
 }
 
 // validateCreateAssetRequest validates the request body and returns the
@@ -2490,15 +2512,18 @@ func validateCreateAssetRequest(req createAssetRequest) (name, contentType strin
 	if vErr := ValidateAssetName(name); vErr != nil {
 		return "", "", &httpError{http.StatusBadRequest, vErr.Error()}
 	}
-	contentType = strings.ToLower(strings.TrimSpace(req.ContentType))
-	if contentType == "" {
+	if strings.TrimSpace(req.ContentType) == "" {
 		return "", "", &httpError{http.StatusBadRequest, "content_type is required"}
-	}
-	if _, ok := allowedCreateAssetContentTypes[contentType]; !ok {
-		return "", "", &httpError{http.StatusUnsupportedMediaType, "unsupported content_type for inline create; use the save_artifact tool for binary types"}
 	}
 	if req.Content == "" {
 		return "", "", &httpError{http.StatusBadRequest, "content is required"}
+	}
+	// Detection runs before the allowlist check, so a caller that declared a
+	// generic type is admitted or refused on what the content actually is —
+	// the same type the asset will be stored and rendered under.
+	contentType = ResolveContentType(req.ContentType, []byte(req.Content))
+	if _, ok := allowedCreateAssetContentTypes[contentType]; !ok {
+		return "", "", &httpError{http.StatusUnsupportedMediaType, "unsupported content_type for inline create; use the save_artifact tool for binary types"}
 	}
 	if int64(len(req.Content)) > MaxContentUploadBytes {
 		return "", "", &httpError{http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit"}

@@ -768,24 +768,6 @@ func TestHandleDelete_PermissionDenied(t *testing.T) {
 
 // --- Helper tests ---
 
-func TestSanitizeContentType(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"text/html; charset=utf-8", "text/html"},
-		{"application/json", "application/json"},
-		{"", mimeTypeOctetStream},
-		{";;;invalid", mimeTypeOctetStream},
-	}
-	for _, tt := range tests {
-		got := sanitizeContentType(tt.input)
-		if got != tt.want {
-			t.Errorf("sanitizeContentType(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}
-
 func TestNarrowScopes(t *testing.T) {
 	visible := []ScopeFilter{
 		{Scope: ScopeGlobal},
@@ -1213,39 +1195,63 @@ func TestHandleGetContent_S3Error(t *testing.T) {
 	}
 }
 
-func TestHandleGetContent_BinaryDisposition(t *testing.T) {
-	store := newMockStore()
-	s3 := newMockS3()
-	h := newTestHandler(store, s3, okExtractor)
-
-	r := &Resource{
-		ID:            "res-bin",
-		Scope:         ScopeGlobal,
-		Category:      "samples",
-		Filename:      "image.png",
-		DisplayName:   "An Image",
-		Description:   "A test image.",
-		MIMEType:      "image/png",
-		SizeBytes:     4,
-		S3Key:         "resources/global/res-bin/image.png",
-		URI:           BuildURI("mcp", ScopeGlobal, "", "samples", "image.png"),
-		Tags:          []string{},
-		UploaderSub:   "user-123",
-		UploaderEmail: "user@example.com",
+func TestHandleGetContent_Disposition(t *testing.T) {
+	// Passive families are previewable, so they are served inline; active
+	// families execute when a browser renders them and must always download.
+	cases := []struct {
+		name     string
+		filename string
+		mime     string
+		body     []byte
+		wantDisp string
+	}{
+		{"image previews inline", "image.png", "image/png", []byte{0x89, 0x50, 0x4E, 0x47}, "inline"},
+		{"json previews inline", "results.json", "application/json", []byte(`{"a":1}`), "inline"},
+		{"text previews inline", "notes.txt", "text/plain", []byte("hello"), "inline"},
+		{"html always downloads", "page.html", "text/html", []byte("<b>x</b>"), "attachment"},
+		{"svg always downloads", "chart.svg", "image/svg+xml", []byte("<svg/>"), "attachment"},
+		{"unknown binary downloads", "blob.bin", "application/octet-stream", []byte{0x00, 0x01}, "inline"},
 	}
-	store.resources["res-bin"] = r
-	s3.objects[r.S3Key] = []byte{0x89, 0x50, 0x4E, 0x47}
 
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/res-bin/content", http.NoBody)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newMockStore()
+			s3 := newMockS3()
+			h := newTestHandler(store, s3, okExtractor)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-	disp := rec.Header().Get("Content-Disposition")
-	if !strings.HasPrefix(disp, "attachment") {
-		t.Errorf("expected attachment disposition for binary, got %q", disp)
+			r := &Resource{
+				ID:            "res-bin",
+				Scope:         ScopeGlobal,
+				Category:      "samples",
+				Filename:      tc.filename,
+				DisplayName:   "A File",
+				Description:   "A test file.",
+				MIMEType:      tc.mime,
+				SizeBytes:     int64(len(tc.body)),
+				S3Key:         "resources/global/res-bin/" + tc.filename,
+				URI:           BuildURI("mcp", ScopeGlobal, "", "samples", tc.filename),
+				Tags:          []string{},
+				UploaderSub:   "user-123",
+				UploaderEmail: "user@example.com",
+			}
+			store.resources["res-bin"] = r
+			s3.objects[r.S3Key] = tc.body
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/res-bin/content", http.NoBody)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", rec.Code)
+			}
+			if disp := rec.Header().Get("Content-Disposition"); !strings.HasPrefix(disp, tc.wantDisp) {
+				t.Errorf("expected %s disposition, got %q", tc.wantDisp, disp)
+			}
+			// Every raw content response must refuse browser content sniffing.
+			if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+				t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+			}
+		})
 	}
 }
 

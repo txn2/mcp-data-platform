@@ -1135,7 +1135,14 @@ Save an AI-generated artifact (JSX dashboard, HTML report, SVG chart, etc.) to t
 |-----------|------|----------|---------|-------------|
 | `name` | string | Yes | - | Display name (max 255 chars) |
 | `content` | string | Yes | - | Artifact content |
-| `content_type` | string | Yes | - | MIME type: `text/html`, `text/jsx`, `image/svg+xml`, `text/markdown`, `application/json`, `text/csv` |
+| `content_type` | string | Yes | - | MIME type: `text/html`, `text/jsx`, `image/svg+xml`, `text/markdown`, `application/json`, `application/x-ndjson`, `text/csv`, `text/tab-separated-values`, `application/xml`, `application/yaml`, `application/sql`, `text/plain` |
+
+A generic `content_type` (`text/plain` or `application/octet-stream`) is replaced
+by the type detected from the content, so a JSON payload saved under a catch-all
+type still opens in the JSON viewer. A specific declaration is always honored.
+Detection can only reclassify content into passive families: it never promotes a
+payload to `text/html`, `text/jsx` or `image/svg+xml`. See
+[Content Types and Viewers](../server/content-viewers.md).
 | `description` | string | No | `""` | Description (max 2000 chars) |
 | `tags` | array | No | `[]` | Tags for categorization (max 20 tags, each max 100 chars) |
 

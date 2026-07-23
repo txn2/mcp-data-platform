@@ -151,7 +151,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
-`pkg/` holds 43 top-level packages (all public API). Depth-2 subdirectories are
+`pkg/` holds 45 top-level packages (all public API). Depth-2 subdirectories are
 shown where they represent a distinct implementation (a storage backend, an
 adapter, an indexjobs consumer); helper subpackages are omitted for brevity.
 Regenerate this list with `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and
@@ -160,17 +160,19 @@ diff against the packages below when adding or removing a `pkg/` directory.
 ```
 mcp-data-platform/
 ├── cmd/mcp-data-platform/          # Entry point (main.go)
-├── pkg/                            # PUBLIC API (43 top-level packages)
+├── pkg/                            # PUBLIC API (45 top-level packages)
 │   ├── admin/                      # REST API endpoints for administrative operations
 │   ├── audit/                      # Audit logging (postgres/ = PostgreSQL implementation)
 │   ├── auth/                       # Authentication: OIDC, API keys, claims, middleware
 │   ├── authevents/                 # Durable audit history for the OAuth authorization flow
+│   ├── blobserve/                  # Raw-content HTTP writer: sanitized type, nosniff, disposition, byte ranges
 │   ├── browsersession/             # Browser-based OIDC authentication (cookie sessions)
 │   ├── configstore/                # Granular key/value storage for platform config (postgres/)
 │   ├── connbackfill/               # Seeds connection_instances with credential-free rows
 │   ├── connoauth/                  # Shared OAuth-to-upstream-MCP implementation across connection kinds
 │   ├── connreconcile/              # Shared remove/add reconcile of a DB connection onto live toolkits (admin hot-reload + reload bus)
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
+│   ├── contenttype/                # Media-type detection and normalization for every content write path
 │   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 82 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── gatewayhttp/                # HTTP exposure of the apigateway toolkit's invoke path
@@ -189,7 +191,7 @@ mcp-data-platform/
 │   ├── persona/                    # Persona-based access control and customization
 │   ├── pkcestore/                  # In-flight PKCE state for outbound OAuth (oauth-start → callback)
 │   ├── platform/                   # Core orchestration: facade, config, options, lifecycle (fieldcrypt/, instructions/, personastore/ = seams shared with pkg/admin; other facade-internal seams live under internal/platform/)
-│   ├── portal/                     # Asset portal data layer (assetindex/, collectionindex/, datahubapi/, knowledgepage/, threads/, ...)
+│   ├── portal/                     # Asset portal data layer (assetindex/, collectionindex/, datahubapi/, knowledgepage/, publicviewer/ = embedded public share templates + CSP, threads/, ...)
 │   ├── prompt/                     # Prompt management: versioned store contract, review gate (versionhttp/ = version-history/approval/usage REST for the admin + portal surfaces)
 │   ├── query/                      # Query execution provider abstraction (trino/ = Trino adapter)
 │   ├── ratelimit/                  # Shared per-IP token-bucket limiter + trusted-proxy client-IP resolver (portal viewer, OAuth endpoints)

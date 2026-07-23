@@ -3,7 +3,8 @@ import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { ShareDialog } from "@/components/ShareDialog";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { isThumbnailSupported } from "@/lib/thumbnail";
-import { isTextContent, type AssetViewerProps, type ViewMode } from "./assetviewer/types";
+import { isEditableContent } from "@/components/renderers/registry";
+import { type AssetViewerProps, type ViewMode } from "./assetviewer/types";
 import { ThumbnailGeneratorWithInvalidation } from "./assetviewer/ThumbnailGeneratorWithInvalidation";
 import { AssetViewerToolbar } from "./assetviewer/AssetViewerToolbar";
 import { AssetContentView } from "./assetviewer/AssetContentView";
@@ -54,7 +55,8 @@ export function AssetViewer({
   const [thumbnailStale, setThumbnailStale] = useState(false);
   const isSharedEditor = !isOwner && sharePermission === "editor";
 
-  const canEditSource = !!contentUpdateMutation && !!asset && isTextContent(asset.content_type);
+  const canEditSource =
+    !!contentUpdateMutation && !!asset && isEditableContent(asset.content_type, asset.name);
   const contentStr = typeof content === "string" ? content : "";
   const hasChanges = dirty && editedContent !== contentStr;
 

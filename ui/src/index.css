@@ -99,3 +99,23 @@
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
 }
+
+/*
+ * Checkerboard backing for the image viewer.
+ *
+ * A transparent image needs a backing that is neither white nor black, or the
+ * viewer cannot tell transparency from a solid fill of the theme's background.
+ * The squares are drawn from the theme's own muted color so the pattern reads
+ * at the same weight in light and dark.
+ */
+.checkerboard {
+  --checker: hsl(var(--muted));
+  background-color: hsl(var(--background));
+  background-image:
+    linear-gradient(45deg, var(--checker) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--checker) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--checker) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--checker) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}

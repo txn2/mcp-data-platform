@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ContentRenderer } from "./components/renderers/ContentRenderer";
 import { MarkdownRenderer } from "./components/renderers/MarkdownRenderer";
+import { resolveRenderer } from "./components/renderers/registry";
 
 function MarkdownWithSourceToggle({ content }: { content: string }) {
   const [showSource, setShowSource] = useState(false);
@@ -63,20 +64,34 @@ function TooLargeMessage({ sizeBytes, downloadURL, name }: { sizeBytes: number; 
 }
 
 // Read content from embedded JSON (injected by Go template).
+//
+// `serveFromURL` marks a binary asset the page must load from the raw content
+// endpoint: the payload below is a JSON string, which cannot carry arbitrary
+// bytes, so images, audio, video and PDFs arrive as a URL and nothing else.
 const dataEl = document.getElementById("content-data");
 if (dataEl) {
-  const { contentType, content, name, tooLarge, sizeBytes, downloadURL } = JSON.parse(dataEl.textContent!);
+  const { contentType, content, name, tooLarge, sizeBytes, downloadURL, contentURL, serveFromURL } =
+    JSON.parse(dataEl.textContent!);
   const root = document.getElementById("content-root");
   if (root) {
     if (tooLarge) {
       createRoot(root).render(<TooLargeMessage sizeBytes={sizeBytes || 0} downloadURL={downloadURL} name={name} />);
     } else {
-      const ct = (contentType as string).toLowerCase();
-      const isMarkdown = ct.includes("markdown");
+      const entry = resolveRenderer({
+        contentType,
+        fileName: name,
+        content: serveFromURL ? undefined : content,
+      });
       createRoot(root).render(
-        isMarkdown
+        entry.kind === "markdown"
           ? <MarkdownWithSourceToggle content={content} />
-          : <ContentRenderer contentType={contentType} content={content} fileName={name} />,
+          : <ContentRenderer
+              contentType={contentType}
+              content={serveFromURL ? undefined : content}
+              fileName={name}
+              contentUrl={contentURL || downloadURL}
+              sizeBytes={sizeBytes}
+            />,
       );
     }
   }

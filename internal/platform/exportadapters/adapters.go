@@ -151,9 +151,10 @@ func (e *APIExporter) InsertExportAsset(ctx context.Context, asset apigatewaykit
 		SizeBytes:   asset.SizeBytes,
 		Tags:        asset.Tags,
 		Provenance: portal.Provenance{
-			UserID:    asset.Provenance.UserID,
-			SessionID: asset.Provenance.SessionID,
-			ToolCalls: convertAPIProvenanceCalls(asset.Provenance.ToolCalls),
+			UserID:              asset.Provenance.UserID,
+			SessionID:           asset.Provenance.SessionID,
+			ToolCalls:           convertAPIProvenanceCalls(asset.Provenance.ToolCalls),
+			DeclaredContentType: asset.Provenance.DeclaredContentType,
 		},
 		SessionID:      asset.SessionID,
 		IdempotencyKey: asset.IdempotencyKey,

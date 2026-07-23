@@ -31,10 +31,3 @@ export interface AssetViewerProps {
   versionContent?: string;
   versionContentLoading?: boolean;
 }
-
-export function isTextContent(contentType: string): boolean {
-  const ct = contentType.toLowerCase();
-  return ct.includes("text/") || ct.includes("html") || ct.includes("svg") ||
-    ct.includes("xml") || ct.includes("json") || ct.includes("javascript") ||
-    ct.includes("jsx") || ct.includes("markdown");
-}

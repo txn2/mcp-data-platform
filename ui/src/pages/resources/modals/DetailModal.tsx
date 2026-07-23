@@ -5,6 +5,7 @@ import { formatBytes } from "@/lib/format";
 import type { Resource } from "@/api/resources/types";
 import { scopeIcon, scopeLabel } from "./shared";
 import { Overlay } from "./Overlay";
+import { ResourcePreview } from "./ResourcePreview";
 
 export function DetailModal({ resource: r, onClose, onEdit, onDelete, admin }: { resource: Resource; onClose: () => void; onEdit: () => void; onDelete: () => void; admin: boolean }) {
   const ScopeIcon = scopeIcon(r.scope);
@@ -51,6 +52,8 @@ export function DetailModal({ resource: r, onClose, onEdit, onDelete, admin }: {
           <span className="text-xs font-medium text-muted-foreground">URI</span>
           <p className="text-xs font-mono bg-muted rounded px-2 py-1 mt-0.5 break-all">{r.uri}</p>
         </div>
+
+        <ResourcePreview resource={r} />
 
         {r.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
