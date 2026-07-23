@@ -359,6 +359,9 @@
     //    ui/notifications/tool-result notifications and no hostCapabilities.
     // ---------------------------------------------------------------------
     var TOOL_NAME = 'manage_prompt';
+    // INIT_TOOL mints the session handle every other tool requires; it is the
+    // only tool the platform never gates.
+    var INIT_TOOL = 'platform_info';
     var CALL_TIMEOUT_MS = 20000;
 
     var rid = 2; // request id 1 is ui/initialize
@@ -405,25 +408,119 @@
         isLegacy = !hostCaps;
         canMessage = !!(hostCaps && hostCaps.message);
         send({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
-        loadList('');
+        boot();
     }
 
-    // callTool invokes an MCP tool through the host and resolves with the
-    // parsed JSON payload of the result's first text content block. On legacy
-    // hosts, results arrive as notifications with no request id; the expect
-    // predicate distinguishes our response from host pushes of the original
-    // tool call's result.
-    var lastCallId = null; // id of the most recently issued callTool request
+    // boot handshakes before the first data call, because every tool other than
+    // platform_info is refused without a handle.
+    //
+    // A failed handshake is not fatal and must not blank the app: a deployment
+    // with handles disabled needs no handle at all, and a persona may allow
+    // manage_prompt while denying platform_info. The list call runs either way
+    // and reports the real refusal if one comes.
+    function boot() {
+        handshake()
+            .catch(function() { /* reported by the list call if it matters */ })
+            .then(function() { loadList(''); });
+    }
 
+    // ---------------------------------------------------------------------
+    // Session handle. The platform refuses any tool call that does not carry a
+    // platform_info-minted session_id (SESSION_REQUIRED), and an app's calls
+    // reach the server over the same MCP transport as an agent's, so the app
+    // performs the handshake itself and threads the handle on every call. A
+    // deployment with handles disabled returns no session_id, in which case
+    // nothing is threaded and behavior is unchanged.
+    // ---------------------------------------------------------------------
+    var sessionId = null;         // handle minted by platform_info, or null
+    var pendingHandshake = null;  // in-flight handshake, shared by concurrent callers
+
+    function handshake() {
+        if (pendingHandshake) { return pendingHandshake; }
+        pendingHandshake = issueCall(INIT_TOOL, {}, isInfoPayload, { id: null, canceled: false, init: true }).then(
+            function(d) {
+                pendingHandshake = null;
+                sessionId = (d && typeof d.session_id === 'string' && d.session_id) || null;
+            },
+            function(err) {
+                pendingHandshake = null;
+                throw err;
+            }
+        );
+        return pendingHandshake;
+    }
+
+    function withSession(args) {
+        if (!sessionId) { return args; }
+        var merged = {};
+        Object.keys(args || {}).forEach(function(k) { merged[k] = args[k]; });
+        merged.session_id = sessionId;
+        return merged;
+    }
+
+    // isSessionError matches the refusals the platform issues when a call
+    // carries no usable session identity. All three are recovered the same way,
+    // by calling platform_info and retrying: SESSION_REQUIRED and
+    // SESSION_EXPIRED come from the explicit handle resolver, SETUP_REQUIRED
+    // from the transport-keyed session gate a deployment may run instead.
+    function isSessionError(err) {
+        return /SESSION_REQUIRED|SESSION_EXPIRED|SETUP_REQUIRED/.test((err && err.message) || '');
+    }
+
+    // CANCELED marks a call dropped by its caller rather than by the platform,
+    // so a superseded call never reaches an error banner.
+    var CANCELED = 'canceled';
+
+    function isCanceled(err) { return !!err && err.message === CANCELED; }
+
+    // callTool invokes a platform tool with the session handle threaded and
+    // returns {promise, cancel}.
+    //
+    // It waits on an in-flight handshake instead of issuing with a handle it
+    // knows was just discarded, and recovers once from a session refusal by
+    // re-handshaking and replaying. cancel() drops the request AND blocks a
+    // replay that has not gone out yet: on legacy hosts responses are matched by
+    // payload shape, so a superseded call that survived into a replay would
+    // leave a second waiter of the same shape and the two responses could settle
+    // the wrong callers.
     function callTool(name, args, expect) {
+        var call = { id: null, canceled: false };
+        var promise = (pendingHandshake || Promise.resolve())
+            .catch(function() { /* the call reports the refusal, if any */ })
+            .then(function() { return issueCall(name, withSession(args), expect, call); })
+            .catch(function(err) {
+                if (call.canceled || !isSessionError(err)) { throw err; }
+                sessionId = null;
+                return handshake().then(function() {
+                    if (call.canceled) { throw new Error(CANCELED); }
+                    return issueCall(name, withSession(args), expect, call);
+                });
+            });
+        return {
+            promise: promise,
+            cancel: function() {
+                call.canceled = true;
+                var p = call.id !== null ? pending[call.id] : null;
+                if (call.id !== null) { dropPending(call.id); }
+                if (p) { p.reject(new Error(CANCELED)); }
+            }
+        };
+    }
+
+    // issueCall sends one tools/call and resolves with the parsed JSON payload
+    // of the result's first text content block. On legacy hosts, results arrive
+    // as notifications with no request id; the expect predicate distinguishes
+    // our response from host pushes of the original tool call's result.
+    function issueCall(name, args, expect, call) {
         return new Promise(function(resolve, reject) {
+            if (call.canceled) { reject(new Error(CANCELED)); return; }
             var id = rid++;
-            lastCallId = id;
+            call.id = id;
             var timer = setTimeout(function() {
                 dropPending(id);
                 reject(new Error('The request to the platform timed out.'));
             }, CALL_TIMEOUT_MS);
-            pending[id] = { resolve: resolve, reject: reject, timer: timer, expect: expect };
+            pending[id] = { resolve: resolve, reject: reject, timer: timer, expect: expect, init: !!call.init };
             if (isLegacy) { legacyWaiters.push(id); }
             send({
                 jsonrpc: '2.0', id: id,
@@ -461,17 +558,19 @@
     // carries no request id) with a pending call: the oldest waiter whose
     // expect predicate accepts the payload wins; a payload no waiter accepts
     // is a host push of the original tool call's result and is ignored. An
-    // unparseable or error payload cannot be shape-matched, so it settles the
+    // unparseable or error payload cannot be shape-matched. A session refusal
+    // invalidates the handle for every in-flight gated call, so it settles all
+    // of them and each recovers independently; settling only the oldest would
+    // make an unrelated call perform the recovery while the refused one hung to
+    // its timeout. The handshake is excluded, since platform_info is never
+    // gated and so is never the call being refused. Any other error settles the
     // oldest waiter (the error banner's Retry recovers a rare mismatch).
     function onLegacyToolResult(result) {
         if (legacyWaiters.length === 0) { return; } // host push of the original call's result
         var payload;
         try { payload = parseToolResult(result); }
         catch (err) {
-            var oldest = legacyWaiters[0];
-            var op = pending[oldest];
-            dropPending(oldest);
-            op.reject(err);
+            rejectWaiters(isSessionError(err) ? gatedWaiters() : [legacyWaiters[0]], err);
             return;
         }
         for (var i = 0; i < legacyWaiters.length; i++) {
@@ -483,6 +582,24 @@
             return;
         }
         // No waiter matched: an unrelated host push.
+    }
+
+    // gatedWaiters returns the pending legacy waiters a session refusal can
+    // apply to, i.e. every waiter except the handshake's.
+    function gatedWaiters() {
+        return legacyWaiters.filter(function(id) {
+            return pending[id] && !pending[id].init;
+        });
+    }
+
+    // rejectWaiters settles the named pending calls with the same error.
+    function rejectWaiters(ids, err) {
+        ids.forEach(function(id) {
+            var p = pending[id];
+            if (!p) { return; }
+            dropPending(id);
+            p.reject(err);
+        });
     }
 
     function parseToolResult(result) {
@@ -565,16 +682,27 @@
 
     function displayName(p) { return p.display_name || p.name; }
 
+    // isInfoPayload matches a platform_info result. config_version and features
+    // are unconditional on that payload and appear on no manage_prompt payload,
+    // so they discriminate it on legacy hosts, where responses are correlated by
+    // shape rather than by request id.
+    function isInfoPayload(d) {
+        return !!d && d.config_version !== undefined && d.features !== undefined;
+    }
+
+    // isListPayload must reject a platform_info payload explicitly: platform_info
+    // also carries a prompts array (the registered MCP prompts), so the prompts
+    // test alone would let the handshake response satisfy a waiting list call.
     function isListPayload(d) {
-        return !!d && (Array.isArray(d.prompts) || d.count !== undefined);
+        return !!d && !isInfoPayload(d) && (Array.isArray(d.prompts) || d.count !== undefined);
     }
 
     function isUsePayload(d) {
         return !!d && (d.status === 'resolved' || d.status === 'ambiguous');
     }
 
-    var listSeq = 0;       // drops stale responses when searches overlap
-    var activeListId = null; // pending list request, canceled when superseded
+    var listSeq = 0;           // drops stale responses when searches overlap
+    var activeListCall = null; // in-flight list call, canceled when superseded
 
     function loadList(query) {
         hide('error'); hide('detail');
@@ -582,14 +710,14 @@
         // only the initial load shows the full-page loading state.
         if ($('browser').classList.contains('hidden')) { show('loading'); }
         var seq = ++listSeq;
-        // Cancel a superseded in-flight list call so at most one list waiter
-        // exists (legacy hosts correlate responses by shape, not id).
-        if (activeListId !== null && pending[activeListId]) { dropPending(activeListId); }
+        // Cancel a superseded list call, including a session replay it has not
+        // issued yet, so at most one list waiter exists (legacy hosts correlate
+        // responses by shape, not id).
+        if (activeListCall) { activeListCall.cancel(); }
         var args = { command: 'list' };
         if (query) { args.query = query; args.limit = 50; }
-        var call = callTool(TOOL_NAME, args, isListPayload);
-        activeListId = lastCallId;
-        call
+        activeListCall = callTool(TOOL_NAME, args, isListPayload);
+        activeListCall.promise
             .then(function(d) {
                 if (seq !== listSeq) { return; }
                 state.prompts = normalizePrompts(d.prompts);
@@ -599,7 +727,7 @@
                 renderBrowser();
             })
             .catch(function(err) {
-                if (seq !== listSeq) { return; }
+                if (seq !== listSeq || isCanceled(err)) { return; }
                 hide('loading');
                 showError(err.message, function() { loadList(state.query); });
             });
@@ -1006,7 +1134,7 @@
         btn.textContent = 'Running…';
 
         var handle = p.id ? 'mcp:prompt:' + p.id : p.name;
-        callTool(TOOL_NAME, { command: 'use', name: handle, args: argValues() }, isUsePayload)
+        callTool(TOOL_NAME, { command: 'use', name: handle, args: argValues() }, isUsePayload).promise
             .then(function(d) {
                 if (d.status !== 'resolved') {
                     throw new Error(d.message || 'The prompt could not be resolved.');
