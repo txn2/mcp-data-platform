@@ -50,6 +50,28 @@ func (s *MemoryStore) Get(_ context.Context, id string) (*Session, error) {
 	return sess, nil
 }
 
+// LatestHandleForUser returns userID's most-recently-active, non-expired
+// platform_info-minted handle, or nil, nil when they have none.
+func (s *MemoryStore) LatestHandleForUser(_ context.Context, userID string) (*Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if userID == "" {
+		return nil, nil //nolint:nilnil // Store interface specifies nil,nil for no match
+	}
+	now := time.Now()
+	var latest *Session
+	for _, sess := range s.sessions {
+		if sess.UserID != userID || !IsHandle(sess.ID) || !now.Before(sess.ExpiresAt) {
+			continue
+		}
+		if latest == nil || sess.LastActiveAt.After(latest.LastActiveAt) {
+			latest = sess
+		}
+	}
+	return latest, nil
+}
+
 // Touch updates LastActiveAt and extends ExpiresAt by the store's TTL.
 func (s *MemoryStore) Touch(_ context.Context, id string) error {
 	s.mu.Lock()

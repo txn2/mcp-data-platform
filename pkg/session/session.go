@@ -38,6 +38,15 @@ type Store interface {
 	// Get retrieves a session by ID. Returns nil, nil if not found or expired.
 	Get(ctx context.Context, id string) (*Session, error)
 
+	// LatestHandleForUser returns userID's most-recently-active, non-expired
+	// platform_info-minted handle (a "dps_" session), or nil, nil when they
+	// have none. It backs adopt-by-identity in the session gate: a call that
+	// arrives authenticated but without a threaded handle (an MCP App's
+	// sandboxed call) is scoped to the session the caller already established
+	// rather than refused. Transport sessions are excluded by the handle
+	// prefix, so only a durable, agent-threadable session is ever adopted.
+	LatestHandleForUser(ctx context.Context, userID string) (*Session, error)
+
 	// Touch updates LastActiveAt and extends ExpiresAt by the store's TTL.
 	Touch(ctx context.Context, id string) error
 

@@ -217,3 +217,39 @@ func TestStore_Update_RealDB_NilTags(t *testing.T) {
 	assert.NotNil(t, got.Tags)
 	assert.Empty(t, got.Tags)
 }
+
+// TestStore_ListPersonalByName_RealDB is the #1042 store-layer regression: two
+// users own a same-named personal prompt, and ListPersonalByName resolves both
+// across owners while GetPersonal stays owner-keyed. It also confirms the query
+// excludes a same-named global prompt (scope = 'personal' only) and returns
+// empty for an unknown name.
+func TestStore_ListPersonalByName_RealDB(t *testing.T) {
+	store := New(testdb.New(t))
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, &prompt.Prompt{
+		Name: "report", Content: "a body", Scope: prompt.ScopePersonal,
+		OwnerEmail: "a@example.com", Source: prompt.SourceOperator, Enabled: true,
+	}))
+	require.NoError(t, store.Create(ctx, &prompt.Prompt{
+		Name: "report", Content: "b body", Scope: prompt.ScopePersonal,
+		OwnerEmail: "b@example.com", Source: prompt.SourceOperator, Enabled: true,
+	}))
+	require.NoError(t, store.Create(ctx, &prompt.Prompt{
+		Name: "report", Content: "shared body", Scope: prompt.ScopeGlobal,
+		Source: prompt.SourceOperator, Status: prompt.StatusApproved, Enabled: true,
+	}))
+
+	got, err := store.ListPersonalByName(ctx, "report")
+	require.NoError(t, err)
+	require.Len(t, got, 2, "resolves both owners' personal prompts, not the global one")
+	owners := []string{got[0].OwnerEmail, got[1].OwnerEmail}
+	assert.ElementsMatch(t, []string{"a@example.com", "b@example.com"}, owners)
+	for _, p := range got {
+		assert.Equal(t, prompt.ScopePersonal, p.Scope)
+	}
+
+	none, err := store.ListPersonalByName(ctx, "no-such-prompt")
+	require.NoError(t, err)
+	assert.Empty(t, none)
+}

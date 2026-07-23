@@ -49,6 +49,11 @@
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
+        /* Fixed 500px app shell (#1043). The app declares its own height via the
+           MCP Apps size-changed contract rather than depending on how much content
+           happens to exist; each view pins its header and scrolls its body inside
+           the shell so the host iframe never grows or shrinks with content. */
+        html, body { height: 500px; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans',
                          Helvetica, Arial, sans-serif;
@@ -56,8 +61,17 @@
             line-height: 1.5;
             color: var(--text);
             background: var(--bg);
-            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
+
+        /* A view fills the shell as a header + scrolling body. */
+        .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+        .view-head { flex-shrink: 0; padding: 16px 16px 8px; }
+        .view-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; }
+
+        #loading, #error { margin: 16px; }
 
         .hidden { display: none !important; }
 
@@ -329,23 +343,30 @@
 
     <div id="error" class="banner error hidden"></div>
 
-    <div id="browser" class="hidden">
-        <div class="topbar">
-            <div class="title">Prompt Library<span id="count" class="count"></span></div>
-            <input id="search" class="search" type="text"
-                   placeholder="Search prompts&hellip;" autocomplete="off">
+    <div id="browser" class="view hidden">
+        <div class="view-head">
+            <div class="topbar">
+                <div class="title">Prompt Library<span id="count" class="count"></span></div>
+                <input id="search" class="search" type="text"
+                       placeholder="Search prompts&hellip;" autocomplete="off">
+            </div>
+            <div class="facets">
+                <div class="bucket-tabs" id="buckets"></div>
+                <select id="collection" class="facet-select hidden"></select>
+                <select id="sort" class="facet-select"></select>
+            </div>
         </div>
-        <div class="facets">
-            <div class="bucket-tabs" id="buckets"></div>
-            <select id="collection" class="facet-select hidden"></select>
-            <select id="sort" class="facet-select"></select>
+        <div class="view-scroll">
+            <div id="tags" class="tagrow"></div>
+            <div id="cards"></div>
+            <div id="empty" class="empty hidden"></div>
         </div>
-        <div id="tags" class="tagrow"></div>
-        <div id="cards"></div>
-        <div id="empty" class="empty hidden"></div>
     </div>
 
-    <div id="detail" class="hidden"></div>
+    <div id="detail" class="view hidden">
+        <div class="view-head" id="detail-head"></div>
+        <div class="view-scroll" id="detail-scroll"></div>
+    </div>
 
 <script>
     'use strict';
@@ -373,6 +394,28 @@
     var booted = false;
 
     function send(msg) { window.parent.postMessage(msg, '*'); }
+
+    // ---------------------------------------------------------------------
+    // MCP Apps height contract (#1043). The host sizes the iframe from the
+    // last ui/notifications/size-changed the view sends; without one the app
+    // renders in the host's default cramped window. The view declares a fixed
+    // 500px viewport (its shell height) and re-reports on any reflow via a
+    // ResizeObserver, mirroring the SDK's useAutoResize pattern. Kept
+    // byte-identical to the platform-info app so both speak one contract.
+    // ---------------------------------------------------------------------
+    var APP_HEIGHT = 500;
+    function sendSize() {
+        // Report height only. These apps are laid out at the host's conversation
+        // width, so width stays host-controlled (fluid); we own only the height.
+        send({ jsonrpc: '2.0', method: 'ui/notifications/size-changed',
+               params: { height: APP_HEIGHT } });
+    }
+    function watchSize() {
+        sendSize();
+        if (typeof ResizeObserver === 'function') {
+            new ResizeObserver(function() { sendSize(); }).observe(document.documentElement);
+        }
+    }
 
     window.addEventListener('message', function(e) {
         var m = e.data;
@@ -408,6 +451,7 @@
         isLegacy = !hostCaps;
         canMessage = !!(hostCaps && hostCaps.message);
         send({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
+        watchSize();
         boot();
     }
 
@@ -960,13 +1004,16 @@
 
     function openDetail(p) {
         hide('browser');
-        var root = $('detail');
+        var headSlot = $('detail-head');
+        var root = $('detail-scroll');
+        clear(headSlot);
         clear(root);
         argInputs = Object.create(null);
+        root.scrollTop = 0;
 
         var back = el('button', 'back-btn', '‹ Back to library');
         back.addEventListener('click', function() { hide('detail'); show('browser'); });
-        root.appendChild(back);
+        headSlot.appendChild(back);
 
         var head = el('div', 'detail-head');
         head.appendChild(el('span', 'detail-title', displayName(p)));

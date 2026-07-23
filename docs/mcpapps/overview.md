@@ -71,7 +71,7 @@ All branding fields are optional. When unset the app falls back to the server na
 
 ## Built-in App: prompt-browser
 
-The platform also ships with `prompt-browser` embedded in the binary, bound to the `manage_prompt` tool. In an MCP Apps-capable host, a prompt discovery call renders an interactive prompt library browser:
+The platform also ships with `prompt-browser` embedded in the binary, bound to the presentation-only `show_prompts` tool. In an MCP Apps-capable host, calling `show_prompts` renders an interactive prompt library browser for the human. It is bound to `show_prompts` rather than a data tool so the agent's routine prompt work does not render a UI; the rendered app populates itself from its own `manage_prompt` calls:
 
 - Search-as-you-type over the ranked prompt query, with My Prompts / Library buckets, collection and tag filters, and usage-based sorting
 - Cards showing display name, description, version, approval provenance, and run count

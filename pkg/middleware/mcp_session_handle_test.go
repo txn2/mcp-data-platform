@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -226,6 +227,85 @@ func TestSessionResolver_MissingHandleRequired(t *testing.T) {
 		t.Errorf("code = %q, want %q", code, CodeSessionRequired)
 	}
 }
+
+// TestSessionResolver_MissingHandleAdoptsUsersSession proves issue #1040: an
+// authenticated call that presents no handle is scoped to the caller's own
+// established session rather than refused, so an MCP App's sandboxed calls (which
+// cannot thread the handle) work. The model minted a handle for this identity;
+// the app's handle-less call adopts it.
+func TestSessionResolver_MissingHandleAdoptsUsersSession(t *testing.T) {
+	store := pkgsession.NewMemoryStore(time.Hour)
+	r := newResolver(store, true)
+	h := mintHandle(t, store, "user-1") // as platform_info would, for this user
+
+	pc := NewPlatformContext("req")
+	pc.UserID = "user-1"
+	pc.SessionID = "" // stateless HTTP, no transport session
+	// No session_id argument: the app could not thread it.
+	req := makeCallReq("manage_prompt", map[string]any{"command": "list"})
+
+	if got := r.resolve(context.Background(), req, pc, "manage_prompt"); got != nil {
+		t.Fatalf("authenticated handle-less call should be adopted, not refused: code=%s", errCode(t, got))
+	}
+	if pc.SessionID != h {
+		t.Errorf("pc.SessionID = %q, want adopted handle %q", pc.SessionID, h)
+	}
+}
+
+// TestSessionResolver_AdoptOnlyOwnIdentity proves the adopted session must belong
+// to the authenticated caller: a handle-less call from a user with no session is
+// still refused even though another user has one, so adoption never crosses
+// identities.
+func TestSessionResolver_AdoptOnlyOwnIdentity(t *testing.T) {
+	store := pkgsession.NewMemoryStore(time.Hour)
+	r := newResolver(store, true)
+	mintHandle(t, store, "user-1") // a session for a different user
+
+	pc := NewPlatformContext("req")
+	pc.UserID = "user-2" // the caller, who has no session
+	pc.SessionID = ""
+	req := makeCallReq("manage_prompt", map[string]any{"command": "list"})
+
+	result := r.resolve(context.Background(), req, pc, "manage_prompt")
+	if result == nil {
+		t.Fatal("a caller with no session of their own must be refused")
+	}
+	if code := errCode(t, result); code != CodeSessionRequired {
+		t.Errorf("code = %q, want %q", code, CodeSessionRequired)
+	}
+	if pc.SessionID != "" {
+		t.Errorf("no session should be adopted for user-2, got %q", pc.SessionID)
+	}
+}
+
+// TestSessionResolver_AdoptFailsOpenOnStoreError proves an infrastructure error
+// on the identity lookup allows the authenticated call rather than refusing it,
+// matching the explicit-handle path's deliberate fail-open. The authenticator,
+// not the handle, is the security boundary.
+func TestSessionResolver_AdoptFailsOpenOnStoreError(t *testing.T) {
+	r := NewSessionResolver(erroringStore{}, SessionResolverConfig{
+		Enabled: true, Require: true, TTL: time.Hour, InitTool: testInitTool,
+	})
+
+	pc := NewPlatformContext("req")
+	pc.UserID = "user-1"
+	pc.SessionID = ""
+	req := makeCallReq("manage_prompt", map[string]any{"command": "list"})
+
+	if got := r.resolve(context.Background(), req, pc, "manage_prompt"); got != nil {
+		t.Fatalf("store error must not refuse an authenticated caller: code=%s", errCode(t, got))
+	}
+}
+
+// erroringStore is a session store whose identity lookup always fails, for the
+// fail-open test. Every other method is a no-op sufficient for the resolver.
+type erroringStore struct{ pkgsession.Store }
+
+func (erroringStore) LatestHandleForUser(context.Context, string) (*pkgsession.Session, error) {
+	return nil, errAdoptLookup
+}
+
+var errAdoptLookup = errors.New("session store unavailable")
 
 // TestSessionResolver_StatelessShimSourcesBypassRequire proves issue #811's fix:
 // a call from a stateless in-memory shim (Source=rest, the gateway HTTP shim; or

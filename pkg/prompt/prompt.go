@@ -317,6 +317,14 @@ type Store interface {
 	// disambiguate. Returns nil, nil if not found.
 	GetPersonal(ctx context.Context, ownerEmail, name string) (*Prompt, error)
 
+	// ListPersonalByName retrieves every personal prompt with the given name,
+	// across all owners. Personal names are unique only within an owner, so this
+	// may return more than one row; callers with platform-wide visibility (an
+	// admin resolving a prompt they did not author) use it to address a personal
+	// prompt by name and to disambiguate by owner. Returns an empty slice if none
+	// match.
+	ListPersonalByName(ctx context.Context, name string) ([]Prompt, error)
+
 	// GetByID retrieves a prompt by ID. Returns nil, nil if not found.
 	GetByID(ctx context.Context, id string) (*Prompt, error)
 

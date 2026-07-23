@@ -46,10 +46,11 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
 | Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, etc.) |
-| Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections |
+| Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, and edit asset content in place (patch, locate, get_content, outline, stats, diff) |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
-| Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, and get |
+| Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, and the content verbs (patch, locate, get_content, outline, stats, diff) |
+| Platform | `show_prompts` | Render the prompt library as an interactive browser for the human (presentation-only; call only when the user wants to see their prompts) |
 
 ---
 
@@ -878,29 +879,132 @@ Save AI-generated content to the asset portal as a versioned asset. Automaticall
 
 ### manage_asset
 
-List, retrieve, update, or delete saved assets. All mutations enforce ownership (users can only modify their own assets).
+List, retrieve, update, or delete saved assets, and edit an asset's content in place. All mutations enforce ownership (users can only modify their own assets); the read-only content verbs additionally accept a share grant, so an asset shared with you can be read but not patched.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | Action to perform: list, get, update, delete, search |
-| `asset_id` | string | Conditional | - | Required for get, update, delete |
-| `content` | string | No | - | New content (for update — replaces S3 object) |
+| `action` | string | Yes | - | Action to perform: list, get, update, delete, search, patch, locate, get_content, outline, stats, diff |
+| `asset_id` | string | Conditional | - | Required for get, update, delete, and every content action |
+| `content` | string | No | - | New content (for update; replaces the whole body) |
 | `name` | string | No | - | New name (for update) |
 | `description` | string | No | - | New description (for update) |
 | `tags` | array | No | - | New tags (for update) |
 | `content_type` | string | No | - | New content type (for update, only when replacing content) |
+| `change_summary` | string | No | - | Summary recorded on the new version (update and patch) |
 | `query` | string | Conditional | - | Free-text relevance query (required for search) |
 | `limit` | integer | No | 50 | Max results for list (max 200); ranked search defaults to 20 (max 100) |
+
+The patch and navigation arguments (`edits`, `base_version`, `dry_run`, `find`, `pattern`, `section`, `line_start`, `line_end`, `context_bytes`, `from_version`, `to_version`) are the shared content-editing grammar documented in [Editing content in place](#editing-content-in-place). `occurrence` is a per-edit field inside `edits`, not a top-level argument.
 
 **Actions:**
 
 - **list**: Show the current user's assets with metadata
-- **get**: Retrieve full asset metadata by ID
-- **update**: Change name, description, tags, or replace content
+- **get**: Retrieve full asset metadata by ID (the metadata row, not the body)
+- **update**: Change name, description, tags, or replace the whole content
 - **delete**: Soft-delete an asset
-- **search**: Rank the caller's own assets by relevance to `query`. Uses the same hybrid (vector + lexical) ranking as the prompt and Knowledge & Memory search: weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise. Returns each match with a `score` and reports `ranking` (`hybrid` or `lexical`). Scoped server-side to the caller's own assets by `owner_id` — the same ownership key the asset library and update/delete checks use, so search returns exactly what you see in the library — and fails closed when the caller has no identity, so a user can never find an asset they cannot view.
+- **search**: Rank the caller's own assets by relevance to `query`. Uses the same hybrid (vector + lexical) ranking as the prompt and Knowledge & Memory search: weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise. Returns each match with a `score` and reports `ranking` (`hybrid` or `lexical`). Scoped server-side to the caller's own assets by `owner_id`, the same ownership key the asset library and update/delete checks use, so search returns exactly what you see in the library, and fails closed when the caller has no identity, so a user can never find an asset they cannot view.
+- **patch / locate / get_content / outline / stats / diff**: read and edit the body without moving the whole document. See below.
+
+A patch writes an ordinary new version, so `list_versions` and `revert` keep working, and the version's change summary is the caller's `change_summary` (or a generated "3 edits via patch") instead of a fixed constant.
+
+---
+
+### Editing content in place
+
+Regenerating a whole document to change one sentence costs output tokens proportional to the size of the document rather than the size of the change, and every regeneration is a chance to silently drop an unrelated paragraph. `manage_asset` and `manage_prompt` therefore share one content-editing grammar, implemented once in `pkg/textpatch`: the same argument names, the same operations, and the same error codes on both tools.
+
+The intended loop for a large document is `outline` (or `locate`) to decide where, then `patch` that place. The body crosses the wire in neither direction.
+
+**The verbs**
+
+| Verb | Purpose |
+|---|---|
+| `outline` | Heading tree with levels, line numbers, and per-section byte size |
+| `get_content` | Read a span: the whole body, one `section`, or a `line_range` |
+| `stats` | Size, line count, current version, content type, body hash |
+| `locate` | Find literal or regex matches: count, line numbers, enclosing section, context windows |
+| `patch` | Apply an ordered list of anchored edits |
+| `diff` | Compare two versions, or a pending prompt draft against the approved snapshot |
+
+**Patch grammar**
+
+A patch is an ordered list of edits applied to the current body in memory. Nothing is written until every edit resolves.
+
+```json
+{
+  "action": "patch",
+  "asset_id": "ast_...",
+  "base_version": 7,
+  "edits": [
+    { "find": "revenue grew 12% year over year", "replace": "revenue grew 14% year over year" },
+    { "op": "replace_section", "section": "## Methodology", "text": "## Methodology\n\nRestated..." },
+    { "op": "insert_after", "find": "## Findings", "text": "\n\nAll figures are quarter-end.\n" },
+    { "op": "replace", "pattern": "Q[1-4] FY24", "replace": "$0 (restated)", "occurrence": "all" },
+    { "op": "move_section", "section": "## Appendix A", "after": "## Appendix B" },
+    { "op": "append", "text": "\n\n## Appendix C\n\n..." }
+  ],
+  "change_summary": "correct the YoY figure, restate methodology, reorder appendices"
+}
+```
+
+Operations:
+
+- `replace` (the default when `op` is omitted): `find` is matched literally and swapped for `replace`. An empty `replace` deletes the matched text.
+- `insert_before` / `insert_after`: `text` is placed relative to the `find` anchor, leaving the anchor in place.
+- `replace_section`: `section` names a markdown heading (`## Methodology`, or a `Report > Methodology` path when headings repeat). The span from that heading to the next heading of the same or higher level is replaced with `text`.
+- `move_section`: relocate a whole section `before` or `after` another heading, or with `position` set to `start` or `end`.
+- `append` / `prepend`: `text` at the end or start of the body. No anchor needed.
+
+`section` is also accepted on `replace`, `insert_before`, and `insert_after` to scope the anchor search to one section, which is how a repeated phrase becomes unambiguous without quoting a long anchor.
+
+**Matching rules**
+
+An anchor must resolve to exactly one span. Zero matches and more than one match are both errors, and the error reports the count. `occurrence` (`first`, `last`, `all`, or a 1-based integer) is the explicit opt-in when the caller means a specific one or all of them; an `occurrence: "all"` edit reports how many spans it changed.
+
+Matching is exact first. If an exact match fails, one retry normalizes CRLF to LF and ignores trailing whitespace on each line; if that resolves uniquely the edit applies and the response marks it `normalized: true`. Nothing beyond that: no fuzzy, similarity, or semantic matching, because a plausible-but-wrong edit applied silently is worse than a rejection the agent can correct.
+
+`pattern` is the regex alternative to `find`, on both `locate` and `patch`, with `$1`-style capture references available in `replace`. Go's `regexp` is RE2, so match time is linear in input length and a pathological pattern cannot hang the server; a pattern-length cap, a match cap, and the same all-or-nothing failure rule still apply.
+
+Edits apply in order against the evolving body, so a later edit can anchor on text an earlier edit introduced.
+
+**Atomicity and staleness**
+
+All edits resolve against an in-memory copy; the first failure aborts the entire call and writes nothing. The error names the failing edit by index. `base_version` is optional and checked when supplied; a mismatch is refused with the current version in the error so the agent re-reads and retries. Reads return the version, so a well-behaved agent threads it and gets lost-update protection for free.
+
+**Response**
+
+The response never echoes the new body. It returns the new version number, the new size, and a per-edit outcome (the operation, whether it normalized, how many spans it touched, the line where it landed) plus a unified diff of the changed hunks only.
+
+Unified diff is rejected as an input format and adopted as the output format. As input it would make correctness depend on line numbers and context lines the model must reproduce exactly; as output it is generated by the server from two known strings, and it is the most compact accurate description of what changed.
+
+`dry_run: true` resolves every edit and returns exactly that report, diff included, without writing.
+
+**Search and navigation**
+
+`locate` takes `find` (literal) or `pattern` (regex) and returns, per match: the line number, byte offset, enclosing section heading, and a context window wide enough to copy verbatim into a `find` anchor, plus the total match count. The count is the point: an agent that checks first never hits `PATCH_AMBIGUOUS`.
+
+Line numbers are read output only and are never accepted as an edit anchor. A line number is stale the moment a preceding edit lands, whereas an anchor either matches or errors. `line_start` / `line_end` exist on `get_content` for reading a span and nowhere else.
+
+**Text only**
+
+Every verb here is text-only. A PDF, image, parquet, or other binary asset is refused with `PATCH_NOT_TEXT` rather than corrupted or dumped as garbage, using the platform's single media-type detection seam (`pkg/contenttype`).
+
+**Errors**
+
+Corrective, self-describing envelopes carrying `{code, category, message, hint}`:
+
+| Code | Meaning |
+|---|---|
+| `PATCH_NO_MATCH` | Anchor text not found, with the edit index. Run `locate` and copy the anchor verbatim. |
+| `PATCH_AMBIGUOUS` | Several matches for an anchor with no `occurrence`. Lengthen the anchor, scope it with `section`, or set `occurrence`. |
+| `PATCH_STALE_BASE` | `base_version` does not match the current version. Re-read and retry. |
+| `PATCH_NOT_TEXT` | The target's content type is not textual. |
+| `PATCH_TOO_LARGE` | Too many edits, too many regex matches, or a result exceeding the deployment's max content size. |
+| `PATCH_SECTION_NOT_FOUND` | Named heading absent, with the document's headings in the message. |
+| `PATCH_BAD_PATTERN` | Regex fails to compile or exceeds the pattern cap. |
+| `PATCH_BAD_EDIT` | The edit names no anchor, names both `find` and `pattern`, or uses an unknown operation. |
 
 ---
 
@@ -1008,6 +1112,8 @@ This is discovery, not routing: the agent still chooses which returned tool to c
 
 `manage_prompt` manages database-stored prompts (create, update, delete, list, get) and resolves any prompt to run with the `use` command. `list` supports a ranked free-text `query` over the caller's visible approved prompts (hybrid semantic + lexical when an embedding provider is configured, lexical otherwise).
 
+**Editing without resending.** `manage_prompt` carries the same content verbs as `manage_asset` (`patch`, `locate`, `get_content`, `outline`, `stats`, `diff`) with the identical grammar documented in [Editing content in place](#editing-content-in-place). Renaming a step in a long operating procedure is one `patch` call whose arguments are the size of the change. A patch routes through the same review gate as any other content edit: patching an approved global or persona prompt produces a pending draft version and the approved snapshot keeps being served until an admin approves it. `diff` with no versions named compares the newest pending draft against the version currently being served, which is the question a reviewer actually has.
+
 **`use`: resolve and run.** When a user names a report, procedure, or recurring task ("run the daily sales report"), the agent resolves it against the prompt library instead of enumerating prompts. `use` accepts any handle in `name`:
 
 - an exact bare name (`daily-sales-report`),
@@ -1037,7 +1143,11 @@ The rule is enforced when the attachment is made and again when the prompt chang
 
 Authors manage attachments from the prompt viewer in the portal, and the resource detail view lists the prompts that attach a resource, so the cost of deleting it is visible first.
 
-**Prompt browser app.** In MCP Apps-capable hosts, `manage_prompt` is bound to the built-in `prompt-browser` app: discovery calls render an interactive library browser with search, facets, argument forms, and a Run action. See [MCP Apps: Overview](../mcpapps/overview.md#built-in-app-prompt-browser). The tool's JSON results are complete on their own in clients that do not render apps.
+**Prompt browser app.** In MCP Apps-capable hosts, the built-in `prompt-browser` app is bound to the `show_prompts` tool. `show_prompts` is presentation-only: its only job is to render the interactive library browser (search, facets, argument forms, a Run action) for the human, so an agent calls it only when the user wants to see their prompts. `manage_prompt` carries no app and renders nothing, so the agent's own prompt work (resolve, run, create, edit) never puts a UI in front of the user. The rendered app populates itself from its own `manage_prompt` calls. See [MCP Apps: Overview](../mcpapps/overview.md#built-in-app-prompt-browser). `manage_prompt`'s JSON results are complete on their own in clients that do not render apps.
+
+### show_prompts
+
+Renders the user's prompt library as an interactive browser for the human to look at. Call it only when the human wants to see, browse, or pick from their prompts visually ("show me my prompts", "open my prompt library"). It performs no data operation and returns only a short confirmation; the rendered app populates itself from its own `manage_prompt` calls. For running, creating, editing, or listing prompts as part of your own work, use `manage_prompt`, which returns data and renders no UI. Optional `search` pre-focuses the library.
 
 ---
 

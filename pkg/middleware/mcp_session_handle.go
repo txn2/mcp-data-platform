@@ -171,8 +171,19 @@ func (r *SessionResolver) resolve(ctx context.Context, req mcp.Request, pc *Plat
 	// still authenticate and remain subject to persona authorization, route policy,
 	// and audit.
 	if r.require && !r.exempt[toolName] && !isStatelessShimSource(pc.Source) {
+		// An authenticated caller that presents no handle is not necessarily a
+		// non-compliant agent: an MCP App runs in a sandbox that cannot thread
+		// the handle on its own calls (issue #1040), and those calls are already
+		// authenticated. Adopt the caller's own established session, resolved
+		// from their authenticated identity, rather than refuse it. The
+		// authenticator is the security boundary; the handle is a scoping key.
+		// Only a caller with no session at all is refused, which keeps the
+		// platform_info-first requirement (#800) for genuinely fresh agents.
+		if r.adoptByIdentity(ctx, pc) {
+			return nil
+		}
 		r.recordMetric(ctx, sessionSourceNone)
-		slog.Warn("session handle: missing on gated tool call",
+		slog.Warn("session handle: missing and no session to adopt",
 			logKeyTool, toolName, logKeyUserID, pc.UserID)
 		return createSessionRequiredError(r.initTool)
 	}
@@ -186,6 +197,38 @@ func (r *SessionResolver) resolve(ctx context.Context, req mcp.Request, pc *Plat
 	}
 	r.recordMetric(ctx, sessionSourceNone)
 	return nil
+}
+
+// adoptByIdentity resolves the caller's own most-recently-active session from
+// their authenticated identity and adopts it, so a handle-less but
+// authenticated call (an MCP App's sandboxed call) is scoped to the session the
+// caller already established rather than refused. It reports whether the call
+// may proceed.
+//
+// It returns true (proceed) when a session is adopted, and also when the store
+// lookup fails: an infrastructure error must not refuse an authenticated
+// caller, matching resolveExplicit's deliberate fail-open, since the
+// authenticator, not the handle, is the security boundary. It returns false
+// (refuse) only for a caller with no live session at all, one that never called
+// the init tool.
+func (r *SessionResolver) adoptByIdentity(ctx context.Context, pc *PlatformContext) bool {
+	if pc.UserID == "" {
+		return false
+	}
+	sess, err := r.store.LatestHandleForUser(ctx, pc.UserID)
+	if err != nil {
+		slog.Warn("session handle: identity lookup failed, allowing unadopted",
+			logKeyUserID, pc.UserID, logKeyError, err)
+		r.recordMetric(ctx, sessionSourceNone)
+		return true
+	}
+	if sess == nil {
+		return false
+	}
+	pc.SessionID = sess.ID
+	r.recordMetric(ctx, sessionSourceExplicit)
+	r.refresh(sess)
+	return true
 }
 
 // resolveExplicit validates a presented handle and, on success, adopts it as

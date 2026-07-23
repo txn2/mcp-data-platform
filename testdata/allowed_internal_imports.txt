@@ -99,6 +99,8 @@ internal/platform/promptlayer -> pkg/prompt/attachserve
 internal/platform/promptlayer -> pkg/prompt/postgres
 internal/platform/promptlayer -> pkg/registry
 internal/platform/promptlayer -> pkg/resource
+internal/platform/promptlayer -> pkg/textpatch
+internal/platform/promptlayer -> pkg/textpatch/patchmcp
 internal/platform/promptlayer -> pkg/tuning
 internal/platform/reflexivecapture -> pkg/memory
 internal/platform/reflexivecapture -> pkg/middleware
@@ -379,6 +381,8 @@ pkg/session -> pkg/oauth
 pkg/session/postgres -> pkg/session
 pkg/storage/s3 -> pkg/storage
 pkg/storage/s3 -> pkg/urnbuild
+pkg/textpatch/patchmcp -> pkg/middleware
+pkg/textpatch/patchmcp -> pkg/textpatch
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> pkg/authevents
 pkg/toolkits/apigateway -> pkg/connoauth
@@ -421,12 +425,15 @@ pkg/toolkits/memory -> pkg/query
 pkg/toolkits/memory -> pkg/registry
 pkg/toolkits/memory -> pkg/semantic
 pkg/toolkits/memory -> pkg/toolkit
+pkg/toolkits/portal -> pkg/contenttype
 pkg/toolkits/portal -> pkg/embedding
 pkg/toolkits/portal -> pkg/middleware
 pkg/toolkits/portal -> pkg/portal
 pkg/toolkits/portal -> pkg/query
 pkg/toolkits/portal -> pkg/registry
 pkg/toolkits/portal -> pkg/semantic
+pkg/toolkits/portal -> pkg/textpatch
+pkg/toolkits/portal -> pkg/textpatch/patchmcp
 pkg/toolkits/portal -> pkg/toolkit
 pkg/toolkits/s3 -> pkg/observability
 pkg/toolkits/s3 -> pkg/query

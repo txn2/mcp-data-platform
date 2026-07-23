@@ -71,6 +71,16 @@ func (m *mockPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt,
 	return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
 }
 
+func (m *mockPromptStore) ListPersonalByName(_ context.Context, name string) ([]prompt.Prompt, error) {
+	var out []prompt.Prompt
+	for _, p := range m.prompts {
+		if p.Scope == prompt.ScopePersonal && p.Name == name {
+			out = append(out, *p)
+		}
+	}
+	return out, nil
+}
+
 func (m *mockPromptStore) Update(_ context.Context, p *prompt.Prompt) error {
 	if m.updateErr != nil {
 		return m.updateErr
