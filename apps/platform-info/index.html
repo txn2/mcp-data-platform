@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="height: 500px">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -99,10 +99,14 @@ if(__exports != exports)module.exports = exports;return module.exports}));
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        /* Fixed 500px app shell (#1043). The app declares its own height via the
-           MCP Apps size-changed contract rather than depending on how much content
-           happens to exist; the hero header is pinned and the content scrolls
-           inside the shell so the host iframe never grows or shrinks with content. */
+        /* Fixed 500px app shell. Claude sizes the iframe by reading
+           documentElement's height directly and ignores ui/notifications/size-changed
+           (anthropics/claude-ai-mcp #69), so the height is declared as an INLINE
+           style on <html> (present at first paint, which is what Claude snapshots)
+           in addition to this rule and the size-changed message the app still
+           sends for spec-compliant hosts. The hero header is pinned and the
+           content scrolls inside the shell. Keep this value in sync with the
+           inline style="height:..." on the <html> element above. */
         html, body { height: 500px; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans',

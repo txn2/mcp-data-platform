@@ -1930,6 +1930,16 @@ func (p *Platform) initMCPApps() error {
 	if err != nil {
 		return err
 	}
+	// The prompt browser presents the same brand as platform-info: its logo and
+	// name. When the operator has not configured the prompt-browser app itself,
+	// it inherits platform-info's already-resolved brand config (registered just
+	// above), and the portal logo is injected into whichever config it ends up
+	// with, so both built-in apps show one logo rather than the browser rendering
+	// bare.
+	if promptBrowser.Config == nil {
+		promptBrowser.Config = p.config.MCPApps.Apps[builtinPlatformInfoName].Config
+	}
+	promptBrowser.Config = p.branding.InjectPortalLogo(promptBrowser.Config)
 	if err := registerBuiltinApp(p.mcpAppsRegistry, promptBrowser); err != nil {
 		return err
 	}

@@ -100,6 +100,10 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 		Name:  ToolNameManagePrompt,
 		Title: "Manage Prompts",
 		Description: "Create, update, delete, list, get, or use prompts. " +
+			"When the human asks to see, list, view, browse, or pick their prompts, or asks what prompts " +
+			"they have, call show_prompts instead: it opens the visual prompt library for them. The 'list' " +
+			"command here is for reading prompt data into your own reasoning, not for showing the human " +
+			"their library. " +
 			"When a user names a report, procedure, or recurring task ('run the daily sales report'), " +
 			"resolve it against the prompt library first with the 'use' command instead of listing: " +
 			"'use' accepts a prompt name, display name, mcp:prompt:<id> reference, or free text, and " +
