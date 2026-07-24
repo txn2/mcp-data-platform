@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="height: 640px">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -49,15 +49,17 @@
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        /* Fixed-height app shell, tall enough for a human to actually browse.
+        /* Fixed 640px app shell, tall enough for a human to actually browse.
            Claude sizes the iframe by reading documentElement's height directly
-           and ignores ui/notifications/size-changed (anthropics/claude-ai-mcp
-           #69), so the height is declared as an INLINE style on <html> (present
-           at first paint, which is what Claude snapshots) in addition to this
-           rule and the size-changed message the app still sends for
-           spec-compliant hosts. The brand bar and each view's head are pinned;
-           the body scrolls inside the shell. Keep this value in sync with the
-           inline style="height:..." on the <html> element above. */
+           at first paint and ignores ui/notifications/size-changed
+           (anthropics/claude-ai-mcp #69). At that read only inline attributes on
+           <html> are honored, not this stylesheet, so the height is ALSO declared
+           as an INLINE style="height:640px" on the <html> element above; that
+           inline value is what Claude reads, independent of when the prompt data
+           arrives. This rule keeps the shell sized in spec-compliant hosts, and
+           the app still emits size-changed for them. The brand bar and each
+           view's head are pinned; the body scrolls inside the shell. Keep this
+           value in sync with the inline style on <html> and APP_HEIGHT below. */
         html, body { height: 640px; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans',
@@ -373,7 +375,7 @@
     </style>
 </head>
 <body>
-    <div id="brandbar" class="brandbar hidden">
+    <div id="brandbar" class="brandbar">
         <span id="brand-logo" class="brand-logo"></span>
         <span id="brand-name" class="brand-name"></span>
     </div>
@@ -471,7 +473,6 @@
         } else {
             nameEl.textContent = brandName;
         }
-        document.getElementById('brandbar').classList.remove('hidden');
     }
     renderBrand();
 
@@ -500,38 +501,33 @@
     function send(msg) { window.parent.postMessage(msg, '*'); }
 
     // ---------------------------------------------------------------------
-    // MCP Apps height contract (#1043). The host sizes the iframe from the
-    // last ui/notifications/size-changed the view sends; without one the app
-    // renders in the host's default cramped window. The view declares a fixed
-    // 500px viewport (its shell height) and re-reports on any reflow via a
-    // ResizeObserver, mirroring the SDK's useAutoResize pattern. Kept
-    // byte-identical to the platform-info app so both speak one contract.
+    // MCP Apps height contract (#1043). The shell is a fixed 640px viewport
+    // declared inline on <html> (present at first paint) and in the stylesheet;
+    // that inline height is what Claude reads when it sizes the iframe from the
+    // documentElement directly, ignoring ui/notifications/size-changed
+    // (anthropics/claude-ai-mcp #69). Because the height is fixed and does not
+    // depend on the prompt data, it is correct at first paint even though this
+    // browser needs two round trips (handshake, then the prompt list) before it
+    // has content to show; the spinner renders inside the 640px shell, not as
+    // the shell's height. size-changed is still emitted, at init, for
+    // spec-compliant hosts that honor it. Kept in step with the platform-info
+    // app so both speak one contract.
     // ---------------------------------------------------------------------
     var APP_HEIGHT = 640;
-    var sizeLocked = false;
     function sendSize() {
         // Report height only. These apps are laid out at the host's conversation
         // width, so width stays host-controlled (fluid); we own only the height.
         send({ jsonrpc: '2.0', method: 'ui/notifications/size-changed',
                params: { height: APP_HEIGHT } });
     }
-    // lockSize declares the app's height AFTER its real content has rendered.
-    // Claude sizes the iframe by reading documentElement's height directly and
-    // snapshots it once, early; a size signal (a set height or a ResizeObserver
-    // firing) sent BEFORE content renders locks the frame at the pre-render
-    // spinner height (anthropics/claude-ai-mcp #69). This browser needs two round
-    // trips (handshake, then the prompt list), so at init it is still a spinner,
-    // which is why setting the height at init did nothing. The height and the
-    // observer are therefore established only here, on the first content paint.
-    // size-changed is also sent for spec-compliant hosts that honor it.
-    function lockSize() {
-        document.documentElement.style.height = APP_HEIGHT + 'px';
+    // watchSize signals the shell height and re-reports on any reflow. The shell
+    // is pinned to APP_HEIGHT (inline + stylesheet), so the ResizeObserver
+    // reports that height whether the app is still a spinner or fully rendered;
+    // there is no pre-render spinner height to lock onto. Called once at init.
+    function watchSize() {
         sendSize();
-        if (!sizeLocked) {
-            sizeLocked = true;
-            if (typeof ResizeObserver === 'function') {
-                new ResizeObserver(function() { sendSize(); }).observe(document.documentElement);
-            }
+        if (typeof ResizeObserver === 'function') {
+            new ResizeObserver(function() { sendSize(); }).observe(document.documentElement);
         }
     }
 
@@ -569,6 +565,9 @@
         isLegacy = !hostCaps;
         canMessage = !!(hostCaps && hostCaps.message);
         send({ jsonrpc: '2.0', method: 'ui/notifications/initialized', params: {} });
+        // Signal the fixed shell height now, at init. The shell is a fixed size
+        // (inline on <html>), so it is correct before the prompt data loads.
+        watchSize();
         boot();
     }
 
@@ -886,17 +885,11 @@
                 state.ranked = !!query && d.ranking !== undefined;
                 hide('loading');
                 renderBrowser();
-                // Real content is now on screen; declare the height so Claude's
-                // DOM-height read lands on the rendered library, not the spinner.
-                lockSize();
             })
             .catch(function(err) {
                 if (seq !== listSeq || isCanceled(err)) { return; }
                 hide('loading');
                 showError(err.message, function() { loadList(state.query); });
-                // Even an error state is a real render; size to it rather than
-                // leaving the frame locked at the spinner height.
-                lockSize();
             });
     }
 
