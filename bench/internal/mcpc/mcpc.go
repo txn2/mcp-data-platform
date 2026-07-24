@@ -106,14 +106,20 @@ func Mint(ctx context.Context, s *mcp.ClientSession) (SessionInfo, error) {
 
 // ListTools returns the session's tools as adapter ToolDefs, dropping
 // platform_info and stripping the injected session_id property from each input
-// schema so the model never sees the measurement plumbing.
+// schema so the model never sees the measurement plumbing. Follows tools/list
+// pagination cursors until exhaustion: the SDK server pages at 1000 tools, and
+// the per-endpoint benchmark arm (#1027) registers catalogs past that size, so
+// a single-page read would silently truncate the toolset under measurement.
 func ListTools(ctx context.Context, s *mcp.ClientSession) ([]llm.ToolDef, error) {
-	res, err := s.ListTools(ctx, &mcp.ListToolsParams{})
-	if err != nil {
-		return nil, fmt.Errorf("tools/list: %w", err)
+	var tools []*mcp.Tool
+	for tool, err := range s.Tools(ctx, nil) {
+		if err != nil {
+			return nil, fmt.Errorf("tools/list: %w", err)
+		}
+		tools = append(tools, tool)
 	}
-	out := make([]llm.ToolDef, 0, len(res.Tools))
-	for _, t := range res.Tools {
+	out := make([]llm.ToolDef, 0, len(tools))
+	for _, t := range tools {
 		if t.Name == infoToolName {
 			continue
 		}

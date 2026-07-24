@@ -87,13 +87,20 @@ func dial(ctx context.Context, cfg Config, deps dialDeps) (*upstreamClient, erro
 	return &upstreamClient{session: session, cfg: cfg}, nil
 }
 
-// listTools fetches the current tool catalog from the upstream.
+// listTools fetches the current tool catalog from the upstream,
+// following tools/list pagination cursors until exhaustion. A single
+// ListTools call returns at most one page (the SDK server default is
+// 1000 tools per page), so a large upstream would otherwise be
+// silently truncated to its first page.
 func (u *upstreamClient) listTools(ctx context.Context) ([]*mcp.Tool, error) {
-	res, err := u.session.ListTools(ctx, &mcp.ListToolsParams{})
-	if err != nil {
-		return nil, fmt.Errorf("list tools: %w", err)
+	var tools []*mcp.Tool
+	for tool, err := range u.session.Tools(ctx, nil) {
+		if err != nil {
+			return nil, fmt.Errorf("list tools: %w", err)
+		}
+		tools = append(tools, tool)
 	}
-	return res.Tools, nil
+	return tools, nil
 }
 
 // callTool forwards a call to the upstream, returning the raw result.

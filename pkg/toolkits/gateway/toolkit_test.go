@@ -1213,10 +1213,10 @@ func TestForwarder_ReconnectsAfterDroppedSession(t *testing.T) {
 	assert.NotSame(t, firstClient, newClient, "expected a fresh upstream client after reconnect")
 }
 
-// healthFor returns the health snapshot for the named connection, or nil.
-func healthFor(details []toolkit.ConnectionDetail, name string) *toolkit.ConnectionHealth {
+// healthFor returns the health snapshot for the CRM test connection, or nil.
+func healthFor(details []toolkit.ConnectionDetail) *toolkit.ConnectionHealth {
 	for _, d := range details {
-		if d.Name == name {
+		if d.Name == connCRM {
 			return d.Health
 		}
 	}
@@ -1244,7 +1244,7 @@ func TestListConnections_SurfacesHealth(t *testing.T) {
 	}
 
 	// Healthy right after a successful connect.
-	h := healthFor(tk.ListConnections(), connCRM)
+	h := healthFor(tk.ListConnections())
 	require.NotNil(t, h)
 	assert.True(t, h.Reachable, "reachable after connect")
 	assert.Positive(t, h.LastSuccessUnix, "last success recorded at connect")
@@ -1265,7 +1265,7 @@ func TestListConnections_SurfacesHealth(t *testing.T) {
 	require.True(t, res.IsError)
 
 	// list_connections now reports the connection as unreachable with the error.
-	h = healthFor(tk.ListConnections(), connCRM)
+	h = healthFor(tk.ListConnections())
 	require.NotNil(t, h)
 	assert.False(t, h.Reachable, "unreachable after an unrecoverable failure")
 	assert.NotEmpty(t, h.LastError)
@@ -1301,7 +1301,7 @@ func TestStatus_HealthyIsSessionLevel_DistinctFromReachability(t *testing.T) {
 	status := tk.Status(context.Background(), connCRM)
 	require.NotNil(t, status)
 	assert.True(t, status.Healthy, "status healthy after connect")
-	h := healthFor(tk.ListConnections(), connCRM)
+	h := healthFor(tk.ListConnections())
 	require.NotNil(t, h)
 	assert.True(t, h.Reachable, "reachable after connect")
 
@@ -1325,7 +1325,7 @@ func TestStatus_HealthyIsSessionLevel_DistinctFromReachability(t *testing.T) {
 	status = tk.Status(context.Background(), connCRM)
 	require.NotNil(t, status)
 	assert.True(t, status.Healthy, "session-level Healthy stays true while the client is non-nil")
-	h = healthFor(tk.ListConnections(), connCRM)
+	h = healthFor(tk.ListConnections())
 	require.NotNil(t, h)
 	assert.False(t, h.Reachable, "reachability flips false after an unrecoverable call failure")
 	assert.NotEmpty(t, h.LastError)
