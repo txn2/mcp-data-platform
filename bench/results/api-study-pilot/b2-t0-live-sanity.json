@@ -1,0 +1,157 @@
+{
+  "manifest": {
+    "started_at": "2026-07-23T09:18:24.000814Z",
+    "tier": "t0",
+    "finished_at": "2026-07-23T09:19:34.384465Z",
+    "git_commit": "",
+    "platform_version": "",
+    "target": "http://localhost:8098",
+    "arm": "b2",
+    "llm_provider": "claude-cli",
+    "client_version": "2.1.218 (Claude Code)",
+    "model": "sonnet",
+    "seed": 930,
+    "task_set_hash": "3b0797e4f447fb7a1666798a83d5c623de98c0f897cc2f9fd57fc9d23adbe621",
+    "k": 1
+  },
+  "attempts": [
+    {
+      "task_id": "p1-order-amount",
+      "suite": "p1",
+      "attempt": 1,
+      "session_id": "",
+      "correct": true,
+      "final_answer": "106144",
+      "got_value": 106144,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11569,
+      "input_tokens": 6,
+      "output_tokens": 355,
+      "audit": {
+        "audited_calls": 0,
+        "errors": 0,
+        "total_duration_ms": 0,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/api-b2-t0-live-sanity/results.json.transcripts/p1-order-amount-b2-k1.json"
+    },
+    {
+      "task_id": "p3-cancel-order",
+      "suite": "p3",
+      "attempt": 1,
+      "session_id": "",
+      "correct": true,
+      "final_answer": "Order 1057 has been canceled successfully.",
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 26713,
+      "input_tokens": 10,
+      "output_tokens": 985,
+      "audit": {
+        "audited_calls": 0,
+        "errors": 0,
+        "total_duration_ms": 0,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/api-b2-t0-live-sanity/results.json.transcripts/p3-cancel-order-b2-k1.json"
+    },
+    {
+      "task_id": "p5-refund",
+      "suite": "p5",
+      "attempt": 1,
+      "session_id": "",
+      "correct": true,
+      "final_answer": "No refund endpoint exists in the API for order 1000 — the operation cannot be performed.",
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 32086,
+      "input_tokens": 12,
+      "output_tokens": 1582,
+      "audit": {
+        "audited_calls": 0,
+        "errors": 0,
+        "total_duration_ms": 0,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/api-b2-t0-live-sanity/results.json.transcripts/p5-refund-b2-k1.json",
+      "refusal_judged": false
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "p1-order-amount",
+      "suite": "p1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "p3-cancel-order",
+      "suite": "p3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "p5-refund",
+      "suite": "p5",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    }
+  ],
+  "suites": [
+    {
+      "suite": "p1",
+      "tasks": 1,
+      "graded": 1,
+      "accuracy": 1,
+      "pass_k_rate": 1,
+      "median_tool_calls": 2,
+      "p90_tool_calls": 2,
+      "median_wall_ms": 11569,
+      "tool_errors": 0,
+      "enrichment_tokens_full": 0,
+      "enrichment_tokens_dedup": 0
+    },
+    {
+      "suite": "p3",
+      "tasks": 1,
+      "graded": 1,
+      "accuracy": 1,
+      "pass_k_rate": 1,
+      "median_tool_calls": 4,
+      "p90_tool_calls": 4,
+      "median_wall_ms": 26713,
+      "tool_errors": 0,
+      "enrichment_tokens_full": 0,
+      "enrichment_tokens_dedup": 0
+    },
+    {
+      "suite": "p5",
+      "tasks": 1,
+      "graded": 1,
+      "accuracy": 1,
+      "pass_k_rate": 1,
+      "median_tool_calls": 5,
+      "p90_tool_calls": 5,
+      "median_wall_ms": 32086,
+      "tool_errors": 0,
+      "enrichment_tokens_full": 0,
+      "enrichment_tokens_dedup": 0
+    }
+  ]
+}

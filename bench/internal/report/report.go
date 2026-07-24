@@ -12,12 +12,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/apistudy"
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
 )
 
 // Manifest pins the run so results are attributable and reproducible.
 type Manifest struct {
-	StartedAt       time.Time `json:"started_at"`
+	StartedAt time.Time `json:"started_at"`
+	// Tier is the API-connection study's catalog-size tier (t0|t1|t2),
+	// empty on report-1 a* runs.
+	Tier            string    `json:"tier,omitempty"`
 	FinishedAt      time.Time `json:"finished_at"`
 	GitCommit       string    `json:"git_commit"`
 	PlatformVersion string    `json:"platform_version"`
@@ -60,7 +64,20 @@ type Attempt struct {
 	CacheCreationTokens int64            `json:"cache_creation_tokens,omitempty"`
 	Audit               auditapi.Metrics `json:"audit"`
 	TranscriptPath      string           `json:"transcript_path,omitempty"`
-	Error               string           `json:"error,omitempty"` // harness/adapter failure, not a wrong answer
+	// API-connection study fields (#1027), set only on b* runs.
+	// Retrieval is the discovery outcome extracted from the transcript's
+	// api_list_endpoints calls (nil when the attempt made none).
+	Retrieval *apistudy.Retrieval `json:"retrieval,omitempty"`
+	// FailureClass is the RQ4 taxonomy label for a failed, graded attempt.
+	FailureClass string `json:"failure_class,omitempty"`
+	// GradeDetail explains a state-graded failure (first failed check) or a
+	// refusal write-detection failure.
+	GradeDetail string `json:"grade_detail,omitempty"`
+	// RefusalJudged records how a refusal answer was graded: true = the
+	// pinned LLM judge, false = the lexical fallback. Nil for every other
+	// grading kind.
+	RefusalJudged *bool  `json:"refusal_judged,omitempty"`
+	Error         string `json:"error,omitempty"` // harness/adapter failure, not a wrong answer
 }
 
 // TaskSummary aggregates one task's k attempts. Harness-failed attempts

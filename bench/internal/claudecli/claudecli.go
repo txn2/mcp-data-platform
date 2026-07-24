@@ -62,6 +62,17 @@ type Options struct {
 	// (default os.TempDir()). Each attempt runs in a fresh empty subdirectory so
 	// the model has no repository context and file tools cannot reach the repo.
 	WorkDir string
+	// CodeMode runs the API-connection study's b2 arm (#1027): NO MCP server
+	// is configured; the model instead gets code-execution tools (Bash, file
+	// tools) in a workspace seeded with Workspace's files (the tier's OpenAPI
+	// spec), and issues HTTP calls itself — the Anthropic code-execution /
+	// Cloudflare code-mode pattern. Web tools stay disallowed; validity rests
+	// on the ground truths being functions of the seeded fixture state,
+	// unreachable anywhere but the fixture service.
+	CodeMode bool
+	// Workspace maps relative filenames to contents materialized into every
+	// attempt's working directory (CodeMode only), e.g. spec.json.
+	Workspace map[string][]byte
 	// Exec is the process runner; nil uses execCommand. It is a dependency-
 	// injection seam (like http.Client.Transport): tests supply a stub that
 	// returns a canned stream-json transcript so the runner — and the pipeline
@@ -121,6 +132,9 @@ func New(opts Options) (*Runner, error) {
 // Model returns the configured model id (for the run manifest).
 func (r *Runner) Model() string { return r.opts.Model }
 
+// CodeMode reports whether the runner drives the b2 code-mode arm.
+func (r *Runner) CodeMode() bool { return r.opts.CodeMode }
+
 // ServerName returns the MCP server key used in generated configs.
 func (r *Runner) ServerName() string { return r.opts.ServerName }
 
@@ -159,12 +173,19 @@ func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	cfgPath := filepath.Join(dir, "mcp-config.json")
-	if err := writeMCPConfig(cfgPath, r.opts.ServerName, req.Endpoint, req.Credential); err != nil {
-		return Result{}, err
+	var args []string
+	if r.opts.CodeMode {
+		if err := r.writeWorkspace(dir); err != nil {
+			return Result{}, err
+		}
+		args = r.buildCodeModeArgs(req.System)
+	} else {
+		cfgPath := filepath.Join(dir, "mcp-config.json")
+		if err := writeMCPConfig(cfgPath, r.opts.ServerName, req.Endpoint, req.Credential); err != nil {
+			return Result{}, err
+		}
+		args = r.buildArgs(cfgPath, req.System)
 	}
-
-	args := r.buildArgs(cfgPath, req.System)
 	stdout, stderr, runErr := r.opts.Exec(ctx, CommandSpec{
 		Dir:   dir,
 		Bin:   r.opts.Bin,
@@ -212,6 +233,45 @@ func (r *Runner) buildArgs(cfgPath, system string) []string {
 	}
 	args = append(args, r.opts.ExtraArgs...)
 	return args
+}
+
+// codeModeAllowedTools are Claude Code's built-in tools the b2 arm grants:
+// code execution plus workspace file tools, nothing else.
+var codeModeAllowedTools = []string{"Bash", "Read", "Write", "Edit", "Glob", "Grep"}
+
+// codeModeDisallowedTools close the non-code escape hatches. Web tools are
+// forbidden for measurement hygiene; validity does not depend on it (the
+// ground truths derive from seeded fixture state that exists nowhere else).
+var codeModeDisallowedTools = []string{"WebFetch", "WebSearch", "Task", "TodoWrite", "NotebookEdit"}
+
+// writeWorkspace materializes the configured workspace files (the tier
+// spec) into the attempt directory.
+func (r *Runner) writeWorkspace(dir string) error {
+	for name, content := range r.opts.Workspace {
+		if err := os.WriteFile(filepath.Join(dir, name), content, 0o600); err != nil {
+			return fmt.Errorf("write workspace file %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// buildCodeModeArgs assembles the b2 argument vector: no MCP config at
+// all, code tools allowed, web tools disallowed.
+func (r *Runner) buildCodeModeArgs(system string) []string {
+	args := []string{
+		"-p",
+		"--output-format", "stream-json",
+		"--verbose",
+		"--model", r.opts.Model,
+		"--strict-mcp-config",
+		"--permission-mode", r.opts.PermissionMode,
+		"--allowedTools", strings.Join(codeModeAllowedTools, ","),
+		"--disallowedTools", strings.Join(codeModeDisallowedTools, ","),
+	}
+	if system != "" {
+		args = append(args, "--append-system-prompt", system)
+	}
+	return append(args, r.opts.ExtraArgs...)
 }
 
 // mcpConfig is the --mcp-config file shape for a single streamable-HTTP server.
