@@ -12,7 +12,7 @@ go 1.26.2
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.19.0
-	github.com/getkin/kin-openapi v0.142.0
+	github.com/getkin/kin-openapi v0.144.0
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	gopkg.in/yaml.v3 v3.0.1
