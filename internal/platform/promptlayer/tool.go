@@ -75,6 +75,7 @@ type managePromptInput struct {
 	Find         string           `json:"find,omitempty"`
 	Pattern      string           `json:"pattern,omitempty"`
 	Section      string           `json:"section,omitempty"`
+	Selector     string           `json:"selector,omitempty"`
 	LineStart    int              `json:"line_start,omitempty"`
 	LineEnd      int              `json:"line_end,omitempty"`
 	ContextBytes int              `json:"context_bytes,omitempty"`

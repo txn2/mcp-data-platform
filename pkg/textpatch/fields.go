@@ -7,6 +7,7 @@ const (
 	FieldSizeBytes = "size_bytes"
 	FieldLines     = "lines"
 	FieldSections  = "sections"
+	FieldLandmarks = "landmarks"
 	FieldHash      = "hash"
 	FieldContent   = "content"
 	FieldSection   = "section"
@@ -23,13 +24,19 @@ const (
 // describes the document is defined once for every kind.
 
 // OutlineFields renders the heading tree plus the document's size and line
-// count. The section list is never nil, so it serializes as [] not null.
-func OutlineFields(body string) map[string]any {
-	return map[string]any{
+// count. The section list is never nil, so it serializes as [] not null. On HTML
+// syntax it also reports the addressable landmarks (elements carrying an id or a
+// data-* marker), which is the whole answer for a JSX dashboard with no headings.
+func OutlineFields(body string, syntax Syntax) map[string]any {
+	fields := map[string]any{
 		FieldSizeBytes: len(body),
 		FieldLines:     CountLines(body),
-		FieldSections:  Outline(body),
+		FieldSections:  Outline(body, syntax),
 	}
+	if syntax == SyntaxHTML {
+		fields[FieldLandmarks] = htmlLandmarks(body)
+	}
+	return fields
 }
 
 // StatsFields renders size, line count, and content hash, with none of the body.

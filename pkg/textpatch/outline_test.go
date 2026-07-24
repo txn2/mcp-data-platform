@@ -37,7 +37,7 @@ Beta.
 `
 
 func TestOutlineLevelsLinesAndSizes(t *testing.T) {
-	secs := Outline(report)
+	secs := Outline(report, SyntaxMarkdown)
 	require.Len(t, secs, 6)
 
 	assert.Equal(t, "# Quarterly Report", secs[0].Heading)
@@ -61,13 +61,13 @@ func TestOutlineLevelsLinesAndSizes(t *testing.T) {
 
 func TestOutlineIgnoresHeadingsInsideCodeFences(t *testing.T) {
 	body := "# Title\n\n```sh\n# not a heading\n```\n\n## Real\n\ntext\n"
-	secs := Outline(body)
+	secs := Outline(body, SyntaxMarkdown)
 	require.Len(t, secs, 2)
 	assert.Equal(t, "# Title", secs[0].Heading)
 	assert.Equal(t, "## Real", secs[1].Heading)
 
 	tilde := "# Title\n\n~~~\n### fenced\n~~~\n"
-	require.Len(t, Outline(tilde), 1)
+	require.Len(t, Outline(tilde, SyntaxMarkdown), 1)
 }
 
 func TestParseHeadingRejectsNonHeadings(t *testing.T) {

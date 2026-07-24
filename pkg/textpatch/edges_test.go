@@ -85,8 +85,8 @@ func TestLiteralMatchesIgnoresAnAnchorThatNormalizesAway(t *testing.T) {
 }
 
 func TestOutlineOfAHeadinglessDocument(t *testing.T) {
-	assert.Empty(t, Outline("just prose\nwith no headings\n"))
-	assert.Empty(t, Outline(""))
+	assert.Empty(t, Outline("just prose\nwith no headings\n", SyntaxMarkdown))
+	assert.Empty(t, Outline("", SyntaxMarkdown))
 
 	res, err := Locate("just prose\n", LocateQuery{Find: "prose"}, Options{})
 	require.NoError(t, err)

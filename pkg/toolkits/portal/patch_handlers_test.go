@@ -258,6 +258,78 @@ func TestManageAssetPatchWritesANewVersion(t *testing.T) {
 	assert.Equal(t, "correct the YoY figure", versions[1].ChangeSummary)
 }
 
+// jsxDashboardAsset is a headingless JSX dashboard, the #1039 target that a
+// markdown heading grammar cannot address.
+const jsxDashboardAsset = `<Dashboard>
+  <Card data-region="revenue"><h3>Revenue</h3><Value>$1.2M</Value></Card>
+  <Card data-region="users"><h3>Users</h3><Value>18,204</Value></Card>
+</Dashboard>`
+
+// TestManageAssetPatchJSXCardBySelector is the #1039 acceptance criterion driven
+// through the real manage_asset dispatch: rewriting one card addressed by
+// selector changes only that element's stored bytes and leaves its sibling
+// byte-for-byte intact, verified against the stored version.
+func TestManageAssetPatchJSXCardBySelector(t *testing.T) {
+	f := newPatchFixture(t, jsxDashboardAsset, "text/jsx")
+
+	got, result := f.call(t, manageAssetInput{
+		Action: actionPatch,
+		Edits: []textpatch.Edit{{
+			Op:       textpatch.OpReplaceSection,
+			Selector: `[data-region="users"]`,
+			Text:     `<Card data-region="users"><h3>Active Users</h3><Value>19,001</Value></Card>`,
+		}},
+	})
+	require.False(t, result.IsError, errorText(t, result))
+	assert.Equal(t, float64(2), got["version"])
+
+	stored := f.storedBody(t)
+	assert.Contains(t, stored, "Active Users")
+	assert.Contains(t, stored, "19,001")
+	assert.Contains(t, stored, `<Card data-region="revenue"><h3>Revenue</h3><Value>$1.2M</Value></Card>`,
+		"the sibling card is untouched")
+	assert.NotContains(t, stored, "18,204")
+
+	// A revert restores the exact prior bytes, proving the patch is an ordinary
+	// version.
+	_, result = f.call(t, manageAssetInput{Action: actionRevert, Version: 1})
+	require.False(t, result.IsError, errorText(t, result))
+	assert.Equal(t, jsxDashboardAsset, f.storedBody(t))
+}
+
+// TestManageAssetOutlineJSXReportsLandmarks: outline on a headingless JSX asset
+// returns a non-empty landmark list through the real dispatch.
+func TestManageAssetOutlineJSXReportsLandmarks(t *testing.T) {
+	f := newPatchFixture(t, jsxDashboardAsset, "text/jsx")
+
+	got, result := f.call(t, manageAssetInput{Action: actionOutline})
+	require.False(t, result.IsError, errorText(t, result))
+
+	landmarks, ok := got["landmarks"].([]any)
+	require.True(t, ok, "an HTML/JSX outline reports landmarks")
+	require.NotEmpty(t, landmarks)
+	first, ok := landmarks[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Card", first["tag"])
+	assert.Equal(t, `Card[data-region="revenue"]`, first["selector"])
+}
+
+// TestManageAssetSelectorRefusedOnMarkdown: a selector against a markdown asset
+// is refused, naming the section alternative, through the real dispatch.
+func TestManageAssetSelectorRefusedOnMarkdown(t *testing.T) {
+	f := newPatchFixture(t, patchReport, "text/markdown")
+
+	_, result := f.call(t, manageAssetInput{
+		Action: actionPatch,
+		Edits:  []textpatch.Edit{{Op: textpatch.OpReplaceSection, Selector: ".card", Text: "x"}},
+	})
+	require.True(t, result.IsError)
+	body := errorText(t, result)
+	assert.Contains(t, body, textpatch.CodeBadEdit)
+	assert.Contains(t, body, "section")
+	assert.Equal(t, patchReport, f.storedBody(t), "nothing is written")
+}
+
 func TestManageAssetPatchGeneratesAChangeSummary(t *testing.T) {
 	f := newPatchFixture(t, patchReport, "text/markdown")
 

@@ -79,12 +79,18 @@ func CountLines(body string) int {
 	return n
 }
 
-// Outline returns the heading tree of body in document order, never nil.
-// Headings inside fenced code blocks are not headings, so a shell comment in a
-// fenced example never becomes a section.
-func Outline(body string) []Section {
-	secs := scanHeadings(body)
-	closeAndPath(secs, len(body))
+// Outline returns the heading tree of body in document order, never nil. For
+// markdown syntax the headings are ATX headings, with those inside fenced code
+// blocks ignored; for HTML syntax they are the <h1>..<h6> elements; a
+// structureless document has none.
+func Outline(body string, syntax Syntax) []Section {
+	if syntax == SyntaxNone {
+		return []Section{}
+	}
+	secs := docHeadings(body, syntax)
+	if secs == nil {
+		return []Section{}
+	}
 	return secs
 }
 
@@ -210,13 +216,13 @@ func parseHeading(line string) (level int, title string, ok bool) {
 	return level, strings.TrimSpace(title), true
 }
 
-// FindSection resolves a caller-supplied section name against body's outline.
-// The name may be the heading line ("## Methodology"), the bare title
+// FindSection resolves a caller-supplied markdown section name against body's
+// outline. The name may be the heading line ("## Methodology"), the bare title
 // ("Methodology"), or an ancestor path ("Report > Methodology"); matching is
 // case-insensitive. A name that matches nothing or more than one section is an
 // error carrying the outline or the disambiguating advice.
 func FindSection(body, name string, editIndex int) (Section, error) {
-	return findIn(Outline(body), name, editIndex)
+	return findIn(Outline(body, SyntaxMarkdown), name, editIndex)
 }
 
 // findIn resolves a section name against an outline already computed, so a
@@ -302,20 +308,31 @@ func pathList(secs []Section) []string {
 }
 
 // ContentRequest selects which span of a document to read: the whole body when
-// nothing is set, one named section, or an inclusive 1-based line range.
+// nothing is set, one named section or selector-addressed element, or an
+// inclusive 1-based line range. Syntax names the region grammar for the section
+// and selector forms.
 type ContentRequest struct {
-	Section   string
-	LineStart int
-	LineEnd   int
+	Syntax     Syntax
+	Section    string
+	Selector   string
+	Occurrence string
+	LineStart  int
+	LineEnd    int
 }
 
-// Content returns the requested span of body. The returned Section is
-// populated only for a section read, so a caller can report which heading it
+// Content returns the requested span of body. The returned Section is populated
+// only for a region read, so a caller can report which heading or element it
 // resolved to.
 func Content(body string, req ContentRequest) (string, Section, error) {
 	switch {
-	case req.Section != "":
-		return SectionText(body, req.Section)
+	case req.Section != "" || req.Selector != "":
+		sec, err := resolveRegion(body, req.Syntax, regionRequest{
+			section: req.Section, selector: req.Selector, occurrence: req.Occurrence,
+		}, -1)
+		if err != nil {
+			return "", Section{}, err
+		}
+		return body[sec.start:sec.end], sec, nil
 	case req.LineStart > 0 || req.LineEnd > 0:
 		start := req.LineStart
 		if start <= 0 {
@@ -328,7 +345,7 @@ func Content(body string, req ContentRequest) (string, Section, error) {
 	}
 }
 
-// SectionText returns the text of the named section, heading included.
+// SectionText returns the text of the named markdown section, heading included.
 func SectionText(body, name string) (string, Section, error) {
 	sec, err := FindSection(body, name, -1)
 	if err != nil {

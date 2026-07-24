@@ -58,10 +58,11 @@ func (h *Handle) contentVerb(
 	return promptJSONResult(fields)
 }
 
-// handlePromptOutline returns the prompt's heading tree.
+// handlePromptOutline returns the prompt's heading tree. Prompt content is
+// markdown, which carries no media type, so the syntax is passed explicitly.
 func (h *Handle) handlePromptOutline(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	return h.contentVerb(ctx, input, func(body string) (map[string]any, error) {
-		return textpatch.OutlineFields(body), nil
+		return textpatch.OutlineFields(body, textpatch.SyntaxMarkdown), nil
 	})
 }
 
@@ -78,7 +79,9 @@ func (h *Handle) handlePromptStats(ctx context.Context, input managePromptInput)
 func (h *Handle) handlePromptGetContent(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	return h.contentVerb(ctx, input, func(body string) (map[string]any, error) {
 		return textpatch.ContentFields(body, textpatch.ContentRequest{
+			Syntax:    textpatch.SyntaxMarkdown,
 			Section:   input.Section,
+			Selector:  input.Selector,
 			LineStart: input.LineStart,
 			LineEnd:   input.LineEnd,
 		})
@@ -93,9 +96,10 @@ func (h *Handle) handlePromptLocate(ctx context.Context, input managePromptInput
 			Find:         input.Find,
 			Pattern:      input.Pattern,
 			Section:      input.Section,
+			Selector:     input.Selector,
 			ContextBytes: input.ContextBytes,
 			Limit:        input.Limit,
-		}, textpatch.Options{})
+		}, textpatch.Options{Syntax: textpatch.SyntaxMarkdown})
 	})
 }
 

@@ -61,6 +61,14 @@ const (
 	CodeSectionNotFound = "PATCH_SECTION_NOT_FOUND"
 	CodeBadPattern      = "PATCH_BAD_PATTERN"
 	CodeBadEdit         = "PATCH_BAD_EDIT"
+	// CodeBadSelector reports a CSS selector that does not parse.
+	CodeBadSelector = "PATCH_BAD_SELECTOR"
+	// CodeNoStructure reports a document whose content type has no addressable
+	// structure, so section- and selector-scoped verbs do not apply to it.
+	CodeNoStructure = "PATCH_NO_STRUCTURE"
+	// CodeUnresolvedMarkup reports markup that could not be resolved into a
+	// reliable element tree, so no element span was trusted.
+	CodeUnresolvedMarkup = "PATCH_UNRESOLVED_MARKUP"
 )
 
 // Limits bounding a single Apply call. Zero means the package default.
@@ -87,7 +95,9 @@ const (
 //
 // Section additionally scopes the anchor search on replace, insert_before, and
 // insert_after, which is how a phrase repeated across a document becomes
-// unambiguous without quoting a long anchor.
+// unambiguous without quoting a long anchor. Selector does the same on an HTML,
+// JSX or SVG document, naming an element by CSS selector; it is the precise form
+// (a balanced element span) where section is the convenient one (a heading).
 type Edit struct {
 	Op         string `json:"op,omitempty"`
 	Find       string `json:"find,omitempty"`
@@ -95,10 +105,16 @@ type Edit struct {
 	Replace    string `json:"replace,omitempty"`
 	Text       string `json:"text,omitempty"`
 	Section    string `json:"section,omitempty"`
+	Selector   string `json:"selector,omitempty"`
 	Occurrence string `json:"occurrence,omitempty"`
 	Before     string `json:"before,omitempty"`
 	After      string `json:"after,omitempty"`
 	Position   string `json:"position,omitempty"`
+}
+
+// region returns the section/selector/occurrence an edit names as a region.
+func (e Edit) region() regionRequest {
+	return regionRequest{section: e.Section, selector: e.Selector, occurrence: e.Occurrence}
 }
 
 // op returns the effective operation, defaulting an absent Op to replace.
@@ -112,6 +128,10 @@ func (e Edit) op() string {
 // Options bound one Apply call. A zero Options uses the package defaults and
 // imposes no result-size limit.
 type Options struct {
+	// Syntax is the region grammar for section- and selector-scoped edits. The
+	// zero value is markdown, so an Options that sets no syntax keeps the
+	// markdown behavior #1033 shipped.
+	Syntax Syntax
 	// MaxEdits caps the number of edits; 0 uses DefaultMaxEdits.
 	MaxEdits int
 	// MaxPatternLen caps regex source length; 0 uses DefaultMaxPatternLen.

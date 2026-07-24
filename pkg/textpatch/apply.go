@@ -77,9 +77,9 @@ func applyOne(body string, e Edit, index int, opts Options) (string, EditResult,
 	case OpPrepend:
 		return e.Text + body, EditResult{Index: index, Op: OpPrepend, Matches: 1, Line: 1}, nil
 	case OpReplaceSection:
-		return applyReplaceSection(body, e, index)
+		return applyReplaceSection(body, e, index, opts.Syntax)
 	case OpMoveSection:
-		return applyMoveSection(body, e, index)
+		return applyMoveSection(body, e, index, opts.Syntax)
 	case OpReplace, OpInsertBefore, OpInsertAfter:
 		return applyAnchored(body, e, index, opts)
 	default:
@@ -91,7 +91,7 @@ func applyOne(body string, e Edit, index int, opts Options) (string, EditResult,
 
 // applyAnchored runs the operations that position text relative to an anchor.
 func applyAnchored(body string, e Edit, index int, opts Options) (string, EditResult, error) {
-	window, err := editWindow(body, e, index)
+	window, err := editWindow(body, e, index, opts.Syntax)
 	if err != nil {
 		return "", EditResult{}, err
 	}
@@ -142,34 +142,36 @@ func anchoredText(ms matchSet, i int, e Edit, matched string) string {
 }
 
 // editWindow returns the byte range an anchored edit may search: the named
-// section when one scopes the edit, otherwise the whole body.
-func editWindow(body string, e Edit, index int) (span, error) {
-	if e.Section == "" {
+// section or selector-addressed element when one scopes the edit, otherwise the
+// whole body.
+func editWindow(body string, e Edit, index int, syntax Syntax) (span, error) {
+	if !e.region().hasRegion() {
 		return span{start: 0, end: len(body)}, nil
 	}
-	sec, err := FindSection(body, e.Section, index)
+	sec, err := resolveRegion(body, syntax, e.region(), index)
 	if err != nil {
 		return span{}, err
 	}
 	return span{start: sec.start, end: sec.end}, nil
 }
 
-// locateWindow is editWindow against an outline the caller already built.
-func locateWindow(secs []Section, body string, e Edit) (span, error) {
-	if e.Section == "" {
+// locateWindow scopes a locate to the section or selector an edit names, or the
+// whole body when it names neither.
+func locateWindow(body string, e Edit, syntax Syntax) (span, error) {
+	if !e.region().hasRegion() {
 		return span{start: 0, end: len(body)}, nil
 	}
-	sec, err := findIn(secs, e.Section, -1)
+	sec, err := resolveRegion(body, syntax, e.region(), -1)
 	if err != nil {
 		return span{}, err
 	}
 	return span{start: sec.start, end: sec.end}, nil
 }
 
-// applyReplaceSection swaps a whole section (its heading through the line
-// before the next heading of the same or higher level) for the edit's text.
-func applyReplaceSection(body string, e Edit, index int) (string, EditResult, error) {
-	sec, err := requireSection(body, e, index)
+// applyReplaceSection swaps a whole region — a markdown or HTML heading section,
+// or a selector-addressed element's balanced span — for the edit's text.
+func applyReplaceSection(body string, e Edit, index int, syntax Syntax) (string, EditResult, error) {
+	sec, err := requireRegion(body, e, index, syntax)
 	if err != nil {
 		return "", EditResult{}, err
 	}
@@ -181,17 +183,17 @@ func applyReplaceSection(body string, e Edit, index int) (string, EditResult, er
 	}, nil
 }
 
-// applyMoveSection relocates a whole section before or after another heading,
-// or to the start or end of the document.
-func applyMoveSection(body string, e Edit, index int) (string, EditResult, error) {
-	sec, err := requireSection(body, e, index)
+// applyMoveSection relocates a whole region before or after another heading, or
+// to the start or end of the document.
+func applyMoveSection(body string, e Edit, index int, syntax Syntax) (string, EditResult, error) {
+	sec, err := requireRegion(body, e, index, syntax)
 	if err != nil {
 		return "", EditResult{}, err
 	}
 	moved := body[sec.start:sec.end]
 	remainder := body[:sec.start] + body[sec.end:]
 
-	at, err := moveDestination(remainder, e, index)
+	at, err := moveDestination(remainder, e, index, syntax)
 	if err != nil {
 		return "", EditResult{}, err
 	}
@@ -204,21 +206,21 @@ func applyMoveSection(body string, e Edit, index int) (string, EditResult, error
 	}, nil
 }
 
-// requireSection resolves the section an edit names, rejecting an edit that
-// names none.
-func requireSection(body string, e Edit, index int) (Section, error) {
-	if e.Section == "" {
+// requireRegion resolves the region an edit names, rejecting an edit that names
+// neither a section nor a selector.
+func requireRegion(body string, e Edit, index int, syntax Syntax) (Section, error) {
+	if !e.region().hasRegion() {
 		return Section{}, newError(CodeBadEdit, index,
-			"Supply \"section\" naming the heading to act on, for example \"## Methodology\".",
-			"%s needs a \"section\"", e.op())
+			"Supply \"section\" naming the heading, or \"selector\" naming the element, to act on.",
+			"%s needs a \"section\" or \"selector\"", e.op())
 	}
-	return FindSection(body, e.Section, index)
+	return resolveRegion(body, syntax, e.region(), index)
 }
 
-// moveDestination resolves where a moved section is reinserted in the body it
-// was removed from: before or after another heading, or at the document's
-// start or end.
-func moveDestination(remainder string, e Edit, index int) (int, error) {
+// moveDestination resolves where a moved region is reinserted in the body it was
+// removed from: before or after another heading, or at the document's start or
+// end.
+func moveDestination(remainder string, e Edit, index int, syntax Syntax) (int, error) {
 	switch {
 	case e.Position == PositionStart:
 		return 0, nil
@@ -229,13 +231,13 @@ func moveDestination(remainder string, e Edit, index int) (int, error) {
 			"\"position\" must be start or end; use \"before\" or \"after\" to move relative to a heading.",
 			"invalid position %q", e.Position)
 	case e.Before != "":
-		target, err := FindSection(remainder, e.Before, index)
+		target, err := resolveSectionRegion(remainder, syntax, e.Before, index)
 		if err != nil {
 			return 0, err
 		}
 		return target.start, nil
 	case e.After != "":
-		target, err := FindSection(remainder, e.After, index)
+		target, err := resolveSectionRegion(remainder, syntax, e.After, index)
 		if err != nil {
 			return 0, err
 		}
@@ -279,8 +281,12 @@ type LocateQuery struct {
 	// Find is a literal anchor; Pattern is a regex. Exactly one is required.
 	Find    string
 	Pattern string
-	// Section scopes the search to one section when set.
-	Section string
+	// Section scopes the search to one section when set; Selector scopes it to
+	// one selector-addressed element on an HTML document. Occurrence
+	// disambiguates a selector that matches several elements.
+	Section    string
+	Selector   string
+	Occurrence string
 	// ContextBytes is how much text to include around each hit; 0 uses
 	// DefaultContextBytes.
 	ContextBytes int
@@ -305,14 +311,14 @@ const (
 // PATCH_AMBIGUOUS, and an agent that wanted to change every occurrence learns
 // how many there are before deciding.
 func Locate(body string, q LocateQuery, opts Options) (LocateResult, error) {
-	e := Edit{Find: q.Find, Pattern: q.Pattern, Section: q.Section}
+	e := Edit{Find: q.Find, Pattern: q.Pattern, Section: q.Section, Selector: q.Selector, Occurrence: q.Occurrence}
 	if err := validateAnchor(e, -1); err != nil {
 		return LocateResult{}, err
 	}
-	// The outline answers both the section scope and each match's enclosing
-	// heading, so it is built once rather than once per question.
-	secs := Outline(body)
-	window, err := locateWindow(secs, body, e)
+	// The outline answers each match's enclosing heading; the window answers the
+	// section or selector scope. Both come from the document's syntax.
+	secs := Outline(body, opts.Syntax)
+	window, err := locateWindow(body, e, opts.Syntax)
 	if err != nil {
 		return LocateResult{}, err
 	}
