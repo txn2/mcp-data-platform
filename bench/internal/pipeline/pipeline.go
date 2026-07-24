@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/agent"
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
+	"github.com/txn2/mcp-data-platform/bench/internal/fixturectl"
 	"github.com/txn2/mcp-data-platform/bench/internal/gen"
 	"github.com/txn2/mcp-data-platform/bench/internal/grade"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
@@ -49,9 +50,12 @@ type AdapterFactory func(t task.Task) (llm.Adapter, error)
 
 // Options configures a run.
 type Options struct {
-	Target        target.Target
-	HTTPTimeout   time.Duration
-	Arm           string
+	Target      target.Target
+	HTTPTimeout time.Duration
+	Arm         string
+	// Tier is the API-connection study's catalog-size tier, recorded on
+	// the manifest (empty for a* runs).
+	Tier          string
 	Suite         string // "" = all suites
 	K             int
 	TasksDir      string
@@ -84,7 +88,20 @@ type Options struct {
 	// spends real API budget always leaves every completed attempt on disk — an
 	// interruption never discards paid-for work.
 	OnAttempt func(*report.Results)
-	Log       *slog.Logger
+	// Fixture, when non-nil, marks an API-connection study run (#1027): the
+	// runner resets fixture state before every attempt (mutations never leak
+	// across attempts), grades state tasks against post-run dumps, applies
+	// refusal write-detection over the fixture access log, and records
+	// retrieval and failure-taxonomy analysis on each attempt. Nil for the
+	// report-1 a* arms, whose behavior is unchanged.
+	Fixture *fixturectl.Client
+	// RefusalJudge, when set, decides the stated-unavailability half of
+	// refusal grading over the final answer (the pinned-LLM-judge path).
+	// Nil falls back to the recorded lexical heuristic
+	// (apistudy.AnswerRefuses); each refusal-graded attempt records which
+	// path graded it.
+	RefusalJudge func(ctx context.Context, answer string) (bool, error)
+	Log          *slog.Logger
 }
 
 // Run executes the benchmark and returns aggregated results. Attempts that
@@ -105,12 +122,12 @@ func Run(ctx context.Context, opts Options) (*report.Results, error) {
 		ClientVersion: opts.ClientVersion,
 		Seed:          gen.Seed,
 		TaskSetHash:   task.Hash(tasks),
+		Tier:          opts.Tier,
 		K:             opts.K,
 		Suite:         opts.Suite,
 	}}
-	total := len(tasks) * opts.K
-	if opts.IdentityKeys > 0 && total > opts.IdentityKeys {
-		return nil, fmt.Errorf("%d attempts exceed the identity pool of %d keys; attempts would share a discovery scope (raise -identity-keys and the config pool)", total, opts.IdentityKeys)
+	if err := validateRun(opts, len(tasks)); err != nil {
+		return nil, err
 	}
 	env := &runEnv{
 		opts: opts,
@@ -141,6 +158,18 @@ func Run(ctx context.Context, opts Options) (*report.Results, error) {
 		return res, fmt.Errorf("%d attempt(s) failed at the harness level; see results attempts[].error", failures)
 	}
 	return res, nil
+}
+
+// validateRun rejects option combinations that would corrupt a run.
+func validateRun(opts Options, taskCount int) error {
+	total := taskCount * opts.K
+	if opts.IdentityKeys > 0 && total > opts.IdentityKeys {
+		return fmt.Errorf("%d attempts exceed the identity pool of %d keys; attempts would share a discovery scope (raise -identity-keys and the config pool)", total, opts.IdentityKeys)
+	}
+	if opts.ClaudeCLI != nil && opts.ClaudeCLI.CodeMode() && opts.Fixture == nil {
+		return errors.New("code mode (#1027 b2) requires a fixture client: the workspace context and all grading derive from the fixture service")
+	}
+	return nil
 }
 
 // checkpoint flushes the results so far after each attempt so an interruption
@@ -198,7 +227,20 @@ func (e *runEnv) attemptClient(seq int) *mcpc.Client {
 // runAttempt executes one task attempt end to end. Harness failures land in
 // Attempt.Error; graded outcomes (right or wrong) do not.
 func (e *runEnv) runAttempt(ctx context.Context, t task.Task, attempt, seq int, res *report.Results) report.Attempt {
+	if e.opts.Fixture != nil {
+		// Attempt isolation: restore seed state and clear the access log
+		// before any episode traffic.
+		if err := e.opts.Fixture.Reset(ctx); err != nil {
+			return report.Attempt{
+				TaskID: t.ID, Suite: t.Suite, Attempt: attempt,
+				Error: fmt.Sprintf("fixture reset: %v", err),
+			}
+		}
+	}
 	if e.opts.ClaudeCLI != nil {
+		if e.opts.ClaudeCLI.CodeMode() {
+			return e.runCodeModeAttempt(ctx, t, attempt, res)
+		}
 		return e.runClaudeCLIAttempt(ctx, t, attempt, seq, res)
 	}
 	return e.runLoopAttempt(ctx, t, attempt, seq, res)
@@ -280,6 +322,7 @@ func (e *runEnv) runLoopAttempt(ctx context.Context, t task.Task, attempt, seq i
 		return a
 	}
 	e.settleAndGrade(ctx, &a, t, info.Handle, audited, audited+indeterminate, log)
+	e.finishAPIStudy(ctx, &a, t, result.Transcript, log)
 	return a
 }
 
@@ -340,6 +383,7 @@ func (e *runEnv) runClaudeCLIAttempt(ctx context.Context, t task.Task, attempt, 
 			return a
 		}
 		e.gradeAttempt(ctx, &a, t, log)
+		e.finishAPIStudy(ctx, &a, t, cres.Transcript, log)
 		return a
 	}
 
@@ -349,6 +393,7 @@ func (e *runEnv) runClaudeCLIAttempt(ctx context.Context, t task.Task, attempt, 
 	// upper bound. platform_info's row is not under this handle, so it is
 	// naturally excluded, matching the in-process adapters.
 	e.settleAndGrade(ctx, &a, t, cres.Handle, cres.SuccessfulMCPCalls, cres.MCPCalls, log)
+	e.finishAPIStudy(ctx, &a, t, cres.Transcript, log)
 	return a
 }
 

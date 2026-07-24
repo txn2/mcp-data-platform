@@ -820,6 +820,156 @@ BENCH_COMPOSE := DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.y
 bench-gen:
 	@cd bench && $(GO) run ./seedgen -seed-dir seed -tasks-dir tasks -protocols-dir protocols -curriculum-dir curriculum
 
+# --- API-connection architecture study (issue #1027) ---------------------
+# Arms are config profiles (BENCH_ARM=b0|b1-lex|b1-hyb); the catalog tier
+# is a run parameter (BENCH_TIER=t0|t1|t2). bench-api-up starts Postgres,
+# the fixture service (apisvc), the per-endpoint MCP server (epmcp, b0
+# only), and the platform, then registers the fixture through the admin
+# REST API (apisetup). b1-hyb additionally waits for the embedding index
+# to cover every operation (requires ollama serve + nomic-embed-text).
+BENCH_TIER ?= t0
+BENCH_APISVC_ADDR ?= :8110
+BENCH_APISVC_URL ?= http://127.0.0.1:8110
+BENCH_EPMCP_ADDR ?= :8111
+BENCH_EPMCP_URL ?= http://127.0.0.1:8111
+BENCH_APISVC_KEY ?= bench-fixture-key
+BENCH_APISVC_PID := build/bench-apisvc.pid
+BENCH_APISVC_LOG := build/bench-apisvc.log
+BENCH_EPMCP_PID := build/bench-epmcp.pid
+BENCH_EPMCP_LOG := build/bench-epmcp.log
+BENCH_EMBED_WAIT ?= 60m
+# The b* arms use their own database (mcp_bench_api) so bench state and
+# migration version never collide with a dev/e2e mcp_platform database
+# migrated by another branch. Created idempotently at bench-api-up.
+BENCH_PG_CONTAINER ?= e2e-postgres
+
+## bench-api-gen: Regenerate the API study's specs and task set from the fixed seeds
+bench-api-gen:
+	@cd bench && $(GO) run ./apigen -specs-dir specs -tasks-dir tasks-api
+
+## bench-api-up: Start Postgres + fixture service (+epmcp for b0) + platform, then register fixtures (BENCH_ARM=b0|b1-lex|b1-hyb|b2, BENCH_TIER=t0|t1|t2). b2 (code mode) starts only the fixture service: no platform, no MCP.
+bench-api-up:
+	@case "$(BENCH_ARM)" in b0|b1-lex|b1-hyb|b2) ;; \
+		*) echo "ERROR: bench-api-up needs BENCH_ARM=b0|b1-lex|b1-hyb|b2 (got '$(BENCH_ARM)')"; exit 1 ;; esac
+	@if [ "$(BENCH_PG)" = "skip" ]; then \
+		echo "Using external Postgres on 5432 (BENCH_PG=skip)..."; \
+	else \
+		echo "Starting Postgres..."; \
+		$(BENCH_COMPOSE) up -d postgres; \
+		for i in $$(seq 1 30); do \
+			if docker exec e2e-postgres pg_isready -U platform -d mcp_platform -q 2>/dev/null; then break; fi; \
+			sleep 1; \
+		done; \
+		docker exec e2e-postgres pg_isready -U platform -d mcp_platform -q || { echo "ERROR: Postgres not ready"; exit 1; }; \
+	fi
+	@docker exec $(BENCH_PG_CONTAINER) psql -U platform -d postgres -tc \
+		"SELECT 1 FROM pg_database WHERE datname='mcp_bench_api'" 2>/dev/null | grep -q 1 \
+		|| docker exec $(BENCH_PG_CONTAINER) psql -U platform -d postgres -c "CREATE DATABASE mcp_bench_api OWNER platform"
+	@echo "Building binaries..."
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-bench $(CMD_DIR)
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-apisvc ./apisvc \
+		&& $(GO) build -o ../$(BUILD_DIR)/bench-epmcp ./epmcp \
+		&& $(GO) build -o ../$(BUILD_DIR)/bench-apisetup ./apisetup \
+		&& $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	@for pid in $(BENCH_APISVC_PID) $(BENCH_EPMCP_PID) $(BENCH_PID); do \
+		if [ -f $$pid ]; then \
+			kill $$(cat $$pid) 2>/dev/null || true; \
+			while kill -0 $$(cat $$pid) 2>/dev/null; do sleep 1; done; \
+			rm -f $$pid; \
+		fi; \
+	done
+	@echo "Starting fixture service on $(BENCH_APISVC_ADDR)..."
+	@$(BUILD_DIR)/bench-apisvc -addr $(BENCH_APISVC_ADDR) -api-key $(BENCH_APISVC_KEY) \
+		> $(BENCH_APISVC_LOG) 2>&1 & echo $$! > $(BENCH_APISVC_PID)
+	@for i in $$(seq 1 15); do \
+		if curl -fsS -H "X-API-Key: $(BENCH_APISVC_KEY)" $(BENCH_APISVC_URL)/_bench/requests >/dev/null 2>&1; then break; fi; \
+		sleep 1; \
+	done; \
+	curl -fsS -H "X-API-Key: $(BENCH_APISVC_KEY)" $(BENCH_APISVC_URL)/_bench/requests >/dev/null 2>&1 \
+		|| { echo "ERROR: fixture service not ready; see $(BENCH_APISVC_LOG)"; tail -5 $(BENCH_APISVC_LOG); exit 1; }
+	@if [ "$(BENCH_ARM)" = "b0" ]; then \
+		echo "Starting per-endpoint MCP server ($(BENCH_TIER)) on $(BENCH_EPMCP_ADDR)..."; \
+		$(BUILD_DIR)/bench-epmcp -addr $(BENCH_EPMCP_ADDR) -spec bench/specs/$(BENCH_TIER).json \
+			-target $(BENCH_APISVC_URL) -api-key $(BENCH_APISVC_KEY) \
+			> $(BENCH_EPMCP_LOG) 2>&1 & echo $$! > $(BENCH_EPMCP_PID); \
+		for i in $$(seq 1 15); do \
+			code=$$(curl -s -o /dev/null -w "%{http_code}" $(BENCH_EPMCP_URL) 2>/dev/null); \
+			if [ "$$code" != "000" ]; then break; fi; \
+			sleep 1; \
+		done; \
+		kill -0 $$(cat $(BENCH_EPMCP_PID)) 2>/dev/null \
+			|| { echo "ERROR: epmcp exited; see $(BENCH_EPMCP_LOG)"; tail -5 $(BENCH_EPMCP_LOG); exit 1; }; \
+	fi
+	@if [ "$(BENCH_ARM)" = "b2" ]; then \
+		echo "Code mode: no platform, no MCP — fixture service only."; \
+	else \
+		if curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1; then \
+			echo "ERROR: something else is already serving $(BENCH_URL); run 'make bench-api-down' first"; exit 1; fi; \
+		echo "Starting platform ($(BENCH_CONFIG)) on $(BENCH_ADDR)..."; \
+		API_KEY_ADMIN=$(BENCH_KEY) LOG_LEVEL=info OTEL_METRICS_ADDR=$(BENCH_METRICS_ADDR) \
+			$(BUILD_DIR)/$(BINARY_NAME)-bench --config $(BENCH_CONFIG) --transport http --address $(BENCH_ADDR) \
+			> $(BENCH_LOG) 2>&1 & echo $$! > $(BENCH_PID); \
+		for i in $$(seq 1 30); do \
+			if curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1; then break; fi; \
+			sleep 1; \
+		done; \
+		curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1 \
+			|| { echo "ERROR: platform did not become ready; see $(BENCH_LOG)"; tail -20 $(BENCH_LOG); exit 1; }; \
+		kill -0 $$(cat $(BENCH_PID)) 2>/dev/null \
+			|| { echo "ERROR: bench platform exited after start; see $(BENCH_LOG)"; tail -20 $(BENCH_LOG); exit 1; }; \
+		echo "Registering fixtures (arm $(BENCH_ARM), tier $(BENCH_TIER))..."; \
+		case "$(BENCH_ARM)" in \
+			b0) $(BUILD_DIR)/bench-apisetup -mode b0 -url $(BENCH_URL) -credential $(BENCH_KEY) \
+				-epmcp $(BENCH_EPMCP_URL) ;; \
+			b1-lex) $(BUILD_DIR)/bench-apisetup -mode b1 -url $(BENCH_URL) -credential $(BENCH_KEY) \
+				-spec bench/specs/$(BENCH_TIER).json -fixture $(BENCH_APISVC_URL) -fixture-key $(BENCH_APISVC_KEY) ;; \
+			b1-hyb) $(BUILD_DIR)/bench-apisetup -mode b1 -url $(BENCH_URL) -credential $(BENCH_KEY) \
+				-spec bench/specs/$(BENCH_TIER).json -fixture $(BENCH_APISVC_URL) -fixture-key $(BENCH_APISVC_KEY) \
+				-wait-embed $(BENCH_EMBED_WAIT) ;; \
+		esac; \
+	fi
+	@echo "API study stack ready (arm $(BENCH_ARM), tier $(BENCH_TIER))."
+
+## bench-api-run: Run the API-connection study benchmark against the running b* stack (BENCH_ARM, BENCH_TIER; LLM=, SCRIPT=, K=, MODEL=, SUITE=)
+bench-api-run:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	@dir="build/bench-results/api-$(BENCH_ARM)-$(BENCH_TIER)-$$(date +%Y%m%d-%H%M%S)"; \
+	mkdir -p $$dir; \
+	echo "Results dir: $$dir"; \
+	$(BUILD_DIR)/benchrun \
+		-url $(BENCH_URL) \
+		-credential $(BENCH_KEY) \
+		-arm $(BENCH_ARM) \
+		-tier $(BENCH_TIER) \
+		-tasks bench/tasks-api \
+		-fixture-url $(BENCH_APISVC_URL) \
+		-fixture-key $(BENCH_APISVC_KEY) \
+		-identity-keys 150 \
+		-git-commit $$(git rev-parse HEAD) \
+		-out $$dir/results.json \
+		$(if $(filter b2,$(BENCH_ARM)),-code-spec bench/specs/$(BENCH_TIER).json,) \
+		$(if $(LLM),-llm $(LLM),) \
+		$(if $(SCRIPT),-script $(SCRIPT),) \
+		$(if $(SUITE),-suite $(SUITE),) \
+		$(if $(K),-k $(K),) \
+		$(if $(MODEL),-model $(MODEL),)
+
+## bench-api-smoke: Scripted (no-API-key) end-to-end smoke against the running b1 stack
+bench-api-smoke:
+	@$(MAKE) bench-api-run LLM=scripted SCRIPT=bench/tasks-api/scripted-smoke.json K=1
+
+## bench-api-down: Stop the API study stack (platform, epmcp, fixture service, compose)
+bench-api-down:
+	@for pid in $(BENCH_PID) $(BENCH_EPMCP_PID) $(BENCH_APISVC_PID); do \
+		if [ -f $$pid ]; then \
+			kill $$(cat $$pid) 2>/dev/null || true; \
+			rm -f $$pid; \
+		fi; \
+	done
+	@$(MAKE) e2e-down
+
 ## bench-up: Start the compose stack, seed the bench warehouse, and run the platform (BENCH_ARM=a0|a1|a2|a3)
 bench-up: e2e-up
 	@echo "Seeding bench warehouse in Trino..."

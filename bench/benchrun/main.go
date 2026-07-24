@@ -16,6 +16,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
 	"github.com/txn2/mcp-data-platform/bench/internal/coldstart"
+	"github.com/txn2/mcp-data-platform/bench/internal/fixturectl"
 	"github.com/txn2/mcp-data-platform/bench/internal/judge"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycle"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
@@ -39,6 +40,10 @@ type config struct {
 	mcpServerName string
 	script        string
 	tasksDir      string
+	fixtureURL    string
+	fixtureKey    string
+	tier          string
+	codeSpec      string
 	out           string
 	gitCommit     string
 	httpTimeout   time.Duration
@@ -76,7 +81,7 @@ func parseFlags() config {
 	var cfg config
 	flag.StringVar(&cfg.url, "url", "http://localhost:8098", "platform base URL (MCP + REST)")
 	flag.StringVar(&cfg.credential, "credential", "", "admin API key (Bearer)")
-	flag.StringVar(&cfg.arm, "arm", "", "benchmark arm (a0|a1|a2|a3), required")
+	flag.StringVar(&cfg.arm, "arm", "", "benchmark arm (a0|a1|a2|a3, or b0|b1-lex|b1-hyb|b2 for the API-connection study), required")
 	flag.StringVar(&cfg.suite, "suite", "", "suite filter (s1|s2|s3), empty = all")
 	flag.IntVar(&cfg.k, "k", 3, "repeats per task (pass^k)")
 	flag.StringVar(&cfg.llmProvider, "llm", "anthropic", "model adapter: anthropic|scripted|claude-cli")
@@ -86,6 +91,10 @@ func parseFlags() config {
 	flag.StringVar(&cfg.mcpServerName, "mcp-server-name", "bench", "MCP server key in the generated per-attempt config for -llm claude-cli")
 	flag.StringVar(&cfg.script, "script", "", "playback script for -llm scripted")
 	flag.StringVar(&cfg.tasksDir, "tasks", "tasks", "task YAML directory")
+	flag.StringVar(&cfg.fixtureURL, "fixture-url", "", "fixture service base URL: marks an API-connection study run (#1027) with per-attempt reset, state/refusal grading, retrieval and failure-taxonomy analysis (b* arms; use with -tasks tasks-api)")
+	flag.StringVar(&cfg.fixtureKey, "fixture-key", os.Getenv("APISVC_KEY"), "fixture service X-API-Key (with -fixture-url)")
+	flag.StringVar(&cfg.tier, "tier", "", "API-connection study catalog tier (t0|t1|t2), recorded on the manifest")
+	flag.StringVar(&cfg.codeSpec, "code-spec", "", "tier spec fixture placed in the b2 code-mode workspace (required with -arm b2)")
 	flag.StringVar(&cfg.out, "out", "results.json", "results JSON output path")
 	flag.StringVar(&cfg.gitCommit, "git-commit", "", "repository commit for the manifest")
 	flag.DurationVar(&cfg.httpTimeout, "http-timeout", 120*time.Second, "platform HTTP timeout")
@@ -644,6 +653,7 @@ func runBenchmark(cfg config) error {
 		Target:        target.Target{BaseURL: cfg.url, Credential: cfg.credential},
 		HTTPTimeout:   cfg.httpTimeout,
 		Arm:           cfg.arm,
+		Tier:          cfg.tier,
 		Suite:         cfg.suite,
 		K:             cfg.k,
 		TasksDir:      cfg.tasksDir,
@@ -660,6 +670,9 @@ func runBenchmark(cfg config) error {
 			}
 		},
 		Log: log,
+	}
+	if cfg.fixtureURL != "" {
+		opts.Fixture = fixturectl.New(cfg.fixtureURL, cfg.fixtureKey, cfg.httpTimeout)
 	}
 	if cfg.llmProvider == claudeCLIProvider {
 		runner, version, err := buildClaudeRunner(cfg)
@@ -765,11 +778,28 @@ const claudeCLIProvider = "claude-cli"
 // version for the manifest, so a subscription run made through Claude Code is
 // never silently compared against a raw Messages API run.
 func buildClaudeRunner(cfg config) (*claudecli.Runner, string, error) {
-	runner, err := claudecli.New(claudecli.Options{
+	opts := claudecli.Options{
 		Bin:        cfg.claudeBin,
 		Model:      cfg.model,
 		ServerName: cfg.mcpServerName,
-	})
+	}
+	// The b2 arm is code mode (#1027): no MCP server; the workspace carries
+	// the tier spec and the model calls the fixture API itself.
+	if cfg.arm == "b2" {
+		if cfg.codeSpec == "" {
+			return nil, "", errors.New("-arm b2 requires -code-spec (the tier spec fixture for the workspace)")
+		}
+		if cfg.fixtureURL == "" {
+			return nil, "", errors.New("-arm b2 requires -fixture-url (the model calls the fixture API directly)")
+		}
+		spec, err := os.ReadFile(cfg.codeSpec) // #nosec G304 -- operator-supplied spec fixture path
+		if err != nil {
+			return nil, "", fmt.Errorf("read -code-spec: %w", err)
+		}
+		opts.CodeMode = true
+		opts.Workspace = map[string][]byte{"spec.json": spec}
+	}
+	runner, err := claudecli.New(opts)
 	if err != nil {
 		return nil, "", err
 	}
