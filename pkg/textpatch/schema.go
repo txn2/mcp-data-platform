@@ -41,11 +41,15 @@ const PropertiesJSON = `{
         },
         "section": {
           "type": "string",
-          "description": "Markdown heading naming a section ('## Methodology', or a 'Report > Methodology' path when headings repeat). Required by replace_section and move_section; on the anchored operations it scopes the anchor search to that one section."
+          "description": "Heading naming a region: a markdown heading ('## Methodology', or a 'Report > Methodology' path when headings repeat), or an HTML/JSX/SVG heading (h1-h6) resolved the same way. Required by replace_section and move_section (either this or 'selector'); on the anchored operations it scopes the anchor search to that one region."
+        },
+        "selector": {
+          "type": "string",
+          "description": "CSS selector naming an element on an HTML, JSX or SVG document ('.card', '#main', 'section > h2', '[data-region=notes]'). The region is that element's balanced subtree. Alternative to 'section' for replace_section and move_section, and a scope for the anchored operations. Supported forms: tag, #id, .class (also matches className), [attr], [attr=value], joined by descendant (space) or child ('>') combinators. Refused on a markdown or structureless document."
         },
         "occurrence": {
           "type": "string",
-          "description": "Which match to act on when the anchor is not unique: 'first', 'last', 'all', or a 1-based index. Omit to require a unique anchor."
+          "description": "Which match to act on when a text anchor or a 'selector' is not unique: 'first', 'last', 'all' (text anchors only), or a 1-based index. Omit to require a unique match."
         },
         "before": {
           "type": "string",
@@ -81,7 +85,15 @@ const PropertiesJSON = `{
   },
   "section": {
     "type": "string",
-    "description": "Markdown heading naming a section: scopes 'locate' to one section, or selects the span 'get_content' returns."
+    "description": "Heading naming a region (markdown or HTML h1-h6): scopes 'locate' to one region, or selects the span 'get_content' returns."
+  },
+  "selector": {
+    "type": "string",
+    "description": "CSS selector naming an element on an HTML/JSX/SVG document: scopes 'locate' to that element, or selects the span 'get_content' returns. Same supported forms as the patch 'selector'. Refused on a markdown or structureless document."
+  },
+  "occurrence": {
+    "type": "string",
+    "description": "Which element a 'selector' selects when it matches several (locate and get_content): 'first', 'last', or a 1-based index. Omit to require a unique match."
   },
   "line_start": {
     "type": "integer",

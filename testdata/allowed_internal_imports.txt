@@ -381,6 +381,7 @@ pkg/session -> pkg/oauth
 pkg/session/postgres -> pkg/session
 pkg/storage/s3 -> pkg/storage
 pkg/storage/s3 -> pkg/urnbuild
+pkg/textpatch -> pkg/contenttype
 pkg/textpatch/patchmcp -> pkg/middleware
 pkg/textpatch/patchmcp -> pkg/textpatch
 pkg/toolkits/apigateway -> internal/logsan

@@ -8,7 +8,7 @@ import (
 )
 
 func TestOutlineFields(t *testing.T) {
-	got := OutlineFields(report)
+	got := OutlineFields(report, SyntaxMarkdown)
 
 	assert.Equal(t, len(report), got[FieldSizeBytes])
 	assert.Equal(t, CountLines(report), got[FieldLines])
@@ -21,7 +21,7 @@ func TestOutlineFields(t *testing.T) {
 func TestOutlineFieldsOnAHeadinglessBodyReportsAnEmptyList(t *testing.T) {
 	// The list must serialize as [] rather than null, so a client can iterate
 	// it without a nil check.
-	sections, ok := OutlineFields("prose only\n")[FieldSections].([]Section)
+	sections, ok := OutlineFields("prose only\n", SyntaxMarkdown)[FieldSections].([]Section)
 	require.True(t, ok)
 	assert.NotNil(t, sections)
 	assert.Empty(t, sections)

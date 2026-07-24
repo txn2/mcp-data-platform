@@ -34,17 +34,18 @@ func assetIdentity(asset *portal.Asset) map[string]any {
 }
 
 // contentVerb runs a read-only content verb: load the asset's text, build the
-// body fields, and stamp the asset's identity onto them.
+// body fields under the asset's region syntax, and stamp the asset's identity
+// onto them.
 func (t *Toolkit) contentVerb(
 	ctx context.Context,
 	assetID string,
-	build func(body string) (map[string]any, error),
+	build func(body string, syntax textpatch.Syntax) (map[string]any, error),
 ) (*mcp.CallToolResult, any, error) {
 	asset, body, errResult := t.readAssetText(ctx, assetID)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
-	fields, err := build(body)
+	fields, err := build(body, textpatch.SyntaxForContentType(asset.ContentType))
 	if err != nil {
 		return patchmcp.ErrorResult(err), nil, nil
 	}
@@ -52,31 +53,35 @@ func (t *Toolkit) contentVerb(
 	return toolkit.JSONResultTyped(fields)
 }
 
-// handleOutline returns the asset's heading tree: level, line, and byte size
-// per section. It is the cheapest way to decide where to patch a long document
-// without reading any of it.
+// handleOutline returns the asset's heading tree — level, line, and byte size
+// per section — plus, for an HTML/JSX/SVG asset, its addressable landmarks. It
+// is the cheapest way to decide where to patch without reading any of the body.
 func (t *Toolkit) handleOutline(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
-	return t.contentVerb(ctx, input.AssetID, func(body string) (map[string]any, error) {
-		return textpatch.OutlineFields(body), nil
+	return t.contentVerb(ctx, input.AssetID, func(body string, syntax textpatch.Syntax) (map[string]any, error) {
+		return textpatch.OutlineFields(body, syntax), nil
 	})
 }
 
 // handleStats returns the asset's size, line count, current version, content
 // type, and body hash, with none of the body.
 func (t *Toolkit) handleStats(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
-	return t.contentVerb(ctx, input.AssetID, func(body string) (map[string]any, error) {
+	return t.contentVerb(ctx, input.AssetID, func(body string, _ textpatch.Syntax) (map[string]any, error) {
 		return textpatch.StatsFields(body), nil
 	})
 }
 
-// handleGetContent reads a span of the asset: the whole body, one section, or a
-// line range, always with the document's size, line count, version, and type.
+// handleGetContent reads a span of the asset: the whole body, one section or
+// selector-addressed element, or a line range, always with the document's size,
+// line count, version, and type.
 func (t *Toolkit) handleGetContent(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
-	return t.contentVerb(ctx, input.AssetID, func(body string) (map[string]any, error) {
+	return t.contentVerb(ctx, input.AssetID, func(body string, syntax textpatch.Syntax) (map[string]any, error) {
 		return textpatch.ContentFields(body, textpatch.ContentRequest{
-			Section:   input.Section,
-			LineStart: input.LineStart,
-			LineEnd:   input.LineEnd,
+			Syntax:     syntax,
+			Section:    input.Section,
+			Selector:   input.Selector,
+			Occurrence: input.Occurrence,
+			LineStart:  input.LineStart,
+			LineEnd:    input.LineEnd,
 		})
 	})
 }
@@ -85,14 +90,16 @@ func (t *Toolkit) handleGetContent(ctx context.Context, input manageAssetInput) 
 // byte offset, enclosing section, and a context window wide enough to copy
 // verbatim into a patch anchor.
 func (t *Toolkit) handleLocate(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
-	return t.contentVerb(ctx, input.AssetID, func(body string) (map[string]any, error) {
+	return t.contentVerb(ctx, input.AssetID, func(body string, syntax textpatch.Syntax) (map[string]any, error) {
 		return textpatch.LocateFields(body, textpatch.LocateQuery{
 			Find:         input.Find,
 			Pattern:      input.Pattern,
 			Section:      input.Section,
+			Selector:     input.Selector,
+			Occurrence:   input.Occurrence,
 			ContextBytes: input.ContextBytes,
 			Limit:        input.Limit,
-		}, t.patchOptions())
+		}, t.patchOptions(syntax))
 	})
 }
 
@@ -115,7 +122,7 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 		return patchmcp.ErrorResult(textpatch.StaleBaseError(input.BaseVersion, asset.CurrentVersion)), nil, nil
 	}
 
-	res, err := textpatch.Apply(body, input.Edits, t.patchOptions())
+	res, err := textpatch.Apply(body, input.Edits, t.patchOptions(textpatch.SyntaxForContentType(asset.ContentType)))
 	if err != nil {
 		return patchmcp.ErrorResult(err), nil, nil
 	}
@@ -242,10 +249,11 @@ func (t *Toolkit) readVersionText(ctx context.Context, asset *portal.Asset, vers
 	return string(data), nil
 }
 
-// patchOptions binds the deployment's content-size ceiling to the edit engine
-// so a patch can never grow an asset past what save_asset would accept.
-func (t *Toolkit) patchOptions() textpatch.Options {
-	return textpatch.Options{MaxResultBytes: t.maxContentSize}
+// patchOptions binds the deployment's content-size ceiling and the asset's
+// region syntax to the edit engine, so a patch can never grow an asset past what
+// save_asset would accept and names its regions by the asset's own grammar.
+func (t *Toolkit) patchOptions(syntax textpatch.Syntax) textpatch.Options {
+	return textpatch.Options{Syntax: syntax, MaxResultBytes: t.maxContentSize}
 }
 
 // readAssetText loads an asset's current bytes for the text verbs, refusing a

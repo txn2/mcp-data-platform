@@ -896,7 +896,7 @@ List, retrieve, update, or delete saved assets, and edit an asset's content in p
 | `query` | string | Conditional | - | Free-text relevance query (required for search) |
 | `limit` | integer | No | 50 | Max results for list (max 200); ranked search defaults to 20 (max 100) |
 
-The patch and navigation arguments (`edits`, `base_version`, `dry_run`, `find`, `pattern`, `section`, `line_start`, `line_end`, `context_bytes`, `from_version`, `to_version`) are the shared content-editing grammar documented in [Editing content in place](#editing-content-in-place). `occurrence` is a per-edit field inside `edits`, not a top-level argument.
+The patch and navigation arguments (`edits`, `base_version`, `dry_run`, `find`, `pattern`, `section`, `selector`, `occurrence`, `line_start`, `line_end`, `context_bytes`, `from_version`, `to_version`) are the shared content-editing grammar documented in [Editing content in place](#editing-content-in-place). Inside `edits`, `occurrence` is a per-edit field; at the top level it disambiguates a `selector` used to scope `locate` or `get_content`.
 
 **Actions:**
 
@@ -921,8 +921,8 @@ The intended loop for a large document is `outline` (or `locate`) to decide wher
 
 | Verb | Purpose |
 |---|---|
-| `outline` | Heading tree with levels, line numbers, and per-section byte size |
-| `get_content` | Read a span: the whole body, one `section`, or a `line_range` |
+| `outline` | Heading tree with levels, line numbers, and per-section byte size; on an HTML/JSX/SVG asset also the addressable `landmarks` (elements with an `id` or `data-*` marker) |
+| `get_content` | Read a span: the whole body, one `section` or `selector`-addressed element, or a `line_range` |
 | `stats` | Size, line count, current version, content type, body hash |
 | `locate` | Find literal or regex matches: count, line numbers, enclosing section, context windows |
 | `patch` | Apply an ordered list of anchored edits |
@@ -953,11 +953,34 @@ Operations:
 
 - `replace` (the default when `op` is omitted): `find` is matched literally and swapped for `replace`. An empty `replace` deletes the matched text.
 - `insert_before` / `insert_after`: `text` is placed relative to the `find` anchor, leaving the anchor in place.
-- `replace_section`: `section` names a markdown heading (`## Methodology`, or a `Report > Methodology` path when headings repeat). The span from that heading to the next heading of the same or higher level is replaced with `text`.
-- `move_section`: relocate a whole section `before` or `after` another heading, or with `position` set to `start` or `end`.
+- `replace_section`: names a region with `section` or `selector` (see below) and replaces its whole span with `text`.
+- `move_section`: relocate a whole region `before` or `after` another heading, or with `position` set to `start` or `end`.
 - `append` / `prepend`: `text` at the end or start of the body. No anchor needed.
 
-`section` is also accepted on `replace`, `insert_before`, and `insert_after` to scope the anchor search to one section, which is how a repeated phrase becomes unambiguous without quoting a long anchor.
+`section` and `selector` are also accepted on `replace`, `insert_before`, and `insert_after` to scope the anchor search to one region, which is how a repeated phrase becomes unambiguous without quoting a long anchor.
+
+**Naming a region**
+
+How a region is named is derived from the asset's content type, through the platform's single media-type seam (`pkg/contenttype`); it is never guessed from the bytes.
+
+- **Markdown** (`text/markdown`, `text/plain`): `section` names an ATX heading (`## Methodology`, or a `Report > Methodology` path when headings repeat). The span runs from that heading to the next heading of the same or higher level.
+- **HTML, JSX, SVG, XML** (`text/html`, `text/jsx`, `image/svg+xml`, `application/xml`): `section` names an `<h1>`..`<h6>` heading, resolved exactly as markdown resolves `#`. `selector` names an element by CSS selector, and the region is that element's balanced subtree, running from its start tag through its matching end tag, so a `replace_section` or `move_section` can never cut a tag in half. `selector` is refused on a markdown or structureless document, with a message naming the right alternative.
+- **Everything else textual** (JSON, CSV, SQL, ...): has no addressable structure. `section` and `selector` are refused with `PATCH_NO_STRUCTURE`; use anchored edits.
+
+The supported selector forms are type (`section`, `Card`), `#id`, `.class` (which also matches a JSX `className`), `[attr]` and `[attr=value]`, joined by descendant (space) or child (`>`) combinators. Element type selectors match HTML and SVG tags case-insensitively; a JSX component name (`Card`) is matched case-sensitively. A selector that matches several elements is refused with `PATCH_AMBIGUOUS` naming the count, and `occurrence` (`first`, `last`, or a 1-based index, since a region is a single element and `all` does not apply) is the explicit opt-in, exactly as for a repeated text anchor.
+
+```json
+{
+  "action": "patch",
+  "asset_id": "ast_...",
+  "edits": [
+    { "op": "replace_section", "selector": "[data-region=\"revenue\"]", "text": "<Card data-region=\"revenue\">...</Card>" },
+    { "op": "replace", "selector": ".metric", "occurrence": 2, "find": "Users", "replace": "Active Users" }
+  ]
+}
+```
+
+On a headingless dashboard, `outline` returns the addressable `landmarks`: every element carrying an `id` or a `data-*` marker, each with its tag, a copyable selector, line, and byte size, so an agent can find where to patch without reading the body.
 
 **Matching rules**
 
@@ -998,13 +1021,16 @@ Corrective, self-describing envelopes carrying `{code, category, message, hint}`
 | Code | Meaning |
 |---|---|
 | `PATCH_NO_MATCH` | Anchor text not found, with the edit index. Run `locate` and copy the anchor verbatim. |
-| `PATCH_AMBIGUOUS` | Several matches for an anchor with no `occurrence`. Lengthen the anchor, scope it with `section`, or set `occurrence`. |
+| `PATCH_AMBIGUOUS` | Several matches for an anchor or a `selector` with no `occurrence`. Lengthen the anchor, scope it with `section` or `selector`, or set `occurrence`. |
 | `PATCH_STALE_BASE` | `base_version` does not match the current version. Re-read and retry. |
 | `PATCH_NOT_TEXT` | The target's content type is not textual. |
 | `PATCH_TOO_LARGE` | Too many edits, too many regex matches, or a result exceeding the deployment's max content size. |
-| `PATCH_SECTION_NOT_FOUND` | Named heading absent, with the document's headings in the message. |
+| `PATCH_SECTION_NOT_FOUND` | Named heading absent (with the document's headings in the message), or a `selector` matched no element. |
 | `PATCH_BAD_PATTERN` | Regex fails to compile or exceeds the pattern cap. |
-| `PATCH_BAD_EDIT` | The edit names no anchor, names both `find` and `pattern`, or uses an unknown operation. |
+| `PATCH_BAD_EDIT` | The edit names no anchor, names both `find` and `pattern`, names both `section` and `selector`, or uses an unknown operation. |
+| `PATCH_BAD_SELECTOR` | The CSS selector does not parse, with the parse error. |
+| `PATCH_NO_STRUCTURE` | The content type has no sections or elements to address; use anchored edits. |
+| `PATCH_UNRESOLVED_MARKUP` | The markup could not be resolved into a reliable element tree, so no element span was trusted; nothing was written. |
 
 ---
 
