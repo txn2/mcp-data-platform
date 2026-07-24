@@ -40,12 +40,14 @@ func (h *Handle) RegisterShowPromptsTool(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  ToolNameShowPrompts,
 		Title: "Show Prompt Library",
-		Description: "Displays the user's prompt library as an interactive browser for the human to look at. " +
-			"Call this ONLY when the human wants to see, browse, or pick from their prompts visually " +
-			"(\"show me my prompts\", \"open my prompt library\"). It renders a UI panel and does no data " +
-			"work, so never call it for your own reasoning or as a way to read prompt data. For running, " +
-			"creating, editing, or listing prompts as part of your work, use manage_prompt, which returns " +
-			"data and renders no UI.",
+		Description: "Open the user's prompt library as an interactive visual browser (search, filter, " +
+			"preview, and one-click run). This is the correct tool whenever the human asks to see, list, " +
+			"view, show, browse, or pick their prompts, or asks what prompts they have or what is in their " +
+			"library: \"list my prompts\", \"show me my prompts\", \"view my prompts\", \"what prompts do I " +
+			"have\", \"open my prompt library\", \"browse my prompts\". Prefer it over manage_prompt for any " +
+			"human-facing request to view prompts; it renders the library for the human and needs no " +
+			"follow-up tool calls. Use manage_prompt only to run, create, or edit a prompt, or when you need " +
+			"prompt data for your own reasoning rather than to show it to the human.",
 		InputSchema: showPromptsSchema(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input showPromptsInput) (*mcp.CallToolResult, any, error) {
 		return h.handleShowPrompts(ctx, input)

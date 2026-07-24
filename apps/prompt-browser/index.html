@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="height: 640px">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Prompt Library</title>
-    <script id="app-config" type="application/json">{}</script>
+    <script id="app-config" type="application/json">{"brand_name":"","logo_svg":"","logo_url":"","brand_url":""}</script>
     <style>
         :root {
             --bg: #0d1117;
@@ -49,11 +49,16 @@
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        /* Fixed 500px app shell (#1043). The app declares its own height via the
-           MCP Apps size-changed contract rather than depending on how much content
-           happens to exist; each view pins its header and scrolls its body inside
-           the shell so the host iframe never grows or shrinks with content. */
-        html, body { height: 500px; }
+        /* Fixed-height app shell, tall enough for a human to actually browse.
+           Claude sizes the iframe by reading documentElement's height directly
+           and ignores ui/notifications/size-changed (anthropics/claude-ai-mcp
+           #69), so the height is declared as an INLINE style on <html> (present
+           at first paint, which is what Claude snapshots) in addition to this
+           rule and the size-changed message the app still sends for
+           spec-compliant hosts. The brand bar and each view's head are pinned;
+           the body scrolls inside the shell. Keep this value in sync with the
+           inline style="height:..." on the <html> element above. */
+        html, body { height: 640px; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans',
                          Helvetica, Arial, sans-serif;
@@ -65,6 +70,38 @@
             flex-direction: column;
             overflow: hidden;
         }
+
+        /* Brand bar: the platform logo and name, pinned above the views, so the
+           prompt library carries the same brand identity as the platform-info
+           app. */
+        .brandbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        .brand-logo {
+            width: 26px; height: 26px;
+            flex-shrink: 0;
+            color: var(--accent);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .brand-logo svg { width: 26px; height: 26px; display: block; }
+        .brand-logo img { width: 26px; height: 26px; display: block; object-fit: contain; }
+        .brand-logo a { display: flex; align-items: center; color: inherit; text-decoration: none; }
+        .brand-name {
+            font-size: 15px;
+            font-weight: 650;
+            color: var(--text);
+            letter-spacing: -0.01em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .brand-name a { color: inherit; text-decoration: none; }
+        .brand-name a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
         /* A view fills the shell as a header + scrolling body. */
         .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -336,6 +373,11 @@
     </style>
 </head>
 <body>
+    <div id="brandbar" class="brandbar hidden">
+        <span id="brand-logo" class="brand-logo"></span>
+        <span id="brand-name" class="brand-name"></span>
+    </div>
+
     <div id="loading" class="loading">
         <div class="dot"></div><div class="dot"></div><div class="dot"></div>
         <span>Loading prompt library&hellip;</span>
@@ -370,6 +412,68 @@
 
 <script>
     'use strict';
+
+    // ---------------------------------------------------------------------
+    // Brand bar. The platform logo and name are injected server-side into the
+    // #app-config script (the same brand config the platform-info app uses), so
+    // the library carries the same brand identity. Rendered immediately from
+    // config; it does not wait on the MCP handshake or the prompt list.
+    // ---------------------------------------------------------------------
+    var CFG = (function() {
+        try { return JSON.parse(document.getElementById('app-config').textContent); }
+        catch (e) { return {}; }
+    }());
+
+    // DEFAULT_LOGO is the fallback mark when no logo is configured, byte-identical
+    // to the platform-info app so both fall back the same way.
+    var DEFAULT_LOGO = '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">'
+        + '<circle cx="20" cy="20" r="4.5" fill="currentColor" opacity=".95"/>'
+        + '<circle cx="6"  cy="11" r="3"   fill="currentColor" opacity=".65"/>'
+        + '<circle cx="34" cy="11" r="3"   fill="currentColor" opacity=".65"/>'
+        + '<circle cx="6"  cy="29" r="3"   fill="currentColor" opacity=".45"/>'
+        + '<circle cx="34" cy="29" r="3"   fill="currentColor" opacity=".45"/>'
+        + '<circle cx="20" cy="4"  r="2.2" fill="currentColor" opacity=".55"/>'
+        + '<circle cx="20" cy="36" r="2.2" fill="currentColor" opacity=".35"/>'
+        + '<line x1="20" y1="20" x2="6"  y2="11" stroke="currentColor" stroke-width="1.4" opacity=".3"/>'
+        + '<line x1="20" y1="20" x2="34" y2="11" stroke="currentColor" stroke-width="1.4" opacity=".3"/>'
+        + '<line x1="20" y1="20" x2="6"  y2="29" stroke="currentColor" stroke-width="1.4" opacity=".22"/>'
+        + '<line x1="20" y1="20" x2="34" y2="29" stroke="currentColor" stroke-width="1.4" opacity=".22"/>'
+        + '<line x1="20" y1="20" x2="20" y2="4"  stroke="currentColor" stroke-width="1.4" opacity=".28"/>'
+        + '<line x1="20" y1="20" x2="20" y2="36" stroke="currentColor" stroke-width="1.4" opacity=".18"/>'
+        + '</svg>';
+
+    function escAttr(s) {
+        return String(s).replace(/[&<>"']/g, function(c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    // renderBrand fills the brand bar from CFG: inline SVG preferred, then a URL
+    // image, then the default mark; the logo and name link to brand_url when set.
+    function renderBrand() {
+        var brandUrl = CFG.brand_url || '';
+        var brandName = CFG.brand_name || 'MCP Data Platform';
+        var logoSvg = CFG.logo_svg || '';
+        var logoUrl = CFG.logo_url || '';
+        var logoMarkup = logoSvg
+            ? logoSvg
+            : (logoUrl
+                ? '<img src="' + escAttr(logoUrl) + '" alt="' + escAttr(brandName)
+                    + '" onerror="this.parentElement.innerHTML=DEFAULT_LOGO;this.remove();">'
+                : DEFAULT_LOGO);
+        var logoEl = document.getElementById('brand-logo');
+        logoEl.innerHTML = brandUrl
+            ? '<a href="' + escAttr(brandUrl) + '">' + logoMarkup + '</a>'
+            : logoMarkup;
+        var nameEl = document.getElementById('brand-name');
+        if (brandUrl) {
+            nameEl.innerHTML = '<a href="' + escAttr(brandUrl) + '">' + escAttr(brandName) + '</a>';
+        } else {
+            nameEl.textContent = brandName;
+        }
+        document.getElementById('brandbar').classList.remove('hidden');
+    }
+    renderBrand();
 
     // ---------------------------------------------------------------------
     // MCP Apps bridge. Supports two host protocols:
