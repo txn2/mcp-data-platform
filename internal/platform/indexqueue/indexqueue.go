@@ -2,7 +2,8 @@
 // (pkg/indexjobs) behind one Handle: the Postgres store, the Source/Sink
 // registry, the worker/reaper/reconciler, the optional retention sweep and
 // LISTEN/NOTIFY adapter, and every enabled consumer (api-catalog, tools,
-// memory, prompts, portal assets/collections/knowledge-pages).
+// memory, prompts, portal assets/collections/knowledge-pages, managed
+// resources).
 //
 // New takes an explicit Config: callers translate their own config into Config
 // at the boundary and wire the returned Handle's Start/Stop into their own
@@ -24,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/pkg/prompt/promptindex"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/resource/resourceindex"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
@@ -43,6 +45,7 @@ type Consumers struct {
 	PortalAssets         bool
 	PortalCollections    bool
 	PortalKnowledgePages bool
+	Resources            bool
 }
 
 // Config carries the values New needs to assemble the queue. Callers build it
@@ -87,6 +90,14 @@ type Config struct {
 
 	// Consumers gates the optional DB-backed consumers.
 	Consumers Consumers
+
+	// ResourceBlobs and ResourceBucket locate managed-resource content for the
+	// resources consumer, which extracts a text prefix from the uploaded file so
+	// search matches what is inside it and not just its metadata. Unlike every
+	// other consumer, a resource's indexable text is not in Postgres. A nil
+	// reader leaves the consumer indexing metadata only.
+	ResourceBlobs  resourceindex.BlobReader
+	ResourceBucket string
 }
 
 // Handle owns the assembled queue and its runtime goroutines. All components
@@ -244,6 +255,16 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 	})
 	tryRegister(cfg.Consumers.PortalKnowledgePages, "portal knowledge pages", func() error {
 		return knowledgepageindex.RegisterConsumer(h.registry, cfg.DB, cfg.ModelName)
+	})
+	// Resources consumer: embeds human-uploaded reference material, including a
+	// bounded text prefix read from its blob, so an uploaded file is discoverable
+	// through search by what is inside it (#1012).
+	tryRegister(cfg.Consumers.Resources, "resources", func() error {
+		resStore := resourceindex.NewStore(cfg.DB)
+		return h.registry.Register(
+			resourceindex.NewSource(resStore, cfg.ResourceBlobs, cfg.ResourceBucket),
+			resourceindex.NewSink(resStore, cfg.ModelName),
+		)
 	})
 }
 

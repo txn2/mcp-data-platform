@@ -40,6 +40,8 @@ func (r EntityRef) URN() string {
 		return mcpScheme + RefTargetInsight + refKeySep + r.InsightID
 	case RefTargetMemory:
 		return mcpScheme + RefTargetMemory + refKeySep + r.MemoryID
+	case RefTargetResource:
+		return mcpScheme + RefTargetResource + refKeySep + r.ResourceID
 	default:
 		return ""
 	}
@@ -88,6 +90,9 @@ func ParseCitableRef(s string) (EntityRef, error) {
 	if ref.TargetType == RefTargetMemory || ref.TargetType == RefTargetInsight {
 		return EntityRef{}, fmt.Errorf("a personal %s reference (%q) cannot be cited on a knowledge page: it is private to its owner, so the citation would resolve for no one else; promote the insight to the catalog and cite the resulting urn:li:... entity, or cite a shared entity instead", ref.TargetType, s)
 	}
+	if ref.TargetType == RefTargetResource {
+		return EntityRef{}, fmt.Errorf("a managed resource reference (%q) cannot be cited on a knowledge page: a resource is visibility-scoped (global, persona, or user), so the citation would be broken for every reader outside that scope; link to the resource from the page body, or describe its content on the page instead", s)
+	}
 	return ref, nil
 }
 
@@ -132,6 +137,10 @@ func parseSimpleMCPRef(typ, id, s string) (EntityRef, error) {
 		return EntityRef{TargetType: RefTargetInsight, InsightID: id}, nil
 	case RefTargetMemory:
 		return EntityRef{TargetType: RefTargetMemory, MemoryID: id}, nil
+	case RefTargetResource:
+		// Resource ids are opaque server-generated strings, accepted as-is; the
+		// scope-checked fetch resolves them and reports a stale id as not-found.
+		return EntityRef{TargetType: RefTargetResource, ResourceID: id}, nil
 	default:
 		return EntityRef{}, fmt.Errorf("unknown internal reference type %q in %q", typ, s)
 	}

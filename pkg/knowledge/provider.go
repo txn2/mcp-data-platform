@@ -74,6 +74,16 @@ type Caller struct {
 	// security boundary on its own (per-user records are scoped by Email/UserID);
 	// it narrows persona-targeted content.
 	Persona string
+	// Personas is every persona the caller BELONGS TO, derived from their roles.
+	// It is deliberately distinct from Persona: the resolved persona falls back to
+	// the configured default_persona when a caller's roles match none, so it says
+	// "which persona is this request acting as", not "which personas is this caller
+	// a member of". A provider whose visibility rule is membership (managed
+	// resources, whose persona scope grants access to a persona's material) must
+	// use this set, or a caller who belongs to no persona at all inherits the
+	// default persona's material. Empty when no resolver is wired, which is the
+	// same fallback the resources middleware applies.
+	Personas []string
 }
 
 // Anonymous reports whether the caller carries no identity at all. The Router
@@ -144,6 +154,24 @@ type Hit struct {
 	// can reference it from a knowledge page without hand-assembling or guessing
 	// the form. Omitted when the entity is not referenceable.
 	Reference string `json:"reference,omitempty"`
+	// Link is set by sources whose hit is backed by a file the MCP client can
+	// attach directly (a managed resource). The search surface renders it as an
+	// mcp.ResourceLink content block alongside the JSON result, so a client with
+	// native resource support can hand the user the file itself instead of only a
+	// pointer the model has to dereference. Nil for sources with no file behind
+	// the hit.
+	Link *HitLink `json:"link,omitempty"`
+}
+
+// HitLink is the client-attachable file behind a Hit: the canonical resource URI
+// plus the labels an MCP resource link carries. It is transport-neutral (no MCP
+// SDK types) so providers stay free of the protocol layer; the search surface
+// converts it.
+type HitLink struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	MIMEType    string `json:"mime_type,omitempty"`
 }
 
 // Provider is one searchable knowledge store behind the Router. Name is the

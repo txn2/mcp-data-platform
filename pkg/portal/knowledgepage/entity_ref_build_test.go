@@ -16,6 +16,7 @@ func TestReferenceBuilders_RoundTrip(t *testing.T) {
 		{"connection", ConnectionRef("api", "prometheus"), "mcp:connection:(api,prometheus)", RefTargetConnection},
 		{"insight", InsightRef("ins_36d8"), "mcp:insight:ins_36d8", RefTargetInsight},
 		{"memory", MemoryRef("mem_36d8"), "mcp:memory:mem_36d8", RefTargetMemory},
+		{"resource", ResourceRef("res_36d8"), "mcp:resource:res_36d8", RefTargetResource},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -43,6 +44,7 @@ func TestReferenceBuilders_EmptyForUnresolvable(t *testing.T) {
 		"empty connname":     ConnectionRef("api", ""),
 		"empty insight id":   InsightRef(""),
 		"empty memory id":    MemoryRef(""),
+		"empty resource id":  ResourceRef(""),
 	}
 	for name, got := range cases {
 		if got != "" {

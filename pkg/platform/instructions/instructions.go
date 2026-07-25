@@ -51,7 +51,8 @@ func Build(accessibleTools []string) string {
 		bullets = append(bullets,
 			"Discover before you act. Call `search` first: one query reveals what is already "+
 				"known across every source you can reach (the data catalog, its context documents, your memory, captured "+
-				"insights, knowledge pages, your feedback, saved assets, prompts, API endpoints, and connections). "+
+				"insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, "+
+				"API endpoints, and connections). "+
 				"The answer may span several sources, or may not be in the data warehouse at all, so do "+
 				"not assume a backend and do not stop at the first result.",
 			reuseBullet(has[toolFetch]))

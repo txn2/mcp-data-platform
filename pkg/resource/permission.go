@@ -81,6 +81,30 @@ func CanModifyResource(c Claims, r *Resource) bool {
 	return CanWriteScope(c, r.Scope, r.ScopeID)
 }
 
+// CanAccessResource checks whether the caller may see a specific resource at
+// all: it is inside their visible scopes, OR they hold write authority over the
+// scope it lives in (a platform admin, or that persona's admin).
+//
+// The second clause is what separates this from CanReadResource. VisibleScopes
+// is membership-based and grants an admin no cross-persona read, so a platform
+// admin who uploads a persona-scoped resource — which CanWriteScope explicitly
+// permits — was then refused GET, PATCH and DELETE on it: they could create
+// material they could neither manage nor remove. Use this as the visibility gate
+// on a resource the caller names by id; CanReadResource remains the membership
+// rule for enumeration and for content served into an agent's session.
+//
+// It deliberately checks CanWriteScope rather than CanModifyResource: the latter
+// also grants the original uploader, and that grant is not re-derived from
+// current authority. An admin who uploaded into another user's scope and then
+// lost their admin role would otherwise keep reading, editing, and deleting that
+// user's private file forever, because the uploader_sub on the row never
+// changes. Every legitimate uploader whose authority came from their own scope
+// (a user uploading to their own user scope) is already covered by
+// CanReadResource.
+func CanAccessResource(c Claims, r *Resource) bool {
+	return CanReadResource(c, r) || CanWriteScope(c, r.Scope, r.ScopeID)
+}
+
 // CanReadResource checks whether the caller can read a specific resource.
 func CanReadResource(c Claims, r *Resource) bool {
 	for _, sf := range VisibleScopes(c) {

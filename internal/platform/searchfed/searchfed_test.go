@@ -14,6 +14,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/threads"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -69,6 +70,26 @@ type stubAssetStore struct {
 
 func (stubAssetStore) SearchAssets(context.Context, portal.AssetSearchQuery) ([]portal.ScoredAsset, error) {
 	return nil, nil
+}
+
+// stubResourceStore embeds resource.Store (nil) and adds Search, so it satisfies
+// knowledge.ResourceSearcher (Get is promoted from resource.Store). A plain
+// resource.Store without ranking must NOT contribute a provider.
+type stubResourceStore struct {
+	resource.Store
+}
+
+func (stubResourceStore) Search(context.Context, resource.SearchQuery) ([]resource.ScoredResource, error) {
+	return nil, nil
+}
+
+// unrankedResourceStore is a resource.Store that does NOT implement
+// knowledge.ResourceSearcher: it has Get (promoted from the embedded interface)
+// but no Search, which is exactly what the capability assertion must reject.
+// Embedding the interface leaves the store methods nil, which is fine — the
+// provider is never built, so they are never called.
+type unrankedResourceStore struct {
+	resource.Store
 }
 
 // providerNames returns the Name() of every provider the handle's router holds.
@@ -190,6 +211,35 @@ func TestNew_PortalAndPromptStoreProviders(t *testing.T) {
 	assert.Contains(t, names, knowledge.SourceKnowledgePages)
 	assert.Contains(t, names, knowledge.SourcePrompts)
 	assert.Contains(t, names, knowledge.SourceAssets)
+}
+
+func TestNew_ResourceStoreProvider(t *testing.T) {
+	// A ranking-capable resource store contributes the resources provider, so
+	// uploaded reference material joins the search corpus (#1012).
+	h := New(Config{
+		ToolkitName:    "default",
+		ResourceStore:  stubResourceStore{},
+		ResourceBucket: "resources",
+		Registry:       registry.NewRegistry(),
+	})
+	assert.Contains(t, providerNames(t, h), knowledge.SourceResources)
+
+	// A store that exists but cannot rank contributes no provider, rather than an
+	// always-empty one. The stub implements resource.Store without Search, which
+	// is the shape the type assertion has to reject.
+	h = New(Config{
+		ToolkitName:   "default",
+		ResourceStore: unrankedResourceStore{},
+		MemoryStore:   memory.NewNoopStore(), // keeps a provider present so New returns a handle
+		Registry:      registry.NewRegistry(),
+	})
+	assert.NotContains(t, providerNames(t, h), knowledge.SourceResources,
+		"a resource store without ranking must not register the resources provider")
+
+	// And with no store at all there is nothing to register.
+	var absent resource.Store
+	assert.Nil(t, New(Config{ToolkitName: "default", ResourceStore: absent, Registry: registry.NewRegistry()}),
+		"no resource store and no other source must leave no handle")
 }
 
 func TestNew_ConnectionsFederationRule(t *testing.T) {

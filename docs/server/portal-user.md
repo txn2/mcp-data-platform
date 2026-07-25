@@ -137,6 +137,8 @@ Collections use the same sharing system as individual assets:
 
 Resources are human-uploaded reference materials — SQL templates, runbooks, checklists, and brand assets — that AI agents can access during sessions via the MCP `resources/read` protocol.
 
+An uploaded resource is also **discoverable through `search`**, the front door agents are steered to. A background indexer embeds each resource's metadata and, for text-family files, a bounded prefix of its contents, so a data dictionary is found by a column name that appears only inside the file. Search results carry an `mcp:resource:<id>` reference that `fetch` reads in full (text inline, binary as metadata plus its URI), plus a resource link a client with native resource support can attach directly. Visibility is the same as everywhere else: global resources reach every caller, persona resources only their members, and personal resources only their owner. Indexing runs off the request path, so a just-uploaded file is findable by its name and description immediately and by its contents once the indexer has read it. Content indexing needs the background index queue, which requires a database and a configured embedding provider; without one, resources are still searchable by their metadata. Files larger than 8 MB are indexed on metadata alone.
+
 ![Resources](../images/screenshots/light/user-resources-light.webp#only-light)![Resources](../images/screenshots/dark/user-resources-dark.webp#only-dark)
 
 Uploading opens a modal for the file plus its category, display name, description, and tags.
@@ -150,6 +152,8 @@ The Resources page provides:
 - **Upload** button — Upload new resources with name, description, category, and tags
 - **Resource table** — Name, category, MIME type, tags, file size, uploader email, and last updated date
 - **Delete** — Trash icon to remove owned resources
+
+Administrators can open, edit, and delete any resource by id, including persona material they do not belong to — otherwise an admin could upload a persona resource and then be unable to manage or remove it. Listing and agent-facing reads stay membership-scoped.
 
 Opening a resource shows which prompts attach it as reference material. Deleting a resource that prompts depend on does not break them: they keep serving and report the material as missing, and the prompt viewer flags the broken link so its author can repair it.
 
@@ -227,7 +231,7 @@ The page has three tabs. Review and promote affordances appear only when your pe
 
 ### Knowledge (default)
 
-- **Unified search** - One query fans across every source you can access (the DataHub catalog, canonical knowledge pages, your memory, captured insights, saved assets, prompts, API endpoints, and connections) and returns results grouped by source with a coverage summary. It is the same federation behind the `search` tool, exposed over `GET /api/v1/portal/search`. It ranks semantically when an embedding provider is configured and degrades to lexical search otherwise
+- **Unified search** - One query fans across every source you can access (the DataHub catalog, canonical knowledge pages, your memory, captured insights, saved assets, uploaded resources, prompts, API endpoints, and connections) and returns results grouped by source with a coverage summary. It is the same federation behind the `search` tool, exposed over `GET /api/v1/portal/search`. It ranks semantically when an embedding provider is configured and degrades to lexical search otherwise
 - **Browse** - With the search box empty, the tab browses the canonical knowledge pages. Personas with `apply_knowledge` can create, edit, and remove pages
 - **Changesets** (`apply_knowledge` holders) - The record of insights promoted into knowledge: the catalog and knowledge-page changes applied when your agent runs `apply_knowledge`, with rollback to undo a changeset's writes. They live here, with the promoted knowledge, rather than with the unpromoted insights in the review pipeline
 

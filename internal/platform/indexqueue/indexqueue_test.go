@@ -3,6 +3,7 @@ package indexqueue
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
+	"github.com/txn2/mcp-data-platform/pkg/resource/resourceindex"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 )
@@ -158,14 +160,37 @@ func TestNew_ConsumerGating(t *testing.T) {
 			PortalAssets:         true,
 			PortalCollections:    true,
 			PortalKnowledgePages: true,
+			Resources:            true,
 		},
+		ResourceBucket: "resources",
 	})
 	if h == nil {
 		t.Fatal("New must return a handle")
 	}
-	// tools + memory + prompts + assets + collections + knowledge pages.
-	if kinds := h.registry.Kinds(); len(kinds) != 6 {
-		t.Errorf("kinds = %v; want 6 (tools + 5 gated consumers)", kinds)
+	// tools + memory + prompts + assets + collections + knowledge pages + resources.
+	if kinds := h.registry.Kinds(); len(kinds) != 7 {
+		t.Errorf("kinds = %v; want 7 (tools + 6 gated consumers)", kinds)
+	}
+	if !slices.Contains(h.registry.Kinds(), resourceindex.SourceKind) {
+		t.Errorf("kinds = %v; want the resources consumer registered", h.registry.Kinds())
+	}
+}
+
+// A deployment with no resource store registers no resources consumer, so the
+// worker never sweeps a table nothing writes to.
+func TestNew_ResourcesConsumerGatedOff(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	h := New(Config{DB: db, Embedder: testEmbedder(), ModelName: "m"})
+	if h == nil {
+		t.Fatal("New must return a handle")
+	}
+	if slices.Contains(h.registry.Kinds(), resourceindex.SourceKind) {
+		t.Errorf("kinds = %v; resources must not register without a store", h.registry.Kinds())
 	}
 }
 

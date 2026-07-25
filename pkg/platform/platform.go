@@ -405,12 +405,15 @@ func (p *Platform) initExtensions() error {
 	if p.memory.Toolkit() != nil && p.portalStore.Toolkit() != nil {
 		p.memory.Toolkit().SetThreadLinker(p.portalStore.Toolkit())
 	}
-	// Unified knowledge read path (#632). Federates the stores initialized
-	// above (memory, insights, assets), so it must run after them.
-	if err := p.initSearch(); err != nil {
+	// Managed resources init before search: the resource store is one of the
+	// sources search federates (#1012), so it must exist before initSearch
+	// selects providers. It depends on nothing initialized above.
+	if err := p.initManagedResources(); err != nil {
 		return err
 	}
-	if err := p.initManagedResources(); err != nil {
+	// Unified knowledge read path (#632). Federates the stores initialized
+	// above (memory, insights, assets, resources), so it must run after them.
+	if err := p.initSearch(); err != nil {
 		return err
 	}
 	return p.initMCPApps()
@@ -1651,6 +1654,10 @@ func (p *Platform) initSearch() error {
 		AssetStore:         p.portalStore.AssetStore(),
 		ThreadStore:        p.portalStore.ThreadStore(),
 		PromptStore:        p.prompts.Store(),
+		ResourceStore:      p.resources.Store(),
+		ResourceBlobs:      p.resources.S3Client(),
+		ResourceBucket:     p.config.Resources.Managed.S3Bucket,
+		PersonasForRoles:   personasForRolesFunc(p.personaRegistry),
 		Registry:           p.toolkitRegistry,
 		Embedding:          p.embeddingProv,
 	})
