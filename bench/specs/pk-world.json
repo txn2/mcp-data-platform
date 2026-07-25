@@ -1,0 +1,116 @@
+{
+  "profiles": [
+    {
+      "profile": "monitors-0",
+      "monitors": 0,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": false,
+      "workspaces": 2
+    },
+    {
+      "profile": "monitors-1",
+      "monitors": 1,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": false,
+      "workspaces": 2
+    },
+    {
+      "profile": "monitors-3",
+      "monitors": 3,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": false,
+      "workspaces": 2
+    },
+    {
+      "profile": "monitors-6",
+      "monitors": 6,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": false,
+      "workspaces": 2
+    },
+    {
+      "profile": "monitors-0-forbidden",
+      "monitors": 0,
+      "listening": "forbidden",
+      "contract": "2026.1",
+      "workspace_scoped": false,
+      "workspaces": 2
+    },
+    {
+      "profile": "monitors-3-forbidden",
+      "monitors": 3,
+      "listening": "forbidden",
+      "contract": "2026.1",
+      "workspace_scoped": false,
+      "workspaces": 2
+    },
+    {
+      "profile": "monitors-0-released",
+      "monitors": 0,
+      "listening": "granted",
+      "contract": "2026.2",
+      "workspace_scoped": false,
+      "workspaces": 2
+    },
+    {
+      "profile": "monitors-3-released",
+      "monitors": 3,
+      "listening": "granted",
+      "contract": "2026.2",
+      "workspace_scoped": false,
+      "workspaces": 2
+    },
+    {
+      "profile": "monitors-0-scoped",
+      "monitors": 0,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": true,
+      "workspaces": 2
+    },
+    {
+      "profile": "monitors-3-scoped",
+      "monitors": 3,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": true,
+      "workspaces": 2
+    },
+    {
+      "profile": "monitors-0-scoped-5",
+      "monitors": 0,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": true,
+      "workspaces": 5
+    },
+    {
+      "profile": "monitors-0-scoped-10",
+      "monitors": 0,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": true,
+      "workspaces": 10
+    },
+    {
+      "profile": "monitors-3-scoped-5",
+      "monitors": 3,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": true,
+      "workspaces": 5
+    },
+    {
+      "profile": "monitors-3-scoped-10",
+      "monitors": 3,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": true,
+      "workspaces": 10
+    }
+  ]
+}

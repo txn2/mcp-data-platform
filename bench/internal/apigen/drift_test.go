@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/pkseed"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
 
@@ -40,6 +41,40 @@ func TestCommittedArtifactsMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	compareFile(t, filepath.Join(root, "tasks-api", "scripted-smoke.json"), append(smoke, '\n'))
+}
+
+// TestCommittedPerishableArtifactsMatch is the same gate for the
+// perishable-knowledge study (#1054). Its three artifacts fix what a cell
+// means: the spec the connection is registered from, the world registry
+// each cell names a profile in, and the resolved fixture data every ground
+// truth is computed against. A generator change that moves any of them has
+// to move the committed copy in the same commit, where a reviewer sees it.
+func TestCommittedPerishableArtifactsMatch(t *testing.T) {
+	root := "../.."
+	raw, err := BuildPerishableCatalog().SpecJSON(Tier0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compareFile(t, filepath.Join(root, "specs", PerishableSpecName+".json"), raw)
+	compareIndentedJSON(t, filepath.Join(root, "specs", PerishableSpecName+"-world.json"),
+		map[string]any{"profiles": WorldProfiles()})
+	compareIndentedJSON(t, filepath.Join(root, "specs", PerishableSpecName+"-fixture.json"), BuildFixture())
+	compareIndentedJSON(t, filepath.Join(root, "specs", PerishableSpecName+"-seeds.json"), map[string]any{
+		"hash":    pkseed.Hash(),
+		"beliefs": pkseed.Beliefs(),
+		"seeds":   pkseed.Seeds(),
+	})
+}
+
+// compareIndentedJSON diffs one committed JSON artifact against its
+// regeneration, in the form the generator writes it.
+func compareIndentedJSON(t *testing.T, path string, v any) {
+	t.Helper()
+	raw, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compareFile(t, path, append(raw, '\n'))
 }
 
 // compareFile diffs one committed artifact against its regeneration.

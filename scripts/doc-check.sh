@@ -190,12 +190,25 @@ if [ -n "$config_changes" ]; then
 fi
 
 # 3. New Makefile targets.
+#
+# A target counts as documented when its NAME appears in a documentation
+# file, which is the thing actually worth checking. The blanket
+# "did you touch README.md or docs/" test above cannot see this one: the
+# benchmark harness documents its own targets in bench/README.md and
+# bench/docs/, so harness work would warn forever while platform docs it
+# has no business editing sat untouched.
 if echo "$CHANGED_FILES" | grep -q '^Makefile$'; then
-    new_targets=$(git diff "$MERGE_BASE"...HEAD -- Makefile | \
-        grep '^+##' | grep -v '^+++' | sed 's/^+## /  - New target: /' || true)
-    if [ -n "$new_targets" ]; then
-        warnings="${warnings}${new_targets}\n"
-    fi
+    doc_corpus=$( { find docs bench -name '*.md' -not -path 'bench/results/*'; echo README.md; } 2>/dev/null)
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        target_name=${line%%:*}
+        if [ -n "$doc_corpus" ] && echo "$doc_corpus" | tr '\n' '\0' | xargs -0 grep -lF -- "$target_name" >/dev/null 2>&1; then
+            continue
+        fi
+        warnings="${warnings}  - New target: ${line}\n"
+    done <<EOF
+$(git diff "$MERGE_BASE"...HEAD -- Makefile | grep '^+##' | grep -v '^+++' | sed 's/^+## //' || true)
+EOF
 fi
 
 # 4. New CLI flags or commands in main.go.

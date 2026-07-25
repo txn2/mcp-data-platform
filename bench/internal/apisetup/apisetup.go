@@ -66,7 +66,7 @@ func (c *Client) RegisterB1(ctx context.Context, specContent, fixtureURL, fixtur
 			"credential": fixtureKey,
 			"catalog_id": CatalogID,
 		},
-		"description": "Bench fixture service (#1027)",
+		"description": "Bench fixture service",
 	}, nil); err != nil {
 		return fmt.Errorf("register api connection: %w", err)
 	}

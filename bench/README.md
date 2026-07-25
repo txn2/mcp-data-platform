@@ -474,6 +474,41 @@ make bench-calibrate              # judge-vs-human agreement rate
 make bench-down
 ```
 
+The perishable-knowledge study (#1054) has its own stack: one arm, the
+perishable fixture surface, and its own database. It needs no DataHub or
+Trino, but it does need `ollama serve` with `nomic-embed-text` for the
+supersede mechanic.
+
+```bash
+make bench-pk-up                  # Postgres + perishable fixture + platform, fixture registered
+make bench-pk-up BENCH_PK_WORLD=monitors-3   # start in a different world
+make bench-pk-corpus REPLICATES=3 MODEL=sonnet   # capture-corpus episodes (claude-cli, no metered cost)
+make bench-pk-down
+```
+
+Study cells run against the same stack. A cell is a question, the belief
+planted before it, the delivery arm, and the world it is asked in; the
+runner puts the account in the world the belief describes, plants it as the
+identity that will be asked, moves the world, then asks.
+
+```bash
+make bench-pk-run CELLS=prerun K=8 MODEL=sonnet   # the internal power pre-run (exploratory)
+```
+
+`bench-pk-run` refuses to start against pool identities that already hold
+notes, for the same reason `bench-pk-corpus` does: the agent would find an
+earlier run's knowledge alongside this cell's belief and the results would
+not say which it acted on. Clear the store first.
+
+`bench-pk-up` starts `apisvc -surface perishable`, whose world the harness
+changes between sessions through the fixture control plane rather than by
+restarting. Clear the knowledge store between corpus runs: `bench-pk-corpus`
+refuses to start against pool identities that already hold insights, because
+an agent that finds its own earlier note declines to record it again and the
+run would archive empty episodes as if capture had written nothing. The
+fixture, its worlds, and the frozen seed set are documented in
+`docs/perishable-knowledge-fixture.md`.
+
 The S5 lifecycle protocols run against a booted `a3` arm (which needs the same
 DataHub quickstart as `a2`, plus the memory/knowledge Postgres tables that
 auto-enable):
@@ -616,12 +651,27 @@ bench/
 ├── seedgen/             deterministic artifact/task generator CLI
 ├── config/              arm profiles (a0/a1/a2/a3 platform configs)
 ├── seed/                generated seed artifacts (committed; bench-gen)
+├── specs/               generated fixture OpenAPI specs + world/fixture data (committed; bench-api-gen)
+├── apisvc/              fixture HTTP service CLI (#1027 catalog, or -surface perishable for #1054)
+├── apigen/              fixture catalog + spec + task + seed generator CLI
+├── pkcorpus/            perishable-knowledge capture-corpus runner CLI (#1054 stage 1)
+├── pkrun/               perishable-knowledge cell runner CLI (#1054)
+├── docs/                study protocols and fixture references
 ├── tasks/               generated task YAML + smoke script (committed)
 ├── protocols/           generated S5 lifecycle protocol YAML + smoke (committed)
 ├── curriculum/          generated cold-start curriculum YAML + smoke (committed)
 ├── judge/               versioned rubric + human-labeled calibration set
 └── internal/
     ├── gen/             dataset model, emitters, ground-truth computation, protocols, curriculum
+    ├── apigen/          fixture catalog model, spec emitter, seeded state, perishable world registry
+    ├── apisvc/          fixture HTTP service: catalog handlers, insights surface, /_bench/ control plane
+    ├── apistudy/        per-attempt retrieval, write detection, failure taxonomy
+    ├── fixturectl/      control-plane client: reset, world change, phase, state dumps, state grading
+    ├── pkcorpus/        capture-corpus scenarios, episode runner, archive
+    ├── pkseed/          frozen belief set, the RQ2 phrasing factorial, and delivery metadata
+    ├── pkplant/         plants a delivered belief as the identity that will be asked
+    ├── pkcell/          cells, derived correct behavior, ground truths, deterministic grading
+    ├── pkrun/           cell runner: plant, move the world, ask, grade
     ├── task/            task schema, loader, task-set hash
     ├── protocol/        S5 lifecycle protocol schema, loader, protocol-set hash
     ├── curriculum/      cold-start curriculum schema, loader, curriculum-set hash

@@ -1,0 +1,187 @@
+{
+  "manifest": {
+    "started_at": "2026-07-25T00:01:57.529211Z",
+    "finished_at": "2026-07-25T00:07:51.907364Z",
+    "git_commit": "13cc6113b009e8dfa5ca71e180e5e237dbee7b1a",
+    "platform_version": "v1.113.4-3-g13cc6113-dirty",
+    "model": "sonnet",
+    "client_version": "2.1.219 (Claude Code)",
+    "scenarios_hash": "b2129bcaf15f01bac996dafcb398d6bcdbfead42d86c35700091efc93c4d31c7",
+    "replicates": 1,
+    "episodes": 5,
+    "captured_total": 6
+  },
+  "scenarios": [
+    {
+      "id": "perishable-absent",
+      "class": "perishable",
+      "world": "monitors-0",
+      "prompt": "Report the volume and sentiment trend for ACME's listening monitors over June 2026 (1 June to 28 June). Give the daily figures if you can get them, and say what the overall picture is.",
+      "budget": 30,
+      "reaches": "no monitors are provisioned, so the trend has no valid call; owned-profile analytics carry no sentiment"
+    },
+    {
+      "id": "perishable-present",
+      "class": "perishable",
+      "world": "monitors-3",
+      "prompt": "Report the volume and sentiment trend for ACME's listening monitors over June 2026 (1 June to 28 June). Give the daily figures if you can get them, and say what the overall picture is.",
+      "budget": 30,
+      "reaches": "three monitors are provisioned, so the trend is answerable"
+    },
+    {
+      "id": "perishable-forbidden",
+      "class": "perishable",
+      "world": "monitors-0-forbidden",
+      "prompt": "Report the volume and sentiment trend for ACME's listening monitors over June 2026 (1 June to 28 June). Give the daily figures if you can get them, and say what the overall picture is.",
+      "budget": 30,
+      "reaches": "the credential is not entitled to listening, which is not the same as nothing being provisioned"
+    },
+    {
+      "id": "durable-granularity",
+      "class": "durable",
+      "world": "monitors-0",
+      "prompt": "Report impressions and engagements for ACME's main owned profile over June 2026 (1 June to 28 June), bucketed by week rather than by day.",
+      "budget": 30,
+      "reaches": "the granularity parameter is accepted and silently ignored under this contract version"
+    },
+    {
+      "id": "eternal-unique-reach",
+      "class": "eternal",
+      "world": "monitors-0",
+      "prompt": "How many distinct accounts did ACME's main owned profile reach over the whole of June 2026 (1 June to 28 June)?",
+      "budget": 30,
+      "reaches": "daily unique counts must not be summed to a period unique; the aggregate reports the deduplicated figure"
+    }
+  ],
+  "system": "You are a data analyst agent connected to a data platform over MCP. You work across many separate sessions and can save knowledge for later and recall it.\n\nRules:\n- Ground every answer in tool results; do not answer from prior knowledge about any specific account or API.\n- Use the search tool to discover available data and saved knowledge before querying.\n- Do the work the request asks for, and report what you found.\n- Before you finish, save what you learned about this account or API using the memory tools, so a future session does not have to rediscover it. Then state in one line what you saved.",
+  "episodes": [
+    {
+      "scenario_id": "perishable-absent",
+      "class": "perishable",
+      "world": "monitors-0",
+      "replicate": 1,
+      "seq": 1,
+      "email": "bench-agent-001@apikey.local",
+      "started_at": "2026-07-25T00:01:57.529492Z",
+      "wall_ms": 103867,
+      "tool_calls": 21,
+      "tool_errors": 2,
+      "handle": "dps_30f736089129b290fedb1e5e8796b239",
+      "final_text": "## Findings: ACME listening monitors, June 1–28, 2026\n\n**No data available.** ACME's account currently has **zero listening monitors provisioned** — I checked `GET /insights/monitors` both unscoped and scoped to each of the account's two workspaces (Primary, Regional), and all three calls returned `200` with an empty result set (not a `403`), confirming this is a genuine \"no monitors\" state rather than a permissions issue. Since there are no monitor IDs, there's nothing to feed into the daily trend endpoint (`GET /insights/monitors/{id}/trend`), so no volume or sentiment figures — daily or otherwise — exist for the June 1–28 window.\n\nFor context, the account does have 5 owned social profiles (ACME Corp/Support/Careers/Labs/Retail across LinkedIn, X, Mastodon, Instagram), but profiles are a separate resource from listening monitors and don't carry sentiment/volume trend data themselves.\n\n**Bottom line:** there's no monitor set up to listen for ACME mentions, so no sentiment trend can be reported — this looks like a setup gap rather than a data issue, and monitors would need to be created before this kind of report is possible.\n\nI saved a note to memory recording that this account has no monitors (checked across both workspaces) plus a tooling note (API calls need `query_params`/`path_params`, not `parameters`), so a future session won't have to re-discover either.",
+      "captured": [
+        {
+          "id": "e1ee1cd89ff76a405919dd56ace63d76",
+          "created_at": "2026-07-25T00:03:32.441954Z",
+          "captured_by": "bench-agent-001@apikey.local",
+          "category": "data_quality",
+          "insight_text": "ACME account (connection \"acme\") has zero listening monitors provisioned as of 2026-07-24. Checked GET /insights/monitors (list_monitors) both unscoped and with workspace_id for both existing workspaces (601 \"Primary workspace\", 602 \"Regional workspace\") — all returned 200 with an empty items array (not a 403), meaning the account genuinely has no monitors, not an entitlement issue. As a result GET /insights/monitors/{id}/trend (list_monitor_trend) has no monitor ids to query, so no daily volume/sentiment trend data exists for any period, including June 2026. The account does have 5 owned social profiles (GET /insights/profiles: ACME Corp/LinkedIn, ACME Support/X, ACME Careers/LinkedIn, ACME Labs/Mastodon, ACME Retail/Instagram) but profiles are separate from listening monitors and list_profiles has no trend/sentiment sub-resource. API usage note: api_invoke_endpoint requires query params under `query_params` (not `parameters`) and path params under `path_params` — passing a `parameters` field is silently ignored.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "scenario_id": "perishable-present",
+      "class": "perishable",
+      "world": "monitors-3",
+      "replicate": 1,
+      "seq": 2,
+      "email": "bench-agent-002@apikey.local",
+      "started_at": "2026-07-25T00:03:41.413148Z",
+      "wall_ms": 79440,
+      "tool_calls": 11,
+      "tool_errors": 2,
+      "handle": "dps_ada426123a5351bd4b57692fd5b76cd7",
+      "final_text": "## ACME Listening Monitors — June 2026 (1–28 June)\n\nACME has two brand-facing monitors: **501 Brand mentions** and **503 Product launch** (\"Atlas\"). A third monitor (502 Competitor watch) tracks rival brands (Northwind, Globex, Initech), not ACME, so it's excluded.\n\n### Daily figures\n\n| Date | Brand mentions (vol / sent) | Product launch (vol / sent) | Combined vol |\n|---|---|---|---|\n| Jun 1 | 127 / 41 | 47 / 57 | 174 |\n| Jun 2 | 285 / 76 | 77 / 67 | 362 |\n| Jun 3 | 75 / 76 | 395 / 38 | 470 |\n| Jun 4 | 392 / 45 | 281 / 38 | 673 |\n| Jun 5 | 330 / 52 | 83 / 60 | 413 |\n| Jun 6 | 152 / 60 | 267 / 35 | 419 |\n| Jun 7 | 320 / 74 | 379 / 59 | 699 |\n| Jun 8 | 228 / 80 | 117 / 66 | 345 |\n| Jun 9 | 245 / 75 | 244 / 84 | 489 |\n| Jun 10 | 342 / 30 | 265 / 50 | 607 |\n| Jun 11 | 123 / 50 | 113 / 79 | 236 |\n| Jun 12 | 206 / 47 | 247 / 48 | 453 |\n| Jun 13 | 270 / 76 | 207 / 83 | 477 |\n| Jun 14 | 155 / 35 | 210 / 33 | 365 |\n| Jun 15 | 399 / 77 | 86 / 76 | 485 |\n| Jun 16 | 71 / 83 | 82 / 77 | 153 |\n| Jun 17 | 193 / 26 | 372 / 48 | 565 |\n| Jun 18 | 346 / 39 | 313 / 50 | 659 |\n| Jun 19 | 167 / 60 | 366 / 54 | 533 |\n| Jun 20 | 219 / 33 | 156 / 39 | 375 |\n| Jun 21 | 184 / 70 | 105 / 25 | 289 |\n| Jun 22 | 202 / 39 | 92 / 50 | 294 |\n| Jun 23 | 222 / 84 | 272 / 43 | 494 |\n| Jun 24 | 352 / 65 | 234 / 49 | 586 |\n| Jun 25 | 235 / 25 | 285 / 79 | 520 |\n| Jun 26 | 259 / 77 | 117 / 55 | 376 |\n| Jun 27 | 42 / 50 | 71 / 31 | 113 |\n| Jun 28 | 266 / 41 | 381 / 71 | 647 |\n\n*(sentiment_score: 0=most negative, 100=most positive)*\n\n### Totals \u0026 overall picture\n\n- **Combined volume:** 12,271 mentions over 28 days (~438/day average).\n  - Brand mentions: 6,407 total (avg 229/day)\n  - Product launch: 5,864 total (avg 209/day)\n- **Volume trend:** essentially flat across the month for both monitors — no sustained ramp up or down, just day-to-day swings (lows in the 40s–90s, peaks near 350–400 on both monitors, often on different days).\n- **Sentiment:** hovering in the mid-50s on average (Brand mentions avg 56.6, Product launch avg 55.1 — mildly positive on the 0–100 scale), but **highly volatile day to day**, swinging from the mid-20s (negative) to the low-80s (very positive) within the same week on both monitors. First-half vs. second-half comparison shows a slight softening (Brand mentions 58.4→54.9, Product launch 56.9→53.4), but the size of the daily swings dwarfs that drift — it reads as noisy oscillation around a stable mid-50s baseline rather than a clear trend in either direction.\n- No single day stands out as a sustained spike or crash across both monitors simultaneously; the volume and sentiment swings mostly move independently between the two monitors.\n\nSaved to memory: which monitors belong to ACME (501, 503) vs. a competitor-tracking monitor (502) to exclude, and the trend endpoint's date-range/pagination/sentiment-scale shape, so future sessions don't need to re-derive it.",
+      "captured": [
+        {
+          "id": "3de533530d2f5f50ab90d40e0bc374c1",
+          "created_at": "2026-07-25T00:04:44.480984Z",
+          "captured_by": "bench-agent-002@apikey.local",
+          "category": "business_context",
+          "insight_text": "ACME's listening monitors, from the `acme` API's GET /insights/monitors: 3 monitors exist across 2 workspaces. Only two track ACME's own brand: id 501 \"Brand mentions\" (workspace 601, keywords \"acme, acme corp, @acmehq\") and id 503 \"Product launch\" (workspace 601, keywords \"acme atlas, atlas launch, #acmeatlas\"). Monitor id 502 \"Competitor watch\" (workspace 602) tracks competitor brands (northwind, globex, initech), NOT ACME — exclude it when reporting \"ACME's\" volume/sentiment. GET /insights/monitors/{id}/trend?start_date\u0026end_date returns daily {date, volume, sentiment_score} where sentiment_score is 0 (negative) to 100 (positive); list_monitors did not require workspace_id despite the schema marking it as required on workspace-scoped accounts.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "scenario_id": "perishable-forbidden",
+      "class": "perishable",
+      "world": "monitors-0-forbidden",
+      "replicate": 1,
+      "seq": 3,
+      "email": "bench-agent-003@apikey.local",
+      "started_at": "2026-07-25T00:05:00.861568Z",
+      "wall_ms": 44309,
+      "tool_calls": 13,
+      "tool_errors": 1,
+      "handle": "dps_efaddeaa846972f6cfeb759dcef6e210",
+      "final_text": "I couldn't retrieve this — I don't have the data to report.\n\n**Blocker:** the `acme` API credential is not entitled to the \"listening\" product area. `GET /insights/monitors` (needed to find monitor IDs before pulling `/insights/monitors/{id}/trend`) returns a 403 `\"the credential is not entitled to the listening product area\"`, regardless of `workspace_id` (tested against both ACME workspaces — 601 \"Primary workspace\" and 602 \"Regional workspace\"). This is a real entitlement gap, not an empty result: `GET /insights/workspaces` on the same connection returns 200 fine, so other `insights` endpoints work but monitors/listening specifically is walled off for this credential.\n\nSince there's no monitor ID reachable, I can't call the trend endpoint at all, so I have no volume or sentiment figures for June 2026 to report, daily or otherwise.\n\nTo move forward, someone would need to grant this credential access to the listening/monitors product area — worth checking with whoever manages ACME's API credentials.\n\nI saved a memory noting this entitlement gap on the `acme` connection so future sessions don't re-attempt the same failing calls before checking.",
+      "captured": [
+        {
+          "id": "1f702aad514f1f22421eaa0ab33aad60",
+          "created_at": "2026-07-25T00:05:37.638199Z",
+          "captured_by": "bench-agent-003@apikey.local",
+          "category": "data_quality",
+          "insight_text": "On the `acme` connection, the current API credential is NOT entitled to the \"listening\" product area. `GET /insights/monitors` (list_monitors) returns HTTP 403 `{\"error\":\"the credential is not entitled to the listening product area\"}` regardless of `workspace_id` (tried both workspace 601 \"Primary workspace\" and 602 \"Regional workspace\"). This blocks `list_monitors`, `get_monitor`, and `list_monitor_trend` (monitor id is required as a path param and can't be discovered without list_monitors). By contrast, `GET /insights/workspaces` (list_workspaces) works fine and returns 200 with the two workspaces above — so the credential has entitlement to some `insights` endpoints but not the listening/monitors ones specifically. Any future request for ACME listening-monitor volume/sentiment data will fail the same way unless the credential's entitlements are expanded; don't re-attempt without checking this first — surface the entitlement gap to the user instead of retrying variations.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "scenario_id": "durable-granularity",
+      "class": "durable",
+      "world": "monitors-0",
+      "replicate": 1,
+      "seq": 4,
+      "email": "bench-agent-004@apikey.local",
+      "started_at": "2026-07-25T00:05:45.177962Z",
+      "wall_ms": 77744,
+      "tool_calls": 11,
+      "tool_errors": 2,
+      "handle": "dps_76cba46f99f5856c1d603c92c680ec23",
+      "final_text": "## ACME Corp (LinkedIn, profile id 701) — June 2026, weekly\n\n| Week | Impressions | Engagements |\n|---|---|---|\n| Jun 1–7 | 94,393 | 6,699 |\n| Jun 8–14 | 91,797 | 7,463 |\n| Jun 15–21 | 80,153 | 5,477 |\n| Jun 22–28 | 78,861 | 4,295 |\n| **Total** | **345,204** | **23,934** |\n\nNote: I treated \"ACME Corp\" (id 701) as the main owned profile — it's the earliest-connected, brand-named account among the 5 owned profiles (Support, Careers, Labs, Retail also exist); the API has no explicit \"main\" flag, so flag if you meant a different one. Also, the API's `granularity=week` parameter didn't actually aggregate server-side (it kept returning daily rows), so I pulled the daily series and bucketed it into calendar weeks (Jun 1 is a Monday, so the four weeks align cleanly to Jun1‑7/8‑14/15‑21/22‑28).\n\nTrend: both impressions and engagements decline over the month, roughly -16% impressions and -36% engagements from week 1 to week 4.\n\nSaved two memories: (1) the `granularity=week` param on `list_profile_metrics` is a no-op — always returns daily rows, must bucket client-side; (2) ACME's 5 owned profiles and which one was inferred as \"main.\"",
+      "captured": [
+        {
+          "id": "01a1ce47baa337a9d09cbed4e73e0a2e",
+          "created_at": "2026-07-25T00:06:53.907075Z",
+          "captured_by": "bench-agent-004@apikey.local",
+          "category": "business_context",
+          "insight_text": "ACME's owned social profiles (via `GET /insights/profiles` on the `acme` connection, as of 2026-07-24): id 701 \"ACME Corp\" (linkedin, connected 2026-01-05, earliest/primary), id 702 \"ACME Support\" (x), id 703 \"ACME Careers\" (linkedin), id 704 \"ACME Labs\" (mastodon), id 705 \"ACME Retail\" (instagram). No field explicitly flags a \"main\" profile — id 701 \"ACME Corp\" was treated as the main owned profile because it is the first-connected, brand-named account.",
+          "status": "pending"
+        },
+        {
+          "id": "26a7010b68140c60252afc60e917fd8d",
+          "created_at": "2026-07-25T00:06:51.358829Z",
+          "captured_by": "bench-agent-004@apikey.local",
+          "category": "data_quality",
+          "insight_text": "`GET /insights/profiles/{id}/metrics` on the `acme` connection ignores the `granularity` query parameter — passing `granularity=week` (or omitting it) both return daily-bucketed rows (one per calendar day, `date` = that day). There is no server-side weekly aggregation despite the schema docs saying `day (default) or week`. To get weekly totals, fetch the full daily series (paginate with `page_size=100`/`cursor` until `next_cursor` is absent) and sum `impressions`/`engagements`/`unique_reach` into calendar-week buckets client-side.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "scenario_id": "eternal-unique-reach",
+      "class": "eternal",
+      "world": "monitors-0",
+      "replicate": 1,
+      "seq": 5,
+      "email": "bench-agent-005@apikey.local",
+      "started_at": "2026-07-25T00:07:02.932115Z",
+      "wall_ms": 48968,
+      "tool_calls": 10,
+      "tool_errors": 2,
+      "handle": "dps_41c08d9aa377470c6bdc2fac1c76614b",
+      "final_text": "ACME's main owned profile — **ACME Corp** (LinkedIn, id 701, the earliest-created profile matching the company name) — reached **85,278 distinct accounts** (`unique_reach`) between June 1 and June 28, 2026, per the `acme` API's profile metrics aggregate endpoint (impressions: 345,204; engagements: 23,934 over the same window).\n\nI saved a memory documenting the ACME profiles list, which one is the inferred \"main\" profile, and how the `aggregate_profile_metrics` endpoint's `unique_reach` field works, so future sessions don't have to rediscover this.",
+      "captured": [
+        {
+          "id": "91aa54b5afee74b2b5bf032cb78059d0",
+          "created_at": "2026-07-25T00:07:46.570189Z",
+          "captured_by": "bench-agent-005@apikey.local",
+          "category": "usage_guidance",
+          "insight_text": "ACME's connected social profiles come from the `acme` API connection's `GET /insights/profiles` endpoint (op id `list_profiles`): ACME Corp (id 701, linkedin, created 2026-01-05) — the earliest-created profile and the one matching the company name, treated as the \"main\" owned profile; ACME Support (702, x); ACME Careers (703, linkedin); ACME Labs (704, mastodon); ACME Retail (705, instagram). No catalog documentation designates an explicit \"main profile\" flag, so id 701 was inferred by earliest creation date + name match.\n\nReach/engagement metrics come from `GET /insights/profiles/{id}/metrics:aggregate` (op id `aggregate_profile_metrics`), which requires start_date/end_date (YYYY-MM-DD) and returns a `groups` array with keys `impressions`, `engagements`, and `unique_reach`. `unique_reach` is the distinct-accounts-reached count deduplicated across the whole requested window (not a sum of daily uniques), so it directly answers \"distinct accounts reached over period X\".\n\nExample result: profile 701 (ACME Corp), window 2026-06-01 to 2026-06-28: impressions 345204, engagements 23934, unique_reach 85278.",
+          "status": "pending"
+        }
+      ]
+    }
+  ]
+}
