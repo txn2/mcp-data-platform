@@ -28,7 +28,7 @@ func main() {
 		fixtureURL  = flag.String("fixture-url", "http://127.0.0.1:8112", "perishable fixture control-plane base URL")
 		fixtureKey  = flag.String("fixture-key", "", "fixture X-API-Key")
 		model       = flag.String("model", "sonnet", "claude-cli model alias or id")
-		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep")
+		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep, answersweep")
 		k           = flag.Int("k", 8, "replicates per cell")
 		identityKey = flag.Int("identity-keys", 150, "configured identity pool size")
 		out         = flag.String("out", "", "output directory (required)")
@@ -90,6 +90,9 @@ func selectCells(name string) ([]pkcell.Cell, bool, error) {
 		return cells, true, err
 	case "costsweep":
 		cells, err := pkcell.CostSweepCells()
+		return cells, true, err
+	case "answersweep":
+		cells, err := pkcell.AnswerSweepCells()
 		return cells, true, err
 	default:
 		return nil, false, fmt.Errorf("unknown cell set %q", name)

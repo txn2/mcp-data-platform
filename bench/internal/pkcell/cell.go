@@ -274,6 +274,54 @@ func CostSweepCells() ([]Cell, error) {
 	return cells, nil
 }
 
+// AnswerSweepCells are the cost sweep's mirror: a belief that hands the
+// agent the answer rather than telling it none exists.
+//
+// The first sweep only ever delivered "this cannot be answered", and in
+// that direction checking is also the route to a defensible refusal, so a
+// verifying agent might be reluctant to decline rather than distrustful of
+// the note. Here the belief is true, the question is answerable, and
+// trusting means reading the answer straight off the note and stating it.
+// An agent that checks anyway is spending calls it does not need to reach
+// an answer it already has.
+//
+// The set carries two cells with no belief at all, at the cheapest and
+// dearest cost. Without them a uniform verification rate says nothing:
+// these are the reference for what an agent does when it has to find the
+// answer itself, and the comparison that shows whether delivered knowledge
+// changes behavior at all.
+func AnswerSweepCells() ([]Cell, error) {
+	neutral, err := neutralSeed("perishable-present")
+	if err != nil {
+		return nil, err
+	}
+	q, err := questionByID("monitor-count")
+	if err != nil {
+		return nil, err
+	}
+	worlds := []string{"monitors-3", "monitors-3-scoped", "monitors-3-scoped-5", "monitors-3-scoped-10"}
+	cells := make([]Cell, 0, len(worlds)+2)
+	for _, name := range worlds {
+		c, err := Derive(q, neutral, pkseed.Metadata{}, name)
+		if err != nil {
+			return nil, err
+		}
+		if c.Stale() || c.Behavior != BehaviorAnswer {
+			return nil, fmt.Errorf("pkcell: sweep world %s gives %s on a stale=%v cell; the belief must be true and the question answerable",
+				name, c.Behavior, c.Stale())
+		}
+		cells = append(cells, c)
+	}
+	for _, name := range []string{"monitors-3", "monitors-3-scoped-10"} {
+		c, err := Derive(q, nil, pkseed.Metadata{}, name)
+		if err != nil {
+			return nil, err
+		}
+		cells = append(cells, c)
+	}
+	return cells, nil
+}
+
 // PreRunCells are the two cells of the internal power pre-run (protocol
 // section 9). They are the two ends of the staleness axis on the study's
 // primary question, with everything else held at its plainest: the same

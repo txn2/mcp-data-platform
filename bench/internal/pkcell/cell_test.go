@@ -7,6 +7,8 @@ package pkcell
 // falsify it.
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/apigen"
@@ -373,5 +375,67 @@ func TestAffordanceMustMatchTheWorldsCost(t *testing.T) {
 	_, err := Derive(questionFor(t, "trend-volume"), withAffordance, pkseed.Metadata{}, "monitors-0-scoped-10")
 	if err == nil {
 		t.Error("an affordance claiming one call was delivered where checking costs eleven")
+	}
+}
+
+// TestAnswerSweepHandsTheAnswerOver checks the mirror sweep's premise: in
+// every belief cell the note is true and the question is answerable, so
+// trusting it is both correct and free, and a checking agent is spending
+// calls to reach an answer it already holds.
+func TestAnswerSweepHandsTheAnswerOver(t *testing.T) {
+	cells, err := AnswerSweepCells()
+	if err != nil {
+		t.Fatal(err)
+	}
+	withBelief, without := 0, 0
+	costs := map[int]bool{}
+	for _, c := range cells {
+		w, ok := apigen.WorldByName(c.QueryWorld)
+		if !ok {
+			t.Fatalf("%s names an unknown world", c.ID)
+		}
+		if c.Behavior != BehaviorAnswer {
+			t.Errorf("%s requires %s; every cell here must be answerable", c.ID, c.Behavior)
+		}
+		if c.Seed == nil {
+			without++
+			continue
+		}
+		withBelief++
+		costs[w.RecheckCalls()] = true
+		if c.Stale() {
+			t.Errorf("%s is stale; this sweep tests a true belief", c.ID)
+		}
+		// The belief must actually contain the answer, or trusting it
+		// could not produce one.
+		truth, has := c.Question.GroundTruth(w)
+		if !has {
+			t.Fatalf("%s has no ground truth", c.ID)
+		}
+		if truth != 3 {
+			t.Errorf("%s expects %v monitors; the seeded belief states three", c.ID, truth)
+		}
+		if !strings.Contains(c.Seed.Text, "three listening monitors") {
+			t.Errorf("%s: the delivered belief does not state the answer", c.ID)
+		}
+	}
+	if withBelief < 3 || len(costs) != withBelief {
+		t.Errorf("sweep has %d belief cells over %d distinct costs", withBelief, len(costs))
+	}
+	if without < 2 {
+		t.Errorf("sweep carries %d no-knowledge controls, want at least 2", without)
+	}
+	// The controls bracket the cost range, so the comparison is made at
+	// both ends rather than at one convenient point.
+	var controlCosts []int
+	for _, c := range cells {
+		if c.Seed == nil {
+			w, _ := apigen.WorldByName(c.QueryWorld)
+			controlCosts = append(controlCosts, w.RecheckCalls())
+		}
+	}
+	slices.Sort(controlCosts)
+	if controlCosts[0] != 1 || controlCosts[len(controlCosts)-1] < 11 {
+		t.Errorf("controls sit at costs %v, want the cheapest and dearest", controlCosts)
 	}
 }

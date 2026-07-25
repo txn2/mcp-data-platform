@@ -95,6 +95,22 @@
       "contract": "2026.1",
       "workspace_scoped": true,
       "workspaces": 10
+    },
+    {
+      "profile": "monitors-3-scoped-5",
+      "monitors": 3,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": true,
+      "workspaces": 5
+    },
+    {
+      "profile": "monitors-3-scoped-10",
+      "monitors": 3,
+      "listening": "granted",
+      "contract": "2026.1",
+      "workspace_scoped": true,
+      "workspaces": 10
     }
   ]
 }

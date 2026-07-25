@@ -83,6 +83,12 @@ var worldProfiles = []World{
 	// nothing is provisioned: 1 unscoped, then 1 + Workspaces scoped.
 	{Profile: "monitors-0-scoped-5", Monitors: 0, Listening: AccessGranted, Contract: Contract20261, WorkspaceScoped: true, Workspaces: 5},
 	{Profile: "monitors-0-scoped-10", Monitors: 0, Listening: AccessGranted, Contract: Contract20261, WorkspaceScoped: true, Workspaces: 10},
+	// The same sweep for an account that does have monitors. Counting them
+	// still costs one listing per workspace: monitors live in the first
+	// two, but nothing tells an agent that, so being sure it has found all
+	// of them means looking everywhere.
+	{Profile: "monitors-3-scoped-5", Monitors: 3, Listening: AccessGranted, Contract: Contract20261, WorkspaceScoped: true, Workspaces: 5},
+	{Profile: "monitors-3-scoped-10", Monitors: 3, Listening: AccessGranted, Contract: Contract20261, WorkspaceScoped: true, Workspaces: 10},
 }
 
 // baseWorkspaces is the workspace count an ordinary account exposes, and
