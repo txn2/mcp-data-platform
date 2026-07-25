@@ -243,3 +243,70 @@ func TestArmsProduceDistinctCells(t *testing.T) {
 		t.Error("the delivery arm changed what the cell requires; it must only change what is delivered")
 	}
 }
+
+// TestGroundTruthsMatchTheFixture checks the expected answers are the ones
+// the service would actually serve, and that a question with no answer in a
+// world reports none rather than zero.
+func TestGroundTruthsMatchTheFixture(t *testing.T) {
+	f := apigen.BuildFixture()
+	three, _ := apigen.WorldByName("monitors-3")
+	empty, _ := apigen.WorldByName("monitors-0")
+	forbidden, _ := apigen.WorldByName("monitors-3-forbidden")
+
+	// Volume folds every provisioned monitor's whole series.
+	var wantVolume int64
+	var wantMaxSentiment int64
+	for i, m := range f.Monitors {
+		if i >= 3 {
+			break
+		}
+		for _, p := range f.Trend[m.ID] {
+			wantVolume += p.Volume
+			wantMaxSentiment = max(wantMaxSentiment, p.SentimentScore)
+		}
+	}
+	if got, ok := questionFor(t, "trend-volume").GroundTruth(three); !ok || got != float64(wantVolume) {
+		t.Errorf("trend volume = %v (%v), want %d", got, ok, wantVolume)
+	}
+	if got, ok := questionFor(t, "trend-sentiment").GroundTruth(three); !ok || got != float64(wantMaxSentiment) {
+		t.Errorf("peak sentiment = %v (%v), want %d", got, ok, wantMaxSentiment)
+	}
+	// A world with more monitors has more volume: the truth tracks the
+	// world rather than being pinned to one of them.
+	six, _ := apigen.WorldByName("monitors-6")
+	bigger, _ := questionFor(t, "trend-volume").GroundTruth(six)
+	if bigger <= float64(wantVolume) {
+		t.Errorf("six monitors yielded %v, not more than three monitors' %d", bigger, wantVolume)
+	}
+
+	// The count question answers zero rather than declining to answer.
+	if got, ok := questionFor(t, "monitor-count").GroundTruth(empty); !ok || got != 0 {
+		t.Errorf("monitor count in an empty world = %v (%v), want 0", got, ok)
+	}
+	// Behind a 403 it has no answer at all, which is what makes refusing
+	// correct there.
+	if _, ok := questionFor(t, "monitor-count").GroundTruth(forbidden); ok {
+		t.Error("the count question claims an answer behind a 403")
+	}
+	if _, ok := questionFor(t, "trend-volume").GroundTruth(empty); ok {
+		t.Error("the volume question claims an answer with no monitors")
+	}
+
+	// The eternal answer is the deduplicated figure, and the trap is
+	// strictly larger, so the two can never be confused for each other.
+	reach, ok := questionFor(t, "unique-reach").GroundTruth(empty)
+	if !ok {
+		t.Fatal("the eternal question has no answer")
+	}
+	if trap := SummedDailyUniqueReach(); trap <= reach {
+		t.Errorf("the summing trap (%v) is not above the true reach (%v)", trap, reach)
+	}
+	// The durable answer does not move with the contract release: the
+	// release changes how it can be asked for, not what it is.
+	released, _ := apigen.WorldByName("monitors-0-released")
+	before, _ := questionFor(t, "weekly-impressions").GroundTruth(empty)
+	after, _ := questionFor(t, "weekly-impressions").GroundTruth(released)
+	if before != after || before == 0 {
+		t.Errorf("weekly impressions moved with the contract: %v then %v", before, after)
+	}
+}

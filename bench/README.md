@@ -486,6 +486,20 @@ make bench-pk-corpus REPLICATES=3 MODEL=sonnet   # capture-corpus episodes (clau
 make bench-pk-down
 ```
 
+Study cells run against the same stack. A cell is a question, the belief
+planted before it, the delivery arm, and the world it is asked in; the
+runner puts the account in the world the belief describes, plants it as the
+identity that will be asked, moves the world, then asks.
+
+```bash
+make bench-pk-run CELLS=prerun K=8 MODEL=sonnet   # the internal power pre-run (exploratory)
+```
+
+`bench-pk-run` refuses to start against pool identities that already hold
+notes, for the same reason `bench-pk-corpus` does: the agent would find an
+earlier run's knowledge alongside this cell's belief and the results would
+not say which it acted on. Clear the store first.
+
 `bench-pk-up` starts `apisvc -surface perishable`, whose world the harness
 changes between sessions through the fixture control plane rather than by
 restarting. Clear the knowledge store between corpus runs: `bench-pk-corpus`
@@ -641,6 +655,7 @@ bench/
 ├── apisvc/              fixture HTTP service CLI (#1027 catalog, or -surface perishable for #1054)
 ├── apigen/              fixture catalog + spec + task + seed generator CLI
 ├── pkcorpus/            perishable-knowledge capture-corpus runner CLI (#1054 stage 1)
+├── pkrun/               perishable-knowledge cell runner CLI (#1054)
 ├── docs/                study protocols and fixture references
 ├── tasks/               generated task YAML + smoke script (committed)
 ├── protocols/           generated S5 lifecycle protocol YAML + smoke (committed)
@@ -653,7 +668,10 @@ bench/
     ├── apistudy/        per-attempt retrieval, write detection, failure taxonomy
     ├── fixturectl/      control-plane client: reset, world change, phase, state dumps, state grading
     ├── pkcorpus/        capture-corpus scenarios, episode runner, archive
-    ├── pkseed/          frozen belief set and the RQ2 phrasing factorial
+    ├── pkseed/          frozen belief set, the RQ2 phrasing factorial, and delivery metadata
+    ├── pkplant/         plants a delivered belief as the identity that will be asked
+    ├── pkcell/          cells, derived correct behavior, ground truths, deterministic grading
+    ├── pkrun/           cell runner: plant, move the world, ask, grade
     ├── task/            task schema, loader, task-set hash
     ├── protocol/        S5 lifecycle protocol schema, loader, protocol-set hash
     ├── curriculum/      cold-start curriculum schema, loader, curriculum-set hash

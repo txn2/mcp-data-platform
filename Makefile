@@ -1048,6 +1048,25 @@ bench-pk-corpus:
 		$(if $(REPLICATES),-replicates $(REPLICATES),) \
 		$(if $(MODEL),-model $(MODEL),)
 
+## bench-pk-run: Run perishable-knowledge study cells against the running pk stack (#1054; CELLS=prerun, K=, MODEL=)
+bench-pk-run:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-pkrun ./pkrun
+	@dir="build/bench-results/pk-$(if $(CELLS),$(CELLS),prerun)-$$(date +%Y%m%d-%H%M%S)"; \
+	mkdir -p $$dir; \
+	echo "Results dir: $$dir"; \
+	$(BUILD_DIR)/bench-pkrun \
+		-url $(BENCH_URL) \
+		-credential $(BENCH_KEY) \
+		-fixture-url $(BENCH_PK_APISVC_URL) \
+		-fixture-key $(BENCH_PK_APISVC_KEY) \
+		-identity-keys 150 \
+		-git-commit $$(git rev-parse HEAD) \
+		-out $$dir \
+		$(if $(CELLS),-cells $(CELLS),) \
+		$(if $(K),-k $(K),) \
+		$(if $(MODEL),-model $(MODEL),)
+
 ## bench-pk-down: Stop the perishable-knowledge stack (platform, fixture service, compose)
 bench-pk-down:
 	@for pid in $(BENCH_PID) $(BENCH_PK_APISVC_PID); do \

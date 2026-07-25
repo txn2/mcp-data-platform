@@ -2,10 +2,12 @@ package pkcell
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/apigen"
 	"github.com/txn2/mcp-data-platform/bench/internal/apistudy"
 	"github.com/txn2/mcp-data-platform/bench/internal/fixturectl"
+	"github.com/txn2/mcp-data-platform/bench/internal/grade"
 )
 
 // Deterministic grading (protocol section 7). Three signals come out of the
@@ -14,6 +16,26 @@ import (
 // that cannot support the question, and whether it stated a value or
 // declined. The judged layer (is a refusal well formed, does an answer
 // carry its caveat) sits on top of these and is not implemented here.
+
+// UnavailableSentinel is the token a scaffold instructs an agent to use
+// when a question cannot be answered. The scaffold and the grader share
+// this constant deliberately: the first pre-run graded three correct
+// refusals as failures because the scaffold prescribed a word the refusal
+// detector did not recognize, on precisely the cells where refusing is the
+// right answer. A study that tells an agent how to decline has to grade
+// the form it asked for.
+const UnavailableSentinel = "UNAVAILABLE"
+
+// Refused reports whether a final answer declined. It checks the sentinel
+// on the FINAL ANSWER line first, and falls back to the shared lexical
+// matcher for an answer that declined in prose without using it.
+func Refused(final string) bool {
+	answer := grade.ExtractFinal(final)
+	if strings.Contains(strings.ToUpper(answer), UnavailableSentinel) {
+		return true
+	}
+	return apistudy.AnswerRefuses(final)
+}
 
 // capturePhase is the access-log phase a planting session runs under.
 // Calls made under it are not verification: they happened before the world
@@ -102,7 +124,7 @@ func Grade(c Cell, log []fixturectl.RequestLogEntry, finalAnswer string, valueCo
 	o := Outcome{
 		Behavior:    c.Behavior,
 		Observation: Observe(log),
-		Refused:     apistudy.AnswerRefuses(finalAnswer),
+		Refused:     Refused(finalAnswer),
 	}
 	o.Substituted = substituted(c, o)
 	switch {

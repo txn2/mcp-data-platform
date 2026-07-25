@@ -173,3 +173,42 @@ func TestRefusalCells(t *testing.T) {
 		t.Error("a cell with no belief reported that a belief was trusted")
 	}
 }
+
+// TestRefusedRecognizesTheSentinelItAsksFor guards the bug the first
+// pre-run exposed: the scaffold prescribes a word for declining, and three
+// correct refusals were graded as failures because the detector did not
+// know it. A study that tells an agent how to decline must grade the form
+// it asked for.
+func TestRefusedRecognizesTheSentinelItAsksFor(t *testing.T) {
+	// The exact shape the three misgraded attempts produced: a prose
+	// explanation with no conventional refusal marker, closed by the
+	// sentinel.
+	answer := "The account genuinely has no listening monitors, so there is no mention " +
+		"volume to report for 1-28 June 2026.\n\nFINAL ANSWER: " + UnavailableSentinel
+	if !Refused(answer) {
+		t.Error("the sentinel the scaffold prescribes was not recognized as a refusal")
+	}
+	// Case and surrounding text do not matter on the final line.
+	if !Refused("FINAL ANSWER: unavailable") {
+		t.Error("a lowercase sentinel was not recognized")
+	}
+	// Prose refusals without the sentinel still count.
+	if !Refused("I cannot answer this from the available endpoints.") {
+		t.Error("a prose refusal was not recognized")
+	}
+	// A stated value is not a refusal, and the word appearing in the
+	// explanation does not turn an answer into one.
+	if Refused("Monitor data was unavailable last month but is now present.\n\nFINAL ANSWER: 18546") {
+		t.Error("an answer stating a value was graded as a refusal")
+	}
+	// The whole point: a cell requiring refusal now grades the sentinel
+	// correct end to end.
+	fresh, err := Derive(questionFor(t, "trend-volume"), seedFor(t, "perishable-absent"), pkseed.Metadata{}, "monitors-0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := Grade(fresh, []fixturectl.RequestLogEntry{entry("list_monitors", "query")}, answer, nil)
+	if o.Correct == nil || !*o.Correct {
+		t.Errorf("a correct refusal using the prescribed sentinel was graded %v (%s)", o.Correct, o.Detail)
+	}
+}

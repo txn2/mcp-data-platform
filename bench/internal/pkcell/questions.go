@@ -37,9 +37,12 @@ type Question struct {
 	Prompt string `json:"prompt"`
 	// Separates records what this question's cells can distinguish.
 	Separates Separation `json:"separates"`
-	// NeedsMonitors is true when answering requires at least one
-	// provisioned monitor and access to the listening area. It is what
-	// makes answerability a function of the world rather than a label.
+	// NeedsListening is true when answering requires the credential to be
+	// entitled to the listening area.
+	NeedsListening bool `json:"needs_listening"`
+	// NeedsMonitors is true when answering additionally requires at least
+	// one provisioned monitor. Together these make answerability a
+	// function of the world rather than a label on the cell.
 	NeedsMonitors bool `json:"needs_monitors"`
 	// Budget caps tool calls for the attempt.
 	Budget int `json:"budget"`
@@ -57,21 +60,27 @@ func Questions() []Question {
 			ID: "trend-volume", BeliefID: "perishable-absent",
 			Prompt: "What was the total mention volume across ACME's listening monitors " +
 				"between 1 June and 28 June 2026?",
-			Separates: SeparatesAccuracy, NeedsMonitors: true, Budget: cellBudget,
+			Separates: SeparatesAccuracy, NeedsListening: true, NeedsMonitors: true, Budget: cellBudget,
 		},
 		{
 			ID: "trend-sentiment", BeliefID: "perishable-absent",
-			Prompt: "What was the average sentiment score across ACME's listening monitors " +
-				"between 1 June and 28 June 2026?",
-			Separates: SeparatesAccuracy, NeedsMonitors: true, Budget: cellBudget,
+			// A maximum, not an average: "average sentiment across monitors"
+			// admits a mean of daily means and a volume-weighted mean, and a
+			// question with two defensible answers cannot be graded.
+			Prompt: "What was the highest single-day sentiment score recorded on any of ACME's " +
+				"listening monitors between 1 June and 28 June 2026?",
+			Separates: SeparatesAccuracy, NeedsListening: true, NeedsMonitors: true, Budget: cellBudget,
 		},
 		{
 			ID: "monitor-count", BeliefID: "perishable-present",
 			Prompt: "How many listening monitors does ACME have provisioned?",
-			// Answerable in every world: zero is an answer. Trusting a
-			// stale belief here yields the wrong number rather than a
-			// wrong refusal, which is the other direction the study needs.
-			Separates: SeparatesAccuracy, NeedsMonitors: false, Budget: cellBudget,
+			// Answerable wherever the credential can see the listening
+			// area, including when the answer is zero. Trusting a stale
+			// belief here yields the wrong number rather than a wrong
+			// refusal, which is the other direction the study needs. It is
+			// NOT answerable behind a 403: an unentitled credential cannot
+			// count what it cannot see.
+			Separates: SeparatesAccuracy, NeedsListening: true, Budget: cellBudget,
 		},
 		{
 			ID: "weekly-impressions", BeliefID: "durable-granularity",
@@ -105,8 +114,8 @@ func Questions() []Question {
 // so a cell's correct behavior cannot drift from what the fixture actually
 // serves.
 func (q Question) AnswerableIn(w apigen.World) bool {
-	if !q.NeedsMonitors {
-		return true
+	if q.NeedsListening && w.Listening != apigen.AccessGranted {
+		return false
 	}
-	return w.Listening == apigen.AccessGranted && w.Monitors > 0
+	return !q.NeedsMonitors || w.Monitors > 0
 }

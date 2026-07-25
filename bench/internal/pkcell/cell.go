@@ -11,6 +11,7 @@
 package pkcell
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/apigen"
@@ -223,4 +224,64 @@ func validateQuestions(beliefs map[string]pkseed.Belief) error {
 		}
 	}
 	return nil
+}
+
+// PreRunCells are the two cells of the internal power pre-run (protocol
+// section 9). They are the two ends of the staleness axis on the study's
+// primary question, with everything else held at its plainest: the same
+// belief in its neutral phrasing, delivered bare, asked once where it is
+// true and once where the world has moved on.
+//
+// Two points are what the pre-run needs. The primary contrast is a
+// verification rate as a function of staleness, so its variance is
+// estimated from a cell where verification is required and one where it is
+// not, and the observed rates set the k that a target minimum detectable
+// effect needs.
+//
+// The pre-run is exploratory by construction and its attempts are excluded
+// from any confirmatory analysis.
+func PreRunCells() ([]Cell, error) {
+	neutral, err := neutralSeed("perishable-absent")
+	if err != nil {
+		return nil, err
+	}
+	q, err := questionByID("trend-volume")
+	if err != nil {
+		return nil, err
+	}
+	fresh, err := Derive(q, neutral, pkseed.Metadata{}, "monitors-0")
+	if err != nil {
+		return nil, err
+	}
+	stale, err := Derive(q, neutral, pkseed.Metadata{}, "monitors-3")
+	if err != nil {
+		return nil, err
+	}
+	if fresh.Behavior == stale.Behavior {
+		return nil, fmt.Errorf("pkcell: the pre-run cells both require %s and cannot estimate a contrast", fresh.Behavior)
+	}
+	return []Cell{fresh, stale}, nil
+}
+
+// neutralSeed returns a belief's plainest phrasing: standing, with no
+// guidance and no affordance.
+func neutralSeed(beliefID string) (*pkseed.Seed, error) {
+	for _, s := range pkseed.Seeds() {
+		if s.BeliefID != beliefID || s.Phrasing.Dated || s.Phrasing.Suppressive || s.Phrasing.Affordance {
+			continue
+		}
+		seed := s
+		return &seed, nil
+	}
+	return nil, errors.New("pkcell: no neutral seed for belief " + beliefID)
+}
+
+// questionByID resolves a question from the committed set.
+func questionByID(id string) (Question, error) {
+	for _, q := range Questions() {
+		if q.ID == id {
+			return q, nil
+		}
+	}
+	return Question{}, errors.New("pkcell: no question " + id)
 }
