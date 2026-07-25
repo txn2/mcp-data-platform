@@ -76,6 +76,7 @@ type managePromptInput struct {
 	Pattern      string           `json:"pattern,omitempty"`
 	Section      string           `json:"section,omitempty"`
 	Selector     string           `json:"selector,omitempty"`
+	Occurrence   string           `json:"occurrence,omitempty"`
 	LineStart    int              `json:"line_start,omitempty"`
 	LineEnd      int              `json:"line_end,omitempty"`
 	ContextBytes int              `json:"context_bytes,omitempty"`
@@ -979,7 +980,8 @@ func managePromptSchema() any {
 				schemaKeyDescription: "Target personas for a 'persona' promotion request (required when requested_scope is 'persona').",
 			},
 		},
-		"required": []string{"command"},
+		"required":             []string{"command"},
+		"additionalProperties": false,
 	}
 	addPatchProperties(schema)
 	return schema
