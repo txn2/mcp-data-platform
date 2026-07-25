@@ -90,14 +90,21 @@ type listEnvelope struct {
 	NextCursor string `json:"next_cursor,omitempty"`
 }
 
-// writePage writes one page of items.
+// writePage writes one page of items. An empty page is an empty JSON
+// array, never null: the specs type items as an array, and the study's
+// central distinction is between a successful empty collection and a
+// refusal, which a null would blur.
 func writePage(w http.ResponseWriter, r *http.Request, items []any) {
 	from, to, next, err := pageWindow(r, len(items))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, listEnvelope{Items: items[from:to], NextCursor: next})
+	page := items[from:to]
+	if page == nil {
+		page = []any{}
+	}
+	writeJSON(w, http.StatusOK, listEnvelope{Items: page, NextCursor: next})
 }
 
 // parseTimeParam parses an optional RFC 3339 (or YYYY-MM-DD) query

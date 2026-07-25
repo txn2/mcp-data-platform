@@ -1,0 +1,1796 @@
+{
+  "workspaces": [
+    {
+      "id": 601,
+      "name": "Primary workspace",
+      "created_at": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 602,
+      "name": "Regional workspace",
+      "created_at": "2026-01-05T00:00:00Z"
+    }
+  ],
+  "monitors": [
+    {
+      "id": 501,
+      "name": "Brand mentions",
+      "keywords": "acme, acme corp, @acmehq",
+      "workspace_id": 601,
+      "created_at": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 502,
+      "name": "Competitor watch",
+      "keywords": "northwind, globex, initech",
+      "workspace_id": 602,
+      "created_at": "2026-01-12T00:00:00Z"
+    },
+    {
+      "id": 503,
+      "name": "Product launch",
+      "keywords": "acme atlas, atlas launch, #acmeatlas",
+      "workspace_id": 601,
+      "created_at": "2026-01-19T00:00:00Z"
+    },
+    {
+      "id": 504,
+      "name": "Support escalations",
+      "keywords": "acme support, acme outage, acme down",
+      "workspace_id": 602,
+      "created_at": "2026-01-26T00:00:00Z"
+    },
+    {
+      "id": 505,
+      "name": "Campaign hashtags",
+      "keywords": "#acmesummer, #acmedeals",
+      "workspace_id": 601,
+      "created_at": "2026-02-02T00:00:00Z"
+    },
+    {
+      "id": 506,
+      "name": "Industry news",
+      "keywords": "industrial automation, factory robotics",
+      "workspace_id": 602,
+      "created_at": "2026-02-09T00:00:00Z"
+    }
+  ],
+  "profiles": [
+    {
+      "id": 701,
+      "name": "ACME Corp",
+      "network": "linkedin",
+      "created_at": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 702,
+      "name": "ACME Support",
+      "network": "x",
+      "created_at": "2026-01-08T00:00:00Z"
+    },
+    {
+      "id": 703,
+      "name": "ACME Careers",
+      "network": "linkedin",
+      "created_at": "2026-01-11T00:00:00Z"
+    },
+    {
+      "id": 704,
+      "name": "ACME Labs",
+      "network": "mastodon",
+      "created_at": "2026-01-14T00:00:00Z"
+    },
+    {
+      "id": 705,
+      "name": "ACME Retail",
+      "network": "instagram",
+      "created_at": "2026-01-17T00:00:00Z"
+    }
+  ],
+  "trend": {
+    "501": [
+      {
+        "date": "2026-06-01",
+        "volume": 127,
+        "sentiment_score": 41
+      },
+      {
+        "date": "2026-06-02",
+        "volume": 285,
+        "sentiment_score": 76
+      },
+      {
+        "date": "2026-06-03",
+        "volume": 75,
+        "sentiment_score": 76
+      },
+      {
+        "date": "2026-06-04",
+        "volume": 392,
+        "sentiment_score": 45
+      },
+      {
+        "date": "2026-06-05",
+        "volume": 330,
+        "sentiment_score": 52
+      },
+      {
+        "date": "2026-06-06",
+        "volume": 152,
+        "sentiment_score": 60
+      },
+      {
+        "date": "2026-06-07",
+        "volume": 320,
+        "sentiment_score": 74
+      },
+      {
+        "date": "2026-06-08",
+        "volume": 228,
+        "sentiment_score": 80
+      },
+      {
+        "date": "2026-06-09",
+        "volume": 245,
+        "sentiment_score": 75
+      },
+      {
+        "date": "2026-06-10",
+        "volume": 342,
+        "sentiment_score": 30
+      },
+      {
+        "date": "2026-06-11",
+        "volume": 123,
+        "sentiment_score": 50
+      },
+      {
+        "date": "2026-06-12",
+        "volume": 206,
+        "sentiment_score": 47
+      },
+      {
+        "date": "2026-06-13",
+        "volume": 270,
+        "sentiment_score": 76
+      },
+      {
+        "date": "2026-06-14",
+        "volume": 155,
+        "sentiment_score": 35
+      },
+      {
+        "date": "2026-06-15",
+        "volume": 399,
+        "sentiment_score": 77
+      },
+      {
+        "date": "2026-06-16",
+        "volume": 71,
+        "sentiment_score": 83
+      },
+      {
+        "date": "2026-06-17",
+        "volume": 193,
+        "sentiment_score": 26
+      },
+      {
+        "date": "2026-06-18",
+        "volume": 346,
+        "sentiment_score": 39
+      },
+      {
+        "date": "2026-06-19",
+        "volume": 167,
+        "sentiment_score": 60
+      },
+      {
+        "date": "2026-06-20",
+        "volume": 219,
+        "sentiment_score": 33
+      },
+      {
+        "date": "2026-06-21",
+        "volume": 184,
+        "sentiment_score": 70
+      },
+      {
+        "date": "2026-06-22",
+        "volume": 202,
+        "sentiment_score": 39
+      },
+      {
+        "date": "2026-06-23",
+        "volume": 222,
+        "sentiment_score": 84
+      },
+      {
+        "date": "2026-06-24",
+        "volume": 352,
+        "sentiment_score": 65
+      },
+      {
+        "date": "2026-06-25",
+        "volume": 235,
+        "sentiment_score": 25
+      },
+      {
+        "date": "2026-06-26",
+        "volume": 259,
+        "sentiment_score": 77
+      },
+      {
+        "date": "2026-06-27",
+        "volume": 42,
+        "sentiment_score": 50
+      },
+      {
+        "date": "2026-06-28",
+        "volume": 266,
+        "sentiment_score": 41
+      }
+    ],
+    "502": [
+      {
+        "date": "2026-06-01",
+        "volume": 45,
+        "sentiment_score": 74
+      },
+      {
+        "date": "2026-06-02",
+        "volume": 113,
+        "sentiment_score": 54
+      },
+      {
+        "date": "2026-06-03",
+        "volume": 227,
+        "sentiment_score": 53
+      },
+      {
+        "date": "2026-06-04",
+        "volume": 265,
+        "sentiment_score": 78
+      },
+      {
+        "date": "2026-06-05",
+        "volume": 178,
+        "sentiment_score": 46
+      },
+      {
+        "date": "2026-06-06",
+        "volume": 340,
+        "sentiment_score": 51
+      },
+      {
+        "date": "2026-06-07",
+        "volume": 399,
+        "sentiment_score": 40
+      },
+      {
+        "date": "2026-06-08",
+        "volume": 366,
+        "sentiment_score": 52
+      },
+      {
+        "date": "2026-06-09",
+        "volume": 85,
+        "sentiment_score": 78
+      },
+      {
+        "date": "2026-06-10",
+        "volume": 117,
+        "sentiment_score": 32
+      },
+      {
+        "date": "2026-06-11",
+        "volume": 73,
+        "sentiment_score": 33
+      },
+      {
+        "date": "2026-06-12",
+        "volume": 282,
+        "sentiment_score": 76
+      },
+      {
+        "date": "2026-06-13",
+        "volume": 268,
+        "sentiment_score": 77
+      },
+      {
+        "date": "2026-06-14",
+        "volume": 309,
+        "sentiment_score": 78
+      },
+      {
+        "date": "2026-06-15",
+        "volume": 336,
+        "sentiment_score": 37
+      },
+      {
+        "date": "2026-06-16",
+        "volume": 208,
+        "sentiment_score": 40
+      },
+      {
+        "date": "2026-06-17",
+        "volume": 250,
+        "sentiment_score": 38
+      },
+      {
+        "date": "2026-06-18",
+        "volume": 182,
+        "sentiment_score": 58
+      },
+      {
+        "date": "2026-06-19",
+        "volume": 146,
+        "sentiment_score": 52
+      },
+      {
+        "date": "2026-06-20",
+        "volume": 263,
+        "sentiment_score": 26
+      },
+      {
+        "date": "2026-06-21",
+        "volume": 312,
+        "sentiment_score": 74
+      },
+      {
+        "date": "2026-06-22",
+        "volume": 184,
+        "sentiment_score": 45
+      },
+      {
+        "date": "2026-06-23",
+        "volume": 106,
+        "sentiment_score": 63
+      },
+      {
+        "date": "2026-06-24",
+        "volume": 184,
+        "sentiment_score": 33
+      },
+      {
+        "date": "2026-06-25",
+        "volume": 385,
+        "sentiment_score": 36
+      },
+      {
+        "date": "2026-06-26",
+        "volume": 336,
+        "sentiment_score": 40
+      },
+      {
+        "date": "2026-06-27",
+        "volume": 119,
+        "sentiment_score": 26
+      },
+      {
+        "date": "2026-06-28",
+        "volume": 197,
+        "sentiment_score": 47
+      }
+    ],
+    "503": [
+      {
+        "date": "2026-06-01",
+        "volume": 47,
+        "sentiment_score": 57
+      },
+      {
+        "date": "2026-06-02",
+        "volume": 77,
+        "sentiment_score": 67
+      },
+      {
+        "date": "2026-06-03",
+        "volume": 395,
+        "sentiment_score": 38
+      },
+      {
+        "date": "2026-06-04",
+        "volume": 281,
+        "sentiment_score": 38
+      },
+      {
+        "date": "2026-06-05",
+        "volume": 83,
+        "sentiment_score": 60
+      },
+      {
+        "date": "2026-06-06",
+        "volume": 267,
+        "sentiment_score": 35
+      },
+      {
+        "date": "2026-06-07",
+        "volume": 379,
+        "sentiment_score": 59
+      },
+      {
+        "date": "2026-06-08",
+        "volume": 117,
+        "sentiment_score": 66
+      },
+      {
+        "date": "2026-06-09",
+        "volume": 244,
+        "sentiment_score": 84
+      },
+      {
+        "date": "2026-06-10",
+        "volume": 265,
+        "sentiment_score": 50
+      },
+      {
+        "date": "2026-06-11",
+        "volume": 113,
+        "sentiment_score": 79
+      },
+      {
+        "date": "2026-06-12",
+        "volume": 247,
+        "sentiment_score": 48
+      },
+      {
+        "date": "2026-06-13",
+        "volume": 207,
+        "sentiment_score": 83
+      },
+      {
+        "date": "2026-06-14",
+        "volume": 210,
+        "sentiment_score": 33
+      },
+      {
+        "date": "2026-06-15",
+        "volume": 86,
+        "sentiment_score": 76
+      },
+      {
+        "date": "2026-06-16",
+        "volume": 82,
+        "sentiment_score": 77
+      },
+      {
+        "date": "2026-06-17",
+        "volume": 372,
+        "sentiment_score": 48
+      },
+      {
+        "date": "2026-06-18",
+        "volume": 313,
+        "sentiment_score": 50
+      },
+      {
+        "date": "2026-06-19",
+        "volume": 366,
+        "sentiment_score": 54
+      },
+      {
+        "date": "2026-06-20",
+        "volume": 156,
+        "sentiment_score": 39
+      },
+      {
+        "date": "2026-06-21",
+        "volume": 105,
+        "sentiment_score": 25
+      },
+      {
+        "date": "2026-06-22",
+        "volume": 92,
+        "sentiment_score": 50
+      },
+      {
+        "date": "2026-06-23",
+        "volume": 272,
+        "sentiment_score": 43
+      },
+      {
+        "date": "2026-06-24",
+        "volume": 234,
+        "sentiment_score": 49
+      },
+      {
+        "date": "2026-06-25",
+        "volume": 285,
+        "sentiment_score": 79
+      },
+      {
+        "date": "2026-06-26",
+        "volume": 117,
+        "sentiment_score": 55
+      },
+      {
+        "date": "2026-06-27",
+        "volume": 71,
+        "sentiment_score": 31
+      },
+      {
+        "date": "2026-06-28",
+        "volume": 381,
+        "sentiment_score": 71
+      }
+    ],
+    "504": [
+      {
+        "date": "2026-06-01",
+        "volume": 240,
+        "sentiment_score": 36
+      },
+      {
+        "date": "2026-06-02",
+        "volume": 363,
+        "sentiment_score": 77
+      },
+      {
+        "date": "2026-06-03",
+        "volume": 220,
+        "sentiment_score": 64
+      },
+      {
+        "date": "2026-06-04",
+        "volume": 59,
+        "sentiment_score": 50
+      },
+      {
+        "date": "2026-06-05",
+        "volume": 226,
+        "sentiment_score": 29
+      },
+      {
+        "date": "2026-06-06",
+        "volume": 257,
+        "sentiment_score": 58
+      },
+      {
+        "date": "2026-06-07",
+        "volume": 373,
+        "sentiment_score": 55
+      },
+      {
+        "date": "2026-06-08",
+        "volume": 137,
+        "sentiment_score": 31
+      },
+      {
+        "date": "2026-06-09",
+        "volume": 331,
+        "sentiment_score": 55
+      },
+      {
+        "date": "2026-06-10",
+        "volume": 66,
+        "sentiment_score": 74
+      },
+      {
+        "date": "2026-06-11",
+        "volume": 395,
+        "sentiment_score": 60
+      },
+      {
+        "date": "2026-06-12",
+        "volume": 307,
+        "sentiment_score": 54
+      },
+      {
+        "date": "2026-06-13",
+        "volume": 191,
+        "sentiment_score": 67
+      },
+      {
+        "date": "2026-06-14",
+        "volume": 386,
+        "sentiment_score": 56
+      },
+      {
+        "date": "2026-06-15",
+        "volume": 58,
+        "sentiment_score": 29
+      },
+      {
+        "date": "2026-06-16",
+        "volume": 156,
+        "sentiment_score": 31
+      },
+      {
+        "date": "2026-06-17",
+        "volume": 270,
+        "sentiment_score": 80
+      },
+      {
+        "date": "2026-06-18",
+        "volume": 134,
+        "sentiment_score": 76
+      },
+      {
+        "date": "2026-06-19",
+        "volume": 301,
+        "sentiment_score": 63
+      },
+      {
+        "date": "2026-06-20",
+        "volume": 104,
+        "sentiment_score": 57
+      },
+      {
+        "date": "2026-06-21",
+        "volume": 360,
+        "sentiment_score": 80
+      },
+      {
+        "date": "2026-06-22",
+        "volume": 287,
+        "sentiment_score": 36
+      },
+      {
+        "date": "2026-06-23",
+        "volume": 108,
+        "sentiment_score": 30
+      },
+      {
+        "date": "2026-06-24",
+        "volume": 140,
+        "sentiment_score": 51
+      },
+      {
+        "date": "2026-06-25",
+        "volume": 298,
+        "sentiment_score": 46
+      },
+      {
+        "date": "2026-06-26",
+        "volume": 146,
+        "sentiment_score": 58
+      },
+      {
+        "date": "2026-06-27",
+        "volume": 326,
+        "sentiment_score": 79
+      },
+      {
+        "date": "2026-06-28",
+        "volume": 311,
+        "sentiment_score": 70
+      }
+    ],
+    "505": [
+      {
+        "date": "2026-06-01",
+        "volume": 218,
+        "sentiment_score": 59
+      },
+      {
+        "date": "2026-06-02",
+        "volume": 351,
+        "sentiment_score": 82
+      },
+      {
+        "date": "2026-06-03",
+        "volume": 60,
+        "sentiment_score": 61
+      },
+      {
+        "date": "2026-06-04",
+        "volume": 141,
+        "sentiment_score": 30
+      },
+      {
+        "date": "2026-06-05",
+        "volume": 251,
+        "sentiment_score": 64
+      },
+      {
+        "date": "2026-06-06",
+        "volume": 137,
+        "sentiment_score": 58
+      },
+      {
+        "date": "2026-06-07",
+        "volume": 394,
+        "sentiment_score": 64
+      },
+      {
+        "date": "2026-06-08",
+        "volume": 250,
+        "sentiment_score": 73
+      },
+      {
+        "date": "2026-06-09",
+        "volume": 346,
+        "sentiment_score": 39
+      },
+      {
+        "date": "2026-06-10",
+        "volume": 254,
+        "sentiment_score": 68
+      },
+      {
+        "date": "2026-06-11",
+        "volume": 263,
+        "sentiment_score": 31
+      },
+      {
+        "date": "2026-06-12",
+        "volume": 240,
+        "sentiment_score": 59
+      },
+      {
+        "date": "2026-06-13",
+        "volume": 73,
+        "sentiment_score": 81
+      },
+      {
+        "date": "2026-06-14",
+        "volume": 265,
+        "sentiment_score": 73
+      },
+      {
+        "date": "2026-06-15",
+        "volume": 332,
+        "sentiment_score": 36
+      },
+      {
+        "date": "2026-06-16",
+        "volume": 247,
+        "sentiment_score": 36
+      },
+      {
+        "date": "2026-06-17",
+        "volume": 115,
+        "sentiment_score": 33
+      },
+      {
+        "date": "2026-06-18",
+        "volume": 328,
+        "sentiment_score": 36
+      },
+      {
+        "date": "2026-06-19",
+        "volume": 313,
+        "sentiment_score": 65
+      },
+      {
+        "date": "2026-06-20",
+        "volume": 77,
+        "sentiment_score": 81
+      },
+      {
+        "date": "2026-06-21",
+        "volume": 120,
+        "sentiment_score": 82
+      },
+      {
+        "date": "2026-06-22",
+        "volume": 66,
+        "sentiment_score": 71
+      },
+      {
+        "date": "2026-06-23",
+        "volume": 244,
+        "sentiment_score": 58
+      },
+      {
+        "date": "2026-06-24",
+        "volume": 230,
+        "sentiment_score": 79
+      },
+      {
+        "date": "2026-06-25",
+        "volume": 185,
+        "sentiment_score": 28
+      },
+      {
+        "date": "2026-06-26",
+        "volume": 342,
+        "sentiment_score": 41
+      },
+      {
+        "date": "2026-06-27",
+        "volume": 282,
+        "sentiment_score": 84
+      },
+      {
+        "date": "2026-06-28",
+        "volume": 169,
+        "sentiment_score": 67
+      }
+    ],
+    "506": [
+      {
+        "date": "2026-06-01",
+        "volume": 359,
+        "sentiment_score": 48
+      },
+      {
+        "date": "2026-06-02",
+        "volume": 317,
+        "sentiment_score": 35
+      },
+      {
+        "date": "2026-06-03",
+        "volume": 326,
+        "sentiment_score": 46
+      },
+      {
+        "date": "2026-06-04",
+        "volume": 381,
+        "sentiment_score": 27
+      },
+      {
+        "date": "2026-06-05",
+        "volume": 51,
+        "sentiment_score": 77
+      },
+      {
+        "date": "2026-06-06",
+        "volume": 48,
+        "sentiment_score": 78
+      },
+      {
+        "date": "2026-06-07",
+        "volume": 128,
+        "sentiment_score": 55
+      },
+      {
+        "date": "2026-06-08",
+        "volume": 78,
+        "sentiment_score": 81
+      },
+      {
+        "date": "2026-06-09",
+        "volume": 306,
+        "sentiment_score": 57
+      },
+      {
+        "date": "2026-06-10",
+        "volume": 248,
+        "sentiment_score": 26
+      },
+      {
+        "date": "2026-06-11",
+        "volume": 399,
+        "sentiment_score": 32
+      },
+      {
+        "date": "2026-06-12",
+        "volume": 180,
+        "sentiment_score": 68
+      },
+      {
+        "date": "2026-06-13",
+        "volume": 298,
+        "sentiment_score": 54
+      },
+      {
+        "date": "2026-06-14",
+        "volume": 305,
+        "sentiment_score": 53
+      },
+      {
+        "date": "2026-06-15",
+        "volume": 327,
+        "sentiment_score": 52
+      },
+      {
+        "date": "2026-06-16",
+        "volume": 382,
+        "sentiment_score": 58
+      },
+      {
+        "date": "2026-06-17",
+        "volume": 277,
+        "sentiment_score": 61
+      },
+      {
+        "date": "2026-06-18",
+        "volume": 115,
+        "sentiment_score": 72
+      },
+      {
+        "date": "2026-06-19",
+        "volume": 269,
+        "sentiment_score": 64
+      },
+      {
+        "date": "2026-06-20",
+        "volume": 97,
+        "sentiment_score": 38
+      },
+      {
+        "date": "2026-06-21",
+        "volume": 43,
+        "sentiment_score": 47
+      },
+      {
+        "date": "2026-06-22",
+        "volume": 265,
+        "sentiment_score": 74
+      },
+      {
+        "date": "2026-06-23",
+        "volume": 297,
+        "sentiment_score": 26
+      },
+      {
+        "date": "2026-06-24",
+        "volume": 217,
+        "sentiment_score": 81
+      },
+      {
+        "date": "2026-06-25",
+        "volume": 270,
+        "sentiment_score": 76
+      },
+      {
+        "date": "2026-06-26",
+        "volume": 243,
+        "sentiment_score": 68
+      },
+      {
+        "date": "2026-06-27",
+        "volume": 393,
+        "sentiment_score": 44
+      },
+      {
+        "date": "2026-06-28",
+        "volume": 395,
+        "sentiment_score": 51
+      }
+    ]
+  },
+  "metrics": {
+    "701": [
+      {
+        "date": "2026-06-01",
+        "impressions": 11182,
+        "engagements": 782,
+        "unique_reach": 8162
+      },
+      {
+        "date": "2026-06-02",
+        "impressions": 15784,
+        "engagements": 1420,
+        "unique_reach": 8681
+      },
+      {
+        "date": "2026-06-03",
+        "impressions": 9268,
+        "engagements": 926,
+        "unique_reach": 5282
+      },
+      {
+        "date": "2026-06-04",
+        "impressions": 16917,
+        "engagements": 338,
+        "unique_reach": 13702
+      },
+      {
+        "date": "2026-06-05",
+        "impressions": 7408,
+        "engagements": 518,
+        "unique_reach": 6148
+      },
+      {
+        "date": "2026-06-06",
+        "impressions": 16463,
+        "engagements": 1152,
+        "unique_reach": 12676
+      },
+      {
+        "date": "2026-06-07",
+        "impressions": 17371,
+        "engagements": 1563,
+        "unique_reach": 14591
+      },
+      {
+        "date": "2026-06-08",
+        "impressions": 14813,
+        "engagements": 1481,
+        "unique_reach": 10369
+      },
+      {
+        "date": "2026-06-09",
+        "impressions": 12099,
+        "engagements": 1209,
+        "unique_reach": 10042
+      },
+      {
+        "date": "2026-06-10",
+        "impressions": 10694,
+        "engagements": 962,
+        "unique_reach": 7592
+      },
+      {
+        "date": "2026-06-11",
+        "impressions": 15212,
+        "engagements": 608,
+        "unique_reach": 12169
+      },
+      {
+        "date": "2026-06-12",
+        "impressions": 8597,
+        "engagements": 773,
+        "unique_reach": 5502
+      },
+      {
+        "date": "2026-06-13",
+        "impressions": 15015,
+        "engagements": 1201,
+        "unique_reach": 10810
+      },
+      {
+        "date": "2026-06-14",
+        "impressions": 15367,
+        "engagements": 1229,
+        "unique_reach": 12139
+      },
+      {
+        "date": "2026-06-15",
+        "impressions": 7433,
+        "engagements": 594,
+        "unique_reach": 4757
+      },
+      {
+        "date": "2026-06-16",
+        "impressions": 17119,
+        "engagements": 1711,
+        "unique_reach": 11983
+      },
+      {
+        "date": "2026-06-17",
+        "impressions": 5878,
+        "engagements": 176,
+        "unique_reach": 3879
+      },
+      {
+        "date": "2026-06-18",
+        "impressions": 15902,
+        "engagements": 636,
+        "unique_reach": 12562
+      },
+      {
+        "date": "2026-06-19",
+        "impressions": 11779,
+        "engagements": 942,
+        "unique_reach": 7302
+      },
+      {
+        "date": "2026-06-20",
+        "impressions": 9412,
+        "engagements": 282,
+        "unique_reach": 7153
+      },
+      {
+        "date": "2026-06-21",
+        "impressions": 12630,
+        "engagements": 1136,
+        "unique_reach": 9851
+      },
+      {
+        "date": "2026-06-22",
+        "impressions": 18801,
+        "engagements": 940,
+        "unique_reach": 12972
+      },
+      {
+        "date": "2026-06-23",
+        "impressions": 6918,
+        "engagements": 276,
+        "unique_reach": 5119
+      },
+      {
+        "date": "2026-06-24",
+        "impressions": 6246,
+        "engagements": 124,
+        "unique_reach": 4996
+      },
+      {
+        "date": "2026-06-25",
+        "impressions": 6936,
+        "engagements": 416,
+        "unique_reach": 5063
+      },
+      {
+        "date": "2026-06-26",
+        "impressions": 16591,
+        "engagements": 1659,
+        "unique_reach": 10784
+      },
+      {
+        "date": "2026-06-27",
+        "impressions": 5360,
+        "engagements": 160,
+        "unique_reach": 3323
+      },
+      {
+        "date": "2026-06-28",
+        "impressions": 18009,
+        "engagements": 720,
+        "unique_reach": 12606
+      }
+    ],
+    "702": [
+      {
+        "date": "2026-06-01",
+        "impressions": 4528,
+        "engagements": 135,
+        "unique_reach": 3396
+      },
+      {
+        "date": "2026-06-02",
+        "impressions": 5806,
+        "engagements": 174,
+        "unique_reach": 3773
+      },
+      {
+        "date": "2026-06-03",
+        "impressions": 7773,
+        "engagements": 621,
+        "unique_reach": 5596
+      },
+      {
+        "date": "2026-06-04",
+        "impressions": 11209,
+        "engagements": 336,
+        "unique_reach": 6725
+      },
+      {
+        "date": "2026-06-05",
+        "impressions": 19280,
+        "engagements": 578,
+        "unique_reach": 12146
+      },
+      {
+        "date": "2026-06-06",
+        "impressions": 13077,
+        "engagements": 392,
+        "unique_reach": 8369
+      },
+      {
+        "date": "2026-06-07",
+        "impressions": 8988,
+        "engagements": 629,
+        "unique_reach": 5752
+      },
+      {
+        "date": "2026-06-08",
+        "impressions": 13819,
+        "engagements": 552,
+        "unique_reach": 10778
+      },
+      {
+        "date": "2026-06-09",
+        "impressions": 18793,
+        "engagements": 751,
+        "unique_reach": 13155
+      },
+      {
+        "date": "2026-06-10",
+        "impressions": 17222,
+        "engagements": 1377,
+        "unique_reach": 13949
+      },
+      {
+        "date": "2026-06-11",
+        "impressions": 19378,
+        "engagements": 968,
+        "unique_reach": 15308
+      },
+      {
+        "date": "2026-06-12",
+        "impressions": 19201,
+        "engagements": 960,
+        "unique_reach": 13056
+      },
+      {
+        "date": "2026-06-13",
+        "impressions": 11819,
+        "engagements": 945,
+        "unique_reach": 8155
+      },
+      {
+        "date": "2026-06-14",
+        "impressions": 18186,
+        "engagements": 1818,
+        "unique_reach": 14548
+      },
+      {
+        "date": "2026-06-15",
+        "impressions": 16535,
+        "engagements": 661,
+        "unique_reach": 10582
+      },
+      {
+        "date": "2026-06-16",
+        "impressions": 19900,
+        "engagements": 1592,
+        "unique_reach": 14328
+      },
+      {
+        "date": "2026-06-17",
+        "impressions": 5907,
+        "engagements": 590,
+        "unique_reach": 4371
+      },
+      {
+        "date": "2026-06-18",
+        "impressions": 6402,
+        "engagements": 448,
+        "unique_reach": 5377
+      },
+      {
+        "date": "2026-06-19",
+        "impressions": 12223,
+        "engagements": 1100,
+        "unique_reach": 8800
+      },
+      {
+        "date": "2026-06-20",
+        "impressions": 17770,
+        "engagements": 355,
+        "unique_reach": 12083
+      },
+      {
+        "date": "2026-06-21",
+        "impressions": 12399,
+        "engagements": 743,
+        "unique_reach": 9795
+      },
+      {
+        "date": "2026-06-22",
+        "impressions": 17374,
+        "engagements": 1737,
+        "unique_reach": 10424
+      },
+      {
+        "date": "2026-06-23",
+        "impressions": 11004,
+        "engagements": 1100,
+        "unique_reach": 7262
+      },
+      {
+        "date": "2026-06-24",
+        "impressions": 16114,
+        "engagements": 805,
+        "unique_reach": 9829
+      },
+      {
+        "date": "2026-06-25",
+        "impressions": 7234,
+        "engagements": 651,
+        "unique_reach": 4629
+      },
+      {
+        "date": "2026-06-26",
+        "impressions": 15899,
+        "engagements": 953,
+        "unique_reach": 11606
+      },
+      {
+        "date": "2026-06-27",
+        "impressions": 5555,
+        "engagements": 333,
+        "unique_reach": 4055
+      },
+      {
+        "date": "2026-06-28",
+        "impressions": 13379,
+        "engagements": 1204,
+        "unique_reach": 8562
+      }
+    ],
+    "703": [
+      {
+        "date": "2026-06-01",
+        "impressions": 19437,
+        "engagements": 388,
+        "unique_reach": 15743
+      },
+      {
+        "date": "2026-06-02",
+        "impressions": 5995,
+        "engagements": 239,
+        "unique_reach": 3537
+      },
+      {
+        "date": "2026-06-03",
+        "impressions": 12453,
+        "engagements": 871,
+        "unique_reach": 8218
+      },
+      {
+        "date": "2026-06-04",
+        "impressions": 17310,
+        "engagements": 1557,
+        "unique_reach": 10386
+      },
+      {
+        "date": "2026-06-05",
+        "impressions": 13686,
+        "engagements": 958,
+        "unique_reach": 9443
+      },
+      {
+        "date": "2026-06-06",
+        "impressions": 18197,
+        "engagements": 1091,
+        "unique_reach": 12373
+      },
+      {
+        "date": "2026-06-07",
+        "impressions": 19236,
+        "engagements": 577,
+        "unique_reach": 13272
+      },
+      {
+        "date": "2026-06-08",
+        "impressions": 11321,
+        "engagements": 452,
+        "unique_reach": 8603
+      },
+      {
+        "date": "2026-06-09",
+        "impressions": 11604,
+        "engagements": 696,
+        "unique_reach": 7426
+      },
+      {
+        "date": "2026-06-10",
+        "impressions": 12865,
+        "engagements": 1286,
+        "unique_reach": 7461
+      },
+      {
+        "date": "2026-06-11",
+        "impressions": 18944,
+        "engagements": 757,
+        "unique_reach": 10798
+      },
+      {
+        "date": "2026-06-12",
+        "impressions": 14801,
+        "engagements": 1480,
+        "unique_reach": 10508
+      },
+      {
+        "date": "2026-06-13",
+        "impressions": 17730,
+        "engagements": 531,
+        "unique_reach": 14893
+      },
+      {
+        "date": "2026-06-14",
+        "impressions": 11183,
+        "engagements": 559,
+        "unique_reach": 7604
+      },
+      {
+        "date": "2026-06-15",
+        "impressions": 11394,
+        "engagements": 911,
+        "unique_reach": 9343
+      },
+      {
+        "date": "2026-06-16",
+        "impressions": 5750,
+        "engagements": 172,
+        "unique_reach": 4600
+      },
+      {
+        "date": "2026-06-17",
+        "impressions": 10639,
+        "engagements": 212,
+        "unique_reach": 7553
+      },
+      {
+        "date": "2026-06-18",
+        "impressions": 12501,
+        "engagements": 1000,
+        "unique_reach": 9250
+      },
+      {
+        "date": "2026-06-19",
+        "impressions": 9097,
+        "engagements": 272,
+        "unique_reach": 6185
+      },
+      {
+        "date": "2026-06-20",
+        "impressions": 5001,
+        "engagements": 250,
+        "unique_reach": 3150
+      },
+      {
+        "date": "2026-06-21",
+        "impressions": 18443,
+        "engagements": 922,
+        "unique_reach": 14938
+      },
+      {
+        "date": "2026-06-22",
+        "impressions": 14131,
+        "engagements": 565,
+        "unique_reach": 9750
+      },
+      {
+        "date": "2026-06-23",
+        "impressions": 9042,
+        "engagements": 180,
+        "unique_reach": 5153
+      },
+      {
+        "date": "2026-06-24",
+        "impressions": 9480,
+        "engagements": 758,
+        "unique_reach": 6067
+      },
+      {
+        "date": "2026-06-25",
+        "impressions": 11998,
+        "engagements": 1079,
+        "unique_reach": 7918
+      },
+      {
+        "date": "2026-06-26",
+        "impressions": 9334,
+        "engagements": 560,
+        "unique_reach": 5693
+      },
+      {
+        "date": "2026-06-27",
+        "impressions": 8004,
+        "engagements": 480,
+        "unique_reach": 4562
+      },
+      {
+        "date": "2026-06-28",
+        "impressions": 4992,
+        "engagements": 199,
+        "unique_reach": 3194
+      }
+    ],
+    "704": [
+      {
+        "date": "2026-06-01",
+        "impressions": 14243,
+        "engagements": 427,
+        "unique_reach": 11394
+      },
+      {
+        "date": "2026-06-02",
+        "impressions": 12077,
+        "engagements": 724,
+        "unique_reach": 7970
+      },
+      {
+        "date": "2026-06-03",
+        "impressions": 18431,
+        "engagements": 552,
+        "unique_reach": 14929
+      },
+      {
+        "date": "2026-06-04",
+        "impressions": 8849,
+        "engagements": 796,
+        "unique_reach": 7433
+      },
+      {
+        "date": "2026-06-05",
+        "impressions": 12114,
+        "engagements": 242,
+        "unique_reach": 7874
+      },
+      {
+        "date": "2026-06-06",
+        "impressions": 19700,
+        "engagements": 591,
+        "unique_reach": 14775
+      },
+      {
+        "date": "2026-06-07",
+        "impressions": 7978,
+        "engagements": 478,
+        "unique_reach": 6701
+      },
+      {
+        "date": "2026-06-08",
+        "impressions": 19666,
+        "engagements": 1573,
+        "unique_reach": 14356
+      },
+      {
+        "date": "2026-06-09",
+        "impressions": 12219,
+        "engagements": 1221,
+        "unique_reach": 9164
+      },
+      {
+        "date": "2026-06-10",
+        "impressions": 7989,
+        "engagements": 719,
+        "unique_reach": 5432
+      },
+      {
+        "date": "2026-06-11",
+        "impressions": 17629,
+        "engagements": 528,
+        "unique_reach": 13045
+      },
+      {
+        "date": "2026-06-12",
+        "impressions": 7364,
+        "engagements": 441,
+        "unique_reach": 5449
+      },
+      {
+        "date": "2026-06-13",
+        "impressions": 6198,
+        "engagements": 309,
+        "unique_reach": 3408
+      },
+      {
+        "date": "2026-06-14",
+        "impressions": 12592,
+        "engagements": 251,
+        "unique_reach": 10451
+      },
+      {
+        "date": "2026-06-15",
+        "impressions": 8533,
+        "engagements": 341,
+        "unique_reach": 7082
+      },
+      {
+        "date": "2026-06-16",
+        "impressions": 16691,
+        "engagements": 333,
+        "unique_reach": 10682
+      },
+      {
+        "date": "2026-06-17",
+        "impressions": 9741,
+        "engagements": 487,
+        "unique_reach": 5357
+      },
+      {
+        "date": "2026-06-18",
+        "impressions": 7831,
+        "engagements": 783,
+        "unique_reach": 4620
+      },
+      {
+        "date": "2026-06-19",
+        "impressions": 18383,
+        "engagements": 1654,
+        "unique_reach": 12316
+      },
+      {
+        "date": "2026-06-20",
+        "impressions": 18991,
+        "engagements": 569,
+        "unique_reach": 11584
+      },
+      {
+        "date": "2026-06-21",
+        "impressions": 15524,
+        "engagements": 1241,
+        "unique_reach": 8538
+      },
+      {
+        "date": "2026-06-22",
+        "impressions": 5164,
+        "engagements": 361,
+        "unique_reach": 4182
+      },
+      {
+        "date": "2026-06-23",
+        "impressions": 14031,
+        "engagements": 1262,
+        "unique_reach": 11786
+      },
+      {
+        "date": "2026-06-24",
+        "impressions": 9494,
+        "engagements": 379,
+        "unique_reach": 7310
+      },
+      {
+        "date": "2026-06-25",
+        "impressions": 4169,
+        "engagements": 333,
+        "unique_reach": 2668
+      },
+      {
+        "date": "2026-06-26",
+        "impressions": 17367,
+        "engagements": 1563,
+        "unique_reach": 11462
+      },
+      {
+        "date": "2026-06-27",
+        "impressions": 17644,
+        "engagements": 1587,
+        "unique_reach": 10762
+      },
+      {
+        "date": "2026-06-28",
+        "impressions": 14265,
+        "engagements": 1426,
+        "unique_reach": 8559
+      }
+    ],
+    "705": [
+      {
+        "date": "2026-06-01",
+        "impressions": 9905,
+        "engagements": 297,
+        "unique_reach": 8122
+      },
+      {
+        "date": "2026-06-02",
+        "impressions": 9282,
+        "engagements": 835,
+        "unique_reach": 5662
+      },
+      {
+        "date": "2026-06-03",
+        "impressions": 15898,
+        "engagements": 1112,
+        "unique_reach": 10492
+      },
+      {
+        "date": "2026-06-04",
+        "impressions": 7014,
+        "engagements": 350,
+        "unique_reach": 3857
+      },
+      {
+        "date": "2026-06-05",
+        "impressions": 4936,
+        "engagements": 98,
+        "unique_reach": 4047
+      },
+      {
+        "date": "2026-06-06",
+        "impressions": 16972,
+        "engagements": 509,
+        "unique_reach": 10183
+      },
+      {
+        "date": "2026-06-07",
+        "impressions": 4975,
+        "engagements": 497,
+        "unique_reach": 2985
+      },
+      {
+        "date": "2026-06-08",
+        "impressions": 15743,
+        "engagements": 1102,
+        "unique_reach": 10547
+      },
+      {
+        "date": "2026-06-09",
+        "impressions": 12838,
+        "engagements": 1283,
+        "unique_reach": 10783
+      },
+      {
+        "date": "2026-06-10",
+        "impressions": 18352,
+        "engagements": 550,
+        "unique_reach": 13213
+      },
+      {
+        "date": "2026-06-11",
+        "impressions": 7092,
+        "engagements": 496,
+        "unique_reach": 4822
+      },
+      {
+        "date": "2026-06-12",
+        "impressions": 4017,
+        "engagements": 321,
+        "unique_reach": 2691
+      },
+      {
+        "date": "2026-06-13",
+        "impressions": 14137,
+        "engagements": 1130,
+        "unique_reach": 8482
+      },
+      {
+        "date": "2026-06-14",
+        "impressions": 17459,
+        "engagements": 1396,
+        "unique_reach": 12046
+      },
+      {
+        "date": "2026-06-15",
+        "impressions": 15970,
+        "engagements": 798,
+        "unique_reach": 12456
+      },
+      {
+        "date": "2026-06-16",
+        "impressions": 16366,
+        "engagements": 327,
+        "unique_reach": 12438
+      },
+      {
+        "date": "2026-06-17",
+        "impressions": 18082,
+        "engagements": 1808,
+        "unique_reach": 14103
+      },
+      {
+        "date": "2026-06-18",
+        "impressions": 17594,
+        "engagements": 1407,
+        "unique_reach": 13195
+      },
+      {
+        "date": "2026-06-19",
+        "impressions": 7451,
+        "engagements": 149,
+        "unique_reach": 6035
+      },
+      {
+        "date": "2026-06-20",
+        "impressions": 15829,
+        "engagements": 791,
+        "unique_reach": 12188
+      },
+      {
+        "date": "2026-06-21",
+        "impressions": 6944,
+        "engagements": 694,
+        "unique_reach": 5346
+      },
+      {
+        "date": "2026-06-22",
+        "impressions": 6577,
+        "engagements": 328,
+        "unique_reach": 3683
+      },
+      {
+        "date": "2026-06-23",
+        "impressions": 8708,
+        "engagements": 783,
+        "unique_reach": 5660
+      },
+      {
+        "date": "2026-06-24",
+        "impressions": 5635,
+        "engagements": 225,
+        "unique_reach": 3437
+      },
+      {
+        "date": "2026-06-25",
+        "impressions": 6428,
+        "engagements": 257,
+        "unique_reach": 5142
+      },
+      {
+        "date": "2026-06-26",
+        "impressions": 4698,
+        "engagements": 328,
+        "unique_reach": 3664
+      },
+      {
+        "date": "2026-06-27",
+        "impressions": 13612,
+        "engagements": 680,
+        "unique_reach": 11434
+      },
+      {
+        "date": "2026-06-28",
+        "impressions": 6262,
+        "engagements": 250,
+        "unique_reach": 3569
+      }
+    ]
+  }
+}

@@ -960,6 +960,104 @@ bench-api-run:
 bench-api-smoke:
 	@$(MAKE) bench-api-run LLM=scripted SCRIPT=bench/tasks-api/scripted-smoke.json K=1
 
+# --- Perishable-knowledge study (issue #1054) ----------------------------
+# One arm (bench/config/platform.bench.pk.yaml), one spec (bench/specs/pk.json),
+# and a fixture service serving the perishable surface. The world a cell starts
+# in is BENCH_PK_WORLD; the harness changes it between sessions through the
+# fixture's own control plane, not through a restart. Its own database
+# (mcp_bench_pk) keeps study state off the #1027 and dev databases.
+BENCH_PK_APISVC_ADDR ?= :8112
+BENCH_PK_APISVC_URL ?= http://127.0.0.1:8112
+BENCH_PK_APISVC_KEY ?= bench-pk-fixture-key
+BENCH_PK_WORLD ?= monitors-0
+BENCH_PK_CONFIG := bench/config/platform.bench.pk.yaml
+BENCH_PK_APISVC_PID := build/bench-pk-apisvc.pid
+BENCH_PK_APISVC_LOG := build/bench-pk-apisvc.log
+
+## bench-pk-up: Start Postgres + the perishable fixture + platform, then register the fixture (#1054; BENCH_PK_WORLD=)
+bench-pk-up:
+	@if [ "$(BENCH_PG)" = "skip" ]; then \
+		echo "Using external Postgres on 5432 (BENCH_PG=skip)..."; \
+	else \
+		echo "Starting Postgres..."; \
+		$(BENCH_COMPOSE) up -d postgres; \
+		for i in $$(seq 1 30); do \
+			if docker exec e2e-postgres pg_isready -U platform -d mcp_platform -q 2>/dev/null; then break; fi; \
+			sleep 1; \
+		done; \
+		docker exec e2e-postgres pg_isready -U platform -d mcp_platform -q || { echo "ERROR: Postgres not ready"; exit 1; }; \
+	fi
+	@docker exec $(BENCH_PG_CONTAINER) psql -U platform -d postgres -tc \
+		"SELECT 1 FROM pg_database WHERE datname='mcp_bench_pk'" 2>/dev/null | grep -q 1 \
+		|| docker exec $(BENCH_PG_CONTAINER) psql -U platform -d postgres -c "CREATE DATABASE mcp_bench_pk OWNER platform"
+	@echo "Building binaries..."
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-bench $(CMD_DIR)
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-apisvc ./apisvc \
+		&& $(GO) build -o ../$(BUILD_DIR)/bench-apisetup ./apisetup \
+		&& $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	@for pid in $(BENCH_PK_APISVC_PID) $(BENCH_PID); do \
+		if [ -f $$pid ]; then \
+			kill $$(cat $$pid) 2>/dev/null || true; \
+			while kill -0 $$(cat $$pid) 2>/dev/null; do sleep 1; done; \
+			rm -f $$pid; \
+		fi; \
+	done
+	@echo "Starting perishable fixture service on $(BENCH_PK_APISVC_ADDR) (world $(BENCH_PK_WORLD))..."
+	@$(BUILD_DIR)/bench-apisvc -addr $(BENCH_PK_APISVC_ADDR) -api-key $(BENCH_PK_APISVC_KEY) \
+		-surface perishable -world $(BENCH_PK_WORLD) \
+		> $(BENCH_PK_APISVC_LOG) 2>&1 & echo $$! > $(BENCH_PK_APISVC_PID)
+	@for i in $$(seq 1 15); do \
+		if curl -fsS -H "X-API-Key: $(BENCH_PK_APISVC_KEY)" $(BENCH_PK_APISVC_URL)/_bench/world >/dev/null 2>&1; then break; fi; \
+		sleep 1; \
+	done; \
+	curl -fsS -H "X-API-Key: $(BENCH_PK_APISVC_KEY)" $(BENCH_PK_APISVC_URL)/_bench/world >/dev/null 2>&1 \
+		|| { echo "ERROR: fixture service not ready; see $(BENCH_PK_APISVC_LOG)"; tail -5 $(BENCH_PK_APISVC_LOG); exit 1; }
+	@if curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1; then \
+		echo "ERROR: something else is already serving $(BENCH_URL); run 'make bench-pk-down' first"; exit 1; fi
+	@echo "Starting platform ($(BENCH_PK_CONFIG)) on $(BENCH_ADDR)..."
+	@API_KEY_ADMIN=$(BENCH_KEY) LOG_LEVEL=info OTEL_METRICS_ADDR=$(BENCH_METRICS_ADDR) \
+		$(BUILD_DIR)/$(BINARY_NAME)-bench --config $(BENCH_PK_CONFIG) --transport http --address $(BENCH_ADDR) \
+		> $(BENCH_LOG) 2>&1 & echo $$! > $(BENCH_PID)
+	@for i in $$(seq 1 30); do \
+		if curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1; then break; fi; \
+		sleep 1; \
+	done; \
+	curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1 \
+		|| { echo "ERROR: platform did not become ready; see $(BENCH_LOG)"; tail -20 $(BENCH_LOG); exit 1; }
+	@echo "Registering the perishable fixture..."
+	@$(BUILD_DIR)/bench-apisetup -mode b1 -url $(BENCH_URL) -credential $(BENCH_KEY) \
+		-spec bench/specs/pk.json -fixture $(BENCH_PK_APISVC_URL) -fixture-key $(BENCH_PK_APISVC_KEY)
+	@echo "Perishable-knowledge stack ready (world $(BENCH_PK_WORLD))."
+
+## bench-pk-corpus: Run the capture-corpus episodes against the running pk stack (#1054 stage 1; REPLICATES=, MODEL=)
+bench-pk-corpus:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-pkcorpus ./pkcorpus
+	@dir="build/bench-results/pk-corpus-$$(date +%Y%m%d-%H%M%S)"; \
+	mkdir -p $$dir; \
+	echo "Corpus dir: $$dir"; \
+	$(BUILD_DIR)/bench-pkcorpus \
+		-url $(BENCH_URL) \
+		-credential $(BENCH_KEY) \
+		-fixture-url $(BENCH_PK_APISVC_URL) \
+		-fixture-key $(BENCH_PK_APISVC_KEY) \
+		-identity-keys 150 \
+		-git-commit $$(git rev-parse HEAD) \
+		-out $$dir \
+		$(if $(REPLICATES),-replicates $(REPLICATES),) \
+		$(if $(MODEL),-model $(MODEL),)
+
+## bench-pk-down: Stop the perishable-knowledge stack (platform, fixture service, compose)
+bench-pk-down:
+	@for pid in $(BENCH_PID) $(BENCH_PK_APISVC_PID); do \
+		if [ -f $$pid ]; then \
+			kill $$(cat $$pid) 2>/dev/null || true; \
+			rm -f $$pid; \
+		fi; \
+	done
+	@$(MAKE) e2e-down
+
 ## bench-api-down: Stop the API study stack (platform, epmcp, fixture service, compose)
 bench-api-down:
 	@for pid in $(BENCH_PID) $(BENCH_EPMCP_PID) $(BENCH_APISVC_PID); do \

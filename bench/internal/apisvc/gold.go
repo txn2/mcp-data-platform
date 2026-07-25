@@ -54,7 +54,7 @@ func (s *Service) handleGoldOrders(w http.ResponseWriter, r *http.Request, opID,
 	case "cancel_order":
 		s.cancelOrder(w, id)
 	default:
-		writeError(w, http.StatusNotFound, "unknown operation "+opID)
+		s.handleInsights(w, r, opID, id)
 	}
 }
 

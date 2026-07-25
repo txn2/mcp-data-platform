@@ -1,11 +1,16 @@
-// Package apigen is the deterministic fixture generator for the
-// API-connection architecture study (issue #1027). One fixed-seed catalog
-// model emits every study artifact — the OpenAPI specs at the three
-// catalog-size tiers, the fixture service's routing table and seeded state,
-// and the task set whose ground truths are computed from that state — so
-// spec, behavior, and truth derive from a single source and cannot drift
-// apart. Regeneration is byte-identical; a test diffs the committed
+// Package apigen is the deterministic fixture generator behind the API
+// fixture studies. One fixed-seed catalog model emits every study artifact
+// — the OpenAPI specs, the fixture service's routing table and seeded
+// state, and the task set whose ground truths are computed from that state
+// — so spec, behavior, and truth derive from a single source and cannot
+// drift apart. Regeneration is byte-identical; a test diffs the committed
 // artifacts against a fresh run (the bench/internal/gen pattern).
+//
+// It builds two catalogs. BuildCatalog is the API-connection architecture
+// study's (issue #1027) three-tier catalog, frozen so that study's
+// archived runs stay reproducible. BuildPerishableCatalog is the
+// perishable-knowledge study's (issue #1054) single-tier catalog, which
+// adds the insights surface and the world model in world.go.
 package apigen
 
 import "fmt"
@@ -75,9 +80,14 @@ type Operation struct {
 	Tier       int  // minimum tier the operation appears in
 	Gold       bool // true for the operations tasks require
 	Deprecated bool
-	Params     []Param
-	Request    []Field // request body object properties; nil = no body
-	Response   []Field // response item object properties
+	// Forbidden marks an operation whose spec documents a 403: its
+	// product area is entitled separately, so the credential may be
+	// refused. Serving that documented 403 (rather than an empty success)
+	// is what lets an agent tell "nothing provisioned" from "not allowed".
+	Forbidden bool
+	Params    []Param
+	Request   []Field // request body object properties; nil = no body
+	Response  []Field // response item object properties
 	// Resource is the distractor resource the operation belongs to
 	// (family/plural), empty for gold and the deprecated near-miss.
 	Resource string

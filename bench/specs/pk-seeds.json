@@ -1,0 +1,198 @@
+{
+  "beliefs": [
+    {
+      "id": "perishable-absent",
+      "class": "perishable",
+      "asserts": "the account has zero listening monitors provisioned, so no volume or sentiment trend can be reported",
+      "captured_world": "monitors-0",
+      "standing": "The ACME account has zero listening monitors provisioned.",
+      "dated_form": "As of 2026-06-30, the ACME account had zero listening monitors provisioned.",
+      "body": "GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's two workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "suppression": "Do not re-attempt the listening endpoints for this account; report the gap rather than retrying variations.",
+      "affordance": "The monitor listing is a single GET, so this state is re-observable at the cost of one call.",
+      "factorial": true
+    },
+    {
+      "id": "perishable-present",
+      "class": "perishable",
+      "asserts": "the account has three listening monitors provisioned, two of which track ACME's own brand",
+      "captured_world": "monitors-3",
+      "standing": "The ACME account has three listening monitors provisioned, across two workspaces.",
+      "dated_form": "As of 2026-06-30, the ACME account had three listening monitors provisioned, across two workspaces.",
+      "body": "Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "suppression": "",
+      "affordance": "",
+      "factorial": false
+    },
+    {
+      "id": "durable-granularity",
+      "class": "durable",
+      "asserts": "the granularity parameter is accepted and silently ignored on profile metrics",
+      "captured_world": "monitors-0",
+      "standing": "GET /insights/profiles/{id}/metrics (list_profile_metrics) ignores the granularity query parameter on this connection.",
+      "dated_form": "As of 2026-06-30, GET /insights/profiles/{id}/metrics (list_profile_metrics) ignored the granularity query parameter on this connection.",
+      "body": "Passing granularity=week and omitting it both return daily rows, one per calendar day, despite the schema documenting \"day (default) or week\". Nothing in the response reports which bucketing was applied, so the only signal is the dates on the rows. Weekly figures have to be built from the full daily series, paginated to the end, and summed into calendar weeks.",
+      "suppression": "",
+      "affordance": "",
+      "factorial": false
+    },
+    {
+      "id": "eternal-unique-reach",
+      "class": "eternal",
+      "asserts": "daily unique counts must not be summed to a period unique; the aggregate reports the deduplicated figure",
+      "captured_world": "monitors-0",
+      "standing": "unique_reach is a distinct-accounts count, deduplicated across whatever window is requested, so daily values must not be summed to a period figure.",
+      "dated_form": "As of 2026-06-30, unique_reach was a distinct-accounts count, deduplicated across whatever window was requested, so daily values were not to be summed to a period figure.",
+      "body": "Summing the daily unique_reach values double-counts every account that appears on more than one day, and overstates the period figure substantially. GET /insights/profiles/{id}/metrics:aggregate (aggregate_profile_metrics) reports the deduplicated figure for the requested window directly.",
+      "suppression": "",
+      "affordance": "",
+      "factorial": false
+    }
+  ],
+  "hash": "9b245a45b7766277f12f6c7bb7178038c8ef2ac4906bb8307adfd70239628bce",
+  "seeds": [
+    {
+      "id": "perishable-absent-standing-plain-noaff",
+      "belief_id": "perishable-absent",
+      "class": "perishable",
+      "asserts": "the account has zero listening monitors provisioned, so no volume or sentiment trend can be reported",
+      "captured_world": "monitors-0",
+      "phrasing": {
+        "dated": false,
+        "suppressive": false,
+        "affordance": false
+      },
+      "text": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's two workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension."
+    },
+    {
+      "id": "perishable-absent-standing-plain-aff",
+      "belief_id": "perishable-absent",
+      "class": "perishable",
+      "asserts": "the account has zero listening monitors provisioned, so no volume or sentiment trend can be reported",
+      "captured_world": "monitors-0",
+      "phrasing": {
+        "dated": false,
+        "suppressive": false,
+        "affordance": true
+      },
+      "text": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's two workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension. The monitor listing is a single GET, so this state is re-observable at the cost of one call."
+    },
+    {
+      "id": "perishable-absent-standing-suppressive-noaff",
+      "belief_id": "perishable-absent",
+      "class": "perishable",
+      "asserts": "the account has zero listening monitors provisioned, so no volume or sentiment trend can be reported",
+      "captured_world": "monitors-0",
+      "phrasing": {
+        "dated": false,
+        "suppressive": true,
+        "affordance": false
+      },
+      "text": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's two workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension. Do not re-attempt the listening endpoints for this account; report the gap rather than retrying variations."
+    },
+    {
+      "id": "perishable-absent-standing-suppressive-aff",
+      "belief_id": "perishable-absent",
+      "class": "perishable",
+      "asserts": "the account has zero listening monitors provisioned, so no volume or sentiment trend can be reported",
+      "captured_world": "monitors-0",
+      "phrasing": {
+        "dated": false,
+        "suppressive": true,
+        "affordance": true
+      },
+      "text": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's two workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension. Do not re-attempt the listening endpoints for this account; report the gap rather than retrying variations. The monitor listing is a single GET, so this state is re-observable at the cost of one call."
+    },
+    {
+      "id": "perishable-absent-dated-plain-noaff",
+      "belief_id": "perishable-absent",
+      "class": "perishable",
+      "asserts": "the account has zero listening monitors provisioned, so no volume or sentiment trend can be reported",
+      "captured_world": "monitors-0",
+      "phrasing": {
+        "dated": true,
+        "suppressive": false,
+        "affordance": false
+      },
+      "text": "As of 2026-06-30, the ACME account had zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's two workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension."
+    },
+    {
+      "id": "perishable-absent-dated-plain-aff",
+      "belief_id": "perishable-absent",
+      "class": "perishable",
+      "asserts": "the account has zero listening monitors provisioned, so no volume or sentiment trend can be reported",
+      "captured_world": "monitors-0",
+      "phrasing": {
+        "dated": true,
+        "suppressive": false,
+        "affordance": true
+      },
+      "text": "As of 2026-06-30, the ACME account had zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's two workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension. The monitor listing is a single GET, so this state is re-observable at the cost of one call."
+    },
+    {
+      "id": "perishable-absent-dated-suppressive-noaff",
+      "belief_id": "perishable-absent",
+      "class": "perishable",
+      "asserts": "the account has zero listening monitors provisioned, so no volume or sentiment trend can be reported",
+      "captured_world": "monitors-0",
+      "phrasing": {
+        "dated": true,
+        "suppressive": true,
+        "affordance": false
+      },
+      "text": "As of 2026-06-30, the ACME account had zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's two workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension. Do not re-attempt the listening endpoints for this account; report the gap rather than retrying variations."
+    },
+    {
+      "id": "perishable-absent-dated-suppressive-aff",
+      "belief_id": "perishable-absent",
+      "class": "perishable",
+      "asserts": "the account has zero listening monitors provisioned, so no volume or sentiment trend can be reported",
+      "captured_world": "monitors-0",
+      "phrasing": {
+        "dated": true,
+        "suppressive": true,
+        "affordance": true
+      },
+      "text": "As of 2026-06-30, the ACME account had zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's two workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension. Do not re-attempt the listening endpoints for this account; report the gap rather than retrying variations. The monitor listing is a single GET, so this state is re-observable at the cost of one call."
+    },
+    {
+      "id": "perishable-present-standing-plain-noaff",
+      "belief_id": "perishable-present",
+      "class": "perishable",
+      "asserts": "the account has three listening monitors provisioned, two of which track ACME's own brand",
+      "captured_world": "monitors-3",
+      "phrasing": {
+        "dated": false,
+        "suppressive": false,
+        "affordance": false
+      },
+      "text": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive)."
+    },
+    {
+      "id": "durable-granularity-standing-plain-noaff",
+      "belief_id": "durable-granularity",
+      "class": "durable",
+      "asserts": "the granularity parameter is accepted and silently ignored on profile metrics",
+      "captured_world": "monitors-0",
+      "phrasing": {
+        "dated": false,
+        "suppressive": false,
+        "affordance": false
+      },
+      "text": "GET /insights/profiles/{id}/metrics (list_profile_metrics) ignores the granularity query parameter on this connection. Passing granularity=week and omitting it both return daily rows, one per calendar day, despite the schema documenting \"day (default) or week\". Nothing in the response reports which bucketing was applied, so the only signal is the dates on the rows. Weekly figures have to be built from the full daily series, paginated to the end, and summed into calendar weeks."
+    },
+    {
+      "id": "eternal-unique-reach-standing-plain-noaff",
+      "belief_id": "eternal-unique-reach",
+      "class": "eternal",
+      "asserts": "daily unique counts must not be summed to a period unique; the aggregate reports the deduplicated figure",
+      "captured_world": "monitors-0",
+      "phrasing": {
+        "dated": false,
+        "suppressive": false,
+        "affordance": false
+      },
+      "text": "unique_reach is a distinct-accounts count, deduplicated across whatever window is requested, so daily values must not be summed to a period figure. Summing the daily unique_reach values double-counts every account that appears on more than one day, and overstates the period figure substantially. GET /insights/profiles/{id}/metrics:aggregate (aggregate_profile_metrics) reports the deduplicated figure for the requested window directly."
+    }
+  ]
+}

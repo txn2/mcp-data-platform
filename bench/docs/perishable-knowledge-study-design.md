@@ -566,7 +566,10 @@ Procedural invariants, audited before the confirmatory run:
   trade, with structural fidelity enumerated in 5.2). Two model tiers bound
   but do not exhaust model generality.
 - **Construct.** "Verification" operationalized as an observed recheck call
-  against the perishable state, not inferred from prose; "self-sealing"
+  against the perishable state, not inferred from prose (the fixture
+  reference's pre-analysis specification fixes which operations that is,
+  and pre-registers the broad-definition sensitivity analysis, before any
+  data); "self-sealing"
   operationalized as the phrasing minimal pair; "calibration gap"
   operationalized against the computed `c / L` threshold. Each construct
   has one measurement, fixed here.

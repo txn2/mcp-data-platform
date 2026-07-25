@@ -616,12 +616,23 @@ bench/
 ├── seedgen/             deterministic artifact/task generator CLI
 ├── config/              arm profiles (a0/a1/a2/a3 platform configs)
 ├── seed/                generated seed artifacts (committed; bench-gen)
+├── specs/               generated fixture OpenAPI specs + world/fixture data (committed; bench-api-gen)
+├── apisvc/              fixture HTTP service CLI (#1027 catalog, or -surface perishable for #1054)
+├── apigen/              fixture catalog + spec + task + seed generator CLI
+├── pkcorpus/            perishable-knowledge capture-corpus runner CLI (#1054 stage 1)
+├── docs/                study protocols and fixture references
 ├── tasks/               generated task YAML + smoke script (committed)
 ├── protocols/           generated S5 lifecycle protocol YAML + smoke (committed)
 ├── curriculum/          generated cold-start curriculum YAML + smoke (committed)
 ├── judge/               versioned rubric + human-labeled calibration set
 └── internal/
     ├── gen/             dataset model, emitters, ground-truth computation, protocols, curriculum
+    ├── apigen/          fixture catalog model, spec emitter, seeded state, perishable world registry
+    ├── apisvc/          fixture HTTP service: catalog handlers, insights surface, /_bench/ control plane
+    ├── apistudy/        per-attempt retrieval, write detection, failure taxonomy
+    ├── fixturectl/      control-plane client: reset, world change, phase, state dumps, state grading
+    ├── pkcorpus/        capture-corpus scenarios, episode runner, archive
+    ├── pkseed/          frozen belief set and the RQ2 phrasing factorial
     ├── task/            task schema, loader, task-set hash
     ├── protocol/        S5 lifecycle protocol schema, loader, protocol-set hash
     ├── curriculum/      cold-start curriculum schema, loader, curriculum-set hash

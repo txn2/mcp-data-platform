@@ -47,6 +47,13 @@ type RequestLogEntry struct {
 	Path        string `json:"path"`
 	Status      int    `json:"status"`
 	OperationID string `json:"operation_id,omitempty"`
+	// Phase is the session label the harness last declared through
+	// POST /_bench/phase, empty until it declares one. The
+	// perishable-knowledge study (#1054) runs a capture session and a
+	// query session against one unreset service, and a call only counts
+	// as verification if it happened after the world could have changed;
+	// the phase label is what separates the two in this log.
+	Phase string `json:"phase,omitempty"`
 }
 
 // store is the mutable fixture state. All access is mutex-guarded; the
@@ -59,11 +66,18 @@ type store struct {
 	nextOrderID int
 	distractors map[string][]apigen.Row
 	requests    []RequestLogEntry
+	// world is the perishable account state the insights surface serves.
+	// It is mutable between sessions (POST /_bench/world) and restored to
+	// initialWorld on reset.
+	world        apigen.World
+	initialWorld apigen.World
+	// phase labels subsequent access-log entries.
+	phase string
 }
 
-// newStore seeds a store from the generated state.
-func newStore(s *apigen.State) *store {
-	st := &store{}
+// newStore seeds a store from the generated state and the starting world.
+func newStore(s *apigen.State, world apigen.World) *store {
+	st := &store{initialWorld: world}
 	st.seed(s)
 	return st
 }
@@ -98,6 +112,8 @@ func (st *store) seed(s *apigen.State) {
 		st.distractors[key] = copied
 	}
 	st.requests = nil
+	st.world = st.initialWorld
+	st.phase = ""
 }
 
 // customer returns the customer with the given id, or nil. Callers hold
@@ -122,9 +138,18 @@ func (st *store) order(id int) *Order {
 	return nil
 }
 
-// logRequest appends one access-log record. Callers do NOT hold the lock.
+// logRequest appends one access-log record, stamped with the current
+// phase. Callers do NOT hold the lock.
 func (st *store) logRequest(e RequestLogEntry) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	e.Phase = st.phase
 	st.requests = append(st.requests, e)
+}
+
+// currentWorld returns a copy of the world under the lock.
+func (st *store) currentWorld() apigen.World {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.world
 }

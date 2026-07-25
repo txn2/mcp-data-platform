@@ -6,6 +6,7 @@
 package fixturectl
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/apigen"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
 
@@ -48,14 +50,64 @@ func (c *Client) APIKey() string { return c.apiKey }
 // Reset restores seed state and clears the access log. Called before
 // every attempt so mutations never leak across attempts.
 func (c *Client) Reset(ctx context.Context) error {
+	return c.reset(ctx, nil)
+}
+
+// ResetWorld restores seed state and clears the access log, resetting into
+// the named world profile (#1054): one call sets an attempt's starting
+// world. The profile must be in the committed registry; an unknown name is
+// an error rather than a silent default.
+func (c *Client) ResetWorld(ctx context.Context, profile string) error {
+	return c.reset(ctx, map[string]string{"profile": profile})
+}
+
+// reset issues the reset request with an optional body.
+func (c *Client) reset(ctx context.Context, body any) error {
 	var out struct {
 		Reset bool `json:"reset"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/_bench/reset", &out); err != nil {
+	if err := c.doBody(ctx, http.MethodPost, "/_bench/reset", body, &out); err != nil {
 		return err
 	}
 	if !out.Reset {
 		return errors.New("fixturectl: reset not acknowledged")
+	}
+	return nil
+}
+
+// World reads the fixture's current world state.
+func (c *Client) World(ctx context.Context) (apigen.World, error) {
+	var out apigen.World
+	if err := c.do(ctx, http.MethodGet, "/_bench/world", &out); err != nil {
+		return apigen.World{}, err
+	}
+	return out, nil
+}
+
+// SetWorld changes the world without resetting anything else (#1054).
+// This is the between-sessions world change that makes a stored belief
+// stale: the access log spans the change, so a recheck after it is
+// detectable as verification.
+func (c *Client) SetWorld(ctx context.Context, profile string) (apigen.World, error) {
+	var out apigen.World
+	if err := c.doBody(ctx, http.MethodPost, "/_bench/world", map[string]string{"profile": profile}, &out); err != nil {
+		return apigen.World{}, err
+	}
+	return out, nil
+}
+
+// SetPhase labels subsequent access-log entries with a session phase, so a
+// capture session's calls and a query session's calls are separable in one
+// unreset log.
+func (c *Client) SetPhase(ctx context.Context, phase string) error {
+	var out struct {
+		Phase string `json:"phase"`
+	}
+	if err := c.doBody(ctx, http.MethodPost, "/_bench/phase", map[string]string{"phase": phase}, &out); err != nil {
+		return err
+	}
+	if out.Phase != phase {
+		return fmt.Errorf("fixturectl: phase set to %q, want %q", out.Phase, phase)
 	}
 	return nil
 }
@@ -78,6 +130,9 @@ type RequestLogEntry struct {
 	Path        string `json:"path"`
 	Status      int    `json:"status"`
 	OperationID string `json:"operation_id,omitempty"`
+	// Phase is the session label in force when the request arrived, empty
+	// when the harness declared none.
+	Phase string `json:"phase,omitempty"`
 }
 
 // Requests returns the access log accumulated since the last reset.
@@ -91,28 +146,46 @@ func (c *Client) Requests(ctx context.Context) ([]RequestLogEntry, error) {
 	return out.Requests, nil
 }
 
-// do issues one control-plane request and decodes the JSON response.
+// do issues one bodyless control-plane request and decodes the JSON
+// response.
 func (c *Client) do(ctx context.Context, method, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, nil)
+	return c.doBody(ctx, method, path, nil, out)
+}
+
+// doBody issues one control-plane request with an optional JSON body and
+// decodes the JSON response.
+func (c *Client) doBody(ctx context.Context, method, path string, body, out any) error {
+	var payload io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("fixturectl: marshal %s body: %w", path, err)
+		}
+		payload = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, payload)
 	if err != nil {
 		return fmt.Errorf("fixturectl: %w", err)
 	}
 	if c.apiKey != "" {
 		req.Header.Set("X-API-Key", c.apiKey)
 	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	res, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("fixturectl: %s %s: %w", method, path, err)
 	}
 	defer func() { _ = res.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(res.Body, maxBodyBytes))
+	raw, err := io.ReadAll(io.LimitReader(res.Body, maxBodyBytes))
 	if err != nil {
 		return fmt.Errorf("fixturectl: read %s: %w", path, err)
 	}
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("fixturectl: %s %s: HTTP %d: %.200s", method, path, res.StatusCode, body)
+		return fmt.Errorf("fixturectl: %s %s: HTTP %d: %.200s", method, path, res.StatusCode, raw)
 	}
-	if err := json.Unmarshal(body, out); err != nil {
+	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("fixturectl: decode %s: %w", path, err)
 	}
 	return nil
