@@ -10,6 +10,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
 )
 
 // buildNotifications assembles the email-notification substrate from the
@@ -81,6 +82,40 @@ func emailLogo(url string) []byte {
 	return png
 }
 
+// feedbackNotificationSink is satisfied by the portal toolkit, which serves
+// the MCP feedback tool.
+type feedbackNotificationSink interface {
+	SetFeedbackNotifications(portal.Notifier, portal.MentionResolver)
+}
+
+// wireFeedbackToolNotifications hands the MCP feedback tool the same trigger
+// and mention resolver the portal REST handlers use, so a reply an agent
+// writes notifies exactly the people a reply written in the portal does.
+// Toolkits are constructed before the notification substrate exists, so this
+// runs here rather than at toolkit construction.
+//
+// It runs only on the HTTP path, which is where that substrate lives: under
+// stdio the feedback tool stores replies but mails nothing (see
+// portal.Toolkit.SetFeedbackNotifications).
+func wireFeedbackToolNotifications(p *platform.Platform, notifier portal.Notifier) {
+	registry := p.ToolkitRegistry()
+	if registry == nil {
+		return
+	}
+	var resolver portal.MentionResolver
+	if aud := mentionAudience(p); aud != nil {
+		resolver = mention.NewService(aud)
+	}
+	for _, tk := range registry.GetByKind(portalToolkitKind) {
+		if sink, ok := tk.(feedbackNotificationSink); ok {
+			sink.SetFeedbackNotifications(notifier, resolver)
+		}
+	}
+}
+
+// portalToolkitKind is the registry kind of the asset-portal toolkit.
+const portalToolkitKind = "portal"
+
 // wirePortalNotifications attaches the notification substrate to the portal
 // dependency set: the share/thread trigger bridge and the self-scoped
 // preference routes. A nil handle leaves both unset (feature unavailable).
@@ -88,13 +123,20 @@ func wirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 	if notify == nil {
 		return
 	}
-	if bridge := notify.PortalNotifier(notifydelivery.PortalStores{
+	stores := notifydelivery.PortalStores{
 		Assets:         p.PortalAssetStore(),
 		Collections:    p.PortalCollectionStore(),
 		Prompts:        p.PromptStore(),
 		KnowledgePages: p.PortalKnowledgePageStore(),
-	}, p.Config().Portal.PublicBaseURL); bridge != nil {
+	}
+	// Assign only a live audience: a typed nil in the interface field would
+	// read as wired and panic on the first lookup.
+	if aud := mentionAudience(p); aud != nil {
+		stores.Grantees = aud
+	}
+	if bridge := notify.PortalNotifier(stores, p.Config().Portal.PublicBaseURL); bridge != nil {
 		deps.Notifier = bridge
+		wireFeedbackToolNotifications(p, bridge)
 	}
 	prefsAPI := &notification.PrefsAPI{
 		Store: notify.Prefs(),

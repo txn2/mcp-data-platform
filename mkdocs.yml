@@ -51,6 +51,7 @@ nav:
   - Ecosystem: ecosystem/index.md
   - Getting Started:
     - Overview: server/overview.md
+    - Deployment Shapes: server/deployment-shapes.md
     - The Data Stack: concepts/components.md
     - Installation: server/installation.md
     - Configuration: server/configuration.md

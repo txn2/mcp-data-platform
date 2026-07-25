@@ -8,13 +8,15 @@ This MCP server connects AI assistants to your data infrastructure for explorati
 
 ## What It Does
 
-DataHub is required. It's the semantic layer that gives meaning to your data. Trino and S3 are optional:
+DataHub is the semantic layer that gives meaning to your data, and it's what cross-enrichment works from. Trino and S3 are optional additions to it:
 
 - **DataHub** - Search your catalog, explore lineage, understand what data means
 - **Trino** - Run SQL queries (results include DataHub context automatically)
 - **S3** - Access files in object storage (with DataHub metadata when available)
 
 The difference from standalone tools: **cross-enrichment**. Query a table in Trino, get DataHub's business context in the response. Search DataHub, see which datasets are queryable.
+
+If you have no warehouse and no catalog, the platform still runs. The gateways, knowledge layer, memory, portal, and `search`/`fetch` are database-backed and need only PostgreSQL. See [Deployment Shapes](deployment-shapes.md).
 
 ## Architecture
 
@@ -75,7 +77,7 @@ For stdio (local), skip steps 1-2. Your machine, your credentials.
 
 ## Minimal Configuration
 
-DataHub is required. Add Trino and S3 if you have them:
+This wires the semantic layer, which is what cross-enrichment needs. Add Trino and S3 if you have them; for a configuration with neither, see [Deployment Shapes](deployment-shapes.md):
 
 ```yaml
 server:
@@ -111,6 +113,7 @@ enrichment:
 
 ## Next Steps
 
+- [Deployment Shapes](deployment-shapes.md)
 - [Installation](installation.md)
 - [Configuration](configuration.md)
 - [Tools](tools.md)

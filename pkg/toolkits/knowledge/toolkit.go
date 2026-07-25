@@ -742,6 +742,32 @@ func buildProposedChanges(insights []Insight, meta *EntityMetadata) []ProposedCh
 	return proposed
 }
 
+// datahubUnavailableFor returns a user-facing refusal when changes carry writes
+// this deployment cannot perform, or "" when the apply may proceed. add_prompt
+// creates a platform prompt rather than a DataHub write, so an apply carrying only
+// add_prompt changes still runs on a deployment with no catalog.
+func (t *Toolkit) datahubUnavailableFor(changes []ApplyChange) string {
+	if datahubWritable(t.datahubWriter) {
+		return ""
+	}
+	seen := map[string]bool{}
+	var blocked []string
+	for _, c := range changes {
+		if c.ChangeType == string(actionAddPrompt) || seen[c.ChangeType] {
+			continue
+		}
+		seen[c.ChangeType] = true
+		blocked = append(blocked, c.ChangeType)
+	}
+	if len(blocked) == 0 {
+		return ""
+	}
+	return noDataHubConfigured + ", so these change types cannot be written: " +
+		strings.Join(blocked, ", ") +
+		`. Set knowledge.apply.datahub_connection to a configured DataHub toolkit instance to write to the catalog, ` +
+		`or re-send with sink: "knowledge_page" to record this knowledge as a canonical knowledge page instead.`
+}
+
 // handleApply writes changes to DataHub and records a changeset.
 func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	// Sink router (#633 Goal 3): non-DataHub canonical knowledge promotes to a
@@ -764,6 +790,12 @@ func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*
 	// Reject unsafe change combinations up front, before the confirmation round-trip.
 	if err := validateChangeCombination(input.EntityURN, input.Changes); err != nil {
 		return toolkit.ErrorResult(err.Error()), nil, nil
+	}
+	// Refuse before the confirmation round-trip when the changes need a DataHub
+	// instance this deployment does not have: the noop writer would return nil for
+	// every write and the apply would report success having persisted nothing.
+	if msg := t.datahubUnavailableFor(input.Changes); msg != "" {
+		return toolkit.ErrorResult(msg), nil, nil
 	}
 
 	// Check confirmation requirement

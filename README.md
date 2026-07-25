@@ -21,7 +21,9 @@ mcp-data-platform fixes that. It is a single MCP server that connects AI assista
 
 It is a platform, not just a bridge. The same endpoint gives agents persistent memory and a governed path to write knowledge back to the catalog, proxies third-party MCP servers and REST APIs through one authentication, persona, and audit pipeline, and ships a web portal where AI-generated assets are saved, organized into collections, and shared with teammates.
 
-The only required backend is [DataHub](https://datahubproject.io/) as the semantic layer. Add [Trino](https://trino.io/) for SQL and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack.](https://mcp-data-platform.txn2.com/concepts/components/)
+Cross-enrichment is what [DataHub](https://datahubproject.io/) is for: point the platform at it as the semantic layer, then add [Trino](https://trino.io/) for SQL and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack.](https://mcp-data-platform.txn2.com/concepts/components/)
+
+No data warehouse and no catalog? The gateways, knowledge layer, memory, portal, and `search`/`fetch` are database-backed and run without DataHub or Trino, on PostgreSQL alone. See [Deployment Shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) for what each shape gives you.
 
 ---
 
@@ -137,6 +139,7 @@ Each feature links to its full documentation.
 | [Explicit session handles](https://mcp-data-platform.txn2.com/server/configuration/#explicit-session-handles) | `platform_info` mints a `session_id` the agent threads on every call, making orientation unskippable and readying the platform for the sessionless MCP 2026-07-28 protocol |
 | [Multi-provider](https://mcp-data-platform.txn2.com/server/multi-provider/) | Multiple instances of each service behind one endpoint, with isolated failure domains |
 | [Operating modes](https://mcp-data-platform.txn2.com/server/operating-modes/) | Standalone (no database) or file + database with hot-reloaded config overrides |
+| [Deployment shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) | Which backends you need: the semantic stack for cross-enrichment, PostgreSQL alone for the gateways and knowledge layer, or both |
 | [Email notifications](https://mcp-data-platform.txn2.com/server/notifications/) | Branded emails for shares and feedback: admin-configured SMTP, per-user preferences (immediate, daily digest, or off), durable queue with retries |
 
 ## The Portal
@@ -159,7 +162,7 @@ Install (see [all methods](https://mcp-data-platform.txn2.com/server/installatio
 go install github.com/txn2/mcp-data-platform/cmd/mcp-data-platform@latest
 ```
 
-Create a minimal configuration. DataHub is the only required backend; `${VAR}` references are expanded from the environment:
+Create a minimal configuration. This one wires the semantic layer, which is what cross-enrichment needs; `${VAR}` references are expanded from the environment:
 
 ```yaml
 # platform.yaml
@@ -189,6 +192,26 @@ claude mcp add data-platform \
   -e DATAHUB_TOKEN=$TOKEN \
   -- mcp-data-platform --config platform.yaml
 ```
+
+Starting without a warehouse or catalog? Swap the `semantic:` and `toolkits:` blocks above for a database and the API toolkit, and the gateways, knowledge layer, memory, portal, and `search`/`fetch` come up on PostgreSQL alone:
+
+```yaml
+# platform.yaml
+server:
+  name: mcp-data-platform
+  transport: http
+  address: ":8080"
+
+database:
+  dsn: "${DATABASE_URL}"
+
+# API connections are authored in the admin portal, not in YAML.
+toolkits:
+  api:
+    enabled: true
+```
+
+[Deployment Shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) covers the full configuration, what each shape includes, and what it leaves out.
 
 For a hosted deployment, run `--transport http` and enable the built-in OAuth 2.1 server so Claude and other MCP clients sign in through your identity provider. See [Configuration](https://mcp-data-platform.txn2.com/server/configuration/), [Deployment](https://mcp-data-platform.txn2.com/server/deployment/) (Docker Compose, Kubernetes), and the [OAuth 2.1 Server guide](https://mcp-data-platform.txn2.com/auth/oauth-server/).
 

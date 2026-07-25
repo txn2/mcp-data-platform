@@ -17,6 +17,8 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+
+	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
 )
 
 // psq is the PostgreSQL statement builder with dollar placeholders (a local
@@ -154,6 +156,22 @@ type Thread struct {
 	DeletedAt          *time.Time      `json:"deleted_at,omitempty"`
 }
 
+// TargetID returns the id of whichever object the thread targets, empty for
+// the standalone channel. Exactly one target field is set on a row, so the
+// order of the cases is a formality rather than a precedence rule.
+func (t *Thread) TargetID() string {
+	switch {
+	case t.AssetID != "":
+		return t.AssetID
+	case t.CollectionID != "":
+		return t.CollectionID
+	case t.PromptID != "":
+		return t.PromptID
+	default:
+		return t.KnowledgePageID
+	}
+}
+
 // ThreadEvent is one entry in a thread's timeline.
 type ThreadEvent struct {
 	ID            string          `json:"id" example:"evt_01HK7R8Z"`
@@ -215,8 +233,14 @@ type ThreadFilter struct {
 	// caller's own threads are not surfaced as feedback awaiting their action.
 	ExcludeAuthorID    string
 	ExcludeAuthorEmail string
-	Limit              int
-	Offset             int
+	// MentionedEmail restricts to threads holding an event that @-mentions this
+	// address (#627), which is the "mentions of me" inbox. It matches the
+	// mentions recorded on the event by the write path, not the token text, so
+	// a name written for someone outside the target's audience -- stored as
+	// plain text, notifying nobody -- never lands in their inbox either.
+	MentionedEmail string
+	Limit          int
+	Offset         int
 }
 
 const (
@@ -871,10 +895,25 @@ func applyThreadFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
 	}
 	qb = applyThreadAuthorFilter(qb, f)
 	qb = applyThreadAuthorExcludeFilter(qb, f)
+	qb = applyThreadMentionFilter(qb, f)
 	if or := threadTargetIDsCond(f); or != nil {
 		qb = qb.Where(or)
 	}
 	return qb
+}
+
+// applyThreadMentionFilter restricts to threads with an event mentioning the
+// given address. The containment document comes from the mention package, so
+// the query and the shape the write path stores cannot drift apart; it matches
+// the jsonb_path_ops GIN index on (metadata -> 'mentions').
+func applyThreadMentionFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
+	if f.MentionedEmail == "" {
+		return qb
+	}
+	return qb.Where(sq.Expr(
+		`EXISTS (SELECT 1 FROM portal_thread_events e
+		          WHERE e.thread_id = t.id AND e.metadata -> 'mentions' @> ?::jsonb)`,
+		mention.ContainmentFilter(f.MentionedEmail)))
 }
 
 // applyThreadAuthorExcludeFilter drops threads opened by the excluded user (by

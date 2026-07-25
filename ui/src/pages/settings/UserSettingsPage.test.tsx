@@ -20,6 +20,7 @@ function makePrefs(overrides: Partial<NotificationPrefs> = {}): NotificationPref
     mode: "immediate",
     shares_enabled: true,
     comments_enabled: true,
+    mentions_enabled: true,
     ...overrides,
   };
 }
@@ -66,9 +67,10 @@ describe("UserSettingsPage: loading and loaded states", () => {
     expect(screen.getByText("One email per event")).toBeInTheDocument();
 
     const switches = screen.getAllByRole("switch");
-    expect(switches).toHaveLength(2);
-    expect(switches[0]).toHaveAttribute("aria-checked", "true");
-    expect(switches[1]).toHaveAttribute("aria-checked", "true");
+    expect(switches).toHaveLength(3);
+    for (const toggle of switches) {
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+    }
     expect(screen.getByText("Shares")).toBeInTheDocument();
     expect(screen.getByText("Comments and feedback")).toBeInTheDocument();
   });

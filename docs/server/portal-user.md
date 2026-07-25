@@ -191,6 +191,20 @@ Opening a thread shows its full timeline. Anyone can reply; the item's owner, an
 
 ![Feedback thread detail](../images/screenshots/light/user-asset-feedback-detail-light.webp#only-light)![Feedback thread detail](../images/screenshots/dark/user-asset-feedback-detail-dark.webp#only-dark)
 
+### Mentioning a teammate
+
+Type `@` anywhere in a feedback message or reply to address someone directly. The composer suggests people as you type and inserts the person as `@marcus.johnson(example.com)`, which reads as a name in the thread and is stored as an address so it keeps working when someone's display name changes.
+
+![Mentioning a teammate](../images/screenshots/light/user-asset-feedback-mention-light.webp#only-light)![Mentioning a teammate](../images/screenshots/dark/user-asset-feedback-mention-dark.webp#only-dark)
+
+The suggestions are the people who can already open the item being discussed: its owner and everyone it is shared with, directly or through a collection. Knowledge pages and the standalone channel are open to every signed-in user, so any known user may be mentioned there. This is deliberate. A mention sends the item's title and an excerpt of the comment by email, so it may only go to someone who could open the item anyway.
+
+You can still type an address by hand. If it belongs to someone without access, the composer says so while you are writing and the mention posts as ordinary text: it is not recorded, not rendered as a chip, and delivers nothing. Share the item with them first, then mention them.
+
+Being mentioned is its own notification category, separate from general comment activity, so someone who muted thread chatter still hears when a comment names them. The **Mentions of me** tab in the feedback inbox lists every thread where a comment addressed you.
+
+Agents leave feedback through the same path: a reply written with the `manage_feedback` tool carries mentions and fires the same notifications as one written in the portal, on deployments that run the HTTP server. Email delivery lives with that server, so a stdio-only deployment stores the reply but sends nothing.
+
 ### Turning feedback into knowledge
 
 A correction or suggestion is only useful if it can change something. When you have **apply_knowledge** access, an unresolved correction or suggestion thread shows a **Capture as insight** action in its detail view. Capturing it creates a pending insight from the thread (its title and first comment) that enters the review queue alongside insights captured by agents, and resolves the thread with a link to that insight. From there the normal apply_knowledge review and promote/apply pipeline takes over: once the insight is promoted to a knowledge page or applied to the catalog, the thread's knowledge chain shows the resulting change, closing the loop for both the reviewer and the person who raised the feedback. This is how feedback on any content becomes durable, reviewed knowledge rather than a dead-end comment.
@@ -326,5 +340,5 @@ You never need to type these names. Ask your agent to run a prompt by whatever h
 The Settings page (user section of the sidebar) holds per-user preferences.
 The **Notifications** section controls [email notifications](notifications.md):
 a delivery mode (Off, Immediate, or Daily digest) and per-category toggles
-for shares and comments/feedback. Defaults are immediate delivery with all
-categories enabled; changes save as they are made.
+for shares, comments/feedback, and mentions. Defaults are immediate delivery
+with all categories enabled; changes save as they are made.

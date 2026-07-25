@@ -128,7 +128,7 @@
           <p class="flagship__tag">One binary, one YAML. Composes DataHub, Trino, S3 behind one MCP endpoint.</p>
         </header>
         <div class="flagship__body">
-          <p>Install with <code>go install</code>, Docker, or grab a release. Point it at DataHub via YAML config. Add Trino for SQL and S3 for objects when you are ready. Cross-enrichment is on by default. Run over <code>stdio</code> for Claude Desktop, or <code>http</code> with OAuth 2.1 for hosted MCP clients.</p>
+          <p>Install with <code>go install</code>, Docker, or grab a release. Point it at DataHub via YAML config. Add Trino for SQL and S3 for objects when you are ready. Cross-enrichment is on by default. With no warehouse or catalog, the gateways, knowledge layer, memory, and portal run on PostgreSQL alone (see <a href="server/deployment-shapes/">deployment shapes</a>). Run over <code>stdio</code> for Claude Desktop, or <code>http</code> with OAuth 2.1 for hosted MCP clients.</p>
         </div>
         <div class="flagship__demo">
           <div class="terminal">
@@ -215,7 +215,7 @@ p.Run(ctx)</pre>
       <li class="stack__row">
         <div class="stack__main">
           <a class="stack__name" href="server/multi-provider/">composable toolkits</a>
-          <p class="stack__desc">DataHub is the only required dependency (the semantic layer). Add <code>mcp-trino</code> for federated SQL and <code>mcp-s3</code> for object storage when you need them. Multi-instance per service, runtime instance selection, isolated failure domains. Add custom toolkits via the <code>Toolkit</code> interface.</p>
+          <p class="stack__desc">DataHub is what cross-enrichment needs (the semantic layer). Add <code>mcp-trino</code> for federated SQL and <code>mcp-s3</code> for object storage when you need them, or run none of the three and keep the database-backed surfaces. Multi-instance per service, runtime instance selection, isolated failure domains. Add custom toolkits via the <code>Toolkit</code> interface.</p>
         </div>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>

@@ -1,16 +1,22 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 vi.mock("@/api/portal/hooks", () => ({
   useInfinitePractitionerWorklist: vi.fn(),
   useInfiniteSMEWorklist: vi.fn(),
+  useInfiniteMentionsWorklist: vi.fn(),
 }));
 
 import { InboxPanel } from "./InboxPanel";
-import { useInfinitePractitionerWorklist, useInfiniteSMEWorklist } from "@/api/portal/hooks";
+import {
+  useInfiniteMentionsWorklist,
+  useInfinitePractitionerWorklist,
+  useInfiniteSMEWorklist,
+} from "@/api/portal/hooks";
 
 const mockPractitioner = vi.mocked(useInfinitePractitionerWorklist);
 const mockSME = vi.mocked(useInfiniteSMEWorklist);
+const mockMentions = vi.mocked(useInfiniteMentionsWorklist);
 
 // The infinite worklist hook exposes the flattened page under `data` plus
 // load-more controls; a single-page fixture has no further page.
@@ -46,6 +52,10 @@ function row(overrides: Record<string, unknown> = {}) {
 }
 
 describe("InboxPanel", () => {
+  beforeEach(() => {
+    mockMentions.mockReturnValue(result([], 0));
+  });
+
   it("shows practitioner worklist items and opens a thread", () => {
     mockPractitioner.mockReturnValue(result([row()], 1));
     mockSME.mockReturnValue(result([], 0));
@@ -64,5 +74,21 @@ describe("InboxPanel", () => {
     render(<InboxPanel />);
     fireEvent.click(screen.getByRole("button", { name: /awaiting my validation/i }));
     expect(screen.getByText(/all caught up/i)).toBeInTheDocument();
+  });
+
+  // Being named in a comment is its own inbox tab (#627), so a mention is not
+  // lost among the resolution work.
+  it("lists the threads where a comment mentioned me", () => {
+    mockPractitioner.mockReturnValue(result([], 0));
+    mockSME.mockReturnValue(result([], 0));
+    mockMentions.mockReturnValue(result([row({ id: "t9", title: "Confirm the wording" })], 1));
+    const onOpen = vi.fn();
+
+    render(<InboxPanel onOpenThread={onOpen} />);
+    expect(screen.queryByText("Confirm the wording")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /mentions of me/i }));
+    fireEvent.click(screen.getByText("Confirm the wording"));
+    expect(onOpen).toHaveBeenCalledWith("t9");
   });
 });

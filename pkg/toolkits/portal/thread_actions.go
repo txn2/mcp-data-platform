@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -187,18 +188,38 @@ func (t *Toolkit) handleReplyThread(ctx context.Context, input manageFeedbackInp
 	if errRes != nil {
 		return errRes, nil, nil
 	}
-	evt, err := t.threadStore.AppendEvent(ctx, portal.ThreadEvent{
+	author := resolveOwnerEmail(ctx)
+	mentioned := t.resolveMentions(ctx, thread, input.Body, author)
+	event := portal.ThreadEvent{
 		ID:          portal.NewThreadEventID(),
 		ThreadID:    thread.ID,
 		EventType:   portal.EventTypeComment,
 		AuthorID:    resolveOwnerID(ctx),
-		AuthorEmail: resolveOwnerEmail(ctx),
+		AuthorEmail: author,
 		Body:        input.Body,
-	})
+	}
+	if metadata, mErr := mention.WithMentions(event.Metadata, mentioned); mErr == nil {
+		event.Metadata = metadata
+	}
+	evt, err := t.threadStore.AppendEvent(ctx, event)
 	if err != nil {
 		return toolkit.ErrorResult("failed to reply: " + err.Error()), nil, nil
 	}
+	if t.notifier != nil {
+		t.notifier.NotifyThreadEvent(ctx, thread, author, input.Body, mentioned)
+	}
 	return toolkit.JSONResultTyped(evt)
+}
+
+// resolveMentions returns the people an agent-authored reply may mention on the
+// thread's target: the same audience filter the portal REST path applies, so a
+// mention written by an agent reaches exactly the people one written in the
+// portal would.
+func (t *Toolkit) resolveMentions(ctx context.Context, thread *portal.Thread, body, author string) []string {
+	if t.mentions == nil {
+		return nil
+	}
+	return t.mentions.ResolveMentions(ctx, thread.TargetType, thread.TargetID(), body, author)
 }
 
 func (t *Toolkit) handleResolveThread(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {

@@ -2,6 +2,8 @@ package notifydelivery
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -99,10 +101,26 @@ func (f *fakePages) Get(context.Context, string) (*knowledgepage.Page, error) {
 
 func bridgeUnderTest(t *testing.T, stores PortalStores, baseURL string) (*PortalNotifier, *recordQueue) {
 	t.Helper()
+	return bridgeWithPrefs(t, stores, baseURL, defaultPrefs{})
+}
+
+// bridgeWithPrefs is bridgeUnderTest over a chosen preference store, for the
+// cases where what a recipient has muted decides the outcome.
+func bridgeWithPrefs(t *testing.T, stores PortalStores, baseURL string, prefs notification.PrefsStore) (*PortalNotifier, *recordQueue) {
+	t.Helper()
 	queue := &recordQueue{}
-	enq := notification.NewEnqueuer(defaultPrefs{}, queue, 13)
+	enq := notification.NewEnqueuer(prefs, queue, 13)
 	t.Cleanup(enq.Close)
 	return NewPortalNotifier(enq, stores, baseURL), queue
+}
+
+// mentionsOffPrefs mutes the mention category and leaves every other default.
+type mentionsOffPrefs struct{ defaultPrefs }
+
+func (mentionsOffPrefs) Get(_ context.Context, email string) (notification.Prefs, error) {
+	p := notification.DefaultPrefs(email)
+	p.MentionsEnabled = false
+	return p, nil
 }
 
 func TestNotifyShare_TokenViewerLink(t *testing.T) {
@@ -182,7 +200,7 @@ func TestNotifyThreadEvent_AssetOwnerNotified(t *testing.T) {
 	n, queue := bridgeUnderTest(t, stores, "https://x.io")
 
 	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1", AuthorEmail: "author@b.io"}
-	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "Nice work")
+	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "Nice work", nil)
 
 	rows := queue.snapshot()
 	if len(rows) != 2 {
@@ -210,7 +228,7 @@ func TestNotifyThreadEvent_FeedbackKind(t *testing.T) {
 	n, queue := bridgeUnderTest(t, stores, "")
 
 	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindRating, AssetID: "a1", AuthorEmail: "owner@b.io"}
-	n.NotifyThreadEvent(context.Background(), thread, "rater@b.io", "4 stars")
+	n.NotifyThreadEvent(context.Background(), thread, "rater@b.io", "4 stars", nil)
 
 	rows := queue.snapshot()
 	if len(rows) != 1 {
@@ -228,7 +246,7 @@ func TestNotifyThreadEvent_CollectionOwnerNotified(t *testing.T) {
 	n, queue := bridgeUnderTest(t, stores, "https://x.io")
 
 	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, CollectionID: "c1", AuthorEmail: "owner@b.io"}
-	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "hi")
+	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "hi", nil)
 
 	rows := queue.snapshot()
 	if len(rows) != 1 || rows[0].Payload.Link != "https://x.io/portal/collections/c1" {
@@ -243,7 +261,7 @@ func TestNotifyThreadEvent_PromptOwnerNotified(t *testing.T) {
 	n, queue := bridgeUnderTest(t, stores, "https://x.io")
 
 	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, PromptID: "p1", AuthorEmail: "owner@b.io"}
-	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "hi")
+	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "hi", nil)
 
 	rows := queue.snapshot()
 	if len(rows) != 1 || rows[0].Payload.Link != "https://x.io/portal/prompts/p1" {
@@ -258,7 +276,7 @@ func TestNotifyThreadEvent_KnowledgePageOwnerNotified(t *testing.T) {
 	n, queue := bridgeUnderTest(t, stores, "https://x.io")
 
 	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, KnowledgePageID: "kp1", AuthorEmail: "owner@b.io"}
-	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "clarify Q3")
+	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "clarify Q3", nil)
 
 	rows := queue.snapshot()
 	if len(rows) != 1 {
@@ -296,7 +314,7 @@ func TestNotifyThreadEvent_UnresolvableTargets(t *testing.T) {
 			tc.thread.Kind = portal.ThreadKindComment
 			tc.thread.Title = "fallback"
 			tc.thread.AuthorEmail = "author@b.io"
-			n.NotifyThreadEvent(context.Background(), tc.thread, "commenter@b.io", "hi")
+			n.NotifyThreadEvent(context.Background(), tc.thread, "commenter@b.io", "hi", nil)
 
 			rows := queue.snapshot()
 			if len(rows) != 1 {
@@ -320,5 +338,196 @@ func TestHandlePortalNotifier_LiveHandle(t *testing.T) {
 	h := newTestHandle(t, nil)
 	if h.PortalNotifier(PortalStores{}, "https://x.io") == nil {
 		t.Error("live handle must yield a notifier")
+	}
+}
+
+// fakeGrantees answers the "who is this shared with" lookup.
+type fakeGrantees struct {
+	emails []string
+	err    error
+	gotID  string
+}
+
+func (f *fakeGrantees) Grantees(_ context.Context, _, targetID string) ([]string, error) {
+	f.gotID = targetID
+	return f.emails, f.err
+}
+
+// A comment must reach the people the item is shared with, not just its owner
+// and the thread author: that gap is why sharing an asset and commenting on it
+// notified nobody (#627).
+func TestNotifyThreadEvent_ShareRecipientsNotified(t *testing.T) {
+	grants := &fakeGrantees{emails: []string{"owner@b.io", "teammate@b.io"}}
+	stores := PortalStores{
+		Assets:   &fakeAssets{asset: &portal.Asset{ID: "a1", Name: "Report", OwnerEmail: "owner@b.io"}},
+		Grantees: grants,
+	}
+	n, queue := bridgeUnderTest(t, stores, "https://x.io")
+
+	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1", AuthorEmail: "owner@b.io"}
+	n.NotifyThreadEvent(context.Background(), thread, "owner@b.io", "Take a look", nil)
+
+	if grants.gotID != "a1" {
+		t.Errorf("grantee lookup ran against %q, want the thread's asset", grants.gotID)
+	}
+	rows := queue.snapshot()
+	if len(rows) != 1 || rows[0].Recipient != "teammate@b.io" {
+		t.Fatalf("expected the share recipient to be notified, got %+v", rows)
+	}
+	if rows[0].Category != notification.CategoryComment {
+		t.Errorf("category wrong: %+v", rows[0])
+	}
+}
+
+func TestNotifyThreadEvent_MentionedGetTheirOwnCategoryAndNoDuplicate(t *testing.T) {
+	stores := PortalStores{
+		Assets:   &fakeAssets{asset: &portal.Asset{ID: "a1", Name: "Report", OwnerEmail: "owner@b.io"}},
+		Grantees: &fakeGrantees{emails: []string{"owner@b.io", "named@b.io", "bystander@b.io"}},
+	}
+	n, queue := bridgeUnderTest(t, stores, "https://x.io")
+
+	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1", AuthorEmail: "author@b.io"}
+	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "@named(b.io) thoughts?",
+		[]string{"named@b.io"})
+
+	byRecipient := map[string]notification.Notification{}
+	for _, r := range queue.snapshot() {
+		if prev, dup := byRecipient[r.Recipient]; dup {
+			t.Fatalf("%s notified twice: %+v and %+v", r.Recipient, prev, r)
+		}
+		byRecipient[r.Recipient] = r
+	}
+	named, ok := byRecipient["named@b.io"]
+	if !ok {
+		t.Fatal("the mentioned person was not notified")
+	}
+	if named.Category != notification.CategoryMention || named.Payload.Kind != notification.KindMention {
+		t.Errorf("mention must use its own category and kind: %+v", named)
+	}
+	for _, other := range []string{"owner@b.io", "author@b.io", "bystander@b.io"} {
+		if got, ok := byRecipient[other]; !ok {
+			t.Errorf("%s was not notified", other)
+		} else if got.Category != notification.CategoryComment {
+			t.Errorf("%s must get the plain comment notification: %+v", other, got)
+		}
+	}
+}
+
+// Mentions are enqueued before the general fan-out, so when a comment on a
+// widely-shared item exhausts the actor's rate limit, the people addressed by
+// name are the ones that get through.
+func TestNotifyThreadEvent_MentionsQueuedFirst(t *testing.T) {
+	stores := PortalStores{
+		Assets:   &fakeAssets{asset: &portal.Asset{ID: "a1", Name: "Report", OwnerEmail: "owner@b.io"}},
+		Grantees: &fakeGrantees{emails: []string{"owner@b.io", "named@b.io"}},
+	}
+	n, queue := bridgeUnderTest(t, stores, "https://x.io")
+
+	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1", AuthorEmail: "author@b.io"}
+	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "@named(b.io) ping", []string{"named@b.io"})
+
+	rows := queue.snapshot()
+	if len(rows) == 0 || rows[0].Recipient != "named@b.io" {
+		t.Fatalf("mention must be enqueued first, got %+v", rows)
+	}
+}
+
+func TestNotifyThreadEvent_MentionOfTheActorIsDropped(t *testing.T) {
+	stores := PortalStores{Assets: &fakeAssets{asset: &portal.Asset{ID: "a1", Name: "Report"}}}
+	n, queue := bridgeUnderTest(t, stores, "https://x.io")
+
+	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1", AuthorEmail: "me@b.io"}
+	n.NotifyThreadEvent(context.Background(), thread, "me@b.io", "@me(b.io) note to self", []string{"me@b.io"})
+
+	if rows := queue.snapshot(); len(rows) != 0 {
+		t.Fatalf("mentioning yourself must notify nobody, got %+v", rows)
+	}
+}
+
+// A grantee lookup failure must not silence the notification entirely: the
+// owner and thread author still hear about the comment.
+func TestNotifyThreadEvent_GranteeLookupFailureKeepsOwnerNotified(t *testing.T) {
+	stores := PortalStores{
+		Assets:   &fakeAssets{asset: &portal.Asset{ID: "a1", Name: "Report", OwnerEmail: "owner@b.io"}},
+		Grantees: &fakeGrantees{err: errors.New("database down")},
+	}
+	n, queue := bridgeUnderTest(t, stores, "https://x.io")
+
+	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1", AuthorEmail: "author@b.io"}
+	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "hi", nil)
+
+	if rows := queue.snapshot(); len(rows) != 2 {
+		t.Fatalf("expected owner + author despite the lookup failure, got %+v", rows)
+	}
+}
+
+func TestExcluding(t *testing.T) {
+	got := excluding([]string{"A@b.io", "c@b.io"}, []string{"a@b.io"})
+	if len(got) != 1 || got[0] != "c@b.io" {
+		t.Fatalf("excluding must drop case-insensitively: %+v", got)
+	}
+	if got := excluding([]string{"a@b.io"}, nil); len(got) != 1 {
+		t.Fatalf("no exclusions must leave the list alone: %+v", got)
+	}
+}
+
+// Muting mentions must not cost someone the comment email they would have had
+// without being named: the general fan-out only skips a person whose mention
+// was actually queued.
+func TestNotifyThreadEvent_MutedMentionStillGetsTheCommentEmail(t *testing.T) {
+	stores := PortalStores{
+		Assets:   &fakeAssets{asset: &portal.Asset{ID: "a1", Name: "Report", OwnerEmail: "owner@b.io"}},
+		Grantees: &fakeGrantees{emails: []string{"owner@b.io"}},
+	}
+	n, queue := bridgeWithPrefs(t, stores, "https://x.io", mentionsOffPrefs{})
+
+	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1", AuthorEmail: "author@b.io"}
+	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "@owner(b.io) look", []string{"owner@b.io"})
+
+	rows := queue.snapshot()
+	if len(rows) != 2 {
+		t.Fatalf("expected the owner and the thread author to be notified, got %+v", rows)
+	}
+	for _, r := range rows {
+		if r.Category != notification.CategoryComment {
+			t.Errorf("%s must fall back to the comment category: %+v", r.Recipient, r)
+		}
+	}
+}
+
+// The size of a target's share list is a property of the item, not a choice
+// the author made, so fanning out to it must not spend the budget that bounds
+// the addresses the author does choose.
+func TestNotifyThreadEvent_FanoutDoesNotExhaustTheActorBudget(t *testing.T) {
+	many := make([]string, 0, 40)
+	for i := range 40 {
+		many = append(many, fmt.Sprintf("teammate%02d@b.io", i))
+	}
+	stores := PortalStores{
+		Assets:   &fakeAssets{asset: &portal.Asset{ID: "a1", Name: "Report", OwnerEmail: "owner@b.io"}},
+		Grantees: &fakeGrantees{emails: many},
+	}
+	n, queue := bridgeUnderTest(t, stores, "https://x.io")
+
+	thread := &portal.Thread{ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1", AuthorEmail: "author@b.io"}
+	n.NotifyThreadEvent(context.Background(), thread, "commenter@b.io", "heads up", nil)
+	if got := len(queue.snapshot()); got != len(many)+2 {
+		t.Fatalf("every grantee, the owner, and the author must be notified: got %d of %d", got, len(many)+2)
+	}
+
+	// The same actor's next share still goes out: the fan-out cost one token,
+	// not one per recipient.
+	n.NotifyShare(context.Background(),
+		&portal.Share{Token: "tok", CreatedBy: "commenter@b.io", SharedWithEmail: "later@b.io"},
+		notification.KindAsset, "a2", "Another")
+
+	var shared bool
+	for _, r := range queue.snapshot() {
+		if r.Recipient == "later@b.io" && r.Category == notification.CategoryShare {
+			shared = true
+		}
+	}
+	if !shared {
+		t.Fatal("the share notification was dropped: the comment fan-out spent the actor's rate limit")
 	}
 }

@@ -1,13 +1,18 @@
 # Email Notifications
 
 The platform emails users when something needs their attention: a teammate
-shares an asset, collection, or prompt with them, or comments on something
-they own. Delivery is durable (a database-backed queue with retries), never
+shares an asset, collection, or prompt with them, comments on something they
+own or that is shared with them, or names them in a comment with an
+@-mention. Delivery is durable (a database-backed queue with retries), never
 blocks the originating request, and respects per-user preferences including
 a daily digest mode.
 
-Email notifications require a database-backed deployment. With no database
-the feature is absent; everything else works unchanged.
+Email notifications require a database-backed deployment running the HTTP
+transport: the queue, the send worker, and SMTP are owned by the HTTP server,
+which is the long-lived process they belong in. With no database, or under
+stdio, the feature is absent and everything else works unchanged - including
+feedback replies written through `manage_feedback`, which are stored either
+way.
 
 ## How it works
 
@@ -16,6 +21,7 @@ graph LR
     subgraph Triggers
         Share[Share created]
         Comment[Thread comment / feedback]
+        Mention["@-mention in a comment"]
     end
     subgraph Queue
         Prefs[(user preferences)]
@@ -27,6 +33,7 @@ graph LR
     end
     Share --> Prefs
     Comment --> Prefs
+    Mention --> Prefs
     Prefs -->|off| Drop[Dropped]
     Prefs -->|immediate or daily| Rows
     Rows --> Worker --> SMTP
@@ -36,6 +43,12 @@ graph LR
    platform consults the recipient's preferences and queues a notification
    row. The queue insert is cheap and failures are logged, never surfaced:
    a share or comment always succeeds regardless of notification state.
+   A thread event reaches the target's owner, the thread's author, and the
+   people it is shared with. Anyone the comment @-mentioned is notified in the
+   mention category instead, so one comment never sends the same person two
+   emails, and mentions are queued first: enqueueing is rate-limited per
+   author, so on a widely-shared item the people addressed by name are the ones
+   that get through.
 2. A background send worker claims due rows (immediately via Postgres
    LISTEN/NOTIFY, or on a poll interval), renders a branded HTML email with
    a plaintext alternative, and delivers it over SMTP. Failed sends retry
@@ -89,7 +102,7 @@ ever read or write their own preferences.
 
 - **Delivery mode**: `immediate` (one email per event, the default),
   `daily` (one digest email per day), or `off`.
-- **Category toggles**: shares, and comments/feedback, each individually
+- **Category toggles**: shares, comments/feedback, and mentions, each individually
   switchable.
 
 Users with no stored preferences get the defaults: immediate delivery with

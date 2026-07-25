@@ -62,28 +62,83 @@ func (e *Enqueuer) Close() {
 }
 
 // Notify queues one notification for recipient according to their
-// preferences. Events targeting nobody (empty recipient) or the actor
-// themselves are dropped silently, as are events the recipient opted out of.
-// A nil Enqueuer (feature not wired, e.g. no database) drops everything.
-func (e *Enqueuer) Notify(ctx context.Context, recipient, category string, p Payload) error {
+// preferences and reports whether a row was written. Events targeting nobody
+// (empty recipient) or the actor themselves are dropped silently, as are
+// events the recipient opted out of and events over the actor's rate limit;
+// all of those return queued=false with a nil error. A nil Enqueuer (feature
+// not wired, e.g. no database) drops everything.
+//
+// Callers that fan one event out across several categories must branch on
+// queued rather than on the error: a recipient who was dropped here has been
+// told nothing, so the caller may still owe them a different notification.
+func (e *Enqueuer) Notify(ctx context.Context, recipient, category string, p Payload) (queued bool, err error) {
 	if e == nil {
-		return nil
-	}
-	recipient = strings.ToLower(strings.TrimSpace(recipient))
-	if recipient == "" || strings.EqualFold(recipient, p.Actor) {
-		return nil
+		return false, nil
 	}
 	if !e.allowActor(p.Actor, recipient) {
+		return false, nil
+	}
+	return e.enqueue(ctx, recipient, category, p)
+}
+
+// NotifyFanout queues p for every recipient of an audience the actor did not
+// choose -- the people a target is already shared with -- and returns the
+// recipients a row was written for.
+//
+// It charges the actor's rate limit once for the whole fan-out rather than
+// once per recipient: the size of this audience is a property of the item, not
+// something the actor picked, so a comment on a widely-shared asset must not
+// exhaust the budget that bounds the addresses they DO pick (shares and
+// mentions). The recipient count is bounded instead by maxFanout, and a
+// truncated fan-out is logged with both counts rather than silently trimmed.
+func (e *Enqueuer) NotifyFanout(ctx context.Context, recipients []string, category string, p Payload) []string {
+	if e == nil || len(recipients) == 0 {
 		return nil
+	}
+	if !e.allowActor(p.Actor, firstOf(recipients)) {
+		return nil
+	}
+	if len(recipients) > maxFanout {
+		slog.Warn("notification: fan-out truncated", // #nosec G706 -- structured slog call; counts only
+			"category", category, "recipients", len(recipients), "sent", maxFanout)
+		recipients = recipients[:maxFanout]
+	}
+	var sent []string
+	for _, recipient := range recipients {
+		queued, err := e.enqueue(ctx, recipient, category, p)
+		if err != nil {
+			slog.Warn("notification: fan-out enqueue failed", // #nosec G706 -- structured slog call; error sanitized
+				"error", logsan.SanitizeForLog(err.Error()))
+			continue
+		}
+		if queued {
+			sent = append(sent, recipient)
+		}
+	}
+	return sent
+}
+
+// maxFanout bounds how many people one event may notify through NotifyFanout.
+// It is far above a normal share list and exists so a single comment cannot
+// become an unbounded mail amplifier; crossing it is logged.
+const maxFanout = 200
+
+// enqueue applies the recipient's preferences and writes the queue row,
+// reporting whether one was written. It performs no rate limiting: that is the
+// caller's choice of per-recipient (Notify) or per-event (NotifyFanout).
+func (e *Enqueuer) enqueue(ctx context.Context, recipient, category string, p Payload) (bool, error) {
+	recipient = strings.ToLower(strings.TrimSpace(recipient))
+	if recipient == "" || strings.EqualFold(recipient, p.Actor) {
+		return false, nil
 	}
 	prefs, err := e.prefs.Get(ctx, recipient)
 	if err != nil {
 		// The recipient is request-supplied and these errors are logged by
 		// the trigger sites, so strip control characters before embedding.
-		return fmt.Errorf("reading notification prefs for %s: %w", logsan.SanitizeForLog(recipient), err)
+		return false, fmt.Errorf("reading notification prefs for %s: %w", logsan.SanitizeForLog(recipient), err)
 	}
 	if !wantsCategory(prefs, category) {
-		return nil
+		return false, nil
 	}
 
 	n := Notification{Recipient: recipient, Category: category, Payload: p}
@@ -92,10 +147,19 @@ func (e *Enqueuer) Notify(ctx context.Context, recipient, category string, p Pay
 		n.ScheduledFor = NextDigestTime(e.now().UTC(), e.digestHourUTC)
 	}
 	if err := e.queue.Enqueue(ctx, n); err != nil {
-		return fmt.Errorf("enqueueing %s notification for %s: %w",
+		return false, fmt.Errorf("enqueueing %s notification for %s: %w",
 			category, logsan.SanitizeForLog(recipient), err)
 	}
-	return nil
+	return true, nil
+}
+
+// firstOf returns the first entry of a non-empty slice, used as the rate-limit
+// fallback key when an event carries no actor.
+func firstOf(s []string) string {
+	if len(s) == 0 {
+		return ""
+	}
+	return s[0]
 }
 
 // allowActor applies the per-actor rate limit, logging drops. Actorless
@@ -126,6 +190,8 @@ func wantsCategory(prefs Prefs, category string) bool {
 		return prefs.SharesEnabled
 	case CategoryComment:
 		return prefs.CommentsEnabled
+	case CategoryMention:
+		return prefs.MentionsEnabled
 	default:
 		return false
 	}

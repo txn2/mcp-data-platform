@@ -125,6 +125,23 @@ export const routes: ScreenshotRoute[] = [
     },
   },
   {
+    // Mention composer (#627): the audience-scoped type-ahead open over the
+    // new-feedback form.
+    slug: "asset-feedback-mention",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: async (page) => {
+      const btn = page.getByRole("main").getByRole("button", { name: /Feedback/ }).first();
+      if (!(await btn.isVisible())) return;
+      await btn.click();
+      const newBtn = page.getByRole("button", { name: "New", exact: true });
+      if (!(await newBtn.isVisible())) return;
+      await newBtn.click();
+      await page.getByPlaceholder("Describe your feedback").fill("cc @marcus");
+      await page.waitForTimeout(500);
+    },
+  },
+  {
     // KnowledgeHub (#661): one /knowledge route, three hash-driven tabs.
     // The tabs expand to knowledge-{knowledge,insights,memory} captures, so
     // no standalone #insights / #memory entries (they would collide).

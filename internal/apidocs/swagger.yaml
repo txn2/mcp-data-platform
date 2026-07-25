@@ -2445,9 +2445,86 @@ definitions:
         example: 2
         type: integer
     type: object
+  mention.Person:
+    properties:
+      confirmed:
+        description: |-
+          Confirmed reports whether this person has ever authenticated. A share
+          can name someone who never signed in; the picker shows them, so the
+          author knows a mention will reach an inbox before it reaches a session.
+        example: true
+        type: boolean
+      email:
+        example: marcus.johnson@example.com
+        type: string
+      first_name:
+        example: Marcus
+        type: string
+      last_name:
+        example: Johnson
+        type: string
+    type: object
+  mentionhttp.directoryUser:
+    properties:
+      confirmed:
+        example: true
+        type: boolean
+      email:
+        example: marcus.johnson@example.com
+        type: string
+      first_name:
+        example: Marcus
+        type: string
+      last_name:
+        example: Johnson
+        type: string
+    type: object
+  mentionhttp.directoryUsersResponse:
+    properties:
+      total:
+        example: 42
+        type: integer
+      users:
+        items:
+          $ref: '#/definitions/mentionhttp.directoryUser'
+        type: array
+    type: object
+  mentionhttp.errorBody:
+    properties:
+      detail:
+        type: string
+      status:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  mentionhttp.mentionCandidatesResponse:
+    properties:
+      candidates:
+        items:
+          $ref: '#/definitions/mention.Person'
+        type: array
+    type: object
+  mentionhttp.paginatedResponse:
+    properties:
+      data: {}
+      limit:
+        example: 50
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      total:
+        example: 42
+        type: integer
+    type: object
   notification.PrefsRequest:
     properties:
       comments_enabled:
+        type: boolean
+      mentions_enabled:
         type: boolean
       mode:
         type: string
@@ -2457,6 +2534,8 @@ definitions:
   notification.PrefsResponse:
     properties:
       comments_enabled:
+        type: boolean
+      mentions_enabled:
         type: boolean
       mode:
         type: string
@@ -3222,31 +3301,6 @@ definitions:
         type: integer
       title:
         type: string
-    type: object
-  portal.directoryUser:
-    properties:
-      confirmed:
-        example: true
-        type: boolean
-      email:
-        example: marcus.johnson@example.com
-        type: string
-      first_name:
-        example: Marcus
-        type: string
-      last_name:
-        example: Johnson
-        type: string
-    type: object
-  portal.directoryUsersResponse:
-    properties:
-      total:
-        example: 42
-        type: integer
-      users:
-        items:
-          $ref: '#/definitions/portal.directoryUser'
-        type: array
     type: object
   portal.getCollectionResponse:
     properties:
@@ -10736,6 +10790,58 @@ paths:
       summary: Get my memory stats
       tags:
       - Memory
+  /portal/mention-candidates:
+    get:
+      description: Returns the people who can open the given asset, collection, prompt,
+        or knowledge page, so the comment composer only offers teammates a mention
+        would actually reach. The caller must be able to open the target themselves.
+      parameters:
+      - description: asset, collection, prompt, knowledge_page, or standalone
+        in: query
+        name: target_type
+        required: true
+        type: string
+      - description: Target id (omitted for standalone)
+        in: query
+        name: target_id
+        type: string
+      - description: Case-insensitive match on email or name
+        in: query
+        name: q
+        type: string
+      - description: 'Results per page (default: 20, max: 100)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/mentionhttp.mentionCandidatesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/mentionhttp.errorBody'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/mentionhttp.errorBody'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/mentionhttp.errorBody'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/mentionhttp.errorBody'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List who can be @-mentioned on a thread target
+      tags:
+      - Feedback
   /portal/notification-prefs:
     get:
       description: Returns the calling user's email notification preferences. Users
@@ -12387,21 +12493,55 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.directoryUsersResponse'
+            $ref: '#/definitions/mentionhttp.directoryUsersResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/mentionhttp.errorBody'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/mentionhttp.errorBody'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List known users for the share picker
       tags:
       - User
+  /portal/worklist/mentions:
+    get:
+      description: Feedback threads where a comment @-mentioned the caller, most recently
+        active first.
+      parameters:
+      - description: Results per page
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/mentionhttp.paginatedResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/mentionhttp.errorBody'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/mentionhttp.errorBody'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Mentions worklist
+      tags:
+      - Feedback
   /portal/worklist/practitioner:
     get:
       description: Open, resolution-required feedback threads across every artifact

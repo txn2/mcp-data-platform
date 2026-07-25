@@ -156,9 +156,15 @@ export function UserSettingsPage() {
             />
             <ConfigToggle
               label="Comments and feedback"
-              help="Activity on items you own"
+              help="Activity on items you own or that are shared with you"
               checked={prefs.comments_enabled}
               onChange={(v) => save({ comments_enabled: v })}
+            />
+            <ConfigToggle
+              label="Mentions"
+              help="When someone names you in a comment with @"
+              checked={prefs.mentions_enabled}
+              onChange={(v) => save({ mentions_enabled: v })}
             />
           </div>
         </div>

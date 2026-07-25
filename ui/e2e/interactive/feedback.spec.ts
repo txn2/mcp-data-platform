@@ -130,3 +130,44 @@ test.describe("Feedback hub page", () => {
     await expect(page.getByText("Please add a data dictionary.")).toBeVisible();
   });
 });
+
+// @-mention tagging (#627): the composer's audience-scoped type-ahead, the
+// chip a stored mention renders as, and the mentions inbox.
+test.describe("Mentions", () => {
+  test("type-ahead offers the audience and inserts a mention token", async ({ page }) => {
+    await openAssetFeedback(page);
+    await page.getByRole("button", { name: "New", exact: true }).click();
+
+    const message = page.getByPlaceholder("Describe your feedback");
+    await message.fill("cc @marcus");
+    await expect(page.getByRole("listbox", { name: "Mention a teammate" })).toBeVisible();
+    await page.getByRole("option", { name: /Marcus Johnson/ }).click();
+
+    await expect(message).toHaveValue("cc @marcus.johnson(example.com) ");
+    await expect(page.getByText(/Notifying marcus\.johnson@example\.com/)).toBeVisible();
+  });
+
+  test("warns that someone without access will not be notified", async ({ page }) => {
+    await openAssetFeedback(page);
+    await page.getByRole("button", { name: "New", exact: true }).click();
+
+    await page
+      .getByPlaceholder("Describe your feedback")
+      .fill("@outside.contractor(example.com) please look");
+    await expect(page.getByText(/not among the people this item is shared with/)).toBeVisible();
+  });
+
+  test("renders a stored mention as a name chip in the timeline", async ({ page }) => {
+    await openAssetFeedback(page);
+    await page.getByText("We don't use that term").click();
+    await expect(page.getByTitle("sarah.chen@example.com")).toHaveText("@Sarah Chen");
+  });
+
+  test("the mentions inbox lists threads that named me", async ({ page }) => {
+    await authenticate(page);
+    await page.goto("/portal/feedback");
+    await page.getByRole("button", { name: /Worklist/ }).click();
+    await page.getByRole("button", { name: /Mentions of me/ }).click();
+    await expect(page.getByText("We don't use that term")).toBeVisible();
+  });
+});

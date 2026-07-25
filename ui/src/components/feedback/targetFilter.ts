@@ -1,4 +1,4 @@
-import type { FeedbackTarget } from "@/api/portal/types";
+import type { FeedbackTarget, Thread } from "@/api/portal/types";
 import type { ThreadListFilter } from "@/api/portal/hooks";
 
 // filterForTarget maps a feedback target to the thread-list query filter the
@@ -31,5 +31,23 @@ export function targetLabel(target: FeedbackTarget): string {
       return "Knowledge page feedback";
     case "standalone":
       return "Feedback";
+  }
+}
+
+// targetOfThread maps a stored thread back to its feedback target, so a view
+// holding only the thread (the detail pane and its reply box) can ask target-
+// scoped questions -- who may be mentioned on it, above all.
+export function targetOfThread(thread: Thread): FeedbackTarget {
+  switch (thread.target_type) {
+    case "asset":
+      return { type: "asset", id: thread.asset_id ?? "" };
+    case "collection":
+      return { type: "collection", id: thread.collection_id ?? "" };
+    case "prompt":
+      return { type: "prompt", id: thread.prompt_id ?? "" };
+    case "knowledge_page":
+      return { type: "knowledge_page", id: thread.knowledge_page_id ?? "" };
+    default:
+      return { type: "standalone" };
   }
 }

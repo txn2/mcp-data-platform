@@ -10500,6 +10500,85 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/mention-candidates": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the people who can open the given asset, collection, prompt, or knowledge page, so the comment composer only offers teammates a mention would actually reach. The caller must be able to open the target themselves.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "List who can be @-mentioned on a thread target",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "asset, collection, prompt, knowledge_page, or standalone",
+                        "name": "target_type",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Target id (omitted for standalone)",
+                        "name": "target_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive match on email or name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 20, max: 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/mentionhttp.mentionCandidatesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/mentionhttp.errorBody"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/mentionhttp.errorBody"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/mentionhttp.errorBody"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/mentionhttp.errorBody"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/notification-prefs": {
             "get": {
                 "security": [
@@ -13056,19 +13135,73 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.directoryUsersResponse"
+                            "$ref": "#/definitions/mentionhttp.directoryUsersResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/mentionhttp.errorBody"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/mentionhttp.errorBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/worklist/mentions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Feedback threads where a comment @-mentioned the caller, most recently active first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Mentions worklist",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Results per page",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/mentionhttp.paginatedResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/mentionhttp.errorBody"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/mentionhttp.errorBody"
                         }
                     }
                 }
@@ -16856,10 +16989,117 @@ const docTemplate = `{
                 }
             }
         },
+        "mention.Person": {
+            "type": "object",
+            "properties": {
+                "confirmed": {
+                    "description": "Confirmed reports whether this person has ever authenticated. A share\ncan name someone who never signed in; the picker shows them, so the\nauthor knows a mention will reach an inbox before it reaches a session.",
+                    "type": "boolean",
+                    "example": true
+                },
+                "email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "first_name": {
+                    "type": "string",
+                    "example": "Marcus"
+                },
+                "last_name": {
+                    "type": "string",
+                    "example": "Johnson"
+                }
+            }
+        },
+        "mentionhttp.directoryUser": {
+            "type": "object",
+            "properties": {
+                "confirmed": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "first_name": {
+                    "type": "string",
+                    "example": "Marcus"
+                },
+                "last_name": {
+                    "type": "string",
+                    "example": "Johnson"
+                }
+            }
+        },
+        "mentionhttp.directoryUsersResponse": {
+            "type": "object",
+            "properties": {
+                "total": {
+                    "type": "integer",
+                    "example": 42
+                },
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mentionhttp.directoryUser"
+                    }
+                }
+            }
+        },
+        "mentionhttp.errorBody": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "mentionhttp.mentionCandidatesResponse": {
+            "type": "object",
+            "properties": {
+                "candidates": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/mention.Person"
+                    }
+                }
+            }
+        },
+        "mentionhttp.paginatedResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "limit": {
+                    "type": "integer",
+                    "example": 50
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 42
+                }
+            }
+        },
         "notification.PrefsRequest": {
             "type": "object",
             "properties": {
                 "comments_enabled": {
+                    "type": "boolean"
+                },
+                "mentions_enabled": {
                     "type": "boolean"
                 },
                 "mode": {
@@ -16874,6 +17114,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "comments_enabled": {
+                    "type": "boolean"
+                },
+                "mentions_enabled": {
                     "type": "boolean"
                 },
                 "mode": {
@@ -17953,42 +18196,6 @@ const docTemplate = `{
                 },
                 "title": {
                     "type": "string"
-                }
-            }
-        },
-        "portal.directoryUser": {
-            "type": "object",
-            "properties": {
-                "confirmed": {
-                    "type": "boolean",
-                    "example": true
-                },
-                "email": {
-                    "type": "string",
-                    "example": "marcus.johnson@example.com"
-                },
-                "first_name": {
-                    "type": "string",
-                    "example": "Marcus"
-                },
-                "last_name": {
-                    "type": "string",
-                    "example": "Johnson"
-                }
-            }
-        },
-        "portal.directoryUsersResponse": {
-            "type": "object",
-            "properties": {
-                "total": {
-                    "type": "integer",
-                    "example": 42
-                },
-                "users": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/portal.directoryUser"
-                    }
                 }
             }
         },

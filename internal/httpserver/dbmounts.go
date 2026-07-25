@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/mentionhttp"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/prompt/attachhttp"
 	"github.com/txn2/mcp-data-platform/pkg/prompt/versionhttp"
@@ -105,6 +106,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	mux.Handle("/api/v1/portal/", handler)
 	mux.Handle("/portal/view/", handler)
 	mountPromptVersionPortalAPI(mux, p, portal.RequirePortalAuth(portalAuth), adminRoles)
+	mountMentionAPI(mux, p, portal.RequirePortalAuth(portalAuth), adminRoles)
 	log.Println("Portal API enabled on /api/v1/portal/")
 	return nil
 }
@@ -224,4 +226,23 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 	mux.Handle("/api/v1/resources/", handler)
 	mux.Handle("/api/v1/resources", handler)
 	log.Println("Managed resources API enabled on /api/v1/resources")
+}
+
+// mountMentionAPI registers the people and mention routes with the portal's
+// authentication middleware. Called from mountPortalAPI; each route registers
+// only when the dependency behind it exists.
+func mountMentionAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, adminRoles []string) {
+	deps := mentionhttp.Deps{
+		Threads: p.PortalThreadStore(),
+		Caller:  mentionIdentityResolver(adminRoles),
+	}
+	// Assign only a live audience: a typed nil in the interface field would
+	// read as wired and panic on the first lookup.
+	if aud := mentionAudience(p); aud != nil {
+		deps.Audience = aud
+	}
+	if us := p.UserStore(); us != nil {
+		deps.Directory = us
+	}
+	mentionhttp.New(deps).Register(mux, wrap)
 }
