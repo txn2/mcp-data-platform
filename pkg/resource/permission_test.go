@@ -191,3 +191,51 @@ func TestIsPersonaAdmin(t *testing.T) {
 		t.Error("AdminOfPersonas for finance should not grant admin for engineering")
 	}
 }
+
+// An admin who uploads a persona-scoped resource must be able to read, edit, and
+// delete it. VisibleScopes is membership-based and grants no cross-persona read,
+// so the by-id handlers gate on CanAccessResource: without it an admin could
+// create material they could neither manage nor remove.
+func TestCanAccessResource(t *testing.T) {
+	admin := Claims{Sub: "admin-1", Email: "admin@example.com", Personas: []string{"admin"}, IsAdmin: true}
+	personaAdmin := Claims{Sub: "pa-1", Roles: []string{"dp_persona-admin:finance"}, AdminOfPersonas: []string{"finance"}}
+	member := Claims{Sub: "u-1", Email: "u1@example.com", Personas: []string{"analyst"}}
+
+	personaRes := &Resource{Scope: ScopePersona, ScopeID: "analyst", UploaderSub: "admin-1"}
+	financeRes := &Resource{Scope: ScopePersona, ScopeID: "finance", UploaderSub: "someone"}
+	otherUserRes := &Resource{Scope: ScopeUser, ScopeID: "u-2", UploaderSub: "u-2"}
+	// Uploaded by the admin INTO another user's scope, which only CanWriteScope
+	// permits; uploader_sub keeps naming the admin after their role is revoked.
+	adminUploadedToUser := &Resource{Scope: ScopeUser, ScopeID: "u-2", UploaderSub: "admin-1"}
+	ownRes := &Resource{Scope: ScopeUser, ScopeID: "u-1", UploaderSub: "u-1"}
+
+	// An admin who uploaded into another user's scope and then lost the admin role:
+	// the uploader_sub on the row still names them, but their authority is gone.
+	exAdmin := Claims{Sub: "admin-1", Email: "admin@example.com", Personas: []string{"viewer"}}
+
+	tests := []struct {
+		name   string
+		claims Claims
+		res    *Resource
+		want   bool
+	}{
+		{"admin reaches a persona resource outside their own persona", admin, personaRes, true},
+		{"admin reaches the user resource they uploaded", admin, adminUploadedToUser, true},
+		{"a former admin loses access to material they uploaded", exAdmin, adminUploadedToUser, false},
+		{"a former admin loses access to the persona material they uploaded", exAdmin, personaRes, false},
+		{"admin reaches another user's resource", admin, otherUserRes, true},
+		{"persona admin reaches their persona's resource", personaAdmin, financeRes, true},
+		{"persona admin does not reach another persona's resource", personaAdmin, personaRes, false},
+		{"member reaches their own persona's resource", member, personaRes, true},
+		{"member reaches their own user resource", member, ownRes, true},
+		{"member does not reach another user's resource", member, otherUserRes, false},
+		{"member does not reach a persona they do not belong to", member, financeRes, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := CanAccessResource(tt.claims, tt.res); got != tt.want {
+				t.Errorf("CanAccessResource = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

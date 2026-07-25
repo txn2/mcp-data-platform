@@ -86,7 +86,10 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 			PortalAssets:         p.portalStore.AssetStore() != nil,
 			PortalCollections:    p.portalStore.CollectionStore() != nil,
 			PortalKnowledgePages: p.portalStore.KnowledgePageStore() != nil,
+			Resources:            p.resources.Store() != nil,
 		},
+		ResourceBlobs:  p.resources.S3Client(),
+		ResourceBucket: p.config.Resources.Managed.S3Bucket,
 	})
 	if handle == nil {
 		// db + embedder are present but nothing registered. A worker with no

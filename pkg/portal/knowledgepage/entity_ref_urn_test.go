@@ -21,6 +21,7 @@ func TestEntityRef_URNRoundTrip(t *testing.T) {
 		{"datahub", EntityRef{TargetType: RefTargetDataHub, EntityURN: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"}, "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"},
 		{"insight", EntityRef{TargetType: RefTargetInsight, InsightID: "ins_01HK7"}, "mcp:insight:ins_01HK7"},
 		{"memory", EntityRef{TargetType: RefTargetMemory, MemoryID: "mem_01HK7"}, "mcp:memory:mem_01HK7"},
+		{"resource", EntityRef{TargetType: RefTargetResource, ResourceID: "res_01HK7"}, "mcp:resource:res_01HK7"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -87,6 +88,20 @@ func TestParseCitableRef_RejectsPerUserForms(t *testing.T) {
 		require.Error(t, err, "ParseCitableRef must reject %q", ref)
 		assert.Contains(t, err.Error(), "cannot be cited", "error explains why")
 	}
+}
+
+// A managed resource is fetchable but not citable on a shared page: it is
+// visibility-scoped, so the citation would be broken for readers outside its
+// scope, and the reference table has no column to store it in (#1012).
+func TestParseCitableRef_RejectsResourceForm(t *testing.T) {
+	parsed, err := ParseEntityRef("mcp:resource:res_01HK7")
+	require.NoError(t, err, "ParseEntityRef accepts a resource reference (fetch uses it)")
+	assert.Equal(t, RefTargetResource, parsed.TargetType)
+	assert.Equal(t, "res_01HK7", parsed.ResourceID)
+
+	_, err = ParseCitableRef("mcp:resource:res_01HK7")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be cited on a knowledge page")
 }
 
 func TestParseCitableRef_AllowsSharedForms(t *testing.T) {

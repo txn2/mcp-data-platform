@@ -259,8 +259,22 @@ func assembledToolkit() *Toolkit {
 		knowledge.NewPromptsProvider(globalPrompts{}),
 		knowledge.NewAssetsProvider(assets),
 		knowledge.NewKnowledgePagesProvider(globalKnowledgePages{}),
+		knowledge.NewResourcesProvider(seedResourceStore(), seedResourceBlobs(), resourceBucket),
 	)
-	return New("default", router)
+	tk := New("default", router)
+	tk.SetPersonasForRoles(personaOfRole)
+	return tk
+}
+
+// assembledToolkitWithResources builds the same toolkit over a caller-supplied
+// resource store, so a test can mutate the corpus (delete a resource) and assert
+// what search and fetch do afterward.
+func assembledToolkitWithResources(store *scopedResourceStore) *Toolkit {
+	tk := New("default", knowledge.NewRouter(nil, nil,
+		knowledge.NewResourcesProvider(store, seedResourceBlobs(), resourceBucket),
+	))
+	tk.SetPersonasForRoles(personaOfRole)
+	return tk
 }
 
 func callSearch(ctx context.Context, t *testing.T, tk *Toolkit, intent string) searchOutput {

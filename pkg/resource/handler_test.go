@@ -139,6 +139,23 @@ func okExtractor(_ *http.Request) (*Claims, error) {
 	return testClaims(), nil
 }
 
+// memberClaims is an ordinary caller: no platform-admin authority and no
+// persona-admin grant, so visibility is exactly their own scopes. The
+// not-visible tests use it, since an admin is deliberately NOT confined to their
+// visible scopes on a resource named by id (see CanAccessResource).
+func memberClaims() *Claims {
+	return &Claims{
+		Sub:      "user-123",
+		Email:    "user@example.com",
+		Personas: []string{"analyst"},
+		Roles:    []string{"analyst"},
+	}
+}
+
+func memberExtractor(_ *http.Request) (*Claims, error) {
+	return memberClaims(), nil
+}
+
 func failExtractor(_ *http.Request) (*Claims, error) {
 	return nil, fmt.Errorf("no auth")
 }
@@ -554,7 +571,7 @@ func TestHandleGet_NotFound(t *testing.T) {
 
 func TestHandleGet_NotVisible(t *testing.T) {
 	store := newMockStore()
-	h := newTestHandler(store, nil, okExtractor)
+	h := newTestHandler(store, nil, memberExtractor)
 
 	// Seed a user-scoped resource owned by a different user.
 	seedResource(store, nil, "res-private", ScopeUser, "other-user", "other-user")
@@ -1009,7 +1026,7 @@ func TestHandleGetContent_NotFound(t *testing.T) {
 func TestHandleGetContent_NotVisible(t *testing.T) {
 	store := newMockStore()
 	s3 := newMockS3()
-	h := newTestHandler(store, s3, okExtractor)
+	h := newTestHandler(store, s3, memberExtractor)
 
 	seedResource(store, s3, "res-priv", ScopeUser, "other-user", "other-user")
 
@@ -1038,7 +1055,7 @@ func TestHandleUpdate_Unauthorized(t *testing.T) {
 
 func TestHandleUpdate_NotVisible(t *testing.T) {
 	store := newMockStore()
-	h := newTestHandler(store, nil, okExtractor)
+	h := newTestHandler(store, nil, memberExtractor)
 
 	seedResource(store, nil, "res-priv", ScopeUser, "other-user", "other-user")
 
@@ -1069,7 +1086,7 @@ func TestHandleDelete_Unauthorized(t *testing.T) {
 
 func TestHandleDelete_NotVisible(t *testing.T) {
 	store := newMockStore()
-	h := newTestHandler(store, nil, okExtractor)
+	h := newTestHandler(store, nil, memberExtractor)
 
 	seedResource(store, nil, "res-priv", ScopeUser, "other-user", "other-user")
 
@@ -1638,5 +1655,85 @@ func TestHandleGetContent_EmptyS3ContentType(t *testing.T) {
 	ct := rec.Header().Get("Content-Type")
 	if ct != "text/csv" {
 		t.Errorf("Content-Type = %q, want text/csv", ct)
+	}
+}
+
+// personaAdminExtractor is a caller who administers the "finance" persona but
+// belongs to it in no other sense: VisibleScopes grants them nothing there.
+func personaAdminExtractor(_ *http.Request) (*Claims, error) {
+	return &Claims{
+		Sub:             "pa-1",
+		Email:           "pa@example.com",
+		Personas:        []string{"analyst"},
+		Roles:           []string{"dp_persona-admin:finance"},
+		AdminOfPersonas: []string{"finance"},
+	}, nil
+}
+
+// The acceptance criterion of the CanAccessResource fix, at the layer that
+// actually broke: an admin uploads persona material (CanWriteScope permits it)
+// and must then be able to read, download, edit and delete it. Before the fix
+// every one of these returned 404, so an admin could create material they could
+// neither manage nor remove.
+func TestByIDHandlers_AdminReachesPersonaResource(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		extractor ClaimsExtractor
+	}{
+		{"platform admin", okExtractor},
+		{"persona admin", personaAdminExtractor},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scopeID := "finance"
+			store := newMockStore()
+			s3 := newMockS3()
+			h := newTestHandler(store, s3, tc.extractor)
+			seedResource(store, s3, "res-persona", ScopePersona, scopeID, "uploader-sub")
+
+			get := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/res-persona", http.NoBody)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, get)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET = %d, want 200: %s", rec.Code, rec.Body.String())
+			}
+
+			content := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/res-persona/content", http.NoBody)
+			rec = httptest.NewRecorder()
+			h.ServeHTTP(rec, content)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET content = %d, want 200", rec.Code)
+			}
+
+			name := "Renamed"
+			body, _ := json.Marshal(Update{DisplayName: &name})
+			patch := httptest.NewRequestWithContext(context.Background(), http.MethodPatch, "/api/v1/resources/res-persona", bytes.NewReader(body))
+			patch.Header.Set("Content-Type", "application/json")
+			rec = httptest.NewRecorder()
+			h.ServeHTTP(rec, patch)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("PATCH = %d, want 200: %s", rec.Code, rec.Body.String())
+			}
+
+			del := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/resources/res-persona", http.NoBody)
+			rec = httptest.NewRecorder()
+			h.ServeHTTP(rec, del)
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("DELETE = %d, want 204: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// A persona admin's reach stops at the persona they administer.
+func TestByIDHandlers_PersonaAdminConfinedToTheirPersona(t *testing.T) {
+	store := newMockStore()
+	h := newTestHandler(store, nil, personaAdminExtractor)
+	seedResource(store, nil, "res-other", ScopePersona, "engineering", "uploader-sub")
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/res-other", http.NoBody)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET = %d, want 404 for a persona they do not administer", rec.Code)
 	}
 }

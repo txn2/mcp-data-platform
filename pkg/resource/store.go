@@ -162,7 +162,12 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 }
 
 func (s *postgresStore) Update(ctx context.Context, id string, u Update) error { //nolint:revive // interface impl
-	setClauses := []string{"updated_at = $1"}
+	// Every mutable field (display name, description, tags, category) is part of
+	// the indexed text, so a metadata edit invalidates the stored vector. Clearing
+	// the embedding columns here makes the row a gap the indexjobs reconciler
+	// re-embeds off the request path, exactly as the portal asset store does
+	// (#1012); leaving them would rank the resource on its pre-edit text forever.
+	setClauses := []string{"updated_at = $1", "embedding = NULL", "embedding_model = ''", "embedding_text_hash = NULL"}
 	args := []any{time.Now().UTC()}
 	idx := 2
 
@@ -216,25 +221,40 @@ func (s *postgresStore) Delete(ctx context.Context, id string) error { //nolint:
 
 // --- helpers ---
 
-func (*postgresStore) scanOne(row *sql.Row) (*Resource, error) { //nolint:revive // interface-adjacent helper
-	var r Resource
-	var scopeID sql.NullString
-	var tags []string
-	err := row.Scan(
-		&r.ID, &r.Scope, &scopeID, &r.Category, &r.Filename, &r.DisplayName,
+// scanDest returns the scan destinations for a resource row, in the column order
+// every resource SELECT projects (the list path, the by-id/by-uri reads, and the
+// ranked search). Declared once so a column added to one query cannot silently
+// misalign another's scan. The ranked-search callers append their score columns
+// to the returned slice.
+func scanDest(r *Resource, scopeID *sql.NullString, tags *[]string) []any {
+	return []any{
+		&r.ID, &r.Scope, scopeID, &r.Category, &r.Filename, &r.DisplayName,
 		&r.Description, &r.MIMEType, &r.SizeBytes, &r.S3Key, &r.URI,
-		pq.Array(&tags), &r.UploaderSub, &r.UploaderEmail,
+		pq.Array(tags), &r.UploaderSub, &r.UploaderEmail,
 		&r.CreatedAt, &r.UpdatedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("scanning resource: %w", err)
 	}
+}
+
+// finishScanned applies the nullable-column conventions after a scan: a NULL
+// scope_id reads as the empty string (global resources), and nil tags read as an
+// empty slice so the JSON encoding is [] rather than null.
+func finishScanned(r *Resource, scopeID sql.NullString, tags []string) {
 	r.ScopeID = scopeID.String
 	if tags != nil {
 		r.Tags = tags
 	} else {
 		r.Tags = []string{}
 	}
+}
+
+func (*postgresStore) scanOne(row *sql.Row) (*Resource, error) { //nolint:revive // interface-adjacent helper
+	var r Resource
+	var scopeID sql.NullString
+	var tags []string
+	if err := row.Scan(scanDest(&r, &scopeID, &tags)...); err != nil {
+		return nil, fmt.Errorf("scanning resource: %w", err)
+	}
+	finishScanned(&r, scopeID, tags)
 	return &r, nil
 }
 
@@ -242,44 +262,40 @@ func (*postgresStore) scanRow(rows *sql.Rows) (*Resource, error) { //nolint:revi
 	var r Resource
 	var scopeID sql.NullString
 	var tags []string
-	err := rows.Scan(
-		&r.ID, &r.Scope, &scopeID, &r.Category, &r.Filename, &r.DisplayName,
-		&r.Description, &r.MIMEType, &r.SizeBytes, &r.S3Key, &r.URI,
-		pq.Array(&tags), &r.UploaderSub, &r.UploaderEmail,
-		&r.CreatedAt, &r.UpdatedAt,
-	)
-	if err != nil {
+	if err := rows.Scan(scanDest(&r, &scopeID, &tags)...); err != nil {
 		return nil, fmt.Errorf("scanning resource row: %w", err)
 	}
-	r.ScopeID = scopeID.String
-	if tags != nil {
-		r.Tags = tags
-	} else {
-		r.Tags = []string{}
-	}
+	finishScanned(&r, scopeID, tags)
 	return &r, nil
+}
+
+// scopeVisibilityWhere builds the parenthesized OR of scope-visibility
+// conditions for the given scopes, binding placeholders from startIdx. It
+// returns the clause, its arguments, and the next free placeholder index, so
+// both the list path (placeholders from $1) and the ranked search path (which
+// binds the query vector and text first) derive the same visibility predicate
+// from one implementation.
+func scopeVisibilityWhere(scopes []ScopeFilter, startIdx int) (where string, args []any, next int) {
+	conds := make([]string, 0, len(scopes))
+	idx := startIdx
+	for _, sf := range scopes {
+		if sf.Scope == ScopeGlobal {
+			conds = append(conds, fmt.Sprintf("(scope = $%d AND scope_id IS NULL)", idx))
+			args = append(args, string(ScopeGlobal))
+			idx++
+			continue
+		}
+		conds = append(conds, fmt.Sprintf("(scope = $%d AND scope_id = $%d)", idx, idx+1))
+		args = append(args, string(sf.Scope), sf.ScopeID)
+		idx += 2
+	}
+	return "(" + strings.Join(conds, " OR ") + ")", args, idx
 }
 
 // buildScopeWhere builds a WHERE clause for scope visibility filtering,
 // plus optional category, tag, and text search filters.
 func buildScopeWhere(filter Filter) (where string, args []any) {
-	// Build scope OR conditions.
-	var scopeConds []string
-	idx := 1
-
-	for _, sf := range filter.Scopes {
-		if sf.Scope == ScopeGlobal {
-			scopeConds = append(scopeConds, fmt.Sprintf("(scope = $%d AND scope_id IS NULL)", idx))
-			args = append(args, string(ScopeGlobal))
-			idx++
-		} else {
-			scopeConds = append(scopeConds, fmt.Sprintf("(scope = $%d AND scope_id = $%d)", idx, idx+1))
-			args = append(args, string(sf.Scope), sf.ScopeID)
-			idx += 2
-		}
-	}
-
-	where = "(" + strings.Join(scopeConds, " OR ") + ")"
+	where, args, idx := scopeVisibilityWhere(filter.Scopes, 1)
 
 	if filter.Category != "" {
 		where += fmt.Sprintf(" AND category = $%d", idx)

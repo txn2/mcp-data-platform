@@ -92,7 +92,7 @@ var searchSchema = json.RawMessage(`{
   "properties": {
     "intent": {
       "type": "string",
-      "description": "Natural-language description of what you are looking for, across every source you can access: the technical catalog, context documents, canonical knowledge pages (business/domain ontology), your memory, captured insights, your feedback, saved assets, prompts, API endpoints, and connections. Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
+      "description": "Natural-language description of what you are looking for, across every source you can access: the technical catalog, context documents, canonical knowledge pages (business/domain ontology), your memory, captured insights, your feedback, saved assets, uploaded reference material (resources), prompts, API endpoints, and connections. Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
     },
     "context": {
       "type": "string",
@@ -110,7 +110,7 @@ var searchSchema = json.RawMessage(`{
     "sources": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Optional: narrow the search to specific sources (e.g. [\"catalog\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: catalog, context_documents, knowledge_pages, memory, insights, feedback, assets, prompts, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored. To BROWSE (enumerate) a source instead of searching it, pass exactly one source here with no intent and no entity_urns (browsable sources: knowledge_pages, context_documents)."
+      "description": "Optional: narrow the search to specific sources (e.g. [\"catalog\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: catalog, context_documents, knowledge_pages, memory, insights, feedback, assets, resources, prompts, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored. To BROWSE (enumerate) a source instead of searching it, pass exactly one source here with no intent and no entity_urns (browsable sources: knowledge_pages, context_documents)."
     },
     "limit": {
       "type": "integer",
@@ -150,7 +150,7 @@ var fetchSchema = json.RawMessage(`{
   "properties": {
     "reference": {
       "type": "string",
-      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), saved assets (mcp:asset:<id>), prompts (mcp:prompt:<id>), connections (mcp:connection:(kind,name)), your captured insights (mcp:insight:<id>), and your personal memory (mcp:memory:<id>). The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). Your memory and insights are scoped to you. Returns the full content the search snippet was a preview of."
+      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), saved assets (mcp:asset:<id>), uploaded reference material (mcp:resource:<id>), prompts (mcp:prompt:<id>), connections (mcp:connection:(kind,name)), your captured insights (mcp:insight:<id>), and your personal memory (mcp:memory:<id>). The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). A text resource comes back with its contents inline; a binary one comes back as metadata plus its mcp:// URI and size. Your memory and insights are scoped to you. Returns the full content the search snippet was a preview of."
     }
   }
 }`)
@@ -181,6 +181,35 @@ func structuredResult(v any) (*mcp.CallToolResult, any, error) {
 	}, nil, nil
 }
 
+// withResourceLinks appends one mcp.ResourceLink content block per hit that
+// carries a client-attachable file (today: managed resources), so a client with
+// native resource support can attach the file itself rather than only the JSON
+// pointer. It follows the in-tree precedent of the enrichment middleware's
+// schema:// and availability:// links on DataHub results. Duplicate URIs are
+// emitted once. A nil result or an error result is returned untouched.
+func withResourceLinks(res *mcp.CallToolResult, groups []knowledge.SourceGroup) *mcp.CallToolResult {
+	if res == nil || res.IsError {
+		return res
+	}
+	seen := make(map[string]bool)
+	for _, g := range groups {
+		for i := range g.Hits {
+			link := g.Hits[i].Link
+			if link == nil || link.URI == "" || seen[link.URI] {
+				continue
+			}
+			seen[link.URI] = true
+			res.Content = append(res.Content, &mcp.ResourceLink{
+				URI:         link.URI,
+				Name:        link.Name,
+				Description: link.Description,
+				MIMEType:    link.MIMEType,
+			})
+		}
+	}
+	return res
+}
+
 // mergedSearchOutputSchema derives a single object schema whose properties are
 // the union of searchOutput (relevance mode) and browseOutput (browse mode),
 // since both are returned by the one search tool depending on the arguments. It
@@ -206,13 +235,26 @@ func mergedSearchOutputSchema() *jsonschema.Schema {
 
 // Toolkit registers the search tool over a knowledge.Router.
 type Toolkit struct {
-	name   string
-	router *knowledge.Router
+	name             string
+	router           *knowledge.Router
+	personasForRoles func(roles []string) []string
 }
 
 // New builds the search toolkit over a router.
 func New(name string, router *knowledge.Router) *Toolkit {
 	return &Toolkit{name: name, router: router}
+}
+
+// SetPersonasForRoles binds the resolver that maps a caller's roles to every
+// persona they BELONG TO. Sources whose visibility rule is persona membership
+// (managed resources) scope on that set rather than on the single resolved
+// persona, which falls back to the configured default persona for a caller whose
+// roles match none — a fallback that would hand an unmatched caller the default
+// persona's material. Optional: with no resolver bound, the caller carries only
+// the resolved persona, matching what the resources middleware does when it has
+// no resolver either. Call once at wiring time.
+func (t *Toolkit) SetPersonasForRoles(fn func(roles []string) []string) {
+	t.personasForRoles = fn
 }
 
 // Kind returns the toolkit kind.
@@ -232,8 +274,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Description: "The one way to discover. Call this FIRST, before any other tool, to find what is " +
 			"already known and to learn where the answer to a question lives. One query fans across every " +
 			"source you can access (the technical catalog, context documents, canonical knowledge pages, your memory, " +
-			"captured insights, your feedback, saved assets, prompts, API endpoints, and connections) and returns results " +
-			"grouped by source with a coverage " +
+			"captured insights, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and " +
+			"connections) and returns results grouped by source with a coverage " +
 			"summary, so you see the full shape of the answer space instead of tunneling into the first tool " +
 			"that comes to mind. For example 'how do we calculate churn' or 'customer retention'. Results are " +
 			"navigational pointers (title, reference, source); read one in full with fetch (pass its reference) " +
@@ -256,8 +298,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Description: "Read a reference in full. search returns navigational pointers with truncated " +
 			"snippets; fetch dereferences one pointer's reference back to its complete content (a knowledge " +
 			"page's body, a context document's full text, a dataset's catalog context, an asset's metadata, " +
-			"a prompt, a connection descriptor, one of your captured insights, or one of your personal " +
-			"memory records). A reference is either a urn:li:... form (the external " +
+			"an uploaded resource's contents, a prompt, a connection descriptor, one of your captured insights, " +
+			"or one of your personal memory records). A reference is either a urn:li:... form (the external " +
 			"DataHub catalog scheme) or an mcp:... form (the internal-platform scheme); fetch accepts both. " +
 			"The usual source is a search result's \"reference\" field (pass it verbatim), but a well-formed " +
 			"reference you already hold from another tool works too (for example a urn:li:dataset:... from " +
@@ -302,7 +344,7 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		EntityURNs: input.EntityURNs,
 		Status:     strings.TrimSpace(input.Status),
 		Sources:    input.Sources,
-		Caller:     callerFromContext(ctx),
+		Caller:     t.callerFromContext(ctx),
 		Limit:      input.Limit,
 	})
 	if err != nil {
@@ -321,13 +363,14 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	for _, g := range groups {
 		shown += len(g.Hits)
 	}
-	return structuredResult(searchOutput{
+	result, structured, err := structuredResult(searchOutput{
 		Groups:         groups,
 		Coverage:       coverage,
 		Count:          shown,
 		Ranking:        res.Ranking,
 		UnknownSources: res.UnknownSources,
 	})
+	return withResourceLinks(result, groups), structured, err
 }
 
 // handleFetch dereferences a search reference to its full content. It resolves the
@@ -343,7 +386,7 @@ func (t *Toolkit) handleFetch(ctx context.Context, _ *mcp.CallToolRequest, input
 		return toolkit.ErrorResult("fetch requires a reference"), nil, nil
 	}
 
-	doc, err := t.router.Fetch(ctx, ref, callerFromContext(ctx))
+	doc, err := t.router.Fetch(ctx, ref, t.callerFromContext(ctx))
 	if err != nil {
 		if errors.Is(err, knowledge.ErrNotFound) {
 			return structuredResult(fetchOutput{
@@ -379,7 +422,7 @@ func (t *Toolkit) handleBrowse(ctx context.Context, input searchInput) (*mcp.Cal
 	source := sources[0]
 
 	page, err := t.router.Browse(ctx, source, knowledge.BrowseQuery{
-		Caller: callerFromContext(ctx),
+		Caller: t.callerFromContext(ctx),
 		Offset: input.Offset,
 		Limit:  input.Limit,
 	})
@@ -425,12 +468,20 @@ func nonBlank(sources []string) []string {
 // callerFromContext resolves the requester identity from the platform context.
 // A request without a platform context (or without identity) yields an
 // anonymous caller, for which the router skips every per-user provider.
-func callerFromContext(ctx context.Context) knowledge.Caller {
+//
+// Personas is the caller's persona MEMBERSHIP (resolved from roles), distinct
+// from the single resolved Persona the request acts as; providers whose
+// visibility rule is membership scope on it. See Toolkit.SetPersonasForRoles.
+func (t *Toolkit) callerFromContext(ctx context.Context) knowledge.Caller {
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil {
 		return knowledge.Caller{}
 	}
-	return knowledge.Caller{UserID: pc.UserID, Email: pc.UserEmail, Persona: pc.PersonaName}
+	caller := knowledge.Caller{UserID: pc.UserID, Email: pc.UserEmail, Persona: pc.PersonaName}
+	if t.personasForRoles != nil {
+		caller.Personas = t.personasForRoles(pc.Roles)
+	}
+	return caller
 }
 
 // Verify interface compliance with registry.Toolkit.

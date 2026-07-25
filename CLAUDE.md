@@ -198,7 +198,7 @@ mcp-data-platform/
 │   ├── query/                      # Query execution provider abstraction (trino/ = Trino adapter)
 │   ├── ratelimit/                  # Shared per-IP token-bucket limiter + trusted-proxy client-IP resolver (portal viewer, OAuth endpoints)
 │   ├── registry/                   # Toolkit registration and management
-│   ├── resource/                   # Managed resources: human-uploaded reference files
+│   ├── resource/                   # Managed resources: human-uploaded reference files (resourceindex/ = indexjobs consumer)
 │   ├── searchgate/                 # Per-session discovery signal for the search-first gate (postgres/ = replica-shared backend)
 │   ├── semantic/                   # Semantic layer abstraction (datahub/ = DataHub adapter)
 │   ├── session/                    # Session externalization (postgres/ = multi-replica backend)
