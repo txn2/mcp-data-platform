@@ -7,6 +7,7 @@ import "encoding/json"
 //nolint:gochecknoglobals // MCP tool schema must be a package-level var
 var memoryManageSchema = json.RawMessage(`{
   "type": "object",
+  "additionalProperties": false,
   "properties": {
     "command": {
       "type": "string",

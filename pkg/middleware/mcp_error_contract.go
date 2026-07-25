@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -78,6 +79,9 @@ func enrichBareErrorResult(ctr *mcp.CallToolResult) *mcp.CallToolResult {
 	if msg == "" {
 		msg = "the tool call failed"
 	}
+	if pe := argumentValidationError(msg); pe != nil {
+		return BuildErrorResult(pe)
+	}
 	pe := &PlatformError{
 		Code:     CodeToolError,
 		Category: ErrCategoryToolError,
@@ -87,6 +91,35 @@ func enrichBareErrorResult(ctr *mcp.CallToolResult) *mcp.CallToolResult {
 		pe.Category = category
 	}
 	return BuildErrorResult(pe)
+}
+
+const (
+	// sdkArgumentValidationPrefix is how the MCP SDK reports a tools/call whose
+	// arguments fail the tool's input schema (mcp.toolForErr wraps the jsonschema
+	// verdict as `validating "arguments": ...`).
+	sdkArgumentValidationPrefix = `validating "arguments":`
+
+	// codeInvalidArguments is the agent-facing error code for that rejection. It
+	// belongs to the same snake_case registry as the exported Code* values, but
+	// stays unexported because the normalizer is the only producer: nothing
+	// outside this package constructs an argument-validation error.
+	codeInvalidArguments = "invalid_arguments"
+)
+
+// argumentValidationError categorizes an SDK input-schema rejection as the
+// caller-correctable fault it is, or returns nil for any other message. Schemas
+// closed to unknown arguments (issue #1057) make this the boundary an agent hits
+// when it misnames a field, and a generic tool_error there invites a blind retry
+// of the same call; client_input plus a corrective hint tells it to fix the
+// argument name instead.
+func argumentValidationError(msg string) *PlatformError {
+	if !strings.HasPrefix(msg, sdkArgumentValidationPrefix) {
+		return nil
+	}
+	return ClientInputError(codeInvalidArguments, msg,
+		"The arguments do not match the tool's input schema. Read the tool's schema, "+
+			"correct or drop the named property, and retry. This is a problem with the "+
+			"call's arguments, not a platform fault.")
 }
 
 // unwrapLegacyErrorJSON returns the inner message from a toolkit error result
