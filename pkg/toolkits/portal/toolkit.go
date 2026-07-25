@@ -228,6 +228,12 @@ type Toolkit struct {
 	baseURL         string
 	maxContentSize  int
 	embedder        embedding.Provider
+	// notifier and mentions are installed by SetFeedbackNotifications, which
+	// the composition root calls once the notification substrate exists. Both
+	// nil (stdio deployments, no database) leaves an agent-authored reply
+	// silent and its mention tokens ordinary text.
+	notifier        portal.Notifier
+	mentions        portal.MentionResolver
 	actions         map[string]manageActionHandler
 	feedbackActions map[string]feedbackActionHandler
 
@@ -406,6 +412,22 @@ const showAssetsPromptContent = `List my saved assets.
 // Tools returns the list of tool names provided by this toolkit.
 func (*Toolkit) Tools() []string {
 	return []string{SaveToolName, ManageToolName, feedbackToolName}
+}
+
+// SetFeedbackNotifications installs the notification trigger and the mention
+// resolver for agent-authored feedback replies. The composition root calls it
+// once the notification substrate exists, which is later than toolkit
+// construction; like the provider setters it must be called during composition,
+// before the server starts serving.
+//
+// That substrate (queue, send worker, SMTP) is owned by the HTTP composition
+// root, so a stdio deployment leaves both nil: an agent's reply is stored and
+// its mentions parsed, but nothing is mailed and no mention is recorded. The
+// send worker belongs to a long-lived server rather than to a per-client stdio
+// process, where every concurrent client would run its own.
+func (t *Toolkit) SetFeedbackNotifications(notifier portal.Notifier, mentions portal.MentionResolver) {
+	t.notifier = notifier
+	t.mentions = mentions
 }
 
 // SetSemanticProvider sets the semantic metadata provider.

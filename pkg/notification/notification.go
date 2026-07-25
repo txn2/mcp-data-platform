@@ -30,6 +30,11 @@ const (
 	CategoryShare = "share"
 	// CategoryComment covers thread comments and feedback events.
 	CategoryComment = "comment"
+	// CategoryMention covers being named in a comment with an @-mention
+	// (#627). It is separate from CategoryComment so muting general thread
+	// chatter still leaves a person reachable when someone addresses them
+	// directly.
+	CategoryMention = "mention"
 )
 
 // Delivery modes for user preferences.
@@ -66,6 +71,8 @@ const (
 	KindComment = "comment"
 	// KindFeedback marks a thread feedback event.
 	KindFeedback = "feedback"
+	// KindMention marks a comment that named the recipient.
+	KindMention = "mention"
 )
 
 // Payload carries the event details a template needs to render an email.

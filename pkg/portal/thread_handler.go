@@ -213,12 +213,13 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		Rating:      req.Rating,
 	}
 
-	created, err := h.deps.ThreadStore.CreateThread(r.Context(), thread, first)
+	mentions := h.resolveMentions(r.Context(), &thread, req.Body, user.Email)
+	created, err := h.deps.ThreadStore.CreateThread(r.Context(), thread, stampMentions(first, mentions))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create thread")
 		return
 	}
-	h.notifyThreadEvent(r.Context(), created, user.Email, req.Body)
+	h.notifyThreadEvent(r.Context(), created, user.Email, req.Body, mentions)
 	writeJSON(w, http.StatusCreated, created)
 }
 
@@ -372,7 +373,8 @@ func (h *Handler) appendThreadEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := h.deps.ThreadStore.AppendEvent(r.Context(), ThreadEvent{
+	mentions := h.resolveMentions(r.Context(), thread, req.Body, user.Email)
+	created, err := h.deps.ThreadStore.AppendEvent(r.Context(), stampMentions(ThreadEvent{
 		ID:            newThreadID("evt"),
 		ThreadID:      thread.ID,
 		EventType:     eventType,
@@ -381,12 +383,12 @@ func (h *Handler) appendThreadEvent(w http.ResponseWriter, r *http.Request) {
 		Body:          req.Body,
 		Rating:        req.Rating,
 		ParentEventID: req.ParentEventID,
-	})
+	}, mentions))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to append event")
 		return
 	}
-	h.notifyThreadEvent(r.Context(), thread, user.Email, req.Body)
+	h.notifyThreadEvent(r.Context(), thread, user.Email, req.Body, mentions)
 	writeJSON(w, http.StatusCreated, created)
 }
 

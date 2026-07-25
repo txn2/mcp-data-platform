@@ -51,7 +51,12 @@ import {
   mockPromptVersions,
 } from "./data/prompts";
 import { mockResources } from "./data/resources";
-import { mockThreads, mockThreadEvents, mockThreadChains } from "./data/feedback";
+import {
+  mentionedThreadIDs,
+  mockThreadChains,
+  mockThreadEvents,
+  mockThreads,
+} from "./data/feedback";
 import { mockAPIKeys } from "./data/keys";
 import {
   mockEffectiveConfig,
@@ -694,6 +699,7 @@ const notificationPrefs = {
   mode: "immediate",
   shares_enabled: true,
   comments_enabled: true,
+  mentions_enabled: true,
 };
 
 function parseDuration(s: string): number {
@@ -1951,6 +1957,12 @@ export const handlers = [
     return HttpResponse.json({ data, total: data.length, limit: 50, offset: 0 });
   }),
 
+  // Mentions inbox (#627): threads whose timeline named the caller.
+  http.get(`${PORTAL_BASE}/worklist/mentions`, () => {
+    const data = portalThreads.filter((t) => mentionedThreadIDs.has(t.id) && !t.deleted_at);
+    return HttpResponse.json({ data, total: data.length, limit: 50, offset: 0 });
+  }),
+
   // Feedback activity feed (#617): threads across the caller's assets,
   // collections, and prompts (not standalone), most recent first, each row
   // enriched with the target's display label so the feed can link back.
@@ -2811,6 +2823,9 @@ export const handlers = [
     if (typeof body.mode === "string") notificationPrefs.mode = body.mode;
     if (typeof body.shares_enabled === "boolean") {
       notificationPrefs.shares_enabled = body.shares_enabled;
+    }
+    if (typeof body.mentions_enabled === "boolean") {
+      notificationPrefs.mentions_enabled = body.mentions_enabled;
     }
     if (typeof body.comments_enabled === "boolean") {
       notificationPrefs.comments_enabled = body.comments_enabled;

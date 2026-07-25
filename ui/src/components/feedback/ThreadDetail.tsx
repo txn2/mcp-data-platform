@@ -12,6 +12,9 @@ import {
 } from "@/api/portal/hooks";
 import type { ThreadEvent, ThreadStatus } from "@/api/portal/types";
 import { useAuthStore } from "@/stores/auth";
+import { MentionText } from "./MentionText";
+import { MentionTextarea } from "./MentionTextarea";
+import { targetOfThread } from "./targetFilter";
 import {
   KIND_CHIP,
   KIND_LABEL,
@@ -53,6 +56,14 @@ function eventSummary(e: ThreadEvent): string | null {
     default:
       return null;
   }
+}
+
+// recordedMentions returns the addresses the server recorded as delivered
+// mentions for an event. Anything else in the body was not delivered and must
+// not render as a chip.
+function recordedMentions(e: ThreadEvent): string[] {
+  const raw = e.metadata?.["mentions"];
+  return Array.isArray(raw) ? raw.filter((m): m is string => typeof m === "string") : [];
 }
 
 // KnowledgeChainPanel surfaces the thread -> insight -> changeset chain (#602):
@@ -262,7 +273,13 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
                 <span className="font-medium text-foreground">{e.author_email}</span>{" "}
                 {summary ?? "commented"} · {formatRelative(e.created_at)}
               </p>
-              {e.body && <p className="mt-0.5 whitespace-pre-wrap">{e.body}</p>}
+              {e.body && (
+                <MentionText
+                  body={e.body}
+                  mentions={recordedMentions(e)}
+                  className="mt-0.5 whitespace-pre-wrap"
+                />
+              )}
             </div>
           );
         })}
@@ -290,12 +307,14 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
 
       {/* Reply box */}
       <form onSubmit={postReply} className="border-t p-3">
-        <textarea
+        <MentionTextarea
+          target={targetOfThread(thread)}
           value={reply}
-          onChange={(e) => setReply(e.target.value)}
+          onChange={setReply}
           rows={2}
-          placeholder="Reply…"
-          className="w-full resize-y rounded-md border bg-background px-2 py-1.5 text-sm"
+          placeholder="Reply… type @ to mention someone"
+          aria-label="Reply"
+          className="resize-y"
         />
         {append.isError && (
           <p className="mt-1 text-xs text-destructive">Failed to post reply.</p>

@@ -16,6 +16,7 @@ type Prefs struct {
 	Mode            string    `json:"mode"`
 	SharesEnabled   bool      `json:"shares_enabled"`
 	CommentsEnabled bool      `json:"comments_enabled"`
+	MentionsEnabled bool      `json:"mentions_enabled"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
@@ -26,6 +27,7 @@ func DefaultPrefs(email string) Prefs {
 		Mode:            ModeImmediate,
 		SharesEnabled:   true,
 		CommentsEnabled: true,
+		MentionsEnabled: true,
 	}
 }
 
@@ -35,6 +37,7 @@ type PrefsUpdate struct {
 	Mode            *string `json:"mode,omitempty"`
 	SharesEnabled   *bool   `json:"shares_enabled,omitempty"`
 	CommentsEnabled *bool   `json:"comments_enabled,omitempty"`
+	MentionsEnabled *bool   `json:"mentions_enabled,omitempty"`
 }
 
 // ValidMode reports whether m is one of the delivery modes.
@@ -65,9 +68,9 @@ func NewPostgresPrefsStore(db *sql.DB) *PostgresPrefsStore {
 func (s *PostgresPrefsStore) Get(ctx context.Context, email string) (Prefs, error) {
 	var p Prefs
 	err := s.db.QueryRowContext(ctx,
-		`SELECT email, mode, shares_enabled, comments_enabled, updated_at
+		`SELECT email, mode, shares_enabled, comments_enabled, mentions_enabled, updated_at
 		 FROM user_notification_prefs WHERE email = $1`, email).
-		Scan(&p.Email, &p.Mode, &p.SharesEnabled, &p.CommentsEnabled, &p.UpdatedAt)
+		Scan(&p.Email, &p.Mode, &p.SharesEnabled, &p.CommentsEnabled, &p.MentionsEnabled, &p.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DefaultPrefs(email), nil
 	}
@@ -93,20 +96,24 @@ func (s *PostgresPrefsStore) Set(ctx context.Context, email string, u PrefsUpdat
 	if u.CommentsEnabled != nil {
 		current.CommentsEnabled = *u.CommentsEnabled
 	}
+	if u.MentionsEnabled != nil {
+		current.MentionsEnabled = *u.MentionsEnabled
+	}
 	if !ValidMode(current.Mode) {
 		return Prefs{}, fmt.Errorf("invalid notification mode %q", current.Mode)
 	}
 
 	err = s.db.QueryRowContext(ctx,
-		`INSERT INTO user_notification_prefs (email, mode, shares_enabled, comments_enabled)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO user_notification_prefs (email, mode, shares_enabled, comments_enabled, mentions_enabled)
+		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (email) DO UPDATE SET
 		   mode = EXCLUDED.mode,
 		   shares_enabled = EXCLUDED.shares_enabled,
 		   comments_enabled = EXCLUDED.comments_enabled,
+		   mentions_enabled = EXCLUDED.mentions_enabled,
 		   updated_at = NOW()
 		 RETURNING updated_at`,
-		email, current.Mode, current.SharesEnabled, current.CommentsEnabled).
+		email, current.Mode, current.SharesEnabled, current.CommentsEnabled, current.MentionsEnabled).
 		Scan(&current.UpdatedAt)
 	if err != nil {
 		return Prefs{}, fmt.Errorf("storing notification prefs: %w", err)

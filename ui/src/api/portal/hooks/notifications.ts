@@ -9,6 +9,7 @@ export interface NotificationPrefs {
   mode: NotificationMode;
   shares_enabled: boolean;
   comments_enabled: boolean;
+  mentions_enabled: boolean;
 }
 
 export function useNotificationPrefs() {

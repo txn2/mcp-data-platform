@@ -19,8 +19,17 @@ func newMockPrefsStore(t *testing.T) (*PostgresPrefsStore, sqlmock.Sqlmock, func
 }
 
 func prefsRows(mode string, shares, comments bool) *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"email", "mode", "shares_enabled", "comments_enabled", "updated_at"}).
-		AddRow("a@b.io", mode, shares, comments, time.Now())
+	return prefsRowsWithMentions(mode, shares, comments, true)
+}
+
+func prefsRowsWithMentions(mode string, shares, comments, mentions bool) *sqlmock.Rows {
+	return sqlmock.NewRows(prefsColumns).
+		AddRow("a@b.io", mode, shares, comments, mentions, time.Now())
+}
+
+// prefsColumns mirrors the stored preference columns, in select order.
+var prefsColumns = []string{
+	"email", "mode", "shares_enabled", "comments_enabled", "mentions_enabled", "updated_at",
 }
 
 func TestDefaultPrefs(t *testing.T) {
@@ -50,7 +59,7 @@ func TestPrefsStore_Get(t *testing.T) {
 	store, mock, done := newMockPrefsStore(t)
 	defer done()
 
-	mock.ExpectQuery("SELECT email, mode, shares_enabled, comments_enabled, updated_at").
+	mock.ExpectQuery("SELECT email, mode, shares_enabled, comments_enabled, mentions_enabled, updated_at").
 		WithArgs("a@b.io").
 		WillReturnRows(prefsRows(ModeDaily, true, false))
 
@@ -67,8 +76,8 @@ func TestPrefsStore_Get_DefaultsWhenAbsent(t *testing.T) {
 	store, mock, done := newMockPrefsStore(t)
 	defer done()
 
-	mock.ExpectQuery("SELECT email, mode, shares_enabled, comments_enabled, updated_at").
-		WillReturnRows(sqlmock.NewRows([]string{"email", "mode", "shares_enabled", "comments_enabled", "updated_at"}))
+	mock.ExpectQuery("SELECT email, mode, shares_enabled, comments_enabled, mentions_enabled, updated_at").
+		WillReturnRows(sqlmock.NewRows(prefsColumns))
 
 	p, err := store.Get(context.Background(), "new@b.io")
 	if err != nil {
@@ -96,10 +105,10 @@ func TestPrefsStore_Set_AppliesOverDefaults(t *testing.T) {
 
 	// No existing row: Set applies the update over the defaults.
 	mock.ExpectQuery("SELECT email, mode").
-		WillReturnRows(sqlmock.NewRows([]string{"email", "mode", "shares_enabled", "comments_enabled", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows(prefsColumns))
 	mode := ModeDaily
 	mock.ExpectQuery("INSERT INTO user_notification_prefs").
-		WithArgs("a@b.io", ModeDaily, true, true).
+		WithArgs("a@b.io", ModeDaily, true, true, true).
 		WillReturnRows(sqlmock.NewRows([]string{"updated_at"}).AddRow(time.Now()))
 
 	p, err := store.Set(context.Background(), "a@b.io", PrefsUpdate{Mode: &mode})
@@ -122,7 +131,7 @@ func TestPrefsStore_Set_PartialUpdatePreservesStored(t *testing.T) {
 		WillReturnRows(prefsRows(ModeDaily, false, true))
 	comments := false
 	mock.ExpectQuery("INSERT INTO user_notification_prefs").
-		WithArgs("a@b.io", ModeDaily, false, false).
+		WithArgs("a@b.io", ModeDaily, false, false, true).
 		WillReturnRows(sqlmock.NewRows([]string{"updated_at"}).AddRow(time.Now()))
 
 	p, err := store.Set(context.Background(), "a@b.io", PrefsUpdate{CommentsEnabled: &comments})

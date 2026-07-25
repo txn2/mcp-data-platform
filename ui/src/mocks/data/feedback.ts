@@ -121,6 +121,7 @@ export const mockThreadEvents: Record<string, ThreadEvent[]> = {
     { id: "evt-a1-1", thread_id: "thr-asset-1", event_type: "comment", author_id: SME, author_email: SME, body: "We call these 'active practitioners', not 'monthly active users'.", created_at: "2026-06-08T15:04:00Z" },
     { id: "evt-a1-2", thread_id: "thr-asset-1", event_type: "comment", author_id: ME, author_email: ME, body: "Good catch, updating the dashboard copy.", created_at: "2026-06-08T17:20:00Z" },
     { id: "evt-a1-3", thread_id: "thr-asset-1", event_type: "comment", author_id: SME, author_email: SME, body: "Thanks — section 2 still has the old term.", created_at: "2026-06-09T09:12:00Z" },
+    { id: "evt-a1-4", thread_id: "thr-asset-1", event_type: "comment", author_id: SME, author_email: SME, body: "@sarah.chen(example.com) can you confirm the wording before we publish?", metadata: { mentions: [ME] }, created_at: "2026-06-09T11:40:00Z" },
   ],
   "thr-asset-2": [
     { id: "evt-a2-1", thread_id: "thr-asset-2", event_type: "comment", author_id: ME, author_email: ME, body: "Which source feeds the revenue column?", created_at: "2026-06-07T11:00:00Z" },
@@ -161,3 +162,7 @@ export const mockThreadChains: Record<
     ],
   },
 };
+
+// mentionedThreadIDs are the threads whose timeline names the signed-in user,
+// which is what the mentions inbox lists (#627).
+export const mentionedThreadIDs = new Set(["thr-asset-1"]);

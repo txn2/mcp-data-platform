@@ -10,6 +10,10 @@ vi.mock("@/api/portal/hooks", () => ({
   useDeleteThread: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
   useRespondValidation: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
   useCaptureThreadInsight: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
+  // The reply box and the timeline resolve mentions through these (#627).
+  useMentionCandidates: vi.fn(() => ({ data: { candidates: [] } })),
+  useMentionEligibility: vi.fn(() => ({})),
+  useDirectoryUsers: vi.fn(() => ({ data: { users: [], total: 0 } })),
 }));
 
 vi.mock("@/stores/auth", () => ({

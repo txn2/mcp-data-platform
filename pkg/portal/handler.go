@@ -31,7 +31,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
-	userdir "github.com/txn2/mcp-data-platform/pkg/user"
 )
 
 // Common error messages, path value keys, and query parameter names.
@@ -158,11 +157,10 @@ type Deps struct {
 	// (pkg/portal/datahubapi.Handler.Register) so the DataHub feature lives in its
 	// own package; nil leaves the /api/v1/portal/datahub/* routes unregistered.
 	DataHubRegistrar func(*http.ServeMux)
-	// UserDirectory is the known-users directory (#614), read by the share
-	// picker so users can pick a teammate instead of typing an email. nil
-	// disables the /api/v1/portal/users endpoint (no database); the share
-	// dialog then falls back to free-typed email only.
-	UserDirectory userdir.Store
+	// MentionResolver filters the @-mentions written in a thread comment to
+	// the people who can open the thread's target (#627). nil disables
+	// mentions (no database): tokens stay ordinary text and notify nobody.
+	MentionResolver MentionResolver
 	// Authenticator resolves a logged-in user from a public (unauthenticated)
 	// request so the public viewer can auto-promote a signed-in viewer to a
 	// derived share. Optional; nil disables auto-promote.
@@ -234,11 +232,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) registerRoutes() {
 	// Authenticated routes
 	h.mux.HandleFunc("GET /api/v1/portal/me", h.getMe)
-	// Known-users directory for the share picker (#614). Readable by any
-	// authenticated user so they can pick a teammate to share with.
-	if h.deps.UserDirectory != nil {
-		h.mux.HandleFunc("GET /api/v1/portal/users", h.listDirectoryUsers)
-	}
 	// Self-scoped notification preferences (#631), registered by the
 	// notification substrate onto the authenticated mux.
 	if h.deps.NotificationRegistrar != nil {

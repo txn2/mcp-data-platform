@@ -292,7 +292,7 @@ func TestDigestEndToEnd(t *testing.T) {
 	defer enq.Close()
 
 	for _, title := range []string{"One", "Two"} {
-		err := enq.Notify(context.Background(), "teammate@example.com", notification.CategoryShare,
+		_, err := enq.Notify(context.Background(), "teammate@example.com", notification.CategoryShare,
 			notification.Payload{Kind: notification.KindAsset, ItemTitle: title, Actor: "owner@example.com"})
 		if err != nil {
 			t.Fatal(err)

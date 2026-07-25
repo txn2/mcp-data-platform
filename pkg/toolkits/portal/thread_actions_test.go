@@ -13,6 +13,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
 )
 
 // --- fakes ------------------------------------------------------------------
@@ -32,8 +33,9 @@ type fakeThreadStore struct {
 	events    []portal.ThreadEvent
 	eventsErr error
 
-	appended  *portal.ThreadEvent
-	appendErr error
+	appended     *portal.ThreadEvent
+	lastAppended *portal.ThreadEvent
+	appendErr    error
 
 	lastUpdate *portal.ThreadUpdate
 	updateErr  error
@@ -63,6 +65,7 @@ func (f *fakeThreadStore) ListEvents(_ context.Context, _ string) ([]portal.Thre
 }
 
 func (f *fakeThreadStore) AppendEvent(_ context.Context, e portal.ThreadEvent) (*portal.ThreadEvent, error) {
+	f.lastAppended = &e
 	if f.appendErr != nil {
 		return nil, f.appendErr
 	}
@@ -454,6 +457,72 @@ func TestHandleReplyThread(t *testing.T) {
 		res, _, _ := tk.handleReplyThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1", Body: "x"})
 		assert.True(t, res.IsError)
 	})
+}
+
+// recordingThreadNotifier captures what an agent-authored reply triggers.
+type recordingThreadNotifier struct {
+	calls     int
+	actor     string
+	body      string
+	mentioned []string
+}
+
+func (*recordingThreadNotifier) NotifyShare(context.Context, *portal.Share, string, string, string) {
+}
+
+func (n *recordingThreadNotifier) NotifyThreadEvent(_ context.Context, _ *portal.Thread, actor, body string, mentioned []string) {
+	n.calls++
+	n.actor, n.body, n.mentioned = actor, body, mentioned
+}
+
+// stubMentions resolves a fixed audience for the reply path.
+type stubMentions struct {
+	eligible      []string
+	gotTargetType string
+	gotTargetID   string
+	gotAuthor     string
+}
+
+func (s *stubMentions) ResolveMentions(_ context.Context, targetType, targetID, _, author string) []string {
+	s.gotTargetType, s.gotTargetID, s.gotAuthor = targetType, targetID, author
+	return s.eligible
+}
+
+// A reply written through the MCP feedback tool must notify the same people a
+// reply written in the portal does, mentions included (#627): before this the
+// agent path fired no notification at all.
+func TestHandleReplyThread_NotifiesAndStampsMentions(t *testing.T) {
+	thread := &portal.Thread{ID: "t1", TargetType: "asset", AssetID: "asset_1"}
+	fts := &fakeThreadStore{getResult: thread}
+	tk := threadToolkit(t, fts, nil)
+	notifier := &recordingThreadNotifier{}
+	mentions := &stubMentions{eligible: []string{"teammate@example.com"}}
+	tk.SetFeedbackNotifications(notifier, mentions)
+
+	res, _, err := tk.handleReplyThread(ownerCtx(),
+		manageFeedbackInput{ThreadID: "t1", Body: "@teammate(example.com) please look"})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+
+	assert.Equal(t, "asset", mentions.gotTargetType)
+	assert.Equal(t, "asset_1", mentions.gotTargetID)
+	assert.Equal(t, ownerEmail, mentions.gotAuthor)
+	require.NotNil(t, fts.lastAppended)
+	assert.Equal(t, []string{"teammate@example.com"}, mention.FromMetadata(fts.lastAppended.Metadata))
+	assert.Equal(t, 1, notifier.calls)
+	assert.Equal(t, ownerEmail, notifier.actor)
+	assert.Equal(t, []string{"teammate@example.com"}, notifier.mentioned)
+}
+
+func TestHandleReplyThread_WithoutNotificationsStillPosts(t *testing.T) {
+	fts := &fakeThreadStore{getResult: &portal.Thread{ID: "t1", TargetType: "asset", AssetID: "asset_1"}}
+	tk := threadToolkit(t, fts, nil)
+
+	res, _, err := tk.handleReplyThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1", Body: "@teammate(example.com) hi"})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	require.NotNil(t, fts.lastAppended)
+	assert.Empty(t, mention.FromMetadata(fts.lastAppended.Metadata))
 }
 
 // --- handleResolveThread / handleRequestValidation --------------------------

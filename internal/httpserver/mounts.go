@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/datahubapi"
+	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -315,8 +316,8 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if ep := p.EmbeddingProvider(); ep != nil {
 		deps.EmbeddingProvider = ep
 	}
-	if us := p.UserStore(); us != nil {
-		deps.UserDirectory = us
+	if aud := mentionAudience(p); aud != nil {
+		deps.MentionResolver = mention.NewService(aud)
 	}
 	if pr := p.PersonaRegistry(); pr != nil {
 		tr := p.ToolkitRegistry()
