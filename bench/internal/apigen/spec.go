@@ -129,11 +129,32 @@ func responsesObject(op Operation) map[string]any {
 	if op.Kind == KindCreate {
 		status = "201"
 	}
-	return map[string]any{
+	responses := map[string]any{
 		status: map[string]any{
 			"description": "Successful response",
 			"content": map[string]any{
 				"application/json": map[string]any{"schema": schema},
+			},
+		},
+	}
+	if op.Forbidden {
+		responses["403"] = forbiddenResponse()
+	}
+	return responses
+}
+
+// forbiddenResponse is the documented 403 on separately entitled areas. It
+// is distinct from a successful empty collection, and the spec says so, so
+// that "nothing provisioned" and "not allowed" are distinguishable from
+// the contract alone.
+func forbiddenResponse() map[string]any {
+	return map[string]any{
+		"description": "The credential is not entitled to this product area. Distinct from a successful response carrying an empty collection, which means the account has none of the resource.",
+		"content": map[string]any{
+			"application/json": map[string]any{
+				"schema": objectSchema([]Field{
+					{Name: "error", Type: "string", Desc: "Human-readable reason the request was refused"},
+				}),
 			},
 		},
 	}

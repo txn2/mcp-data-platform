@@ -1,8 +1,10 @@
-// Command apigen regenerates the API-connection study's committed
-// artifacts (issue #1027): the OpenAPI specs at the three catalog-size
-// tiers and the task set whose ground truths are computed from the seeded
-// fixture state. A determinism test diffs a fresh regeneration against
-// the committed files (the bench/seedgen pattern).
+// Command apigen regenerates the fixture studies' committed artifacts: the
+// API-connection study's OpenAPI specs at the three catalog-size tiers and
+// the task set whose ground truths are computed from the seeded fixture
+// state (issue #1027), plus the perishable-knowledge study's spec, world
+// registry, and resolved fixture data (issue #1054). A determinism test
+// diffs a fresh regeneration against the committed files (the
+// bench/seedgen pattern).
 package main
 
 import (
@@ -15,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/apigen"
+	"github.com/txn2/mcp-data-platform/bench/internal/pkseed"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
 
@@ -28,7 +31,7 @@ func main() {
 	}
 }
 
-// run generates the catalog and writes every artifact.
+// run generates the catalogs and writes every artifact.
 func run(specsDir, tasksDir string) error {
 	c := apigen.BuildCatalog()
 	for tier, name := range apigen.TierNames() {
@@ -44,7 +47,61 @@ func run(specsDir, tasksDir string) error {
 	if err := writeTasks(tasks, tasksDir); err != nil {
 		return err
 	}
-	return writeSmoke(tasks, tasksDir)
+	if err := writeSmoke(tasks, tasksDir); err != nil {
+		return err
+	}
+	return writePerishable(specsDir)
+}
+
+// writePerishable emits the perishable-knowledge study's artifacts
+// (#1054): the spec its connection is registered from, the world-profile
+// registry, and the resolved fixture data every ground truth is computed
+// against. All three are drift-checked, so a generator change that moves a
+// cell's meaning or a series' values cannot land unnoticed.
+func writePerishable(specsDir string) error {
+	raw, err := apigen.BuildPerishableCatalog().SpecJSON(apigen.Tier0)
+	if err != nil {
+		return err
+	}
+	if err := writeFile(filepath.Join(specsDir, apigen.PerishableSpecName+".json"), raw); err != nil {
+		return err
+	}
+	if err := writeJSON(filepath.Join(specsDir, apigen.PerishableSpecName+"-world.json"),
+		map[string]any{"profiles": apigen.WorldProfiles()}); err != nil {
+		return err
+	}
+	if err := writeJSON(filepath.Join(specsDir, apigen.PerishableSpecName+"-fixture.json"), apigen.BuildFixture()); err != nil {
+		return err
+	}
+	return writeSeeds(specsDir)
+}
+
+// writeSeeds emits the frozen seed set: the stored beliefs every cell is
+// delivered, with the RQ2 phrasing factorial composed over the primary
+// one. It validates before writing, so a seed naming a world the fixture
+// does not have never reaches a committed artifact.
+func writeSeeds(specsDir string) error {
+	known := func(name string) bool {
+		_, ok := apigen.WorldByName(name)
+		return ok
+	}
+	if err := pkseed.Validate(known); err != nil {
+		return err
+	}
+	return writeJSON(filepath.Join(specsDir, apigen.PerishableSpecName+"-seeds.json"), map[string]any{
+		"hash":    pkseed.Hash(),
+		"beliefs": pkseed.Beliefs(),
+		"seeds":   pkseed.Seeds(),
+	})
+}
+
+// writeJSON emits one indented JSON artifact.
+func writeJSON(path string, v any) error {
+	raw, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", path, err)
+	}
+	return writeFile(path, append(raw, '\n'))
 }
 
 // writeSmoke emits the deterministic playback script for the scripted
