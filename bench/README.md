@@ -474,6 +474,27 @@ make bench-calibrate              # judge-vs-human agreement rate
 make bench-down
 ```
 
+The perishable-knowledge study (#1054) has its own stack: one arm, the
+perishable fixture surface, and its own database. It needs no DataHub or
+Trino, but it does need `ollama serve` with `nomic-embed-text` for the
+supersede mechanic.
+
+```bash
+make bench-pk-up                  # Postgres + perishable fixture + platform, fixture registered
+make bench-pk-up BENCH_PK_WORLD=monitors-3   # start in a different world
+make bench-pk-corpus REPLICATES=3 MODEL=sonnet   # capture-corpus episodes (claude-cli, no metered cost)
+make bench-pk-down
+```
+
+`bench-pk-up` starts `apisvc -surface perishable`, whose world the harness
+changes between sessions through the fixture control plane rather than by
+restarting. Clear the knowledge store between corpus runs: `bench-pk-corpus`
+refuses to start against pool identities that already hold insights, because
+an agent that finds its own earlier note declines to record it again and the
+run would archive empty episodes as if capture had written nothing. The
+fixture, its worlds, and the frozen seed set are documented in
+`docs/perishable-knowledge-fixture.md`.
+
 The S5 lifecycle protocols run against a booted `a3` arm (which needs the same
 DataHub quickstart as `a2`, plus the memory/knowledge Postgres tables that
 auto-enable):

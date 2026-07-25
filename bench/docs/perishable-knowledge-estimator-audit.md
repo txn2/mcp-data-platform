@@ -5,9 +5,8 @@ of them reopens this audit.**
 
 Protocol invariant 10.1.3 requires that every treatment string be
 estimator-form before any confirmatory run, and that the audited strings be
-committed. This document is that audit for the RQ2 phrasing factorial. The
-RQ3 delivery-metadata strings do not exist yet and get their own audit
-alongside the metadata plumbing (work item 4).
+committed. This document audits both treatment families: the RQ2 phrasing
+factorial (below) and the RQ3 delivery metadata (at the end).
 
 The strings audited here are the composed seeds in
 `bench/specs/pk-seeds.json`, generated from the fragments in
@@ -157,6 +156,53 @@ effect is large, and is moot if it is null. What the study does claim is
 narrower and survives the objection: a note phrased the way this platform
 phrases notes measurably changes whether the next agent checks a belief
 that has gone stale.
+
+## RQ3 delivery metadata
+
+**Status: submitted for review. Not approved.** The RQ2 strings above are
+signed off; this section is not, and no confirmatory RQ3 data may be
+collected until it is.
+
+The enriched arm appends one block to the note. The bare arm appends
+nothing, so the contrast is the block's presence and not some other
+difference (a test asserts the bare arm delivers the prose byte for byte).
+The block reads:
+
+> `[knowledge metadata] volatility: perishable, typically valid for hours
+> to days; observed 2026-06-30 (24 days ago); re-observation cost: 1 call.`
+
+| Field | Estimates | Verdict | Reasoning |
+| --- | --- | --- | --- |
+| `volatility: <class>, <shelf-life gloss>` | the shelf life `tau` of facts of this kind | Estimator-form | A class and a rough shelf life. It does not say this belief is stale, only what kind of fact it is. The gloss exists because a bare class name means nothing to a reader who has not read the study's taxonomy. |
+| `observed <date> (<n> days ago)` | elapsed time since observation | Estimator-form | A date and an age. Both are facts about when, neither is a claim about whether the belief still holds. The age is rendered rather than left as arithmetic against a clock the agent may not have. |
+| `re-observation cost: <n> call(s)` | `c` in the normative model | Estimator-form | States what checking would cost. It does not say to check. This is the same line the RQ2 affordance fragment draws, for the same reason. |
+
+**Nothing states `p`.** A test fails the build if the block ever contains a
+probability, a percentage, "is stale", "out of date", "no longer accurate",
+or "likely wrong". Delivering any of those would reduce the threshold
+comparison `p > c/L` to reading rather than estimating, which is the
+degenerate case the protocol's partial-estimator invariant exists to
+prevent.
+
+**Both arms are audited, not just the prose.** `AuditDelivered` is the
+single rule the build gates on, and the seed tests run it over every seed
+in both arms, so an invariant cannot be satisfied by the prose and then
+broken by the block bolted onto it.
+
+**Design decision, flagged for the reviewer.** RQ3's metadata contrast runs
+on the neutral phrasing cell rather than crossed with all eight RQ2 cells.
+Two reasons: crossing them would put the cost estimator in the note twice
+whenever the affordance factor and the metadata block are both on, which
+makes neither treatment interpretable; and a full cross is sixteen
+phrasing-by-metadata cells before any world or task variation. The
+interaction that is genuinely interesting — whether a machine-derived cost
+estimate lands differently from the same fact in captured prose — is named
+here as an exploratory contrast, not a confirmatory one.
+
+**Reviewer decision (to be recorded here before any confirmatory RQ3 run):**
+
+- [ ] Admit the metadata block as audited, on the neutral phrasing cell.
+- [ ] Require changes (state them).
 
 ## Provenance, and what the corpus actually showed
 

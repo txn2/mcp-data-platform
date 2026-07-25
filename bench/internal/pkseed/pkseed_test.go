@@ -104,15 +104,10 @@ func TestFactorsAreIndependent(t *testing.T) {
 // measured action is the manipulation H2 exists to measure, and it makes
 // the correct behavior harder to reach rather than recoverable by reading.
 func TestNoFragmentCommandsTheMeasuredAction(t *testing.T) {
-	commands := []string{
-		"verify", "re-verify", "recheck", "re-check", "check again", "confirm",
-		"you should call", "make sure to call", "always call", "re-run",
-	}
 	for _, s := range Seeds() {
-		lower := strings.ToLower(s.Text)
-		for _, c := range commands {
-			if strings.Contains(lower, c) {
-				t.Errorf("seed %s contains %q, which commands the measured action", s.ID, c)
+		for _, arm := range deliveryArms() {
+			if found := AuditDelivered(Delivered(s, arm.meta)); len(found) > 0 {
+				t.Errorf("seed %s (%s arm) violates the delivery invariants: %v", s.ID, arm.name, found)
 			}
 		}
 	}
@@ -127,6 +122,26 @@ func TestNoFragmentCommandsTheMeasuredAction(t *testing.T) {
 	sup := strings.ToLower(perishableAbsent().Suppression)
 	if !strings.Contains(sup, "do not re-attempt") {
 		t.Errorf("the suppression fragment is no longer suppressive: %q", sup)
+	}
+}
+
+// deliveryArms returns the metadata arms every delivered string is audited
+// under, so an invariant cannot be satisfied by the prose and broken by the
+// block bolted onto it.
+func deliveryArms() []struct {
+	name string
+	meta Metadata
+} {
+	return []struct {
+		name string
+		meta Metadata
+	}{
+		{"bare", Metadata{}},
+		{"enriched", Metadata{
+			Enriched: true, AsOf: CaptureDate(),
+			Now:          CaptureDate().AddDate(0, 0, 24),
+			RecheckCalls: 1,
+		}},
 	}
 }
 
@@ -233,16 +248,12 @@ func TestHashIsStable(t *testing.T) {
 // to re-attempt, and it may not tell the reader that re-attempting could
 // never succeed.
 func TestNoFragmentAssertsPermanence(t *testing.T) {
-	permanence := []string{
-		"never", "will always", "permanent", "for good", "cannot ever",
-		"no longer possible", "will not change", "there will be no",
-		"any other period", "indefinitely", "forever",
-	}
-	for _, s := range Seeds() {
-		lower := strings.ToLower(s.Text)
-		for _, p := range permanence {
-			if strings.Contains(lower, p) {
-				t.Errorf("seed %s contains %q, which claims the state is settled beyond the moment observed", s.ID, p)
+	for _, p := range permanenceWords {
+		for _, s := range Seeds() {
+			for _, arm := range deliveryArms() {
+				if strings.Contains(strings.ToLower(Delivered(s, arm.meta)), p) {
+					t.Errorf("seed %s (%s arm) contains %q, which claims the state is settled beyond the moment observed", s.ID, arm.name, p)
+				}
 			}
 		}
 	}
