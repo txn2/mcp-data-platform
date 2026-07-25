@@ -1,5 +1,5 @@
 ---
-description: Why DataHub, Trino, and S3 form the foundation of mcp-data-platform. What each component does, why it was chosen, and how cross-enrichment wires them together.
+description: Why DataHub, Trino, and S3 are the stack cross-enrichment composes. What each component does, why it was chosen, and how cross-enrichment wires them together.
 ---
 
 # The Data Stack: DataHub + Trino + S3
@@ -11,6 +11,8 @@ Modern data platforms need three things:
 3. **Storage** - Where does it live?
 
 mcp-data-platform uses DataHub for meaning, Trino for access, and S3 for storage. Cross-enrichment wires them together so responses from one include context from the others.
+
+This page explains the stack cross-enrichment composes, and why each piece was chosen. It is not a list of prerequisites: a deployment can attach any subset, including none of the three. [Deployment Shapes](../server/deployment-shapes.md) covers what you get in each case.
 
 ---
 
@@ -281,7 +283,17 @@ graph TB
     Enrich --> Client
 ```
 
-The platform acts as a bridge, intercepting requests and responses to inject context from complementary services. Your AI assistant sees a unified view without knowing the complexity underneath.
+The platform acts as a bridge, intercepting requests and responses to add context from complementary services. Your AI assistant sees a unified view without knowing the complexity underneath.
+
+---
+
+## Without This Stack
+
+Every component above is optional. With no DataHub, Trino, or S3 configured, the semantic, query, and storage providers resolve to noops and the platform starts normally. What remains is the database-backed half: the API and MCP gateways, the knowledge layer, the memory layer, the portal, and `search`/`fetch` over all of them. That deployment needs PostgreSQL and nothing else.
+
+What it gives up is this page's subject matter. There is no catalog to draw meaning from, so responses carry only what the called service returned.
+
+See [Deployment Shapes](../server/deployment-shapes.md) for the configuration and the full list of what each shape includes.
 
 ---
 

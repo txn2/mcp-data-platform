@@ -149,3 +149,23 @@ func (*NoopDataHubWriter) DeleteContextDocument(_ context.Context, _ string) err
 
 // Verify interface compliance.
 var _ DataHubWriter = (*NoopDataHubWriter)(nil)
+
+// noDataHubConfigured opens every refusal raised by an unresolvable DataHub
+// connection, so the apply and rollback paths state the same condition.
+const noDataHubConfigured = "no DataHub connection is configured"
+
+// datahubWritable reports whether w reaches a real DataHub instance. A nil writer
+// and NoopDataHubWriter (substituted whenever no DataHub connection resolves) do
+// not: their writes return nil having reached no system. Write paths must refuse
+// on false rather than report a success that persisted nothing.
+//
+// This asks the concrete type rather than the interface because DataHubWriter is
+// exported: adding a capability method would break external implementations. The
+// noop type already exists to mean "no DataHub", so identifying it is the question.
+func datahubWritable(w DataHubWriter) bool {
+	if w == nil {
+		return false
+	}
+	_, noop := w.(*NoopDataHubWriter)
+	return !noop
+}

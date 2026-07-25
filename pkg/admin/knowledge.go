@@ -375,6 +375,10 @@ func writeRollbackError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, knowledge.ErrChangesetAlreadyRolledBack):
 		writeError(w, http.StatusConflict, "changeset already rolled back")
+	// A missing DataHub connection is a deployment precondition, not a server
+	// fault, and matches the 409 the other backend-dependent endpoints return.
+	case errors.Is(err, knowledge.ErrDataHubUnavailable):
+		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &conflict):
 		writeError(w, http.StatusConflict, conflict.Error())
 	case errors.As(err, &pageEdited):
