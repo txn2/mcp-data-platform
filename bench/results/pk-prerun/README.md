@@ -49,3 +49,7 @@ the note already supplied the answer and checking was optional. Agents
 checked in 16 of 16 attempts, several noting explicitly that the result
 matched the stored note. The 95% Wilson interval on that rate is
 [0.81, 1.00].
+
+## Cross-model replication (2026-07-25)
+
+`pk-prerun-haiku-20260725-151617` (claude-cli, haiku): the same two cells on the weaker tier. Fresh cell: verified 5/8, trusted 3/8, correct 7/8. Stale cell: verified 7/8, trusted 1/8 (the trusting attempt produced the wrong refusal), correct 6/8. Read with the haiku answer sweep, haiku's trust is shaped by what the note offers rather than blanket: it trusts notes that hand it an answer (29/32 there) but mostly still probes when a note asserts unavailability and the task demands data (7/8 here). The direction that would expose haiku hardest — a stale answer-bearing note, where its trust would produce a confidently wrong value — is not yet run.

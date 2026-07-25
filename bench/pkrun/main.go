@@ -27,22 +27,23 @@ func main() {
 		credential  = flag.String("credential", "", "admin API key (Bearer)")
 		fixtureURL  = flag.String("fixture-url", "http://127.0.0.1:8112", "perishable fixture control-plane base URL")
 		fixtureKey  = flag.String("fixture-key", "", "fixture X-API-Key")
-		model       = flag.String("model", "sonnet", "claude-cli model alias or id")
-		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep, answersweep")
+		model       = flag.String("model", "sonnet", "model alias or id (claude-cli alias, or full id with -llm anthropic)")
+		llmKind     = flag.String("llm", "claude-cli", "episode driver: claude-cli (subscription, default) or anthropic (raw API, metered)")
+		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep, answersweep, bridge")
 		k           = flag.Int("k", 8, "replicates per cell")
 		identityKey = flag.Int("identity-keys", 150, "configured identity pool size")
 		out         = flag.String("out", "", "output directory (required)")
 		gitCommit   = flag.String("git-commit", "", "git commit recorded in the manifest")
 	)
 	flag.Parse()
-	if err := run(*url, *credential, *fixtureURL, *fixtureKey, *model, *cellSet, *out, *gitCommit, *k, *identityKey); err != nil {
+	if err := run(*url, *credential, *fixtureURL, *fixtureKey, *model, *cellSet, *out, *gitCommit, *llmKind, *k, *identityKey); err != nil {
 		fmt.Fprintln(os.Stderr, "pkrun:", err)
 		os.Exit(1)
 	}
 }
 
 // run wires the clients and executes the cell set.
-func run(url, credential, fixtureURL, fixtureKey, model, cellSet, out, gitCommit string, k, identityKeys int) error {
+func run(url, credential, fixtureURL, fixtureKey, model, cellSet, out, gitCommit, llmKind string, k, identityKeys int) error {
 	if out == "" {
 		return errors.New("-out is required")
 	}
@@ -51,14 +52,10 @@ func run(url, credential, fixtureURL, fixtureKey, model, cellSet, out, gitCommit
 		return err
 	}
 	tgt := target.Target{BaseURL: url, Credential: credential}
-	runner, err := claudecli.New(claudecli.Options{Model: model})
+	ctx := context.Background()
+	runner, version, err := buildRunner(ctx, llmKind, model)
 	if err != nil {
 		return err
-	}
-	ctx := context.Background()
-	version, err := runner.Version(ctx)
-	if err != nil {
-		return fmt.Errorf("claude --version: %w", err)
 	}
 	insights := lifecycleapi.New(url, tgt.HTTPClient(30*time.Second))
 	res, runErr := pkrun.Run(ctx, pkrun.Options{
@@ -82,6 +79,29 @@ func run(url, credential, fixtureURL, fixtureKey, model, cellSet, out, gitCommit
 	return runErr
 }
 
+// buildRunner constructs the episode driver. The claude-cli path records
+// the client version in the manifest; the raw-API path has no client to
+// version, which is the point of running it.
+func buildRunner(ctx context.Context, llmKind, model string) (pkrun.EpisodeRunner, string, error) {
+	switch llmKind {
+	case "claude-cli":
+		runner, err := claudecli.New(claudecli.Options{Model: model})
+		if err != nil {
+			return nil, "", err
+		}
+		version, err := runner.Version(ctx)
+		if err != nil {
+			return nil, "", fmt.Errorf("claude --version: %w", err)
+		}
+		return runner, version, nil
+	case "anthropic":
+		runner, err := pkrun.NewLoopRunner(model, 120*time.Second)
+		return runner, "", err
+	default:
+		return nil, "", fmt.Errorf("unknown -llm %q", llmKind)
+	}
+}
+
 // selectCells resolves the named cell set and whether it is exploratory.
 func selectCells(name string) ([]pkcell.Cell, bool, error) {
 	switch name {
@@ -93,6 +113,9 @@ func selectCells(name string) ([]pkcell.Cell, bool, error) {
 		return cells, true, err
 	case "answersweep":
 		cells, err := pkcell.AnswerSweepCells()
+		return cells, true, err
+	case "bridge":
+		cells, err := pkcell.BridgeProbeCells()
 		return cells, true, err
 	default:
 		return nil, false, fmt.Errorf("unknown cell set %q", name)

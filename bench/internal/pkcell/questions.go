@@ -44,6 +44,11 @@ type Question struct {
 	// one provisioned monitor. Together these make answerability a
 	// function of the world rather than a label on the cell.
 	NeedsMonitors bool `json:"needs_monitors"`
+	// RequiresBelief is true when the question turns on a convention the
+	// world does not state, so it is answerable only when the convention
+	// was delivered. This is the derivability axis: for every other
+	// question the world is sufficient, and for this one it cannot be.
+	RequiresBelief bool `json:"requires_belief"`
 }
 
 // A per-question tool-call budget used to live here. It was removed rather
@@ -80,6 +85,18 @@ func Questions() []Question {
 			// NOT answerable behind a 403: an unentitled credential cannot
 			// count what it cannot see.
 			Separates: SeparatesAccuracy, NeedsListening: true,
+		},
+		{
+			ID: "positive-coverage-days", BeliefID: "coverage-convention",
+			Prompt: "How many days between 1 June and 28 June 2026 counted as positive coverage " +
+				"for ACME's 'Brand mentions' listening monitor?",
+			// The derivability bridge. The trend data is one call away, but
+			// the threshold that defines positive coverage exists only in
+			// the delivered convention, so the answer is reachable only by
+			// combining work the agent can do with testimony it cannot
+			// re-derive. Nearby thresholds all yield different day counts,
+			// so the stated answer betrays which threshold was used.
+			Separates: SeparatesAccuracy, NeedsListening: true, NeedsMonitors: true, RequiresBelief: true,
 		},
 		{
 			ID: "weekly-impressions", BeliefID: "durable-granularity",

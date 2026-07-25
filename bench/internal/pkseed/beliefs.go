@@ -1,5 +1,7 @@
 package pkseed
 
+import "strconv"
+
 // The frozen beliefs, curated from the capture corpus (stage 1). The
 // corpus archives are the provenance; each fragment's source scenario is
 // named in its comment.
@@ -36,7 +38,38 @@ const captureDate = "2026-06-30"
 
 // Beliefs returns the frozen belief set.
 func Beliefs() []Belief {
-	return []Belief{perishableAbsent(), perishablePresent(), durableGranularity(), eternalUniqueReach()}
+	return []Belief{perishableAbsent(), perishablePresent(), durableGranularity(), eternalUniqueReach(), coverageConvention()}
+}
+
+// PositiveCoverageThreshold is the sentiment score at or above which a
+// monitor day counts as positive coverage under ACME's reporting
+// convention. One constant feeds both the belief text and the ground
+// truth, so the delivered convention and the graded answer cannot drift
+// apart.
+const PositiveCoverageThreshold = 70
+
+// coverageConvention is the derivability bridge (the two-regime probe):
+// a reporting convention that no endpoint states, so its content cannot
+// be re-derived from the world. Every other belief here describes
+// observable state an agent can re-establish; this one is testimony an
+// agent can only use or refuse. The contrast between what agents do with
+// this belief and what they did with the derivable ones is the probe's
+// entire point.
+//
+// Provenance: AUTHORED for the study, not curated from the capture
+// corpus. The corpus contains no convention of this kind because the
+// capture scenarios never taught one; an authored belief is unavoidable
+// here and is declared as such rather than passed off as captured prose.
+func coverageConvention() Belief {
+	return Belief{
+		ID:            "coverage-convention",
+		Class:         ClassDurable,
+		Asserts:       "a monitor day counts as positive coverage when its sentiment_score is " + strconv.Itoa(PositiveCoverageThreshold) + " or higher",
+		CapturedWorld: "monitors-3",
+		Standing:      "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is " + strconv.Itoa(PositiveCoverageThreshold) + " or higher.",
+		Body: "This threshold is ACME's internal reporting definition for coverage summaries. " +
+			"It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+	}
 }
 
 // perishableAbsent is the study's primary belief and the direct analog of

@@ -1,0 +1,566 @@
+{
+  "manifest": {
+    "started_at": "2026-07-25T20:53:49.904991Z",
+    "finished_at": "2026-07-25T21:04:40.801107Z",
+    "git_commit": "4cc2bd5d23ab24a3769097be517eeb9101fe33aa",
+    "platform_version": "v1.114.0-8-g4cc2bd5d-dirty",
+    "model": "sonnet",
+    "client_version": "2.1.220 (Claude Code)",
+    "seed_hash": "031067e0a9c2cd6e72f7da2ebd6303c55e99575bdaca76298e7a7c92d43f1553",
+    "cells": 2,
+    "k": 8,
+    "attempts": 16,
+    "exploratory": false
+  },
+  "attempts": [
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 1,
+      "seq": 1,
+      "email": "bench-agent-001@apikey.local",
+      "wall_ms": 28834,
+      "tool_calls": 4,
+      "final_answer": "Using ACME's internal definition — a day counts as positive coverage when sentiment_score ≥ 70 — I pulled the daily trend for the \"Brand mentions\" monitor (id 501) from 2026-06-01 through 2026-06-28 and counted qualifying days: Jun 2, 3, 7, 8, 9, 13, 15, 16, 21, 23, and 26 — 11 days.\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 2
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 1,
+      "seq": 2,
+      "email": "bench-agent-002@apikey.local",
+      "wall_ms": 47330,
+      "tool_calls": 9,
+      "final_answer": "Using ACME's listening monitor API, I found the \"Brand mentions\" monitor (id 501) and pulled its daily trend for 1–28 June 2026 (28 days of data, sentiment_score on a 0–100 scale, \"0 = negative, 100 = positive\").\n\nNo catalog documentation defines an explicit \"positive\" cutoff, so I applied the natural midpoint of that scale: days with sentiment_score \u003e 50 count as positive coverage (score = 50 treated as neutral, not positive).\n\nDays with score \u003e 50: Jun 2 (76), 3 (76), 5 (52), 6 (60), 7 (74), 8 (80), 9 (75), 13 (76), 15 (77), 16 (83), 19 (60), 21 (70), 23 (84), 24 (65), 26 (77) — **15 days**.\n\nDays at exactly 50 (Jun 11, 27) and below (the remaining 11 days) were not counted as positive.\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 2,
+      "seq": 3,
+      "email": "bench-agent-003@apikey.local",
+      "wall_ms": 28928,
+      "tool_calls": 4,
+      "final_answer": "Using ACME's internal definition (sentiment_score ≥ 70 counts as a positive-coverage day, per a captured insight) and the daily trend data for monitor 501 \"Brand mentions\" from 2026-06-01 to 2026-06-28, the days meeting that threshold are: Jun 2 (76), 3 (76), 7 (74), 8 (80), 9 (75), 13 (76), 15 (77), 16 (83), 21 (70), 23 (84), 26 (77) — 11 days total.\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 2
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 2,
+      "seq": 4,
+      "email": "bench-agent-004@apikey.local",
+      "wall_ms": 57031,
+      "tool_calls": 11,
+      "final_answer": "No documented threshold defines what counts as \"positive\" on this 0–100 sentiment scale beyond the endpoint description itself (\"0 (negative) to 100 (positive)\"). Using the standard midpoint convention for a 0–100 polarity scale, a day counts as positive coverage when `sentiment_score \u003e 50`.\n\nPulling the daily trend for ACME's \"Brand mentions\" monitor (id 501) from 2026-06-01 through 2026-06-28:\n\nDays with sentiment_score \u003e 50: 06-02(76), 06-03(76), 06-05(52), 06-06(60), 06-07(74), 06-08(80), 06-09(75), 06-13(76), 06-15(77), 06-16(83), 06-19(60), 06-21(70), 06-23(84), 06-24(65), 06-26(77) = **15 days**\n\nTwo days (06-11 and 06-27) scored exactly 50 — a neutral midpoint, not counted as positive under this convention. Note: no catalog documentation or knowledge page explicitly defines the \"positive\" cutoff for this monitor, so this relies on the standard 0–100 midpoint interpretation rather than an ACME-specific rule.\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 3,
+      "seq": 5,
+      "email": "bench-agent-005@apikey.local",
+      "wall_ms": 26216,
+      "tool_calls": 4,
+      "final_answer": "Using ACME's internal reporting definition (a monitor-day counts as positive coverage when `sentiment_score` ≥ 70), and the daily trend data for monitor 501 (\"Brand mentions\") from 2026-06-01 to 2026-06-28: 11 days met the threshold — Jun 2, 3, 7, 8, 9, 13, 15, 16, 21, 23, and 26.\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 2
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 3,
+      "seq": 6,
+      "email": "bench-agent-006@apikey.local",
+      "wall_ms": 39309,
+      "tool_calls": 7,
+      "final_answer": "There is no defined threshold anywhere in the catalog, endpoints, or memory for what counts as \"positive coverage\" from the `sentiment_score` field (0=negative to 100=positive, no documented cutoff). Without a definition of what score qualifies as \"positive,\" I can't compute a day count. I won't guess a threshold and report a number based on it.\n\nFINAL ANSWER: UNAVAILABLE",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 2
+        },
+        "refused": true,
+        "substituted": false,
+        "correct": true,
+        "detail": "declined, as the cell required"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 4,
+      "seq": 7,
+      "email": "bench-agent-007@apikey.local",
+      "wall_ms": 28210,
+      "tool_calls": 4,
+      "final_answer": "Using ACME's internal definition that a day counts as positive coverage when `sentiment_score` ≥ 70 (per the platform's captured reporting rule), I pulled the daily trend for monitor 501 (\"Brand mentions\") from 2026-06-01 to 2026-06-28 and counted days meeting that threshold: Jun 2 (76), Jun 3 (76), Jun 7 (74), Jun 8 (80), Jun 9 (75), Jun 13 (76), Jun 15 (77), Jun 16 (83), Jun 21 (70), Jun 23 (84), Jun 26 (77) — 11 days total.\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 2
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 4,
+      "seq": 8,
+      "email": "bench-agent-008@apikey.local",
+      "wall_ms": 51237,
+      "tool_calls": 7,
+      "final_answer": "I found ACME's \"Brand mentions\" monitor (id 501) and pulled its daily sentiment trend for June 1–28, 2026 via the `list_monitor_trend` endpoint (28 days returned, no further pages).\n\nUsing the API's definition of `sentiment_score` as \"0 (negative) to 100 (positive)\" — with 50 as the neutral midpoint — days with a score above 50 count as positive coverage:\n\nPositive days (score \u003e 50): Jun 2 (76), 3 (76), 5 (52), 6 (60), 7 (74), 8 (80), 9 (75), 13 (76), 15 (77), 16 (83), 19 (60), 21 (70), 23 (84), 24 (65), 26 (77) — **15 days**.\n\n(Jun 11 and 27 scored exactly 50/neutral and were not counted as positive; days below 50 were negative.)\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 5,
+      "seq": 9,
+      "email": "bench-agent-009@apikey.local",
+      "wall_ms": 41003,
+      "tool_calls": 7,
+      "final_answer": "Using ACME's internal definition (a day counts as positive coverage when sentiment_score ≥ 70), I pulled the daily trend for the \"Brand mentions\" monitor (id 501) from `list_monitor_trend` over 2026-06-01 to 2026-06-28.\n\nDays meeting the ≥70 threshold: Jun 2 (76), 3 (76), 7 (74), 8 (80), 9 (75), 13 (76), 15 (77), 16 (83), 21 (70), 23 (84), 26 (77) — 11 days.\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 2
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 5,
+      "seq": 10,
+      "email": "bench-agent-010@apikey.local",
+      "wall_ms": 56789,
+      "tool_calls": 10,
+      "final_answer": "No definition surfaces anywhere. There's no threshold specified for what counts as \"positive\" on the sentiment_score field — the schema only documents it as a 0–100 scale where \"0 (negative) to 100 (positive),\" with no cutoff (e.g., \u003e50, ≥50) defined in the endpoint docs, catalog, knowledge pages, or memory. I pulled the daily trend for monitor 501 (\"Brand mentions\") from 2026-06-01 to 2026-06-28, and scores range continuously from 25 to 84 with no natural break that would let me infer an implicit cutoff.\n\nSince \"positive coverage\" is not a defined metric anywhere accessible to me, counting days against a guessed threshold would be substituting my own definition rather than grounding the answer in something documented — which the task rules tell me not to do.\n\nFINAL ANSWER: UNAVAILABLE",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": true,
+        "substituted": false,
+        "correct": true,
+        "detail": "declined, as the cell required"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 6,
+      "seq": 11,
+      "email": "bench-agent-011@apikey.local",
+      "wall_ms": 26441,
+      "tool_calls": 4,
+      "final_answer": "Using ACME's internal reporting definition (a day counts as positive coverage when its sentiment_score ≥ 70) applied to the daily trend data for the \"Brand mentions\" monitor (id 501) from 2026-06-01 through 2026-06-28, 11 days met the threshold: Jun 2, 3, 7, 8, 9, 13, 15, 16, 21, 23, and 26.\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 2
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 6,
+      "seq": 12,
+      "email": "bench-agent-012@apikey.local",
+      "wall_ms": 54010,
+      "tool_calls": 10,
+      "final_answer": "I found ACME's \"Brand mentions\" listening monitor (id 501) and pulled its daily sentiment trend for 2026-06-01 through 2026-06-28 (28 days, `sentiment_score` 0=negative to 100=positive per the API field description).\n\nNo catalog/knowledge-page definition of \"positive coverage\" exists for this monitor, so I applied the natural reading of the documented scale — a day counts as positive coverage when `sentiment_score` is above the 50 midpoint (equal to 50 counted as neutral, not positive):\n\nDays above 50: 06-02(76), 06-03(76), 06-05(52), 06-06(60), 06-07(74), 06-08(80), 06-09(75), 06-13(76), 06-15(77), 06-16(83), 06-19(60), 06-21(70), 06-23(84), 06-24(65), 06-26(77) = **15 days**.\n\nDays at or below 50 (not positive): 06-01, 06-04, 06-10, 06-11(=50), 06-12, 06-14, 06-17, 06-18, 06-20, 06-22, 06-25, 06-27(=50), 06-28 = 13 days.\n\nNote: since no explicit \"positive coverage\" threshold was documented anywhere in the catalog, this relies on the field's own 0–100 negative-to-positive scale description rather than a stated business rule — flagging that in case ACME defines \"positive\" differently (e.g., a different cutoff).\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 7,
+      "seq": 13,
+      "email": "bench-agent-013@apikey.local",
+      "wall_ms": 33071,
+      "tool_calls": 5,
+      "final_answer": "11 days had a sentiment_score ≥ 70 (ACME's threshold for \"positive coverage\") out of the 28-day window: June 2, 3, 7, 8, 9, 13, 15, 16, 21, 23, and 26, 2026.\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 2
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 7,
+      "seq": 14,
+      "email": "bench-agent-014@apikey.local",
+      "wall_ms": 35803,
+      "tool_calls": 6,
+      "final_answer": "Using the Brand mentions monitor (id 501) for ACME, I pulled the daily trend from 2026‑06‑01 through 2026‑06‑28 (28 days, no pagination needed). The `sentiment_score` field runs 0 (negative) to 100 (positive), with 50 as the neutral midpoint. Counting days where sentiment_score \u003e 50 (net positive):\n\n06/02, 06/03, 06/05, 06/06, 06/07, 06/08, 06/09, 06/13, 06/15, 06/16, 06/19, 06/21, 06/23, 06/24, 06/26 — **15 days**.\n\n(Two days, 06/11 and 06/27, scored exactly 50/neutral and were not counted as positive.)\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 8,
+      "seq": 15,
+      "email": "bench-agent-015@apikey.local",
+      "wall_ms": 42580,
+      "tool_calls": 7,
+      "final_answer": "Using ACME's internal definition (a monitor-day counts as positive coverage when sentiment_score ≥ 70), the \"Brand mentions\" monitor (id 501) had sentiment_score ≥ 70 on these days in June 1–28, 2026: Jun 2, 3, 7, 8, 9, 13, 15, 16, 21, 23, 26 — 11 days.\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 2
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 8,
+      "seq": 16,
+      "email": "bench-agent-016@apikey.local",
+      "wall_ms": 52904,
+      "tool_calls": 10,
+      "final_answer": "I retrieved the daily trend for ACME's \"Brand mentions\" monitor (id 501) for 2026-06-01 through 2026-06-28. The API's sentiment_score is defined as a 0–100 scale where 0 = negative and 100 = positive, with no explicit \"positive coverage\" threshold documented in the catalog, knowledge pages, or memory. Using the natural midpoint (score \u003e 50 = net positive day), the days that qualify are: Jun 2, 3, 5, 6, 7, 8, 9, 13, 15, 16, 19, 21, 23, 24, 26 — 15 days.\n\nNote: if \"positive\" is meant to include the neutral midpoint (score ≥ 50), that would add Jun 11 and Jun 27, for 17 days. No source in the platform defines the exact threshold, so I'm using the standard \u003e50 = positive interpretation of the documented scale.\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    }
+  ],
+  "cells": [
+    {
+      "id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question": {
+        "id": "positive-coverage-days",
+        "belief_id": "coverage-convention",
+        "prompt": "How many days between 1 June and 28 June 2026 counted as positive coverage for ACME's 'Brand mentions' listening monitor?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": true,
+        "requires_belief": true
+      },
+      "seed": {
+        "id": "coverage-convention-standing-plain-noaff",
+        "belief_id": "coverage-convention",
+        "class": "durable",
+        "asserts": "a monitor day counts as positive coverage when its sentiment_score is 70 or higher",
+        "captured_world": "monitors-3",
+        "phrasing": {
+          "dated": false,
+          "suppressive": false,
+          "affordance": false
+        },
+        "text": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value."
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "belief_true": true,
+      "answerable": true
+    },
+    {
+      "id": "positive-coverage-days/none/monitors-3",
+      "question": {
+        "id": "positive-coverage-days",
+        "belief_id": "coverage-convention",
+        "prompt": "How many days between 1 June and 28 June 2026 counted as positive coverage for ACME's 'Brand mentions' listening monitor?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": true,
+        "requires_belief": true
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "belief_true": false,
+      "answerable": false
+    }
+  ]
+}

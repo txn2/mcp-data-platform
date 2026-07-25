@@ -1,0 +1,55 @@
+[
+  {
+    "role": "user",
+    "text": "How many listening monitors does ACME have provisioned?"
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0185stkvKoxyoMbPFKQvVnXC",
+        "name": "search",
+        "args": {
+          "intent": "ACME listening monitors provisioned"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0185stkvKoxyoMbPFKQvVnXC",
+        "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /insights/monitors\\nList the listening monitors provisioned on the account.\",\n          \"source\": \"endpoints\",\n          \"ref\": \"acme:list_monitors\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /insights/monitors/{id}\\nFetch one listening monitor by id.\",\n          \"source\": \"endpoints\",\n          \"ref\": \"acme:get_monitor\",\n          \"score\": 0.1617299981290902\n        },\n        {\n          \"text\": \"GET /insights/monitors/{id}/trend\\nList one monitor's daily volume and sentiment over a reporting window.\",\n          \"source\": \"endpoints\",\n          \"ref\": \"acme:list_monitor_trend\",\n          \"score\": 0.08328353633591475\n        },\n        {\n          \"text\": \"GET /crm/contacts\\nList crm contacts with optional filters and cursor pagination.\",\n          \"source\": \"endpoints\",\n          \"ref\": \"acme:list_crm_contacts\",\n          \"score\": 0.04336225557436132\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:f23201b7-bd0a-4dc0-8e7a-1b43e4e31fc9\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.8839698948366187,\n          \"reference\": \"mcp:prompt:e02a7324-b894-4708-8df8-0d278c894503\"\n        },\n        {\n          \"text\": \"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\n          \"source\": \"prompts\",\n          \"ref\": \"save-this-as-an-asset\",\n          \"score\": 0.25782139191661374,\n          \"reference\": \"mcp:prompt:de16e3d6-406a-43f4-98d7-c727148f6b88\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.2418669348455946,\n          \"reference\": \"mcp:prompt:197df81e-d301-4607-b07e-7d7bcaad1fd9\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"acme (api)\\nhttp://127.0.0.1:8112\",\n          \"source\": \"connections\",\n          \"ref\": \"acme\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,acme)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \\\"Brand mentions\\\" and monitor 503 \\\"Product launch\\\" track ACME's own brand; monitor 502 \\\"Competitor watch\\\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).\",\n          \"source\": \"insights\",\n          \"ref\": \"4a6f4f8fbbdaa2b1e850de9364d1cdfa\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"captured_by\": \"bench-agent-037@apikey.local\",\n          \"reference\": \"mcp:insight:4a6f4f8fbbdaa2b1e850de9364d1cdfa\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 5,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01PJyaQMEqa2FDZxPHZMi3nc",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01PJyaQMEqa2FDZxPHZMi3nc",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"412\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": [\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 501,\n        \"keywords\": \"acme, acme corp, @acmehq\",\n        \"name\": \"Brand mentions\",\n        \"workspace_id\": 601\n      },\n      {\n        \"created_at\": \"2026-01-12T00:00:00Z\",\n        \"id\": 502,\n        \"keywords\": \"northwind, globex, initech\",\n        \"name\": \"Competitor watch\",\n        \"workspace_id\": 602\n      },\n      {\n        \"created_at\": \"2026-01-19T00:00:00Z\",\n        \"id\": 503,\n        \"keywords\": \"acme atlas, atlas launch, #acmeatlas\",\n        \"name\": \"Product launch\",\n        \"workspace_id\": 601\n      }\n    ]\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "The API confirms ACME has 3 listening monitors provisioned across two workspaces:\n- 501 \"Brand mentions\" (workspace 601)\n- 502 \"Competitor watch\" (workspace 602)\n- 503 \"Product launch\" (workspace 601)\n\nFINAL ANSWER: 3"
+  }
+]

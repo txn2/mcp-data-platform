@@ -1,0 +1,1696 @@
+{
+  "manifest": {
+    "started_at": "2026-07-25T22:34:43.85953Z",
+    "finished_at": "2026-07-25T22:46:47.861939Z",
+    "git_commit": "4cc2bd5d23ab24a3769097be517eeb9101fe33aa",
+    "platform_version": "v1.114.0-8-g4cc2bd5d-dirty",
+    "model": "api:claude-sonnet-5",
+    "seed_hash": "031067e0a9c2cd6e72f7da2ebd6303c55e99575bdaca76298e7a7c92d43f1553",
+    "cells": 6,
+    "k": 8,
+    "attempts": 48,
+    "exploratory": false
+  },
+  "attempts": [
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 1,
+      "seq": 1,
+      "email": "bench-agent-001@apikey.local",
+      "wall_ms": 6630,
+      "tool_calls": 2,
+      "final_answer": "ACME has 3 listening monitors provisioned across two workspaces: Monitor 501 \"Brand mentions\" and 503 \"Product launch\" (both track ACME's own brand), plus 502 \"Competitor watch\" (which tracks rival brands, not ACME's own coverage). This is confirmed by both the API response and prior saved insight.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 1,
+      "seq": 2,
+      "email": "bench-agent-002@apikey.local",
+      "wall_ms": 12164,
+      "tool_calls": 6,
+      "final_answer": "Confirmed directly via the API: across ACME's two workspaces (601 \"Primary workspace\" and 602 \"Regional workspace\"), there are 3 listening monitors total — 501 \"Brand mentions\" and 503 \"Product launch\" in the Primary workspace, and 502 \"Competitor watch\" in the Regional workspace. This matches previously captured knowledge as well.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 4
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-5",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-5",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 1,
+      "seq": 3,
+      "email": "bench-agent-003@apikey.local",
+      "wall_ms": 18532,
+      "tool_calls": 10,
+      "final_answer": "I queried the ACME account's listening monitors API across all 5 workspaces (workspace scoping is required on this account):\n\n- Workspace 601 (Primary): Monitor 501 \"Brand mentions\", Monitor 503 \"Product launch\"\n- Workspace 602 (Regional): Monitor 502 \"Competitor watch\"\n- Workspaces 603, 604, 605: no monitors\n\nTotal: 3 listening monitors provisioned across 2 workspaces, matching a previously captured insight that also noted this breakdown.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 1,
+      "seq": 4,
+      "email": "bench-agent-004@apikey.local",
+      "wall_ms": 25131,
+      "tool_calls": 15,
+      "final_answer": "ACME has **3 listening monitors** provisioned across its account. I confirmed this directly by calling the `/insights/monitors` endpoint against every workspace (601–610) on the account: two monitors live in the Primary workspace (501 \"Brand mentions\" and 503 \"Product launch\") and one in the Regional workspace (502 \"Competitor watch\"); all other workspaces returned zero monitors.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 1,
+      "seq": 5,
+      "email": "bench-agent-005@apikey.local",
+      "wall_ms": 10582,
+      "tool_calls": 3,
+      "final_answer": "ACME has 3 listening monitors provisioned on the account, retrieved from the `/insights/monitors` endpoint:\n1. **Brand mentions** (id 501, workspace 601) – keywords: acme, acme corp, @acmehq\n2. **Competitor watch** (id 502, workspace 602) – keywords: northwind, globex, initech\n3. **Product launch** (id 503, workspace 601) – keywords: acme atlas, atlas launch, #acmeatlas\n\nThe response returned all 3 in a single page with no `next_cursor`, confirming this is the complete set.\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 1,
+      "seq": 6,
+      "email": "bench-agent-006@apikey.local",
+      "wall_ms": 20294,
+      "tool_calls": 15,
+      "final_answer": "Across all 10 workspaces on the account, I found 3 monitors total: \"Brand mentions\" (id 501) and \"Product launch\" (id 503) in the Primary workspace, and \"Competitor watch\" (id 502) in the Regional workspace. All other workspaces have none.\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 2,
+      "seq": 7,
+      "email": "bench-agent-007@apikey.local",
+      "wall_ms": 6016,
+      "tool_calls": 2,
+      "final_answer": "The API confirms ACME has 3 listening monitors provisioned, spread across two workspaces: #501 \"Brand mentions\" and #503 \"Product launch\" (workspace 601, tracking ACME's own brand), plus #502 \"Competitor watch\" (workspace 602, which tracks rival brands rather than ACME itself).\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 2,
+      "seq": 8,
+      "email": "bench-agent-008@apikey.local",
+      "wall_ms": 13182,
+      "tool_calls": 6,
+      "final_answer": "This confirms the previously captured insight: across both workspaces (601 \"Primary workspace\" and 602 \"Regional workspace\"), ACME has 3 listening monitors provisioned:\n- 501 \"Brand mentions\" (workspace 601)\n- 503 \"Product launch\" (workspace 601)\n- 502 \"Competitor watch\" (workspace 602)\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 4
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-5",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-5",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 2,
+      "seq": 9,
+      "email": "bench-agent-009@apikey.local",
+      "wall_ms": 18557,
+      "tool_calls": 10,
+      "final_answer": "I confirmed this directly against the ACME API: querying `/insights/monitors` across all 5 workspaces (601–605) returns monitors only in workspace 601 (IDs 501 \"Brand mentions\", 503 \"Product launch\") and workspace 602 (ID 502 \"Competitor watch\"), with the other three workspaces empty. This matches a previously captured insight noting ACME has three listening monitors across two workspaces.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 2,
+      "seq": 10,
+      "email": "bench-agent-010@apikey.local",
+      "wall_ms": 23020,
+      "tool_calls": 15,
+      "final_answer": "This confirms via live API query: across all 10 workspaces on the ACME account, only workspace 601 (Primary) and 602 (Regional) have monitors — 3 total: monitor 501 \"Brand mentions\", 503 \"Product launch\" (workspace 601), and 502 \"Competitor watch\" (workspace 602). This matches the previously captured insight that ACME has three listening monitors provisioned across two workspaces.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 2,
+      "seq": 11,
+      "email": "bench-agent-011@apikey.local",
+      "wall_ms": 8605,
+      "tool_calls": 3,
+      "final_answer": "ACME has 3 listening monitors provisioned:\n1. **Brand mentions** (id 501, workspace 601) – keywords: acme, acme corp, @acmehq\n2. **Competitor watch** (id 502, workspace 602) – keywords: northwind, globex, initech\n3. **Product launch** (id 503, workspace 601) – keywords: acme atlas, atlas launch, #acmeatlas\n\nThe response returned all items with no `next_cursor`, confirming this is the complete list.\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 2,
+      "seq": 12,
+      "email": "bench-agent-012@apikey.local",
+      "wall_ms": 20121,
+      "tool_calls": 15,
+      "final_answer": "Across all 10 workspaces, ACME has 3 listening monitors provisioned: \"Brand mentions\" and \"Product launch\" (workspace 601, Primary), and \"Competitor watch\" (workspace 602, Regional). No other workspaces have monitors.\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 3,
+      "seq": 13,
+      "email": "bench-agent-013@apikey.local",
+      "wall_ms": 5546,
+      "tool_calls": 2,
+      "final_answer": "The API confirms ACME has 3 listening monitors provisioned (across 2 workspaces): #501 \"Brand mentions\", #502 \"Competitor watch\", and #503 \"Product launch\".\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 3,
+      "seq": 14,
+      "email": "bench-agent-014@apikey.local",
+      "wall_ms": 13657,
+      "tool_calls": 7,
+      "final_answer": "Both workspaces (601 \"Primary workspace\" and 602 \"Regional workspace\") together contain 3 monitors: #501 \"Brand mentions\" and #503 \"Product launch\" (workspace 601), and #502 \"Competitor watch\" (workspace 602). This confirms the previously captured insight that ACME has three listening monitors provisioned across two workspaces.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 4
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-5",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-5",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 3,
+      "seq": 15,
+      "email": "bench-agent-015@apikey.local",
+      "wall_ms": 15655,
+      "tool_calls": 9,
+      "final_answer": "This confirms the account has 3 listening monitors total, across 2 workspaces:\n- Workspace 601 (Primary): monitor 501 \"Brand mentions\", monitor 503 \"Product launch\"\n- Workspace 602 (Regional): monitor 502 \"Competitor watch\"\n\nThis matches the previously captured insight as well.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 3,
+      "seq": 16,
+      "email": "bench-agent-016@apikey.local",
+      "wall_ms": 26222,
+      "tool_calls": 16,
+      "final_answer": "I confirmed via the API across all 10 workspaces on the account that there are exactly 3 listening monitors provisioned: monitor 501 \"Brand mentions\" (workspace 601), 503 \"Product launch\" (workspace 601), and 502 \"Competitor watch\" (workspace 602). This matches the previously captured insight that ACME has three listening monitors across two workspaces.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 3,
+      "seq": 17,
+      "email": "bench-agent-017@apikey.local",
+      "wall_ms": 7999,
+      "tool_calls": 3,
+      "final_answer": "ACME has 3 listening monitors provisioned: \"Brand mentions\" (id 501, workspace 601), \"Competitor watch\" (id 502, workspace 602), and \"Product launch\" (id 503, workspace 601). The API response contained no `next_cursor`, confirming this is the complete list.\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 3,
+      "seq": 18,
+      "email": "bench-agent-018@apikey.local",
+      "wall_ms": 22120,
+      "tool_calls": 15,
+      "final_answer": "Based on querying the `/insights/monitors` endpoint across all 10 workspaces on the ACME account (workspace scoping is required), I found:\n- Primary workspace (601): 2 monitors (\"Brand mentions\", \"Product launch\")\n- Regional workspace (602): 1 monitor (\"Competitor watch\")\n- All other 8 workspaces (Campaigns, Support, Partnerships, Retail, Recruiting, Research, Events, Archive): 0 monitors\n\nTotal listening monitors provisioned: **3**\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 4,
+      "seq": 19,
+      "email": "bench-agent-019@apikey.local",
+      "wall_ms": 5705,
+      "tool_calls": 2,
+      "final_answer": "The ACME account has 3 listening monitors provisioned, spanning two workspaces:\n- 501 \"Brand mentions\" (workspace 601)\n- 502 \"Competitor watch\" (workspace 602)\n- 503 \"Product launch\" (workspace 601)\n\nNote that monitor 502 tracks rival brands rather than ACME's own coverage, but it is still a provisioned monitor on the account.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 4,
+      "seq": 20,
+      "email": "bench-agent-020@apikey.local",
+      "wall_ms": 13450,
+      "tool_calls": 7,
+      "final_answer": "This confirms what was already known from a prior insight: ACME has 3 listening monitors provisioned across its 2 workspaces:\n- Workspace 601 (Primary): #501 \"Brand mentions\", #503 \"Product launch\"\n- Workspace 602 (Regional): #502 \"Competitor watch\"\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 4
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-5",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-5",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 4,
+      "seq": 21,
+      "email": "bench-agent-021@apikey.local",
+      "wall_ms": 16342,
+      "tool_calls": 9,
+      "final_answer": "This confirms the previously captured insight: across all 5 workspaces on the ACME account, there are 3 listening monitors provisioned in total — 501 \"Brand mentions\" and 503 \"Product launch\" (workspace 601), plus 502 \"Competitor watch\" (workspace 602). The other three workspaces have none.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 4,
+      "seq": 22,
+      "email": "bench-agent-022@apikey.local",
+      "wall_ms": 21266,
+      "tool_calls": 15,
+      "final_answer": "I confirmed via the API (checking all 10 workspaces on the account) that ACME has 3 listening monitors provisioned total, spanning 2 workspaces: workspace 601 (Primary) has monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\"; workspace 602 (Regional) has monitor 502 \"Competitor watch\". This matches the previously captured insight as well.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 4,
+      "seq": 23,
+      "email": "bench-agent-023@apikey.local",
+      "wall_ms": 10108,
+      "tool_calls": 3,
+      "final_answer": "ACME's account has 3 listening monitors provisioned (id 501 \"Brand mentions\", id 502 \"Competitor watch\", id 503 \"Product launch\"), retrieved from the `/insights/monitors` endpoint with no further pages (no `next_cursor` returned).\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 4,
+      "seq": 24,
+      "email": "bench-agent-024@apikey.local",
+      "wall_ms": 24412,
+      "tool_calls": 16,
+      "final_answer": "FINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 5,
+      "seq": 25,
+      "email": "bench-agent-025@apikey.local",
+      "wall_ms": 5815,
+      "tool_calls": 2,
+      "final_answer": "The API returns 3 listening monitors provisioned on the ACME account: #501 \"Brand mentions\", #502 \"Competitor watch\", and #503 \"Product launch\", spanning two workspaces (601 and 602). This confirms the earlier captured insight.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 5,
+      "seq": 26,
+      "email": "bench-agent-026@apikey.local",
+      "wall_ms": 12350,
+      "tool_calls": 6,
+      "final_answer": "This confirms the earlier recorded insight: querying both workspaces (601 \"Primary workspace\" and 602 \"Regional workspace\") returns 3 monitors total — Monitor 501 \"Brand mentions\", Monitor 503 \"Product launch\" (both in workspace 601), and Monitor 502 \"Competitor watch\" (workspace 602).\n\nACME has **3 listening monitors** provisioned across its two workspaces.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 4
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-5",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-5",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 5,
+      "seq": 27,
+      "email": "bench-agent-027@apikey.local",
+      "wall_ms": 17533,
+      "tool_calls": 10,
+      "final_answer": "I confirmed by querying the ACME account across all 5 workspaces (workspace scoping is required on this account). Results:\n\n- Workspace 601 (Primary): 2 monitors — \"Brand mentions\" (id 501), \"Product launch\" (id 503)\n- Workspace 602 (Regional): 1 monitor — \"Competitor watch\" (id 502)\n- Workspaces 603, 604, 605: 0 monitors\n\nTotal: 3 listening monitors provisioned across two workspaces, matching prior recorded knowledge.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 5,
+      "seq": 28,
+      "email": "bench-agent-028@apikey.local",
+      "wall_ms": 21251,
+      "tool_calls": 15,
+      "final_answer": "This confirms 3 monitors total across all 10 workspaces: monitor 501 \"Brand mentions\" and 503 \"Product launch\" in the Primary workspace, and 502 \"Competitor watch\" in the Regional workspace. This matches the previously captured insight as well.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 5,
+      "seq": 29,
+      "email": "bench-agent-029@apikey.local",
+      "wall_ms": 8694,
+      "tool_calls": 3,
+      "final_answer": "ACME has 3 listening monitors provisioned:\n1. **Brand mentions** (id 501, workspace 601)\n2. **Competitor watch** (id 502, workspace 602)\n3. **Product launch** (id 503, workspace 601)\n\nThe response returned all items with no `next_cursor`, confirming this is the complete list.\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 5,
+      "seq": 30,
+      "email": "bench-agent-030@apikey.local",
+      "wall_ms": 23259,
+      "tool_calls": 15,
+      "final_answer": "I found that ACME's account has workspace scoping enabled, requiring the `workspace_id` parameter on monitor queries. I retrieved the list of all 10 workspaces and queried monitors for each one:\n\n- **Primary workspace (601)**: 2 monitors — \"Brand mentions\" (id 501), \"Product launch\" (id 503)\n- **Regional workspace (602)**: 1 monitor — \"Competitor watch\" (id 502)\n- All other workspaces (603–610): 0 monitors\n\nTotal listening monitors provisioned across all workspaces: **3**\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 6,
+      "seq": 31,
+      "email": "bench-agent-031@apikey.local",
+      "wall_ms": 6580,
+      "tool_calls": 2,
+      "final_answer": "The API confirms ACME has 3 listening monitors provisioned across two workspaces:\n- Monitor 501 \"Brand mentions\" (workspace 601) – tracks ACME's own brand\n- Monitor 502 \"Competitor watch\" (workspace 602) – tracks rival brands (not ACME's own coverage)\n- Monitor 503 \"Product launch\" (workspace 601) – tracks ACME's own brand\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 6,
+      "seq": 32,
+      "email": "bench-agent-032@apikey.local",
+      "wall_ms": 13762,
+      "tool_calls": 7,
+      "final_answer": "This confirms the previously captured insight: across both workspaces (601 \"Primary workspace\" and 602 \"Regional workspace\"), ACME has 3 listening monitors provisioned in total — Monitor 501 \"Brand mentions\" and 503 \"Product launch\" (workspace 601), and 502 \"Competitor watch\" (workspace 602).\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 4
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-5",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-5",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 6,
+      "seq": 33,
+      "email": "bench-agent-033@apikey.local",
+      "wall_ms": 15583,
+      "tool_calls": 9,
+      "final_answer": "Confirmed directly via the API: across all 5 workspaces, only workspaces 601 and 602 have monitors provisioned — monitor 501 \"Brand mentions\" and 503 \"Product launch\" (workspace 601), and 502 \"Competitor watch\" (workspace 602). This matches the previously captured knowledge: 3 listening monitors total across 2 workspaces.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 6,
+      "seq": 34,
+      "email": "bench-agent-034@apikey.local",
+      "wall_ms": 23604,
+      "tool_calls": 15,
+      "final_answer": "Confirmed via the live API across all 10 workspaces: monitors 501 (Brand mentions, workspace 601), 503 (Product launch, workspace 601), and 502 (Competitor watch, workspace 602) — 3 total, matching the previously captured insight.\n\nACME has 3 listening monitors provisioned across two workspaces: \"Brand mentions\" (501), \"Product launch\" (503), and \"Competitor watch\" (502).\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 6,
+      "seq": 35,
+      "email": "bench-agent-035@apikey.local",
+      "wall_ms": 9055,
+      "tool_calls": 3,
+      "final_answer": "ACME has 3 listening monitors provisioned on the account, as returned by the `/insights/monitors` endpoint (no further pages indicated by an absent `next_cursor`):\n\n1. **Brand mentions** (id 501, workspace 601) — keywords: acme, acme corp, @acmehq\n2. **Competitor watch** (id 502, workspace 602) — keywords: northwind, globex, initech\n3. **Product launch** (id 503, workspace 601) — keywords: acme atlas, atlas launch, #acmeatlas\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 6,
+      "seq": 36,
+      "email": "bench-agent-036@apikey.local",
+      "wall_ms": 20637,
+      "tool_calls": 15,
+      "final_answer": "Across all 10 workspaces on the account, the monitors found are:\n- Workspace 601 (Primary): \"Brand mentions\" (id 501), \"Product launch\" (id 503)\n- Workspace 602 (Regional): \"Competitor watch\" (id 502)\n- All other workspaces (603–610): none\n\nTotal: 3 listening monitors provisioned.\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 7,
+      "seq": 37,
+      "email": "bench-agent-037@apikey.local",
+      "wall_ms": 5807,
+      "tool_calls": 2,
+      "final_answer": "The API confirms ACME has 3 listening monitors provisioned across two workspaces:\n- 501 \"Brand mentions\" (workspace 601)\n- 502 \"Competitor watch\" (workspace 602)\n- 503 \"Product launch\" (workspace 601)\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 7,
+      "seq": 38,
+      "email": "bench-agent-038@apikey.local",
+      "wall_ms": 13072,
+      "tool_calls": 7,
+      "final_answer": "This confirms the earlier captured insight: querying both workspaces on the ACME account (601 \"Primary workspace\" and 602 \"Regional workspace\") returns 3 listening monitors total:\n- 501 \"Brand mentions\" (workspace 601)\n- 503 \"Product launch\" (workspace 601)\n- 502 \"Competitor watch\" (workspace 602)\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 4
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-5",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-5",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 7,
+      "seq": 39,
+      "email": "bench-agent-039@apikey.local",
+      "wall_ms": 16288,
+      "tool_calls": 10,
+      "final_answer": "I checked all 5 workspaces on the ACME account for provisioned listening monitors:\n\n- Primary workspace (601): Monitor 501 \"Brand mentions\", Monitor 503 \"Product launch\"\n- Regional workspace (602): Monitor 502 \"Competitor watch\"\n- Campaigns, Support, Partnerships workspaces (603-605): none\n\nThis confirms 3 listening monitors total are provisioned across the account, consistent with prior recorded knowledge.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 7,
+      "seq": 40,
+      "email": "bench-agent-040@apikey.local",
+      "wall_ms": 21803,
+      "tool_calls": 14,
+      "final_answer": "This confirms the earlier captured insight: across all 10 workspaces, only workspace 601 (Primary) and 602 (Regional) have monitors — 3 total (501 \"Brand mentions\", 503 \"Product launch\" in workspace 601, and 502 \"Competitor watch\" in workspace 602).\n\nACME has 3 listening monitors provisioned across two workspaces: monitor 501 \"Brand mentions\", monitor 503 \"Product launch\" (both tracking ACME's own brand), and monitor 502 \"Competitor watch\" (tracking rival brands).\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 7,
+      "seq": 41,
+      "email": "bench-agent-041@apikey.local",
+      "wall_ms": 8962,
+      "tool_calls": 3,
+      "final_answer": "ACME has 3 listening monitors provisioned: \"Brand mentions\" (id 501, workspace 601), \"Competitor watch\" (id 502, workspace 602), and \"Product launch\" (id 503, workspace 601). The API returned all results in a single page with no `next_cursor`, confirming this is the complete list.\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 7,
+      "seq": 42,
+      "email": "bench-agent-042@apikey.local",
+      "wall_ms": 23895,
+      "tool_calls": 16,
+      "final_answer": "Across all 10 workspaces on the ACME account, I found 3 listening monitors total: \"Brand mentions\" and \"Product launch\" in the Primary workspace (601), and \"Competitor watch\" in the Regional workspace (602). No other workspace had any monitors provisioned.\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 8,
+      "seq": 43,
+      "email": "bench-agent-043@apikey.local",
+      "wall_ms": 6489,
+      "tool_calls": 2,
+      "final_answer": "ACME has 3 listening monitors provisioned (across 2 workspaces): monitor 501 \"Brand mentions\" and 503 \"Product launch\" (both tracking ACME's own brand, workspace 601), and monitor 502 \"Competitor watch\" (tracking rival brands, workspace 602).\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 8,
+      "seq": 44,
+      "email": "bench-agent-044@apikey.local",
+      "wall_ms": 11525,
+      "tool_calls": 6,
+      "final_answer": "This confirms the earlier saved insight: ACME has **3 listening monitors** provisioned across its two workspaces — Monitor 501 \"Brand mentions\" and Monitor 503 \"Product launch\" in the Primary workspace, and Monitor 502 \"Competitor watch\" in the Regional workspace.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 4
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-5",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-5",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 8,
+      "seq": 45,
+      "email": "bench-agent-045@apikey.local",
+      "wall_ms": 15271,
+      "tool_calls": 9,
+      "final_answer": "Confirmed via the API: across all 5 workspaces on the account, there are 3 listening monitors provisioned total — monitor 501 \"Brand mentions\" and 503 \"Product launch\" (workspace 601), and 502 \"Competitor watch\" (workspace 602). This matches the previously captured insight noting ACME has three listening monitors across two workspaces.\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "seed_id": "perishable-present-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 8,
+      "seq": 46,
+      "email": "bench-agent-046@apikey.local",
+      "wall_ms": 19324,
+      "tool_calls": 14,
+      "final_answer": "Confirmed via the API: across all 10 workspaces, only workspace 601 (Primary) and 602 (Regional) have monitors — total of 3 monitors (501 \"Brand mentions\", 503 \"Product launch\", 502 \"Competitor watch\"), matching the previously captured insight.\n\nACME has **3** listening monitors provisioned (spanning 2 workspaces): 501 \"Brand mentions\", 503 \"Product launch\" (both in Primary workspace), and 502 \"Competitor watch\" (Regional workspace).\n\nFINAL ANSWER: 3",
+      "delivered": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive).",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 8,
+      "seq": 47,
+      "email": "bench-agent-047@apikey.local",
+      "wall_ms": 8130,
+      "tool_calls": 3,
+      "final_answer": "Querying the ACME account's `/insights/monitors` endpoint (no workspace filter applied, returned a single page with no further cursor) shows 3 listening monitors provisioned:\n\n1. **Brand mentions** (id 501, workspace 601)\n2. **Competitor watch** (id 502, workspace 602)\n3. **Product launch** (id 503, workspace 601)\n\nFINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "monitor-count/none/monitors-3-scoped-10",
+      "question_id": "monitor-count",
+      "arm": "none",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 8,
+      "seq": 48,
+      "email": "bench-agent-048@apikey.local",
+      "wall_ms": 24806,
+      "tool_calls": 16,
+      "final_answer": "FINAL ANSWER: 3",
+      "ground_truth": 3,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 12
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    }
+  ],
+  "cells": [
+    {
+      "id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3",
+      "question": {
+        "id": "monitor-count",
+        "belief_id": "perishable-present",
+        "prompt": "How many listening monitors does ACME have provisioned?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": false,
+        "requires_belief": false
+      },
+      "seed": {
+        "id": "perishable-present-standing-plain-noaff",
+        "belief_id": "perishable-present",
+        "class": "perishable",
+        "asserts": "the account has three listening monitors provisioned, two of which track ACME's own brand",
+        "captured_world": "monitors-3",
+        "phrasing": {
+          "dated": false,
+          "suppressive": false,
+          "affordance": false
+        },
+        "text": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive)."
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "belief_true": true,
+      "answerable": true
+    },
+    {
+      "id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped",
+      "question": {
+        "id": "monitor-count",
+        "belief_id": "perishable-present",
+        "prompt": "How many listening monitors does ACME have provisioned?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": false,
+        "requires_belief": false
+      },
+      "seed": {
+        "id": "perishable-present-standing-plain-noaff",
+        "belief_id": "perishable-present",
+        "class": "perishable",
+        "asserts": "the account has three listening monitors provisioned, two of which track ACME's own brand",
+        "captured_world": "monitors-3",
+        "phrasing": {
+          "dated": false,
+          "suppressive": false,
+          "affordance": false
+        },
+        "text": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive)."
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped",
+      "behavior": "answer",
+      "belief_true": true,
+      "answerable": true
+    },
+    {
+      "id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-5",
+      "question": {
+        "id": "monitor-count",
+        "belief_id": "perishable-present",
+        "prompt": "How many listening monitors does ACME have provisioned?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": false,
+        "requires_belief": false
+      },
+      "seed": {
+        "id": "perishable-present-standing-plain-noaff",
+        "belief_id": "perishable-present",
+        "class": "perishable",
+        "asserts": "the account has three listening monitors provisioned, two of which track ACME's own brand",
+        "captured_world": "monitors-3",
+        "phrasing": {
+          "dated": false,
+          "suppressive": false,
+          "affordance": false
+        },
+        "text": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive)."
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-5",
+      "behavior": "answer",
+      "belief_true": true,
+      "answerable": true
+    },
+    {
+      "id": "monitor-count/perishable-present-standing-plain-noaff/bare/monitors-3-scoped-10",
+      "question": {
+        "id": "monitor-count",
+        "belief_id": "perishable-present",
+        "prompt": "How many listening monitors does ACME have provisioned?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": false,
+        "requires_belief": false
+      },
+      "seed": {
+        "id": "perishable-present-standing-plain-noaff",
+        "belief_id": "perishable-present",
+        "class": "perishable",
+        "asserts": "the account has three listening monitors provisioned, two of which track ACME's own brand",
+        "captured_world": "monitors-3",
+        "phrasing": {
+          "dated": false,
+          "suppressive": false,
+          "affordance": false
+        },
+        "text": "The ACME account has three listening monitors provisioned, across two workspaces. Monitor 501 \"Brand mentions\" and monitor 503 \"Product launch\" track ACME's own brand; monitor 502 \"Competitor watch\" tracks rival brands and is not ACME's own coverage. GET /insights/monitors/{id}/trend (list_monitor_trend) returns daily {date, volume, sentiment_score} for a monitor over a requested window, where sentiment_score runs 0 (negative) to 100 (positive)."
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "belief_true": true,
+      "answerable": true
+    },
+    {
+      "id": "monitor-count/none/monitors-3",
+      "question": {
+        "id": "monitor-count",
+        "belief_id": "perishable-present",
+        "prompt": "How many listening monitors does ACME have provisioned?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": false,
+        "requires_belief": false
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "belief_true": false,
+      "answerable": true
+    },
+    {
+      "id": "monitor-count/none/monitors-3-scoped-10",
+      "question": {
+        "id": "monitor-count",
+        "belief_id": "perishable-present",
+        "prompt": "How many listening monitors does ACME have provisioned?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": false,
+        "requires_belief": false
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "",
+      "query_world": "monitors-3-scoped-10",
+      "behavior": "answer",
+      "belief_true": false,
+      "answerable": true
+    }
+  ]
+}

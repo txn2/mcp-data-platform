@@ -439,3 +439,64 @@ func TestAnswerSweepHandsTheAnswerOver(t *testing.T) {
 		t.Errorf("controls sit at costs %v, want the cheapest and dearest", controlCosts)
 	}
 }
+
+// TestBridgeProbePremise checks the derivability bridge's own validity:
+// the convention cell requires answering and its answer is reachable only
+// through the delivered threshold; the control cell requires discovering
+// that and declining; and nearby thresholds all yield different day
+// counts, so a stated answer betrays which threshold produced it.
+func TestBridgeProbePremise(t *testing.T) {
+	cells, err := BridgeProbeCells()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cells) != 2 {
+		t.Fatalf("bridge has %d cells, want 2", len(cells))
+	}
+	withNote, control := cells[0], cells[1]
+	if withNote.Seed == nil || control.Seed != nil {
+		t.Fatal("cells are not one delivered and one control")
+	}
+	if withNote.Stale() {
+		t.Error("the convention cell is stale; the bridge tests reliance on a TRUE belief")
+	}
+	// The delivered text carries the threshold, and the ground truth is
+	// computed from the same constant.
+	if !strings.Contains(withNote.Seed.Text, "70") {
+		t.Errorf("the delivered convention does not state the threshold: %s", withNote.Seed.Text)
+	}
+	w, _ := apigen.WorldByName("monitors-3")
+	truth, ok := withNote.Question.GroundTruth(w)
+	if !ok {
+		t.Fatal("the convention cell has no ground truth")
+	}
+	f := apigen.BuildFixture()
+	counts := map[int64]int{}
+	for _, th := range []int64{50, 60, 65, 70, 75, 80} {
+		var days int64
+		for _, p := range f.Trend[f.Monitors[0].ID] {
+			if p.SentimentScore >= th {
+				days++
+			}
+		}
+		if counts[days] > 0 {
+			t.Errorf("thresholds are not discriminable: two yield %d days", days)
+		}
+		counts[days]++
+		if th == 70 && float64(days) != truth {
+			t.Errorf("ground truth %v does not match the threshold-70 count %d", truth, days)
+		}
+	}
+	// The control has no ground truth to reach: without the convention the
+	// question is unanswerable, which is what makes a control "answer" at
+	// exactly the threshold-70 count evidence of leakage, not skill.
+	if _, ok := control.Question.GroundTruth(w); !ok {
+		t.Error("GroundTruth must exist for the question; unanswerability lives on the cell, not the truth")
+	}
+	if control.Answerable {
+		t.Error("the control cell is marked answerable with no convention delivered")
+	}
+	if !control.Behavior.RequiresVerification() || !control.Behavior.RequiresRefusal() {
+		t.Errorf("control behavior %s must require probing and declining", control.Behavior)
+	}
+}
