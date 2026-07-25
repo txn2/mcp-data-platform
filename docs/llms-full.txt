@@ -1,6 +1,6 @@
 # mcp-data-platform
 
-> MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-enrichment automatically enriches query results with business context: owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for HTTP transport, and prompt injection protection.
+> MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3, all three omittable. Cross-enrichment automatically enriches query results with business context: owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for HTTP transport, and prompt injection protection.
 
 For the security architecture rationale, see: https://imti.co/mcp-defense/
 
@@ -12,11 +12,11 @@ Your AI assistant can run SQL. But it doesn't know that `cust_id` contains PII, 
 
 mcp-data-platform fixes that. It connects AI assistants to your data infrastructure and adds business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response.
 
-The only requirement is DataHub (https://datahubproject.io/). Add Trino (https://trino.io/) for SQL queries and S3 for object storage when you're ready.
+Cross-enrichment works from DataHub (https://datahubproject.io/) as the semantic layer. Add Trino (https://trino.io/) for SQL queries and S3 for object storage when you're ready. All three are optional: with none configured the semantic, query, and storage providers resolve to noops, the server starts normally, and the database-backed surfaces (API and MCP gateways, knowledge, memory, portal, search/fetch) run on PostgreSQL alone. See "Deployment Shapes" below.
 
 ## Key Features
 
-- **Semantic-First**: DataHub is the foundation. Query a table, get its business context automatically: owners, tags, quality scores, deprecation warnings. No separate lookups.
+- **Semantic-First**: DataHub is the foundation of cross-enrichment. Query a table, get its business context automatically: owners, tags, quality scores, deprecation warnings. No separate lookups.
 
 - **Cross-Enrichment**: Trino results include DataHub metadata. DataHub searches show which datasets are queryable. Context flows between services automatically.
 
@@ -113,11 +113,95 @@ This stack is built for OLAP: S3 stores petabytes at low cost, Trino runs analyt
 
 | Toolkit | Tools | Required |
 |---------|-------|----------|
-| DataHub | 11 tools | Yes |
+| DataHub | 11 tools | No (required for cross-enrichment) |
 | Trino | 7 tools | No |
 | S3 | 6-9 tools | No |
 | Knowledge | 1-2 tools | No |
 | Memory | 2 tools | No |
+
+---
+
+# Deployment Shapes
+
+A deployment's shape is the set of backends it attaches. Shape is independent of operating mode, which is determined solely by whether database.dsn is set.
+
+Three shapes:
+
+| Shape | Backends | Core capability |
+|-------|----------|-----------------|
+| Semantic stack | DataHub, optionally Trino and S3 | Cross-enrichment: every data response carries business context |
+| API and knowledge | PostgreSQL | Gateways, knowledge, memory, portal, universal search |
+| Combined | Both | Cross-enrichment plus the database-backed surfaces |
+
+## Semantic stack
+
+The shape the platform was built for. DataHub supplies meaning, Trino supplies SQL access, S3 supplies object storage, and cross-enrichment wires them together. DataHub is what cross-enrichment requires; Trino and S3 are optional additions to it.
+
+## API and knowledge
+
+A deployment with no data warehouse and no catalog. PostgreSQL is the one infrastructure requirement, because connections, catalogs, knowledge, memory, and portal assets are all database-backed. It provides the API and MCP gateways (portal-authored connections with encrypted credentials and OAuth grants), API catalogs, the knowledge layer (capture, review, promotion to canonical knowledge pages), the memory layer, the portal (assets, collections, prompts, feedback threads, sharing), search/fetch federating over those sources, and the full auth/persona/audit/observability envelope.
+
+Minimal configuration:
+
+```yaml
+server:
+  name: mcp-data-platform
+  transport: http
+  address: ":8080"
+
+database:
+  dsn: ${DATABASE_URL}
+
+auth:
+  api_keys:
+    enabled: true
+    keys:
+      - key: ${API_KEY_ADMIN}
+        name: admin
+        roles: ["admin"]
+
+admin:
+  enabled: true
+  persona: admin
+
+# API connections are authored in the admin portal and stored in the
+# database; enabling the toolkit is all the YAML needs to say.
+toolkits:
+  api:
+    enabled: true
+
+personas:
+  admin:
+    display_name: "Administrator"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
+  default_persona: admin
+```
+
+There is no semantic: or query: block. Omitting them selects the noop providers, a supported configuration rather than an error, and enrichment stays enabled at no cost because it no-ops without a semantic provider.
+
+From that configuration and an empty database, tools/list returns seventeen tools: api_get_endpoint_schema, api_invoke_endpoint, api_list_endpoints, api_list_specs, apply_knowledge, fetch, list_connections, manage_asset, manage_feedback, manage_prompt, memory_capture, memory_manage, platform_find_tools, platform_info, save_asset, search, show_prompts.
+
+What this shape does not have:
+
+- Cross-enrichment. With no semantic provider there is no business context to add.
+- Trino, S3, and DataHub tools. No trino_*, s3_*, or datahub_* tools are registered.
+- Catalog search results. The technical catalog provider registers only when the semantic provider is DataHub.
+- Writing knowledge back to the catalog. apply_knowledge with the default sink: datahub refuses on a deployment with no DataHub connection rather than reporting a write it cannot perform; use sink: knowledge_page, the catalog-free destination.
+
+Object storage is optional here too: without an s3_connection, portal assets are stored in the database and managed-resource blob storage is disabled; the platform logs the fallback and starts normally.
+
+## Combined
+
+Attaching a warehouse and catalog to an API-and-knowledge deployment, or API connections to a semantic-stack deployment, yields both sets of surfaces. Neither addition is a migration: providers are selected by the semantic: and query: blocks, and API connections are database rows.
+
+## Shape versus operating mode
+
+| | Standalone (no database) | Database-backed |
+|---|---|---|
+| Semantic stack | DataHub, Trino, S3 tools with cross-enrichment. No knowledge, memory, portal, or gateways. | Everything. |
+| API and knowledge | Not available: every surface in this shape is database-backed. | The shape described above. |
 
 ---
 
@@ -1593,7 +1677,7 @@ Scope mirrors `search` exactly: a per-user source (assets) is read only for the 
 
 ### apply_knowledge
 
-The sink router (#633). Review, synthesize, and promote captured insights to their canonical home. Admin-only. Requires `knowledge.apply.enabled: true`. The `apply` action's `sink` selects the target: `datahub` (default) applies `changes` to a catalog entity; `knowledge_page` promotes the insight(s) to a canonical portal knowledge page, found-or-created by `page.slug`. The destination is chosen at apply, suggested by whether the insight is entity-anchored (carries entity_urns) rather than frozen at capture: the capture-time sink-class is a non-binding hint, and any insight can be applied to either sink. Both record a changeset (page promotions target `kp:<slug>`) reversible via rollback (a page rollback soft-deletes a new page or restores a prior version, refused if the page was edited since). operational_rule is stored as a page like business_knowledge; active rules-engine enforcement is a separate follow-up. To cite an entity on a page, pass it in `page.references` or write it in the body as plain text or a markdown link (not in backticks or a code block, which are treated as examples and ignored). Each entry in `page.references` is existence-checked before the page is written: a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in `page.references` and those carried from source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking. Inline body references are also filtered to those that exist, so a stale mcp: token in prose is skipped rather than blocking the page. A dropped insight-carried or inline-body reference is reported on the apply response: references_dropped lists the references that did not land (a deleted target, or an insight-carried reference not citable on a shared page such as mcp:memory:/mcp:insight:) and references_attached always carries the count of references that landed, so an agent can reconcile what it cited against what was attached (#696). Page creation is dedup-gated (#705): on a slug miss, the backend ranks existing pages by pure embedding cosine similarity against the candidate's content (embedded over the same title+body+tags composition the stored page vectors use), and a near-duplicate (cosine at or above a configurable threshold, default 0.85, active only when a real embedding provider is configured) is rejected with the candidate pages returned (id, slug, title, score) rather than created; the agent then re-applies against a candidate's slug to update it, or sets page.force_new to create a distinct page (a deliberate, auditable act separate from confirm). The identical gate runs on the portal REST create path (POST returns 409 with the candidates), so the two write surfaces cannot drift. A slug hit is always an update and is never gated. An oversized page (body bytes or markdown-heading count past a configurable threshold) returns a non-blocking split_suggestion on the apply response, nudging the agent to split it into focused, cross-linked sub-pages linked from a thin index page; the write still succeeds. The guidance steers toward many focused, cross-linked pages (progressive revelation) over one sprawling page.
+The sink router (#633). Review, synthesize, and promote captured insights to their canonical home. Admin-only. Requires `knowledge.apply.enabled: true`. The `apply` action's `sink` selects the target: `datahub` (default) applies `changes` to a catalog entity; `knowledge_page` promotes the insight(s) to a canonical portal knowledge page, found-or-created by `page.slug`. The destination is chosen at apply, suggested by whether the insight is entity-anchored (carries entity_urns) rather than frozen at capture: the capture-time sink-class is a non-binding hint, and any insight can be applied to either sink. Both record a changeset (page promotions target `kp:<slug>`) reversible via rollback (a page rollback soft-deletes a new page or restores a prior version, refused if the page was edited since). operational_rule is stored as a page like business_knowledge; active rules-engine enforcement is a separate follow-up. To cite an entity on a page, pass it in `page.references` or write it in the body as plain text or a markdown link (not in backticks or a code block, which are treated as examples and ignored). Each entry in `page.references` is existence-checked before the page is written: a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in `page.references` and those carried from source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking. Inline body references are also filtered to those that exist, so a stale mcp: token in prose is skipped rather than blocking the page. A dropped insight-carried or inline-body reference is reported on the apply response: references_dropped lists the references that did not land (a deleted target, or an insight-carried reference not citable on a shared page such as mcp:memory:/mcp:insight:) and references_attached always carries the count of references that landed, so an agent can reconcile what it cited against what was attached (#696). Page creation is dedup-gated (#705): on a slug miss, the backend ranks existing pages by pure embedding cosine similarity against the candidate's content (embedded over the same title+body+tags composition the stored page vectors use), and a near-duplicate (cosine at or above a configurable threshold, default 0.85, active only when a real embedding provider is configured) is rejected with the candidate pages returned (id, slug, title, score) rather than created; the agent then re-applies against a candidate's slug to update it, or sets page.force_new to create a distinct page (a deliberate, auditable act separate from confirm). The identical gate runs on the portal REST create path (POST returns 409 with the candidates), so the two write surfaces cannot drift. A slug hit is always an update and is never gated. An oversized page (body bytes or markdown-heading count past a configurable threshold) returns a non-blocking split_suggestion on the apply response, nudging the agent to split it into focused, cross-linked sub-pages linked from a thin index page; the write still succeeds. The guidance steers toward many focused, cross-linked pages (progressive revelation) over one sprawling page. On a deployment with no DataHub connection the datahub sink is refused rather than silently accepted: the apply returns an error naming the blocked change types, knowledge.apply.datahub_connection, and sink: knowledge_page as the catalog-free destination, and records no changeset; rollback of a DataHub changeset is refused the same way. The add_prompt change type creates a platform prompt rather than a catalog write and still applies. The knowledge-page sink is unaffected.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

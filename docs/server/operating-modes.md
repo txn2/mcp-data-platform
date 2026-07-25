@@ -4,6 +4,8 @@ description: Two operating modes for mcp-data-platform: standalone (no database)
 
 # Operating Modes
 
+Operating mode is one of two independent axes. This page covers persistence; [Deployment Shapes](deployment-shapes.md) covers the other axis, which backends the deployment attaches.
+
 mcp-data-platform has two operating modes, determined solely by whether `database.dsn` is set. Without a database the platform runs standalone with read-only file config; with a database the config becomes database-backed and mutable, and the persistence-dependent features (audit, knowledge, sessions, OAuth, MCP gateway) activate. There is no separate mode switch; store selection follows database presence.
 
 ## Mode Comparison

@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -1132,4 +1133,23 @@ func TestParseChangesetFilter(t *testing.T) {
 		require.NotNil(t, filter.Until)
 		assert.Equal(t, until, *filter.Until)
 	})
+}
+
+// A rollback that cannot reach DataHub is a deployment precondition, not a server
+// fault, so it must answer 409 like the other backend-dependent endpoints rather
+// than the default 500.
+func TestWriteRollbackError_DataHubUnavailable(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeRollbackError(rec, knowledge.ErrDataHubUnavailable)
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "knowledge.apply.datahub_connection")
+}
+
+func TestWriteRollbackError_UnmappedIsServerError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeRollbackError(rec, errors.New("upstream exploded"))
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Contains(t, rec.Body.String(), "upstream exploded")
 }

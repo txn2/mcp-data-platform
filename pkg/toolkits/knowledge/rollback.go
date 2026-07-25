@@ -13,6 +13,13 @@ import (
 // that has already been rolled back.
 var ErrChangesetAlreadyRolledBack = errors.New("changeset already rolled back")
 
+// ErrDataHubUnavailable is returned when a DataHub write is requested on a
+// deployment whose DataHub connection does not resolve. It names the way forward
+// so the caller can act rather than only learn that it failed.
+var ErrDataHubUnavailable = errors.New(noDataHubConfigured +
+	", so this changeset's DataHub writes cannot be undone; set knowledge.apply.datahub_connection" +
+	" to the DataHub toolkit instance the changeset was applied against and retry")
+
 // UnrevertibleError is returned when a changeset contains change types whose
 // pre-change state is not captured in the changeset's before-image, so they
 // cannot be reverted automatically. The recovery path for these is a manual
@@ -109,6 +116,11 @@ func RevertChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, roll
 	entityType, _ := entityTypeFromURN(cs.TargetURN)
 	if unsupported := unrevertibleChangeTypes(changes, entityType); len(unsupported) > 0 {
 		return nil, &UnrevertibleError{ChangeTypes: unsupported}
+	}
+	// Every revertible change type is a DataHub write, so a writer that reaches no
+	// DataHub would mark the changeset rolled back without undoing anything.
+	if !datahubWritable(deps.Writer) {
+		return nil, ErrDataHubUnavailable
 	}
 	if err := checkRollbackConflicts(ctx, deps.Changesets, cs, changes); err != nil {
 		return nil, err
