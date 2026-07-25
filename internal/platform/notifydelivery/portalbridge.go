@@ -3,6 +3,7 @@ package notifydelivery
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
@@ -11,12 +12,24 @@ import (
 )
 
 // PortalStores bundles the read access the notifier needs to resolve a
-// thread's target (title, deep link, owner email).
+// thread's target (title, deep link, owner email) and the people attached to
+// it.
 type PortalStores struct {
 	Assets         portal.AssetStore
 	Collections    portal.CollectionStore
 	Prompts        portal.PromptStore
 	KnowledgePages knowledgepage.Store
+	// Grantees lists the people holding an explicit grant on a thread target.
+	// Optional: nil narrows thread notifications to the target owner and the
+	// thread author.
+	Grantees ThreadGrantees
+}
+
+// ThreadGrantees lists the addresses holding an explicit grant on a thread
+// target: its owner and the recipients of active shares. Satisfied by
+// pkg/portal/mention.Audience.
+type ThreadGrantees interface {
+	Grantees(ctx context.Context, targetType, targetID string) ([]string, error)
 }
 
 // PortalNotifier implements portal.Notifier: it turns portal share and
@@ -67,7 +80,7 @@ func (n *PortalNotifier) NotifyShare(ctx context.Context, share *portal.Share, k
 	if message == portal.DefaultNoticeText {
 		message = ""
 	}
-	err := n.enq.Notify(ctx, share.SharedWithEmail, notification.CategoryShare, notification.Payload{
+	_, err := n.enq.Notify(ctx, share.SharedWithEmail, notification.CategoryShare, notification.Payload{
 		Kind:      kind,
 		ItemID:    itemID,
 		ItemTitle: itemTitle,
@@ -81,31 +94,101 @@ func (n *PortalNotifier) NotifyShare(ctx context.Context, share *portal.Share, k
 	}
 }
 
-// NotifyThreadEvent queues a "new comment/feedback" email for the owner of
-// the thread's target and, on replies, the thread author, excluding the
-// actor.
-func (n *PortalNotifier) NotifyThreadEvent(ctx context.Context, thread *portal.Thread, actorEmail, body string) {
-	// Conversational kinds read as comments; evaluative kinds (rating,
-	// correction, approval, rejection, suggestion) read as feedback.
-	kind := notification.KindFeedback
-	if thread.Kind == portal.ThreadKindComment || thread.Kind == portal.ThreadKindQuestion {
-		kind = notification.KindComment
-	}
+// NotifyThreadEvent queues the emails one thread event produces: a mention
+// email for each person the body named, and a "new comment/feedback" email for
+// everyone else attached to the target -- its owner, the thread author, and the
+// people it is shared with.
+//
+// Mentions are queued first, per recipient: the author chose those addresses,
+// so each one costs a token of their rate limit. The general fan-out then goes
+// out as one batch, because the size of a target's share list is a property of
+// the item rather than something the author picked.
+//
+// Only a mention that was actually queued removes someone from the general
+// fan-out. A recipient whose mention was dropped -- they muted the mention
+// category, or the enqueue failed -- has been told nothing, so they still get
+// the comment notification they would have had without being named.
+func (n *PortalNotifier) NotifyThreadEvent(ctx context.Context, thread *portal.Thread, actorEmail, body string, mentioned []string) {
 	target := n.threadTarget(ctx, thread)
 	payload := notification.Payload{
-		Kind:      kind,
 		ItemID:    thread.ID,
 		ItemTitle: target.title,
 		Actor:     actorEmail,
 		Message:   notification.Snippet(body),
 		Link:      target.link,
 	}
-	for _, recipient := range notification.RecipientsExcluding(actorEmail, target.owner, thread.AuthorEmail) {
-		if err := n.enq.Notify(ctx, recipient, notification.CategoryComment, payload); err != nil {
-			slog.Warn("notification: thread enqueue failed", // #nosec G706 -- structured slog call; error sanitized
-				logKeyError, logsan.SanitizeForLog(err.Error()))
+
+	mentionPayload := payload
+	mentionPayload.Kind = notification.KindMention
+	notifiedByName := n.queueMentions(ctx,
+		notification.RecipientsExcluding(actorEmail, mentioned...), mentionPayload)
+
+	// Conversational kinds read as comments; evaluative kinds (rating,
+	// correction, approval, rejection, suggestion) read as feedback.
+	payload.Kind = notification.KindFeedback
+	if thread.Kind == portal.ThreadKindComment || thread.Kind == portal.ThreadKindQuestion {
+		payload.Kind = notification.KindComment
+	}
+	grantees := n.grantees(ctx, thread)
+	candidates := make([]string, 0, len(grantees)+2)
+	candidates = append(candidates, target.owner, thread.AuthorEmail)
+	candidates = append(candidates, grantees...)
+	general := excluding(notification.RecipientsExcluding(actorEmail, candidates...), notifiedByName)
+	n.enq.NotifyFanout(ctx, general, notification.CategoryComment, payload)
+}
+
+// excluding returns the addresses in list that are not in drop, compared
+// case-insensitively.
+func excluding(list, drop []string) []string {
+	if len(drop) == 0 {
+		return list
+	}
+	dropped := make(map[string]struct{}, len(drop))
+	for _, d := range drop {
+		dropped[strings.ToLower(d)] = struct{}{}
+	}
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		if _, skip := dropped[strings.ToLower(item)]; !skip {
+			out = append(out, item)
 		}
 	}
+	return out
+}
+
+// queueMentions enqueues the mention notification for each named recipient and
+// returns the ones a row was written for -- the only people the general
+// fan-out may then skip.
+func (n *PortalNotifier) queueMentions(ctx context.Context, named []string, payload notification.Payload) []string {
+	var notified []string
+	for _, recipient := range named {
+		queued, err := n.enq.Notify(ctx, recipient, notification.CategoryMention, payload)
+		if err != nil {
+			slog.Warn("notification: mention enqueue failed", // #nosec G706 -- structured slog call; error sanitized
+				logKeyError, logsan.SanitizeForLog(err.Error()))
+			continue
+		}
+		if queued {
+			notified = append(notified, recipient)
+		}
+	}
+	return notified
+}
+
+// grantees returns the people the thread's target is shared with, or none when
+// no grantee source is wired or the lookup fails -- a comment must still
+// notify the owner and the author.
+func (n *PortalNotifier) grantees(ctx context.Context, thread *portal.Thread) []string {
+	if n.stores.Grantees == nil {
+		return nil
+	}
+	emails, err := n.stores.Grantees.Grantees(ctx, thread.TargetType, thread.TargetID())
+	if err != nil {
+		slog.Warn("notification: thread grantee lookup failed", // #nosec G706 -- structured slog call; error sanitized
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+		return nil
+	}
+	return emails
 }
 
 // threadTargetInfo carries the resolved target of a thread notification.

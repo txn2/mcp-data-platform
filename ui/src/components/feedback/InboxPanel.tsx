@@ -1,20 +1,26 @@
 import { useState } from "react";
-import { Inbox, ClipboardCheck } from "lucide-react";
-import { useInfinitePractitionerWorklist, useInfiniteSMEWorklist } from "@/api/portal/hooks";
+import { Inbox, ClipboardCheck, AtSign } from "lucide-react";
+import {
+  useInfiniteMentionsWorklist,
+  useInfinitePractitionerWorklist,
+  useInfiniteSMEWorklist,
+} from "@/api/portal/hooks";
 import { cn } from "@/lib/utils";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { KIND_LABEL, STATUS_CHIP, STATUS_LABEL, formatRelative } from "./meta";
 
-type Tab = "practitioner" | "sme";
+type Tab = "practitioner" | "sme" | "mentions";
 
-// InboxPanel is the feedback worklist / inbox (#603): two self-scoped tabs so
-// nothing is dropped — open work that needs the practitioner's resolution, and
-// validation requests awaiting the SME's response.
+// InboxPanel is the feedback worklist / inbox (#603): self-scoped tabs so
+// nothing is dropped — open work that needs the practitioner's resolution,
+// validation requests awaiting the SME's response, and the threads where a
+// comment addressed the user by name (#627).
 export function InboxPanel({ onOpenThread }: { onOpenThread?: (id: string) => void }) {
   const [tab, setTab] = useState<Tab>("practitioner");
   const practitioner = useInfinitePractitionerWorklist();
   const sme = useInfiniteSMEWorklist();
-  const active = tab === "practitioner" ? practitioner : sme;
+  const mentions = useInfiniteMentionsWorklist();
+  const active = { practitioner, sme, mentions }[tab];
   const threads = active.data?.data ?? [];
 
   const tabBtn = (key: Tab, label: string, total: number | undefined, Icon: typeof Inbox) => (
@@ -36,6 +42,7 @@ export function InboxPanel({ onOpenThread }: { onOpenThread?: (id: string) => vo
       <div className="flex">
         {tabBtn("practitioner", "Needs resolution", practitioner.data?.total, Inbox)}
         {tabBtn("sme", "Awaiting my validation", sme.data?.total, ClipboardCheck)}
+        {tabBtn("mentions", "Mentions of me", mentions.data?.total, AtSign)}
       </div>
 
       <div className="flex-1 overflow-auto">

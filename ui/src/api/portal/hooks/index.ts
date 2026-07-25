@@ -4,5 +4,6 @@ export * from "./activity";
 export * from "./collections";
 export * from "./prompts";
 export * from "./threads";
+export * from "./mentions";
 export * from "./knowledge-pages";
 export * from "./notifications";

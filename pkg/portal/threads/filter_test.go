@@ -81,3 +81,24 @@ func TestApplyThreadFilterExcludeAuthorEmailLowercases(t *testing.T) {
 	assert.True(t, strings.Contains(sql, "LOWER(t.author_email) <> LOWER("), "sql: %s", sql)
 	assert.Contains(t, args, "Owner@Example.com")
 }
+
+// The mentions inbox matches events by jsonb containment on the indexed
+// mentions array, with the address normalized the same way the write path
+// stores it.
+func TestApplyThreadFilterMention(t *testing.T) {
+	qb := applyThreadFilter(psq.Select("t.id").From("portal_threads t"),
+		ThreadFilter{MentionedEmail: "Marcus.Johnson@Example.com"})
+	sql, args, err := qb.ToSql()
+	require.NoError(t, err)
+
+	assert.Contains(t, sql, "EXISTS (SELECT 1 FROM portal_thread_events e", "sql: %s", sql)
+	assert.Contains(t, sql, "e.metadata -> 'mentions' @>", "sql: %s", sql)
+	assert.Contains(t, args, `["marcus.johnson@example.com"]`,
+		"the filter binds the same lower-cased address the write path records")
+}
+
+func TestApplyThreadFilterMention_AbsentWithoutAnAddress(t *testing.T) {
+	sql, _, err := applyThreadFilter(psq.Select("t.id").From("portal_threads t"), ThreadFilter{}).ToSql()
+	require.NoError(t, err)
+	assert.NotContains(t, sql, "mentions", "sql: %s", sql)
+}

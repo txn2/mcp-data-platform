@@ -128,7 +128,7 @@ func TestEnqueuer_Notify_Immediate(t *testing.T) {
 	queue := &fakeQueueStore{}
 	e := NewEnqueuer(&fakePrefsStore{}, queue, 13)
 
-	err := e.Notify(context.Background(), "USER@Example.com", CategoryShare,
+	_, err := e.Notify(context.Background(), "USER@Example.com", CategoryShare,
 		Payload{Kind: KindAsset, Actor: "owner@example.com", ItemTitle: "Report"})
 	if err != nil {
 		t.Fatalf("Notify: %v", err)
@@ -154,7 +154,7 @@ func TestEnqueuer_Notify_DailySchedulesDigest(t *testing.T) {
 	now := time.Date(2026, 7, 19, 14, 0, 0, 0, time.UTC)
 	e.now = func() time.Time { return now }
 
-	if err := e.Notify(context.Background(), "a@b.io", CategoryShare, Payload{Actor: "x@y.z"}); err != nil {
+	if _, err := e.Notify(context.Background(), "a@b.io", CategoryShare, Payload{Actor: "x@y.z"}); err != nil {
 		t.Fatalf("Notify: %v", err)
 	}
 	got := queue.enqueuedCopy()
@@ -198,7 +198,7 @@ func TestEnqueuer_Notify_Drops(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			queue := &fakeQueueStore{}
 			e := NewEnqueuer(&fakePrefsStore{prefs: tc.prefs}, queue, 13)
-			if err := e.Notify(context.Background(), tc.recipient, tc.category, tc.payload); err != nil {
+			if _, err := e.Notify(context.Background(), tc.recipient, tc.category, tc.payload); err != nil {
 				t.Fatalf("Notify: %v", err)
 			}
 			if len(queue.enqueuedCopy()) != 0 {
@@ -210,7 +210,7 @@ func TestEnqueuer_Notify_Drops(t *testing.T) {
 
 func TestEnqueuer_Notify_NilEnqueuer(t *testing.T) {
 	var e *Enqueuer
-	if err := e.Notify(context.Background(), "a@b.io", CategoryShare, Payload{}); err != nil {
+	if _, err := e.Notify(context.Background(), "a@b.io", CategoryShare, Payload{}); err != nil {
 		t.Fatalf("nil enqueuer must drop silently: %v", err)
 	}
 	e.Close() // nil-safe
@@ -218,14 +218,14 @@ func TestEnqueuer_Notify_NilEnqueuer(t *testing.T) {
 
 func TestEnqueuer_Notify_PrefsError(t *testing.T) {
 	e := NewEnqueuer(&fakePrefsStore{err: errors.New("db down")}, &fakeQueueStore{}, 13)
-	if err := e.Notify(context.Background(), "a@b.io", CategoryShare, Payload{}); err == nil {
+	if _, err := e.Notify(context.Background(), "a@b.io", CategoryShare, Payload{}); err == nil {
 		t.Fatal("expected prefs error")
 	}
 }
 
 func TestEnqueuer_Notify_EnqueueError(t *testing.T) {
 	e := NewEnqueuer(&fakePrefsStore{}, &fakeQueueStore{enqErr: errors.New("insert failed")}, 13)
-	if err := e.Notify(context.Background(), "a@b.io", CategoryShare, Payload{}); err == nil {
+	if _, err := e.Notify(context.Background(), "a@b.io", CategoryShare, Payload{}); err == nil {
 		t.Fatal("expected enqueue error")
 	}
 }
@@ -237,7 +237,7 @@ func TestEnqueuer_Notify_PerActorRateLimit(t *testing.T) {
 
 	// Well past the burst allowance: excess events drop without error.
 	for i := range actorBurst * 2 {
-		err := e.Notify(context.Background(), fmt.Sprintf("r%d@b.io", i), CategoryShare,
+		_, err := e.Notify(context.Background(), fmt.Sprintf("r%d@b.io", i), CategoryShare,
 			Payload{Actor: "spammer@b.io"})
 		if err != nil {
 			t.Fatalf("Notify %d: %v", i, err)
@@ -291,4 +291,69 @@ func TestNextDigestTime(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNotifyFanout_ChargesOneTokenAndReportsQueued(t *testing.T) {
+	queue := &fakeQueueStore{}
+	e := NewEnqueuer(&fakePrefsStore{}, queue, 13)
+	defer e.Close()
+
+	// More recipients than the per-actor burst: a fan-out the actor did not
+	// choose costs one token, so all of them are queued.
+	recipients := make([]string, 0, actorBurst+10)
+	for i := range actorBurst + 10 {
+		recipients = append(recipients, fmt.Sprintf("r%02d@b.io", i))
+	}
+	sent := e.NotifyFanout(context.Background(), recipients, CategoryComment, Payload{Actor: "a@b.io"})
+
+	if len(sent) != len(recipients) {
+		t.Fatalf("expected every recipient queued, got %d of %d", len(sent), len(recipients))
+	}
+	if len(queue.enqueued) != len(recipients) {
+		t.Fatalf("expected %d rows, got %d", len(recipients), len(queue.enqueued))
+	}
+	// The actor's budget survives, so an address they DO choose still goes out.
+	queued, err := e.Notify(context.Background(), "chosen@b.io", CategoryShare, Payload{Actor: "a@b.io"})
+	if err != nil || !queued {
+		t.Fatalf("the fan-out spent the actor's rate limit: queued=%v err=%v", queued, err)
+	}
+}
+
+func TestNotifyFanout_TruncatesAtTheCap(t *testing.T) {
+	queue := &fakeQueueStore{}
+	e := NewEnqueuer(&fakePrefsStore{}, queue, 13)
+	defer e.Close()
+
+	recipients := make([]string, 0, maxFanout+5)
+	for i := range maxFanout + 5 {
+		recipients = append(recipients, fmt.Sprintf("r%03d@b.io", i))
+	}
+	sent := e.NotifyFanout(context.Background(), recipients, CategoryComment, Payload{Actor: "a@b.io"})
+
+	if len(sent) != maxFanout {
+		t.Fatalf("expected the fan-out capped at %d, got %d", maxFanout, len(sent))
+	}
+}
+
+func TestNotifyFanout_SkipsRecipientsWhoOptedOut(t *testing.T) {
+	queue := &fakeQueueStore{}
+	e := NewEnqueuer(&fakePrefsStore{prefs: map[string]Prefs{
+		"a@b.io": {Email: "a@b.io", Mode: ModeOff},
+		"c@b.io": {Email: "c@b.io", Mode: ModeOff},
+	}}, queue, 13)
+	defer e.Close()
+
+	sent := e.NotifyFanout(context.Background(), []string{"a@b.io", "c@b.io"}, CategoryComment, Payload{Actor: "x@b.io"})
+	if len(sent) != 0 || len(queue.enqueued) != 0 {
+		t.Fatalf("opted-out recipients must not be queued or reported: %+v %+v", sent, queue.enqueued)
+	}
+}
+
+func TestNotifyFanout_NilAndEmpty(_ *testing.T) {
+	var nilEnqueuer *Enqueuer
+	nilEnqueuer.NotifyFanout(context.Background(), []string{"a@b.io"}, CategoryComment, Payload{})
+
+	e := NewEnqueuer(&fakePrefsStore{}, &fakeQueueStore{}, 13)
+	defer e.Close()
+	e.NotifyFanout(context.Background(), nil, CategoryComment, Payload{})
 }

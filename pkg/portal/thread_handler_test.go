@@ -49,10 +49,13 @@ type mockThreadStore struct {
 	signoffCount      int
 	signoffErr        error
 	lastCreated       *Thread
+	lastFirstEvent    *ThreadEvent
+	lastAppended      *ThreadEvent
 }
 
-func (m *mockThreadStore) CreateThread(_ context.Context, t Thread, _ ThreadEvent) (*Thread, error) {
+func (m *mockThreadStore) CreateThread(_ context.Context, t Thread, first ThreadEvent) (*Thread, error) {
 	m.lastCreated = &t
+	m.lastFirstEvent = &first
 	if m.createErr != nil {
 		return nil, m.createErr
 	}
@@ -76,6 +79,7 @@ func (m *mockThreadStore) ListEvents(_ context.Context, _ string) ([]ThreadEvent
 }
 
 func (m *mockThreadStore) AppendEvent(_ context.Context, e ThreadEvent) (*ThreadEvent, error) {
+	m.lastAppended = &e
 	if m.appendErr != nil {
 		return nil, m.appendErr
 	}

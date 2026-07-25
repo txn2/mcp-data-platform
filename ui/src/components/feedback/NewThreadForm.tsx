@@ -6,6 +6,7 @@ import type {
   ThreadKind,
   TextQuoteAnchor,
 } from "@/api/portal/types";
+import { MentionTextarea } from "./MentionTextarea";
 import { THREAD_KINDS } from "./meta";
 
 interface Props {
@@ -123,13 +124,15 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
 
       <label className="text-xs font-medium text-muted-foreground">
         Message
-        <textarea
+        <MentionTextarea
+          target={target}
           value={body}
-          onChange={(e) => setBody(e.target.value)}
+          onChange={setBody}
           required
           rows={4}
-          placeholder="Describe your feedback"
-          className="mt-1 w-full resize-y rounded-md border bg-background px-2 py-1.5 text-sm"
+          placeholder="Describe your feedback. Type @ to mention someone."
+          aria-label="Message"
+          className="mt-1 resize-y"
         />
       </label>
 

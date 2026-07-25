@@ -23,6 +23,7 @@ type PrefsResponse struct {
 	Mode            string `json:"mode"`
 	SharesEnabled   bool   `json:"shares_enabled"`
 	CommentsEnabled bool   `json:"comments_enabled"`
+	MentionsEnabled bool   `json:"mentions_enabled"`
 }
 
 // PrefsRequest is the body for updating the caller's preferences. Omitted
@@ -31,6 +32,7 @@ type PrefsRequest struct {
 	Mode            *string `json:"mode,omitempty"`
 	SharesEnabled   *bool   `json:"shares_enabled,omitempty"`
 	CommentsEnabled *bool   `json:"comments_enabled,omitempty"`
+	MentionsEnabled *bool   `json:"mentions_enabled,omitempty"`
 }
 
 // Register mounts the preference endpoints on mux.
@@ -113,7 +115,12 @@ func (a *PrefsAPI) callerEmail(w http.ResponseWriter, r *http.Request) string {
 
 // prefsResponse maps store preferences to the API shape.
 func prefsResponse(p Prefs) PrefsResponse {
-	return PrefsResponse{Mode: p.Mode, SharesEnabled: p.SharesEnabled, CommentsEnabled: p.CommentsEnabled}
+	return PrefsResponse{
+		Mode:            p.Mode,
+		SharesEnabled:   p.SharesEnabled,
+		CommentsEnabled: p.CommentsEnabled,
+		MentionsEnabled: p.MentionsEnabled,
+	}
 }
 
 func writePrefsJSON(w http.ResponseWriter, v any) {

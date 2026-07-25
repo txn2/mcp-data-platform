@@ -23,6 +23,8 @@ internal/httpserver -> pkg/pkcestore
 internal/httpserver -> pkg/platform
 internal/httpserver -> pkg/portal
 internal/httpserver -> pkg/portal/datahubapi
+internal/httpserver -> pkg/portal/mention
+internal/httpserver -> pkg/portal/mentionhttp
 internal/httpserver -> pkg/portal/shareaccess
 internal/httpserver -> pkg/portal/shareguest
 internal/httpserver -> pkg/prompt
@@ -326,6 +328,7 @@ pkg/portal -> pkg/embedding
 pkg/portal -> pkg/memory
 pkg/portal -> pkg/middleware
 pkg/portal -> pkg/portal/knowledgepage
+pkg/portal -> pkg/portal/mention
 pkg/portal -> pkg/portal/publicviewer
 pkg/portal -> pkg/portal/shareaccess
 pkg/portal -> pkg/portal/shareguest
@@ -335,7 +338,6 @@ pkg/portal -> pkg/prompt
 pkg/portal -> pkg/ratelimit
 pkg/portal -> pkg/registry
 pkg/portal -> pkg/toolkits/knowledge
-pkg/portal -> pkg/user
 pkg/portal/assetindex -> pkg/indexjobs
 pkg/portal/assetindex -> pkg/portal
 pkg/portal/collectionindex -> pkg/indexjobs
@@ -348,6 +350,11 @@ pkg/portal/datahubapi -> pkg/semantic/datahub
 pkg/portal/datahubapi -> pkg/toolkits/knowledge
 pkg/portal/knowledgepageindex -> pkg/indexjobs
 pkg/portal/knowledgepageindex -> pkg/portal/knowledgepage
+pkg/portal/mention -> internal/logsan
+pkg/portal/mentionhttp -> pkg/portal/mention
+pkg/portal/mentionhttp -> pkg/portal/threads
+pkg/portal/mentionhttp -> pkg/user
+pkg/portal/threads -> pkg/portal/mention
 pkg/portal/viewerlimit -> pkg/ratelimit
 pkg/prompt/attachhttp -> pkg/prompt
 pkg/prompt/attachhttp -> pkg/prompt/attachserve
@@ -430,6 +437,7 @@ pkg/toolkits/portal -> pkg/contenttype
 pkg/toolkits/portal -> pkg/embedding
 pkg/toolkits/portal -> pkg/middleware
 pkg/toolkits/portal -> pkg/portal
+pkg/toolkits/portal -> pkg/portal/mention
 pkg/toolkits/portal -> pkg/query
 pkg/toolkits/portal -> pkg/registry
 pkg/toolkits/portal -> pkg/semantic

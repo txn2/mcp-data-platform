@@ -86,4 +86,26 @@ export const userHandlers = [
     const body: DirectoryUsersResponse = { users, total: users.length };
     return HttpResponse.json(body);
   }),
+
+  // --- Portal: who may be @-mentioned on a thread target (#627) ---
+  //
+  // The real endpoint answers with the people who can open the target. The mock
+  // stands in the whole directory minus the signed-in user, except for the
+  // deliberately-unreachable address the composer's "no access" hint is
+  // demonstrated with.
+  http.get(`${PORTAL_BASE}/mention-candidates`, ({ request }) => {
+    const candidates = searchUsers(new URL(request.url))
+      .filter((u) => u.email !== "sarah.chen@example.com" && u.email !== UNREACHABLE_EMAIL)
+      .map((u) => ({
+        email: u.email,
+        first_name: u.first_name,
+        last_name: u.last_name,
+        confirmed: u.confirmed,
+      }));
+    return HttpResponse.json({ candidates });
+  }),
 ];
+
+// UNREACHABLE_EMAIL is in the directory but never in an audience, so the
+// composer's "does not have access" path is reachable in the mock UI.
+const UNREACHABLE_EMAIL = "outside.contractor@example.com";
