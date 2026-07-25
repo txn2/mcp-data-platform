@@ -59,7 +59,7 @@ func perishableAbsent() Belief {
 		Factorial:     true,
 		Standing:      "The ACME account has zero listening monitors provisioned.",
 		DatedForm:     "As of " + captureDate + ", the ACME account had zero listening monitors provisioned.",
-		Body: "GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's two workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. " +
+		Body: "GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. " +
 			"GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. " +
 			"Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. " +
 			"Owned-profile metrics are a different measurement and carry no sentiment dimension.",

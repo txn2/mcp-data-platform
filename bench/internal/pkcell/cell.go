@@ -140,6 +140,11 @@ func Derive(q Question, seed *pkseed.Seed, meta pkseed.Metadata, queryWorld stri
 	if !ok {
 		return Cell{}, fmt.Errorf("pkcell: belief %s has no truth condition", seed.BeliefID)
 	}
+	if seed.Phrasing.Affordance && w.RecheckCalls() != 1 {
+		return Cell{}, fmt.Errorf("pkcell: seed %s states re-observation costs one call, but world %s makes it cost %d; "+
+			"an affordance that misstates the cost is a false estimator, not a treatment",
+			seed.ID, queryWorld, w.RecheckCalls())
+	}
 	c.CaptureWorld = seed.World
 	c.BeliefTrue = truth(w)
 	c.Behavior = behaviorFor(c.BeliefTrue, c.Answerable)
@@ -212,8 +217,6 @@ func validateQuestions(beliefs map[string]pkseed.Belief) error {
 			return fmt.Errorf("pkcell: duplicate question id %s", q.ID)
 		case !ok:
 			return fmt.Errorf("pkcell: question %s names belief %s, which does not exist", q.ID, q.BeliefID)
-		case q.Budget <= 0:
-			return fmt.Errorf("pkcell: question %s has no tool-call budget", q.ID)
 		}
 		seen[q.ID] = true
 		classes[b.Class]++
@@ -224,6 +227,51 @@ func validateQuestions(beliefs map[string]pkseed.Belief) error {
 		}
 	}
 	return nil
+}
+
+// CostSweepCells vary the price of checking and nothing else.
+//
+// The pre-run found verification at ceiling, which the normative model
+// explains rather than contradicts: with an unscoped account a recheck is
+// one call, so c/L is near zero and verify-always is the rational policy.
+// A study whose threshold sits at zero cannot observe a threshold. These
+// cells move c from 1 to 11 while holding the belief, its phrasing, the
+// delivery arm, the question, and the world's staleness fixed: every one
+// of them is the same empty account with the same true belief, where
+// refusing is correct and checking is optional.
+//
+// If verification falls as c rises, the study has the curve its primary
+// dependent variable is defined over. If it does not, the finding is that
+// these agents check whatever it costs.
+func CostSweepCells() ([]Cell, error) {
+	neutral, err := neutralSeed("perishable-absent")
+	if err != nil {
+		return nil, err
+	}
+	q, err := questionByID("trend-volume")
+	if err != nil {
+		return nil, err
+	}
+	worlds := []string{"monitors-0", "monitors-0-scoped", "monitors-0-scoped-5", "monitors-0-scoped-10"}
+	cells := make([]Cell, 0, len(worlds))
+	costs := map[int]bool{}
+	for _, name := range worlds {
+		c, err := Derive(q, neutral, pkseed.Metadata{}, name)
+		if err != nil {
+			return nil, err
+		}
+		w, _ := apigen.WorldByName(name)
+		if costs[w.RecheckCalls()] {
+			return nil, fmt.Errorf("pkcell: two sweep worlds cost %d calls; the sweep would not vary c", w.RecheckCalls())
+		}
+		costs[w.RecheckCalls()] = true
+		if c.Behavior != BehaviorRefuse {
+			return nil, fmt.Errorf("pkcell: sweep world %s requires %s, not %s; the sweep must hold everything but cost fixed",
+				name, c.Behavior, BehaviorRefuse)
+		}
+		cells = append(cells, c)
+	}
+	return cells, nil
 }
 
 // PreRunCells are the two cells of the internal power pre-run (protocol

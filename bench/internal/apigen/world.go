@@ -46,9 +46,16 @@ type World struct {
 	// Contract is the vendor release the API behaves as.
 	Contract string `json:"contract"`
 	// WorkspaceScoped requires a workspace_id on list_monitors, which
-	// raises a state recheck from one call to three (list_workspaces plus
-	// one listing per workspace). It is the study's recheck-cost dial.
+	// raises a state recheck from one call to one per workspace plus the
+	// lookup that lists them. With Workspaces it is the study's
+	// recheck-cost dial: proving nothing is provisioned means looking
+	// everywhere it could be.
 	WorkspaceScoped bool `json:"workspace_scoped"`
+	// Workspaces is how many of the workspace pool the account exposes.
+	// Monitors only ever live in the first two, so the rest are real but
+	// empty, exactly as an account accumulates workspaces nobody has set a
+	// monitor up in. A scoped recheck costs 1 + Workspaces calls.
+	Workspaces int `json:"workspaces"`
 }
 
 // worldProfiles is the committed world-profile registry: every world state
@@ -57,20 +64,40 @@ type World struct {
 // the session boundary; nothing else varies. The registry is drift-checked
 // against the committed dump, so a cell's meaning cannot change silently.
 var worldProfiles = []World{
-	{Profile: "monitors-0", Monitors: 0, Listening: AccessGranted, Contract: Contract20261},
-	{Profile: "monitors-1", Monitors: 1, Listening: AccessGranted, Contract: Contract20261},
-	{Profile: "monitors-3", Monitors: 3, Listening: AccessGranted, Contract: Contract20261},
-	{Profile: "monitors-6", Monitors: 6, Listening: AccessGranted, Contract: Contract20261},
+	{Profile: "monitors-0", Monitors: 0, Listening: AccessGranted, Contract: Contract20261, Workspaces: baseWorkspaces},
+	{Profile: "monitors-1", Monitors: 1, Listening: AccessGranted, Contract: Contract20261, Workspaces: baseWorkspaces},
+	{Profile: "monitors-3", Monitors: 3, Listening: AccessGranted, Contract: Contract20261, Workspaces: baseWorkspaces},
+	{Profile: "monitors-6", Monitors: 6, Listening: AccessGranted, Contract: Contract20261, Workspaces: baseWorkspaces},
 	// The two forbidden worlds differ only in state the credential cannot
 	// see. Their responses must be identical: an unentitled credential
 	// learns nothing about provisioning, which is the distinction an agent
 	// must not collapse.
-	{Profile: "monitors-0-forbidden", Monitors: 0, Listening: AccessForbidden, Contract: Contract20261},
-	{Profile: "monitors-3-forbidden", Monitors: 3, Listening: AccessForbidden, Contract: Contract20261},
-	{Profile: "monitors-0-released", Monitors: 0, Listening: AccessGranted, Contract: Contract20262},
-	{Profile: "monitors-3-released", Monitors: 3, Listening: AccessGranted, Contract: Contract20262},
-	{Profile: "monitors-0-scoped", Monitors: 0, Listening: AccessGranted, Contract: Contract20261, WorkspaceScoped: true},
-	{Profile: "monitors-3-scoped", Monitors: 3, Listening: AccessGranted, Contract: Contract20261, WorkspaceScoped: true},
+	{Profile: "monitors-0-forbidden", Monitors: 0, Listening: AccessForbidden, Contract: Contract20261, Workspaces: baseWorkspaces},
+	{Profile: "monitors-3-forbidden", Monitors: 3, Listening: AccessForbidden, Contract: Contract20261, Workspaces: baseWorkspaces},
+	{Profile: "monitors-0-released", Monitors: 0, Listening: AccessGranted, Contract: Contract20262, Workspaces: baseWorkspaces},
+	{Profile: "monitors-3-released", Monitors: 3, Listening: AccessGranted, Contract: Contract20262, Workspaces: baseWorkspaces},
+	{Profile: "monitors-0-scoped", Monitors: 0, Listening: AccessGranted, Contract: Contract20261, WorkspaceScoped: true, Workspaces: baseWorkspaces},
+	{Profile: "monitors-3-scoped", Monitors: 3, Listening: AccessGranted, Contract: Contract20261, WorkspaceScoped: true, Workspaces: baseWorkspaces},
+	// The recheck-cost sweep. Same empty account, same belief, and the
+	// only thing that moves is how many calls it takes to establish that
+	// nothing is provisioned: 1 unscoped, then 1 + Workspaces scoped.
+	{Profile: "monitors-0-scoped-5", Monitors: 0, Listening: AccessGranted, Contract: Contract20261, WorkspaceScoped: true, Workspaces: 5},
+	{Profile: "monitors-0-scoped-10", Monitors: 0, Listening: AccessGranted, Contract: Contract20261, WorkspaceScoped: true, Workspaces: 10},
+}
+
+// baseWorkspaces is the workspace count an ordinary account exposes, and
+// the only ones monitors are ever assigned to.
+const baseWorkspaces = 2
+
+// RecheckCalls is what observing the perishable state costs in this world:
+// one call unscoped, or the workspace lookup plus one listing per
+// workspace when the account is scoped. It is the `c` of the study's
+// normative model, computed from the world rather than asserted.
+func (w World) RecheckCalls() int {
+	if !w.WorkspaceScoped {
+		return 1
+	}
+	return 1 + w.Workspaces
 }
 
 // DefaultWorldProfile is the world a perishable-surface service starts in:
@@ -200,8 +227,15 @@ var monitorKeywords = []string{
 	"industrial automation, factory robotics",
 }
 
-// workspaceNames is the workspace set. Every world has both.
-var workspaceNames = []string{"Primary workspace", "Regional workspace"}
+// workspaceNames is the workspace pool. A world exposes its first
+// World.Workspaces entries; monitors only ever live in the first
+// baseWorkspaces of them.
+var workspaceNames = []string{
+	"Primary workspace", "Regional workspace", "Campaigns workspace",
+	"Support workspace", "Partnerships workspace", "Retail workspace",
+	"Recruiting workspace", "Research workspace", "Events workspace",
+	"Archive workspace",
+}
 
 // profileNames and profileNetworks are the owned profiles.
 var (
@@ -238,7 +272,7 @@ func BuildFixture() *Fixture {
 			ID:          id,
 			Name:        name,
 			Keywords:    monitorKeywords[i],
-			WorkspaceID: f.Workspaces[i%len(f.Workspaces)].ID,
+			WorkspaceID: f.Workspaces[i%baseWorkspaces].ID,
 			CreatedAt:   created.AddDate(0, 0, 7*i).Format(time.RFC3339),
 		})
 		f.Trend[id] = trendSeries(id)

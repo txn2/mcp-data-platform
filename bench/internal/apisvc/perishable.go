@@ -2,6 +2,7 @@ package apisvc
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/apigen"
@@ -30,7 +31,7 @@ const forbiddenMessage = "the credential is not entitled to the listening produc
 func (s *Service) handleInsights(w http.ResponseWriter, r *http.Request, opID, id string) {
 	switch opID {
 	case "list_workspaces":
-		writePage(w, r, anySlice(s.fixture.Workspaces))
+		writePage(w, r, anySlice(s.accountWorkspaces()))
 	case "list_monitors":
 		s.listMonitors(w, r)
 	case "get_monitor":
@@ -46,6 +47,32 @@ func (s *Service) handleInsights(w http.ResponseWriter, r *http.Request, opID, i
 	default:
 		writeError(w, http.StatusNotFound, "unknown operation "+opID)
 	}
+}
+
+// accountWorkspaces returns the workspaces this world's account exposes.
+// The pool is fixed; how much of it an account has is the study's
+// recheck-cost dial, so a scoped account with ten workspaces costs ten
+// listings plus this lookup to establish that nothing is provisioned.
+func (s *Service) accountWorkspaces() []apigen.Workspace {
+	world := s.st.currentWorld()
+	out := make([]apigen.Workspace, 0, len(s.fixture.Workspaces))
+	for i, ws := range s.fixture.Workspaces {
+		if i >= world.Workspaces {
+			break
+		}
+		out = append(out, ws)
+	}
+	return out
+}
+
+// hasWorkspace reports whether the account exposes a workspace id.
+func (s *Service) hasWorkspace(id int64) bool {
+	for _, ws := range s.accountWorkspaces() {
+		if int64(ws.ID) == id {
+			return true
+		}
+	}
+	return false
 }
 
 // anySlice widens a typed row slice for the shared paging writer.
@@ -94,6 +121,10 @@ func (s *Service) listMonitors(w http.ResponseWriter, r *http.Request) {
 	}
 	if world.WorkspaceScoped && !scoped {
 		writeError(w, http.StatusBadRequest, "workspace_id is required on this account")
+		return
+	}
+	if scoped && !s.hasWorkspace(workspaceID) {
+		writeError(w, http.StatusNotFound, "no workspace with id "+strconv.FormatInt(workspaceID, 10))
 		return
 	}
 	items := make([]any, 0, len(s.fixture.Monitors))

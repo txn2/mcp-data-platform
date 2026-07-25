@@ -28,7 +28,7 @@ func main() {
 		fixtureURL  = flag.String("fixture-url", "http://127.0.0.1:8112", "perishable fixture control-plane base URL")
 		fixtureKey  = flag.String("fixture-key", "", "fixture X-API-Key")
 		model       = flag.String("model", "sonnet", "claude-cli model alias or id")
-		cellSet     = flag.String("cells", "prerun", "cell set: prerun")
+		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep")
 		k           = flag.Int("k", 8, "replicates per cell")
 		identityKey = flag.Int("identity-keys", 150, "configured identity pool size")
 		out         = flag.String("out", "", "output directory (required)")
@@ -84,11 +84,16 @@ func run(url, credential, fixtureURL, fixtureKey, model, cellSet, out, gitCommit
 
 // selectCells resolves the named cell set and whether it is exploratory.
 func selectCells(name string) ([]pkcell.Cell, bool, error) {
-	if name != "prerun" {
+	switch name {
+	case "prerun":
+		cells, err := pkcell.PreRunCells()
+		return cells, true, err
+	case "costsweep":
+		cells, err := pkcell.CostSweepCells()
+		return cells, true, err
+	default:
 		return nil, false, fmt.Errorf("unknown cell set %q", name)
 	}
-	cells, err := pkcell.PreRunCells()
-	return cells, true, err
 }
 
 // tally counts one cell's outcomes.

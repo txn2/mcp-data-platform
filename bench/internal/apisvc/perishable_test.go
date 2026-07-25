@@ -558,3 +558,64 @@ func TestControlPlaneNeedsCredential(t *testing.T) {
 		t.Errorf("default world = %q, want %q", world.Profile, apigen.DefaultWorldProfile)
 	}
 }
+
+// TestWorkspaceCountIsTheCostDial checks a world exposes only its own
+// workspaces and refuses ids outside them. This is what makes the price of
+// establishing "nothing is provisioned" a controlled variable: on a scoped
+// account it costs one listing per workspace plus the lookup.
+func TestWorkspaceCountIsTheCostDial(t *testing.T) {
+	for _, tc := range []struct {
+		profile string
+		want    int
+		cost    int
+	}{
+		{"monitors-0", 2, 1},
+		{"monitors-0-scoped", 2, 3},
+		{"monitors-0-scoped-5", 5, 6},
+		{"monitors-0-scoped-10", 10, 11},
+	} {
+		t.Run(tc.profile, func(t *testing.T) {
+			ts := newPerishableServer(t, tc.profile)
+			ws := fetchAll(t, ts, "/insights/workspaces", nil)
+			if len(ws) != tc.want {
+				t.Fatalf("workspaces = %d, want %d", len(ws), tc.want)
+			}
+			world, ok := apigen.WorldByName(tc.profile)
+			if !ok {
+				t.Fatal("unknown world")
+			}
+			if got := world.RecheckCalls(); got != tc.cost {
+				t.Errorf("recheck costs %d calls, want %d", got, tc.cost)
+			}
+			// Clearing the account really does take that many calls: the
+			// unscoped shortcut is refused where scoping is on, and every
+			// exposed workspace answers.
+			code, _ := rawGet(t, ts, "/insights/monitors")
+			if world.WorkspaceScoped != (code == http.StatusBadRequest) {
+				t.Errorf("unscoped listing returned %d on a scoped=%v account", code, world.WorkspaceScoped)
+			}
+			for _, w := range ws {
+				id, _ := w["id"].(float64)
+				if got := len(fetchAll(t, ts, "/insights/monitors", url.Values{"workspace_id": {strconv.Itoa(int(id))}})); got != 0 {
+					t.Errorf("workspace %v holds %d monitors, want 0", id, got)
+				}
+			}
+			// A workspace the account does not have is refused rather than
+			// silently answering empty, which would let an agent "clear"
+			// the account without visiting it.
+			if code, _ := rawGet(t, ts, "/insights/monitors?workspace_id=699"); code != http.StatusNotFound {
+				t.Errorf("an unknown workspace returned %d, want 404", code)
+			}
+		})
+	}
+	// Monitors never live outside the base workspaces, so a wider account
+	// adds empty places to look rather than moving the monitors.
+	ts := newPerishableServer(t, "monitors-3")
+	seen := map[float64]bool{}
+	for _, m := range fetchAll(t, ts, "/insights/monitors", nil) {
+		seen[m["workspace_id"].(float64)] = true
+	}
+	if len(seen) != 2 {
+		t.Errorf("monitors span %d workspaces, want the 2 every account has", len(seen))
+	}
+}

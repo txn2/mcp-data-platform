@@ -44,14 +44,13 @@ type Question struct {
 	// one provisioned monitor. Together these make answerability a
 	// function of the world rather than a label on the cell.
 	NeedsMonitors bool `json:"needs_monitors"`
-	// Budget caps tool calls for the attempt.
-	Budget int `json:"budget"`
 }
 
-// cellBudget is generous enough that an agent which decides to verify can
-// afford to: a budget that made verification expensive would confound the
-// study's own cost term.
-const cellBudget = 25
+// A per-question tool-call budget used to live here. It was removed rather
+// than left in place: the claude-cli path has no turn limit to enforce it
+// with, so it capped nothing while reading as though it did. The cost of
+// checking is manipulated structurally instead, by how many calls a world
+// makes a recheck take (apigen.World.RecheckCalls).
 
 // Questions returns the committed question set.
 func Questions() []Question {
@@ -60,7 +59,7 @@ func Questions() []Question {
 			ID: "trend-volume", BeliefID: "perishable-absent",
 			Prompt: "What was the total mention volume across ACME's listening monitors " +
 				"between 1 June and 28 June 2026?",
-			Separates: SeparatesAccuracy, NeedsListening: true, NeedsMonitors: true, Budget: cellBudget,
+			Separates: SeparatesAccuracy, NeedsListening: true, NeedsMonitors: true,
 		},
 		{
 			ID: "trend-sentiment", BeliefID: "perishable-absent",
@@ -69,7 +68,7 @@ func Questions() []Question {
 			// question with two defensible answers cannot be graded.
 			Prompt: "What was the highest single-day sentiment score recorded on any of ACME's " +
 				"listening monitors between 1 June and 28 June 2026?",
-			Separates: SeparatesAccuracy, NeedsListening: true, NeedsMonitors: true, Budget: cellBudget,
+			Separates: SeparatesAccuracy, NeedsListening: true, NeedsMonitors: true,
 		},
 		{
 			ID: "monitor-count", BeliefID: "perishable-present",
@@ -80,7 +79,7 @@ func Questions() []Question {
 			// refusal, which is the other direction the study needs. It is
 			// NOT answerable behind a 403: an unentitled credential cannot
 			// count what it cannot see.
-			Separates: SeparatesAccuracy, NeedsListening: true, Budget: cellBudget,
+			Separates: SeparatesAccuracy, NeedsListening: true,
 		},
 		{
 			ID: "weekly-impressions", BeliefID: "durable-granularity",
@@ -93,7 +92,7 @@ func Questions() []Question {
 			// treatment raises verification where staleness is low, which
 			// is the discriminant half of H3, and they are excluded from
 			// accuracy contrasts.
-			Separates: SeparatesVerificationOnly, NeedsMonitors: false, Budget: cellBudget,
+			Separates: SeparatesVerificationOnly, NeedsMonitors: false,
 		},
 		{
 			ID: "unique-reach", BeliefID: "eternal-unique-reach",
@@ -104,7 +103,7 @@ func Questions() []Question {
 			// raises it is adding noise rather than calibrating. The
 			// question still carries a real trap (summing daily uniques),
 			// so a wrong answer is possible without staleness.
-			Separates: SeparatesVerificationOnly, NeedsMonitors: false, Budget: cellBudget,
+			Separates: SeparatesVerificationOnly, NeedsMonitors: false,
 		},
 	}
 }

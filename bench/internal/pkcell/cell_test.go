@@ -310,3 +310,68 @@ func TestGroundTruthsMatchTheFixture(t *testing.T) {
 		t.Errorf("weekly impressions moved with the contract: %v then %v", before, after)
 	}
 }
+
+// TestCostSweepVariesOnlyCost is the sweep's whole validity: if anything
+// but the price of checking moves between these cells, the curve measures
+// something other than cost sensitivity.
+func TestCostSweepVariesOnlyCost(t *testing.T) {
+	cells, err := CostSweepCells()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cells) < 3 {
+		t.Fatalf("a sweep of %d points cannot show a curve", len(cells))
+	}
+	costs := make([]int, 0, len(cells))
+	for _, c := range cells {
+		w, ok := apigen.WorldByName(c.QueryWorld)
+		if !ok {
+			t.Fatalf("%s names an unknown world", c.ID)
+		}
+		costs = append(costs, w.RecheckCalls())
+		// Everything but cost is held: same belief, same phrasing, same
+		// arm, same question, and the belief true in every one of them.
+		if c.Seed.ID != cells[0].Seed.ID || c.Question.ID != cells[0].Question.ID {
+			t.Errorf("%s changes the belief or the question", c.ID)
+		}
+		if c.Metadata.Enriched {
+			t.Errorf("%s is not the bare arm", c.ID)
+		}
+		if c.Stale() || c.Behavior != BehaviorRefuse {
+			t.Errorf("%s: stale=%v behavior=%s, want a fresh cell requiring refusal", c.ID, c.Stale(), c.Behavior)
+		}
+	}
+	for i := 1; i < len(costs); i++ {
+		if costs[i] <= costs[i-1] {
+			t.Errorf("cost did not rise: %v", costs)
+		}
+	}
+	if costs[0] != 1 {
+		t.Errorf("the sweep does not start at one call: %v", costs)
+	}
+}
+
+// TestAffordanceMustMatchTheWorldsCost checks a seed claiming a one-call
+// recheck cannot be delivered where checking costs more. An affordance
+// that misstates the cost is a false estimator, and an agent reasoning
+// correctly from it would reach the wrong decision.
+func TestAffordanceMustMatchTheWorldsCost(t *testing.T) {
+	var withAffordance *pkseed.Seed
+	for _, s := range pkseed.Seeds() {
+		if s.BeliefID == "perishable-absent" && s.Phrasing.Affordance && !s.Phrasing.Dated && !s.Phrasing.Suppressive {
+			seed := s
+			withAffordance = &seed
+			break
+		}
+	}
+	if withAffordance == nil {
+		t.Fatal("no affordance-bearing seed")
+	}
+	if _, err := Derive(questionFor(t, "trend-volume"), withAffordance, pkseed.Metadata{}, "monitors-0"); err != nil {
+		t.Errorf("an affordance was refused in a world where checking does cost one call: %v", err)
+	}
+	_, err := Derive(questionFor(t, "trend-volume"), withAffordance, pkseed.Metadata{}, "monitors-0-scoped-10")
+	if err == nil {
+		t.Error("an affordance claiming one call was delivered where checking costs eleven")
+	}
+}

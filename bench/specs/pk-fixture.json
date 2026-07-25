@@ -9,6 +9,46 @@
       "id": 602,
       "name": "Regional workspace",
       "created_at": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 603,
+      "name": "Campaigns workspace",
+      "created_at": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 604,
+      "name": "Support workspace",
+      "created_at": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 605,
+      "name": "Partnerships workspace",
+      "created_at": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 606,
+      "name": "Retail workspace",
+      "created_at": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 607,
+      "name": "Recruiting workspace",
+      "created_at": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 608,
+      "name": "Research workspace",
+      "created_at": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 609,
+      "name": "Events workspace",
+      "created_at": "2026-01-05T00:00:00Z"
+    },
+    {
+      "id": 610,
+      "name": "Archive workspace",
+      "created_at": "2026-01-05T00:00:00Z"
     }
   ],
   "monitors": [
