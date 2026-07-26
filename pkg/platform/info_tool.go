@@ -18,14 +18,6 @@ import (
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
-// resourcesDiscoverabilityNote is the runtime note appended to agent
-// instructions when managed resources are enabled, pointing the agent at the
-// MCP resources primitive for uploaded reference material.
-const resourcesDiscoverabilityNote = "Uploaded resources (samples, playbooks, templates, references) " +
-	"are available via the MCP resources primitive. Call resources/list to discover " +
-	"what reference material has been uploaded. Use these resources when the task " +
-	"involves user-provided context, examples, formatting specifications, or reference data."
-
 // Info contains information about the platform deployment.
 type Info struct {
 	Name                string                `json:"name"`
@@ -252,17 +244,19 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		}
 	}
 
+	// The tools this caller's persona may reach gate the instruction baseline, the
+	// resources note, and the knowledge feature flags, so a persona is never told
+	// about a capability it cannot drive.
+	accessibleTools := instructions.AccessibleTools(p.toolkitRegistry.AllTools(), caller, p.personaRegistry)
+
 	// Compose the full instruction stack: the platform baseline (gated to the
 	// tools this caller may reach) beneath the admin business context, with the
-	// resources nudge appended as a runtime note when managed resources exist.
+	// resources positioning and operating rule appended as a runtime note when
+	// managed resources exist.
 	var notes []string
 	if p.resources.Store() != nil {
-		notes = append(notes, resourcesDiscoverabilityNote)
+		notes = append(notes, instructions.ResourcesNote(accessibleTools))
 	}
-	// The tools this caller's persona may reach gate both the instruction baseline
-	// and the knowledge feature flags, so a persona is never told about a
-	// capability it cannot drive.
-	accessibleTools := instructions.AccessibleTools(p.toolkitRegistry.AllTools(), caller, p.personaRegistry)
 	agentInstructions := instructions.ComposeForCaller(
 		p.config.Server.AgentInstructions,
 		p.toolkitRegistry.AllTools(),

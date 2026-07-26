@@ -4,7 +4,8 @@ import { useUploadResource } from "@/api/resources/hooks";
 import { useAuthStore } from "@/stores/auth";
 import { formatBytes } from "@/lib/format";
 import { parseTags } from "@/lib/tags";
-import { CATEGORIES } from "./shared";
+import { RESOURCE_POSITIONING } from "@/lib/positioning";
+import { CATEGORIES, CATEGORY_HINTS } from "./shared";
 import { Overlay } from "./Overlay";
 
 export function UploadModal({ onClose, admin, personaNames }: { onClose: () => void; admin: boolean; personaNames: string[] }) {
@@ -112,6 +113,8 @@ export function UploadModal({ onClose, admin, personaNames }: { onClose: () => v
           <button onClick={onClose} className="rounded p-1 hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
 
+        <p className="text-xs text-muted-foreground">{RESOURCE_POSITIONING}</p>
+
         {error && <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">{error}</p>}
 
         <div className="space-y-3">
@@ -178,6 +181,9 @@ export function UploadModal({ onClose, admin, personaNames }: { onClose: () => v
               </label>
             )}
           </div>
+          {CATEGORY_HINTS[cat] && (
+            <p data-testid="category-hint" className="text-xs text-muted-foreground">{CATEGORY_HINTS[cat]}</p>
+          )}
         </div>
 
         <label className="block space-y-1">

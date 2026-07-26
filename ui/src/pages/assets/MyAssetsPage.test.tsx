@@ -305,4 +305,24 @@ describe("MyAssetsPage: load more pagination", () => {
     expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
     expect(screen.queryByText("No shared assets")).not.toBeInTheDocument();
   });
+
+  // #1015: the moment someone has nowhere to put a file they wrote themselves
+  // is the moment to say assets are not that place.
+  it("points human-authored files at resources when there are no assets yet", () => {
+    mockUseAssets.mockReturnValue({
+      data: { data: [], total: 0, limit: 50, offset: 0, share_summaries: {} },
+      isLoading: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
+
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+    fireEvent.click(screen.getByRole("tab", { name: "Mine" }));
+
+    expect(screen.getByText("No assets yet")).toBeInTheDocument();
+    expect(
+      screen.getByText("A file you wrote yourself and want used as-is belongs in Resources, not here."),
+    ).toBeInTheDocument();
+  });
 });
