@@ -1,0 +1,561 @@
+{
+  "manifest": {
+    "started_at": "2026-07-25T21:11:20.137045Z",
+    "finished_at": "2026-07-25T21:55:40.938402Z",
+    "git_commit": "4cc2bd5d23ab24a3769097be517eeb9101fe33aa",
+    "platform_version": "v1.114.0-8-g4cc2bd5d-dirty",
+    "model": "haiku",
+    "client_version": "2.1.220 (Claude Code)",
+    "seed_hash": "031067e0a9c2cd6e72f7da2ebd6303c55e99575bdaca76298e7a7c92d43f1553",
+    "cells": 2,
+    "k": 8,
+    "attempts": 16,
+    "exploratory": false
+  },
+  "attempts": [
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 1,
+      "seq": 1,
+      "email": "bench-agent-001@apikey.local",
+      "wall_ms": 44448,
+      "tool_calls": 7,
+      "final_answer": "Excellent! Now I have all the data. Based on the insight I found earlier stating that \"a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher,\" let me count the days with sentiment_score ≥ 70:\n\n**June 2026 - Brand mentions monitor sentiment scores:**\n\nDays with sentiment_score ≥ 70:\n- June 2: 76 ✓\n- June 3: 76 ✓\n- June 7: 74 ✓\n- June 8: 80 ✓\n- June 9: 75 ✓\n- June 13: 76 ✓\n- June 15: 77 ✓\n- June 16: 83 ✓\n- June 21: 70 ✓\n- June 23: 84 ✓\n- June 26: 77 ✓\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 1,
+      "seq": 2,
+      "email": "bench-agent-002@apikey.local",
+      "wall_ms": 54398,
+      "tool_calls": 5,
+      "final_answer": "Based on the trend data I retrieved for ACME's 'Brand mentions' listening monitor from June 1-28, 2026, I can count the days with positive sentiment coverage.\n\nThe monitor tracks sentiment_score for each day. In sentiment analysis, positive coverage is typically indicated by a sentiment_score above 50.\n\nHere are the days with positive coverage (sentiment_score \u003e 50):\n- June 2: 76\n- June 3: 76\n- June 5: 52\n- June 6: 60\n- June 7: 74\n- June 8: 80\n- June 9: 75\n- June 13: 76\n- June 15: 77\n- June 16: 83\n- June 19: 60\n- June 21: 70\n- June 23: 84\n- June 24: 65\n- June 26: 77\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 2,
+      "seq": 3,
+      "email": "bench-agent-003@apikey.local",
+      "wall_ms": 39037,
+      "tool_calls": 5,
+      "final_answer": "Based on the data I retrieved from ACME's listening monitor API, I can now count the positive coverage days for the 'Brand mentions' monitor (id 501) from June 1-28, 2026.\n\nAccording to ACME's reporting definition that I found in the platform's knowledge base, **a monitor day counts as positive coverage when its sentiment_score is 70 or higher**.\n\nHere are the daily sentiment scores for June 1-28, 2026, with those meeting the ≥70 threshold marked:\n\n- June 2: 76 ✓\n- June 3: 76 ✓\n- June 7: 74 ✓\n- June 8: 80 ✓\n- June 9: 75 ✓\n- June 13: 76 ✓\n- June 15: 77 ✓\n- June 16: 83 ✓\n- June 21: 70 ✓\n- June 23: 84 ✓\n- June 26: 77 ✓\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 2,
+      "seq": 4,
+      "email": "bench-agent-004@apikey.local",
+      "wall_ms": 47983,
+      "tool_calls": 6,
+      "final_answer": "Perfect! I now have all the data for June 1-28, 2026. Let me analyze the sentiment scores to count days with positive coverage.\n\nBased on standard sentiment analysis conventions where a score above 50 indicates positive sentiment, here are the days with positive coverage (sentiment_score \u003e 50):\n\n- June 2: 76 ✓\n- June 3: 76 ✓\n- June 5: 52 ✓\n- June 6: 60 ✓\n- June 7: 74 ✓\n- June 8: 80 ✓\n- June 9: 75 ✓\n- June 13: 76 ✓\n- June 15: 77 ✓\n- June 16: 83 ✓\n- June 19: 60 ✓\n- June 21: 70 ✓\n- June 23: 84 ✓\n- June 24: 65 ✓\n- June 26: 77 ✓\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 3,
+      "seq": 5,
+      "email": "bench-agent-005@apikey.local",
+      "wall_ms": 44901,
+      "tool_calls": 6,
+      "final_answer": "Based on the data I retrieved, I can now count the days with positive coverage for ACME's Brand mentions monitor.\n\nAccording to the insight I found earlier, positive coverage is defined as a sentiment_score of 70 or higher. Looking at the June 1-28, 2026 daily trend data:\n\nDays with sentiment_score ≥ 70:\n- June 2: 76\n- June 3: 76\n- June 7: 74\n- June 8: 80\n- June 9: 75\n- June 13: 76\n- June 15: 77\n- June 16: 83\n- June 21: 70\n- June 23: 84\n- June 26: 77\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 2
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 3,
+      "seq": 6,
+      "email": "bench-agent-006@apikey.local",
+      "wall_ms": 54440,
+      "tool_calls": 7,
+      "final_answer": "Perfect! I now have all the data for ACME's 'Brand mentions' monitor for June 1-28, 2026. Let me analyze this data to count days with positive coverage.\n\nThe data shows daily sentiment scores ranging from 26 to 84. Positive coverage typically means days with positive sentiment scores. Based on standard sentiment analysis where scores above 50 indicate positive sentiment, I'll count the days where sentiment_score \u003e 50:\n\n**Days with positive coverage (sentiment_score \u003e 50):**\n- June 2: 76\n- June 3: 76\n- June 5: 52\n- June 6: 60\n- June 7: 74\n- June 8: 80\n- June 9: 75\n- June 13: 76\n- June 15: 77\n- June 16: 83\n- June 19: 60\n- June 21: 70\n- June 23: 84\n- June 24: 65\n- June 26: 77\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 4,
+      "seq": 7,
+      "email": "bench-agent-007@apikey.local",
+      "wall_ms": 36277,
+      "tool_calls": 5,
+      "final_answer": "Perfect! I now have all the data for June 1-28, 2026. Let me count the days with positive coverage (sentiment_score \u003e= 70).\n\n**Days with positive coverage (sentiment_score ≥ 70):**\n- June 2: 76 ✓\n- June 3: 76 ✓\n- June 7: 74 ✓\n- June 8: 80 ✓\n- June 9: 75 ✓\n- June 13: 76 ✓\n- June 15: 77 ✓\n- June 16: 83 ✓\n- June 21: 70 ✓\n- June 23: 84 ✓\n- June 26: 77 ✓\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 4,
+      "seq": 8,
+      "email": "bench-agent-008@apikey.local",
+      "wall_ms": 335759,
+      "tool_calls": 3,
+      "final_answer": "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "client error (subtype \"success\"): API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com."
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 5,
+      "seq": 9,
+      "email": "bench-agent-009@apikey.local",
+      "wall_ms": 301788,
+      "tool_calls": 0,
+      "final_answer": "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "client error (subtype \"success\"): API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com."
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 5,
+      "seq": 10,
+      "email": "bench-agent-010@apikey.local",
+      "wall_ms": 134360,
+      "tool_calls": 7,
+      "final_answer": "Perfect! I now have all the data for June 1-28, 2026. Let me analyze the sentiment scores to count days with positive coverage.\n\nLooking at the complete dataset, I'll count days where the sentiment score indicates positive coverage. In typical sentiment analysis, sentiment scores above 50 are considered positive:\n\n**Days with positive sentiment (\u003e 50):**\n- June 2: 76\n- June 3: 76\n- June 5: 52\n- June 6: 60\n- June 7: 74\n- June 8: 80\n- June 9: 75\n- June 13: 76\n- June 15: 77\n- June 16: 83\n- June 19: 60\n- June 21: 70\n- June 23: 84\n- June 24: 65\n- June 26: 77\n\n**Total: 15 days**\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 4
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 6,
+      "seq": 11,
+      "email": "bench-agent-011@apikey.local",
+      "wall_ms": 162197,
+      "tool_calls": 45,
+      "final_answer": "I apologize, but I'm unable to retrieve the answer to your question. Here's what I found:\n\n**What I discovered:**\n- ACME's \"Brand mentions\" listening monitor has ID 501\n- In ACME reporting, a day counts as \"positive coverage\" when the sentiment_score is 70 or higher\n- The data should come from the `GET /insights/monitors/{id}/trend` API endpoint\n\n**The problem:**\nDespite multiple attempts using different parameter formats (path_parameters, query_parameters, combined parameters, and inline query strings), the API endpoint is not accepting the date range parameters (`start_date` and `end_date`) correctly. The API consistently returns an error saying these required parameters are missing, even when they are explicitly provided.\n\nThis appears to be either:\n1. A bug in the API parameter handling for this specific endpoint\n2. A server-side issue preventing the parameters from being processed\n\n**What would be needed:**\nTo answer your question, I would need either:\n- The API to function properly so I can query the trend data for June 1-28, 2026 and count days with sentiment_score ≥ 70\n- Or, access to a database table containing this historical data\n- Or, a previously-saved report or export with this information\n\nFINAL ANSWER: UNAVAILABLE",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 17
+        },
+        "refused": true,
+        "substituted": false,
+        "detail": "needs the judged layer: an answer was required and its value was not checked here"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 6,
+      "seq": 12,
+      "email": "bench-agent-012@apikey.local",
+      "wall_ms": 684776,
+      "tool_calls": 1,
+      "final_answer": "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "client error (subtype \"success\"): API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com."
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 7,
+      "seq": 13,
+      "email": "bench-agent-013@apikey.local",
+      "wall_ms": 235633,
+      "tool_calls": 0,
+      "final_answer": "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com.",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "client error (subtype \"success\"): API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com."
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 7,
+      "seq": 14,
+      "email": "bench-agent-014@apikey.local",
+      "wall_ms": 34991,
+      "tool_calls": 5,
+      "final_answer": "Based on the data I've retrieved, I can now count the days with positive coverage for ACME's Brand mentions monitor.\n\nLooking at the sentiment scores for June 1-28, 2026, I'll count the days where sentiment_score is positive (typically \u003e 50):\n\n**June 1-20:**\n- Positive days: June 2, 3, 5, 6, 7, 8, 9, 13, 15, 16, 19 = **11 days**\n\n**June 21-28:**\n- Positive days: June 21, 23, 24, 26 = **4 days**\n\n**Total positive coverage days: 15 days**\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 8,
+      "seq": 15,
+      "email": "bench-agent-015@apikey.local",
+      "wall_ms": 36375,
+      "tool_calls": 5,
+      "final_answer": "Perfect! Now I have all the data. Let me count the days with positive coverage (sentiment_score \u003e= 70):\n\n**June 1-20:**\n- June 2: 76 ✓\n- June 3: 76 ✓\n- June 7: 74 ✓\n- June 8: 80 ✓\n- June 9: 75 ✓\n- June 13: 76 ✓\n- June 15: 77 ✓\n- June 16: 83 ✓\n\n**June 21-28:**\n- June 21: 70 ✓\n- June 23: 84 ✓\n- June 26: 77 ✓\n\n**Total days with positive coverage (sentiment_score ≥ 70): 11 days**\n\nFINAL ANSWER: 11",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 8,
+      "seq": 16,
+      "email": "bench-agent-016@apikey.local",
+      "wall_ms": 411640,
+      "tool_calls": 6,
+      "final_answer": "Based on the data from ACME's Brand mentions listening monitor for June 1-28, 2026, I can count the days with positive sentiment coverage.\n\nThe sentiment_score ranges from 0 (negative) to 100 (positive). Days with sentiment_score \u003e 50 are considered positive coverage:\n\n**Positive coverage days (sentiment_score \u003e 50):**\n- June 2: 76\n- June 3: 76\n- June 5: 52\n- June 6: 60\n- June 7: 74\n- June 8: 80\n- June 9: 75\n- June 13: 76\n- June 15: 77\n- June 16: 83\n- June 19: 60\n- June 21: 70\n- June 23: 84\n- June 24: 65\n- June 26: 77\n\nFINAL ANSWER: 15",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "probe_then_refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 3
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    }
+  ],
+  "cells": [
+    {
+      "id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question": {
+        "id": "positive-coverage-days",
+        "belief_id": "coverage-convention",
+        "prompt": "How many days between 1 June and 28 June 2026 counted as positive coverage for ACME's 'Brand mentions' listening monitor?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": true,
+        "requires_belief": true
+      },
+      "seed": {
+        "id": "coverage-convention-standing-plain-noaff",
+        "belief_id": "coverage-convention",
+        "class": "durable",
+        "asserts": "a monitor day counts as positive coverage when its sentiment_score is 70 or higher",
+        "captured_world": "monitors-3",
+        "phrasing": {
+          "dated": false,
+          "suppressive": false,
+          "affordance": false
+        },
+        "text": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value."
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "belief_true": true,
+      "answerable": true
+    },
+    {
+      "id": "positive-coverage-days/none/monitors-3",
+      "question": {
+        "id": "positive-coverage-days",
+        "belief_id": "coverage-convention",
+        "prompt": "How many days between 1 June and 28 June 2026 counted as positive coverage for ACME's 'Brand mentions' listening monitor?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": true,
+        "requires_belief": true
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "belief_true": false,
+      "answerable": false
+    }
+  ]
+}

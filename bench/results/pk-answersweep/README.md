@@ -61,3 +61,11 @@ One model (claude-cli, sonnet), two questions, one belief per direction,
 bare delivery only, k=8. The enriched-metadata arm is untested here, as are
 the phrasing factorial and a second model tier. Nothing here licenses a
 claim about agents in general.
+
+## Cross-model and raw-API replication (2026-07-25)
+
+Two further runs of the same cells, archived alongside the original.
+
+`pk-answersweep-haiku-20260725-145541` (claude-cli, haiku): the null-delivery result does NOT replicate on the weaker tier. Haiku trusted the delivered note in 29 of 32 belief attempts (verified 3/32), reading the count off it at every cost level, while its no-knowledge controls probed 16/16. Same client, same version, same cells as the sonnet run: the behavior flips with the model, so sonnet's re-derivation is not a client artifact. Haiku's trust makes delivery efficient where sonnet's re-derivation makes it redundant — and makes haiku-class agents the tier for which stale delivered state is a live risk.
+
+`pk-answersweep-api-20260725-153443` (raw Messages API, claude-sonnet-5, in-process loop, no client): the sonnet result replicates exactly. Verified 48/48, trusted 0, zero effort delta against controls. The null-delivery finding is a property of the model, not of Claude Code. Note: this run's archive predates per-attempt usage recording; spend is estimated, not recorded.

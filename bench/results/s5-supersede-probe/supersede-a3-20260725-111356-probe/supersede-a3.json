@@ -1,0 +1,1621 @@
+{
+  "manifest": {
+    "started_at": "2026-07-25T18:13:57.277272Z",
+    "finished_at": "2026-07-25T18:50:22.715968Z",
+    "git_commit": "4cc2bd5d23ab24a3769097be517eeb9101fe33aa",
+    "platform_version": "v1.114.0-8-g4cc2bd5d",
+    "target": "http://localhost:8098",
+    "arm": "a3",
+    "llm_provider": "claude-cli",
+    "client_version": "2.1.220 (Claude Code)",
+    "model": "sonnet",
+    "seed": 930,
+    "protocol_set_hash": "2af5f205e9a712a138da9c41b0a8b7ffe4a540c89e442931ab49e2c6deeb5bb3",
+    "k": 3
+  },
+  "runs": [
+    {
+      "protocol_id": "lc-anchor-region",
+      "title": "Anchor region net revenue (North then South)",
+      "sink": "knowledge_page",
+      "attempt": 1,
+      "captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-001@apikey.local",
+          "session_id": "dps_d1d11f69a88a60a6dd32cb0ab8f8bf08",
+          "tool_calls": 15,
+          "tool_errors": 1,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: **anchor region = North** as a business-knowledge insight (id `f28806f39a98de1aa4caec0fe229215a`), linked to the `daily_region_revenue` dataset (`region` column) — pending review before promotion to the shared catalog.",
+          "wall_ms": 84807,
+          "input_tokens": 73,
+          "output_tokens": 4675,
+          "cache_read_tokens": 746385,
+          "cache_creation_tokens": 42599,
+          "audit": {
+            "audited_calls": 15,
+            "errors": 1,
+            "total_duration_ms": 2642,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-anchor-region",
+      "title": "Anchor region net revenue (North then South)",
+      "sink": "knowledge_page",
+      "attempt": 2,
+      "captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-002@apikey.local",
+          "session_id": "dps_824ec3e71f9b1c4ff8df5b0281768a7a",
+          "tool_calls": 4,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the working definition \"anchor region = North\" is recorded (schema_entity insight, id `2bb50abdfe130ca5ec4899ec4ba9c0c9`), linked to the `daily_region_revenue` dataset, pending review for catalog promotion.",
+          "wall_ms": 30164,
+          "input_tokens": 14,
+          "output_tokens": 1303,
+          "cache_read_tokens": 207406,
+          "cache_creation_tokens": 22049,
+          "audit": {
+            "audited_calls": 4,
+            "errors": 0,
+            "total_duration_ms": 344,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-anchor-region",
+      "title": "Anchor region net revenue (North then South)",
+      "sink": "knowledge_page",
+      "attempt": 3,
+      "captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-003@apikey.local",
+          "session_id": "dps_d1bc131f16d936bbf03e8cb28b164e2e",
+          "tool_calls": 8,
+          "tool_errors": 1,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the working definition \"anchor region = North\" for this study, linked to the `daily_region_revenue` dataset (as a `schema_entity` insight, pending review before catalog promotion).",
+          "wall_ms": 40396,
+          "input_tokens": 22,
+          "output_tokens": 1819,
+          "cache_read_tokens": 343600,
+          "cache_creation_tokens": 23422,
+          "audit": {
+            "audited_calls": 8,
+            "errors": 1,
+            "total_duration_ms": 1848,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-benchmark-month",
+      "title": "Benchmark month order count (March then September)",
+      "sink": "datahub",
+      "attempt": 1,
+      "captured": false,
+      "capture_attempted": false,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-004@apikey.local",
+          "session_id": "dps_288efe6516eb4322239e3e49571b1082",
+          "tool_calls": 5,
+          "tool_errors": 1,
+          "search_called": true,
+          "final_answer": "No dataset in the catalog surfaces for \"benchmark month\" or a related monthly analysis — the search only returns unrelated admin/audit endpoints. You haven't told me which dataset this benchmark definition applies to, and I shouldn't guess a link.\n\nWhich dataset (or table) should I attach the \"benchmark month = March 2025\" definition to?",
+          "wall_ms": 44660,
+          "input_tokens": 18,
+          "output_tokens": 1926,
+          "cache_read_tokens": 260386,
+          "cache_creation_tokens": 22358,
+          "audit": {
+            "audited_calls": 5,
+            "errors": 1,
+            "total_duration_ms": 387,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-benchmark-month",
+      "title": "Benchmark month order count (March then September)",
+      "sink": "datahub",
+      "attempt": 2,
+      "captured": false,
+      "capture_attempted": false,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-005@apikey.local",
+          "session_id": "dps_5f9d86541d6aaf6766283931e2622106",
+          "tool_calls": 6,
+          "tool_errors": 1,
+          "search_called": true,
+          "final_answer": "I searched the catalog, context documents, memory, and knowledge pages for anything indicating which dataset this \"benchmark month\" definition applies to, but nothing surfaced — there's no prior context in this session naming a specific dataset or study.\n\nWhich dataset should I link this definition to? I don't want to guess or attach it to the wrong entity.",
+          "wall_ms": 43918,
+          "input_tokens": 20,
+          "output_tokens": 2061,
+          "cache_read_tokens": 310603,
+          "cache_creation_tokens": 24247,
+          "audit": {
+            "audited_calls": 6,
+            "errors": 1,
+            "total_duration_ms": 439,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-benchmark-month",
+      "title": "Benchmark month order count (March then September)",
+      "sink": "datahub",
+      "attempt": 3,
+      "captured": false,
+      "capture_attempted": false,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-006@apikey.local",
+          "session_id": "dps_2bab2e27e44a0e2d86d8a022e2013f1c",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "I searched the catalog and knowledge sources but found nothing tying \"benchmark month\" to a specific dataset yet — this looks like a fresh definition for a new study. Which dataset (or table) does this \"benchmark month\" apply to, so I can link the memory correctly?",
+          "wall_ms": 29667,
+          "input_tokens": 12,
+          "output_tokens": 1312,
+          "cache_read_tokens": 160168,
+          "cache_creation_tokens": 20602,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 158,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-billing-window",
+      "title": "Billing window completed orders (Q2 then Q4)",
+      "sink": "datahub",
+      "attempt": 1,
+      "insight_id": "4f5a3cf8302e5c2b616be8a8831f23c7",
+      "captured": true,
+      "update_correct": true,
+      "update_captured": true,
+      "duplicated": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_6e050593a5969e3ab30f83dc7e75ae43",
+          "tool_calls": 11,
+          "tool_errors": 1,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: **billing window = Q2 2025 (Apr 1 – Jun 30, 2025)**, linked to `memory.bench.orders` as a business-context insight (id `4f5a3cf8302e5c2b616be8a8831f23c7`), pending review for catalog promotion.",
+          "wall_ms": 56599,
+          "input_tokens": 28,
+          "output_tokens": 2951,
+          "cache_read_tokens": 459555,
+          "cache_creation_tokens": 25369,
+          "audit": {
+            "audited_calls": 11,
+            "errors": 1,
+            "total_duration_ms": 2018,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 265,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update",
+          "identity": "teacher",
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_225ca6110b4a0e81ea5a142570c3ac11",
+          "tool_calls": 3,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the \"billing window\" is now defined as Q4 2025 (Oct 1 – Dec 31, 2025), linked to `memory.bench.orders` (filter on `order_ts`). This new record supersedes the old Q2 2025 definition.",
+          "wall_ms": 30610,
+          "input_tokens": 14,
+          "output_tokens": 1480,
+          "cache_read_tokens": 196078,
+          "cache_creation_tokens": 21524,
+          "audit": {
+            "audited_calls": 3,
+            "errors": 0,
+            "total_duration_ms": 137,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update_recall",
+          "identity": "teacher",
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_11209a1fe4318d81df4a6c2eaf2a7dfd",
+          "tool_calls": 3,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "242 completed orders fall within the corrected billing window (Q4 2025: Oct 1 – Dec 31, 2025).\n\nFINAL ANSWER: 242",
+          "wall_ms": 26810,
+          "input_tokens": 14,
+          "output_tokens": 988,
+          "cache_read_tokens": 198287,
+          "cache_creation_tokens": 20351,
+          "audit": {
+            "audited_calls": 3,
+            "errors": 0,
+            "total_duration_ms": 293,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 200,
+            "enrichment_tokens_dedup": 53
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-billing-window",
+      "title": "Billing window completed orders (Q2 then Q4)",
+      "sink": "datahub",
+      "attempt": 2,
+      "insight_id": "3b49137ac4e91fa6788a6eb34e3f6775",
+      "captured": true,
+      "update_captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-008@apikey.local",
+          "session_id": "dps_a46dd68d92990e65ffea39f3433131cd",
+          "tool_calls": 13,
+          "tool_errors": 1,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the \"billing window\" is defined as Q2 2025 (2025-04-01 through 2025-06-30 inclusive), captured as business knowledge and linked to the `memory.bench.orders` dataset — it's now pending review for promotion to the shared catalog.",
+          "wall_ms": 70157,
+          "input_tokens": 38,
+          "output_tokens": 3508,
+          "cache_read_tokens": 673086,
+          "cache_creation_tokens": 27668,
+          "audit": {
+            "audited_calls": 13,
+            "errors": 1,
+            "total_duration_ms": 2313,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update",
+          "identity": "teacher",
+          "email": "bench-agent-008@apikey.local",
+          "session_id": "dps_93c49605f29b4bac8cf8f3c1a3b030f3",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "Updated the saved definition of \"billing window\" — it now reads as calendar Q4 2025 (Oct 1 – Dec 31, 2025, i.e. `order_ts \u003e= DATE '2025-10-01' AND order_ts \u003c DATE '2026-01-01'` on `memory.bench.orders`), replacing the earlier Q2 2025 definition, linked to `urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)`.",
+          "wall_ms": 29635,
+          "input_tokens": 12,
+          "output_tokens": 1456,
+          "cache_read_tokens": 159802,
+          "cache_creation_tokens": 21207,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 141,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-billing-window",
+      "title": "Billing window completed orders (Q2 then Q4)",
+      "sink": "datahub",
+      "attempt": 3,
+      "insight_id": "491120bff34c7c21328529d05efe276f",
+      "captured": true,
+      "update_correct": true,
+      "update_captured": true,
+      "duplicated": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-009@apikey.local",
+          "session_id": "dps_25dd09850f6c2f9e1de59f4db21b38b4",
+          "tool_calls": 11,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the \"billing window\" = calendar Q2 2025 (Apr 1–Jun 30, 2025), linked to `memory.bench.orders` (the canonical billing/revenue dataset). It's queued for admin review before promotion to the shared catalog.",
+          "wall_ms": 58683,
+          "input_tokens": 28,
+          "output_tokens": 2945,
+          "cache_read_tokens": 444004,
+          "cache_creation_tokens": 23272,
+          "audit": {
+            "audited_calls": 11,
+            "errors": 0,
+            "total_duration_ms": 2059,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 265,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update",
+          "identity": "teacher",
+          "email": "bench-agent-009@apikey.local",
+          "session_id": "dps_3f71cca1e4dbe07bb7982a9d3b3850af",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved the correction — \"billing window\" is now defined as Q4 2025 (Oct 1–Dec 31, 2025), linked to `memory.bench.orders`, and it superseded the prior Q2 2025 definition automatically.",
+          "wall_ms": 27757,
+          "input_tokens": 12,
+          "output_tokens": 1230,
+          "cache_read_tokens": 186880,
+          "cache_creation_tokens": 30197,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 147,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update_recall",
+          "identity": "teacher",
+          "email": "bench-agent-009@apikey.local",
+          "session_id": "dps_ad3b8271292f7f478e629dca55e48e10",
+          "tool_calls": 3,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "The corrected billing window is Q4 2025 (Oct 1 – Dec 31, 2025 inclusive), per a saved correction superseding the earlier Q2 2025 definition. Counting completed orders in `memory.bench.orders` with `order_ts` in that range gives 242.\n\nFINAL ANSWER: 242",
+          "wall_ms": 22997,
+          "input_tokens": 14,
+          "output_tokens": 935,
+          "cache_read_tokens": 197889,
+          "cache_creation_tokens": 20162,
+          "audit": {
+            "audited_calls": 3,
+            "errors": 0,
+            "total_duration_ms": 220,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 200,
+            "enrichment_tokens_dedup": 53
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-core-market",
+      "title": "Core market order count (North then East)",
+      "sink": "knowledge_page",
+      "attempt": 1,
+      "captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-010@apikey.local",
+          "session_id": "dps_6f629167b265425a53df65c1bb9a37f6",
+          "tool_calls": 9,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: \"core market\" = North region, captured as business knowledge (id `afb373fde2b197749da87b3e37667bd4`, pending review) and linked to `memory.bench.daily_region_revenue` (the region-dimensioned dataset).",
+          "wall_ms": 50652,
+          "input_tokens": 28,
+          "output_tokens": 2199,
+          "cache_read_tokens": 454254,
+          "cache_creation_tokens": 24266,
+          "audit": {
+            "audited_calls": 9,
+            "errors": 0,
+            "total_duration_ms": 535,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 165,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-core-market",
+      "title": "Core market order count (North then East)",
+      "sink": "knowledge_page",
+      "attempt": 2,
+      "captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-011@apikey.local",
+          "session_id": "dps_757bdb9f609909590866f71543430ee4",
+          "tool_calls": 10,
+          "tool_errors": 1,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: \"core market\" = North region, captured as business knowledge (id `79cb404483f911ed173b717187e94b8f`) and linked to `memory.bench.daily_region_revenue`, the dataset with the `region` column.",
+          "wall_ms": 57772,
+          "input_tokens": 28,
+          "output_tokens": 2676,
+          "cache_read_tokens": 465107,
+          "cache_creation_tokens": 25314,
+          "audit": {
+            "audited_calls": 10,
+            "errors": 1,
+            "total_duration_ms": 2090,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-core-market",
+      "title": "Core market order count (North then East)",
+      "sink": "knowledge_page",
+      "attempt": 3,
+      "captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-012@apikey.local",
+          "session_id": "dps_8812a77c59904052d484e012eaa96505",
+          "tool_calls": 7,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: \"core market = North region\" as a business-knowledge insight (id `7c24db5a3ea8b1c8d8d3135b6fb44dfa`), linked to the `daily_region_revenue` dataset — pending admin review for promotion to the shared catalog.",
+          "wall_ms": 32833,
+          "input_tokens": 18,
+          "output_tokens": 1635,
+          "cache_read_tokens": 268483,
+          "cache_creation_tokens": 22713,
+          "audit": {
+            "audited_calls": 7,
+            "errors": 0,
+            "total_duration_ms": 420,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-focus-month",
+      "title": "Focus month order count (June then February)",
+      "sink": "datahub",
+      "attempt": 1,
+      "captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-013@apikey.local",
+          "session_id": "dps_ed37d3fd86567a2d68e4156863a2ab6b",
+          "tool_calls": 7,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the \"focus month\" for this study is defined as June 2025 (2025-06-01–2025-06-30), captured as a schema-level insight linked to `memory.bench.daily_region_revenue` — pending admin review before it's promoted to the shared catalog.",
+          "wall_ms": 47836,
+          "input_tokens": 22,
+          "output_tokens": 2432,
+          "cache_read_tokens": 334469,
+          "cache_creation_tokens": 23572,
+          "audit": {
+            "audited_calls": 7,
+            "errors": 0,
+            "total_duration_ms": 590,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-focus-month",
+      "title": "Focus month order count (June then February)",
+      "sink": "datahub",
+      "attempt": 2,
+      "captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-014@apikey.local",
+          "session_id": "dps_3acf10867c1f01ca97f4df57e57dfc22",
+          "tool_calls": 9,
+          "tool_errors": 2,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved. The definition — **focus month = June 2025** — is recorded (id `8f57223a20b7737d2f8fb7e758e6290f`) as usage guidance linked to the `daily_region_revenue` dataset, and is queued for review before promotion to the shared catalog.",
+          "wall_ms": 52294,
+          "input_tokens": 20,
+          "output_tokens": 3324,
+          "cache_read_tokens": 327615,
+          "cache_creation_tokens": 26316,
+          "audit": {
+            "audited_calls": 9,
+            "errors": 2,
+            "total_duration_ms": 524,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-focus-month",
+      "title": "Focus month order count (June then February)",
+      "sink": "datahub",
+      "attempt": 3,
+      "captured": false,
+      "capture_attempted": false,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-015@apikey.local",
+          "session_id": "dps_65e48e543164743625d9a8801467d96b",
+          "tool_calls": 8,
+          "tool_errors": 1,
+          "search_called": true,
+          "final_answer": "I checked the catalog, connections, and existing context documents/knowledge pages, but found no dataset already associated with a \"study\" or monthly analysis in this workspace — the catalog and S3 buckets are currently empty, and nothing in memory or knowledge pages references one.\n\nWhich dataset should this \"focus month = June 2025\" definition be linked to (a table/dataset name or URN)? Once you tell me, I'll save it as a durable definition tied to that entity.",
+          "wall_ms": 56713,
+          "input_tokens": 26,
+          "output_tokens": 3077,
+          "cache_read_tokens": 436343,
+          "cache_creation_tokens": 24398,
+          "audit": {
+            "audited_calls": 8,
+            "errors": 1,
+            "total_duration_ms": 1817,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-focus-region-net",
+      "title": "Focus region net revenue (West then East)",
+      "sink": "knowledge_page",
+      "attempt": 1,
+      "captured": false,
+      "capture_attempted": false,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-016@apikey.local",
+          "session_id": "dps_f22b47df2868dea3c93fc995f61eb9d0",
+          "tool_calls": 9,
+          "tool_errors": 1,
+          "search_called": true,
+          "final_answer": "I searched the catalog, context documents, and existing memory for anything related to \"region\" or \"West,\" and nothing came up — no dataset in this workspace currently exposes a region concept I can link to.\n\nWhich dataset does this \"focus region = West\" definition apply to? I don't want to guess at an `entity_urn` and attach it to the wrong table.",
+          "wall_ms": 48472,
+          "input_tokens": 61,
+          "output_tokens": 2691,
+          "cache_read_tokens": 361396,
+          "cache_creation_tokens": 25035,
+          "audit": {
+            "audited_calls": 9,
+            "errors": 1,
+            "total_duration_ms": 1876,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-focus-region-net",
+      "title": "Focus region net revenue (West then East)",
+      "sink": "knowledge_page",
+      "attempt": 2,
+      "captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-017@apikey.local",
+          "session_id": "dps_247892136faed9fad630b5a6482f625b",
+          "tool_calls": 5,
+          "tool_errors": 1,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the working definition \"focus region = West\" for this study, linked to the `daily_region_revenue` dataset (`urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)`) as an active personal-preference memory (id `a08f3bbec79544c0c80456206b914aa9`).",
+          "wall_ms": 39537,
+          "input_tokens": 16,
+          "output_tokens": 1642,
+          "cache_read_tokens": 273164,
+          "cache_creation_tokens": 30632,
+          "audit": {
+            "audited_calls": 5,
+            "errors": 1,
+            "total_duration_ms": 316,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-focus-region-net",
+      "title": "Focus region net revenue (West then East)",
+      "sink": "knowledge_page",
+      "attempt": 3,
+      "captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-018@apikey.local",
+          "session_id": "dps_c451d7b7408028c735665f97bf453dbd",
+          "tool_calls": 15,
+          "tool_errors": 2,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the working definition \"focus region = West\" for this study, linked to the `daily_region_revenue` dataset (`urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)`) so future sessions scope region-based analysis to West by default.",
+          "wall_ms": 79319,
+          "input_tokens": 36,
+          "output_tokens": 4415,
+          "cache_read_tokens": 610567,
+          "cache_creation_tokens": 27693,
+          "audit": {
+            "audited_calls": 15,
+            "errors": 2,
+            "total_duration_ms": 2329,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 165,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-headline-tier",
+      "title": "Headline tier order count (plus then enterprise)",
+      "sink": "knowledge_page",
+      "attempt": 1,
+      "captured": false,
+      "capture_attempted": false,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-019@apikey.local",
+          "session_id": "dps_5b0e1bf3817332a3483f7af24b10ac90",
+          "tool_calls": 12,
+          "tool_errors": 2,
+          "search_called": true,
+          "final_answer": "I searched the catalog, knowledge pages, memory, and Trino/S3 sources for anything related to \"tier,\" \"plus,\" or a tiered subscription/plan concept, but nothing came back — there's no dataset in the catalog that this definition can be linked to yet.\n\nCould you tell me which dataset (table/catalog entity) this \"headline tier = plus\" definition applies to? Once I have the entity URN or table name, I'll save it as a schema_entity memory linked to it.",
+          "wall_ms": 65105,
+          "input_tokens": 30,
+          "output_tokens": 3345,
+          "cache_read_tokens": 514869,
+          "cache_creation_tokens": 28343,
+          "audit": {
+            "audited_calls": 12,
+            "errors": 2,
+            "total_duration_ms": 2185,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-headline-tier",
+      "title": "Headline tier order count (plus then enterprise)",
+      "sink": "knowledge_page",
+      "attempt": 2,
+      "insight_id": "5c203f0416c729a9ad7821c2cdec66d6",
+      "captured": true,
+      "update_correct": true,
+      "update_captured": true,
+      "duplicated": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-020@apikey.local",
+          "session_id": "dps_4e059e90d308e55a730445e316e4cbad",
+          "tool_calls": 11,
+          "tool_errors": 2,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the \"headline tier\" = `plus` (from `customers.tier`, alongside `basic`/`enterprise`) is now recorded as a schema_entity insight linked to `memory.bench.customers`, pending review for catalog promotion. Future sessions can recall it via search against that dataset.",
+          "wall_ms": 41249,
+          "input_tokens": 90,
+          "output_tokens": 2154,
+          "cache_read_tokens": 357408,
+          "cache_creation_tokens": 23746,
+          "audit": {
+            "audited_calls": 11,
+            "errors": 2,
+            "total_duration_ms": 637,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 98,
+            "enrichment_tokens_dedup": 54
+          }
+        },
+        {
+          "stage": "update",
+          "identity": "teacher",
+          "email": "bench-agent-020@apikey.local",
+          "session_id": "dps_f2351a4341e576f07f2c1fb409590d59",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved the correction — \"headline tier\" now maps to `tier = 'enterprise'` in `memory.bench.customers` (superseding the prior `plus` definition), pending catalog review.",
+          "wall_ms": 26244,
+          "input_tokens": 12,
+          "output_tokens": 1296,
+          "cache_read_tokens": 159861,
+          "cache_creation_tokens": 21219,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 144,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update_recall",
+          "identity": "teacher",
+          "email": "bench-agent-020@apikey.local",
+          "session_id": "dps_e043618b9ce347fc13be71675a88c9a7",
+          "tool_calls": 8,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "The corrected headline tier is `enterprise` (per a saved correction superseding the prior `plus` definition). Joining `memory.bench.orders` to `memory.bench.customers` on `tier = 'enterprise'` gives the order count.\n\nFINAL ANSWER: 287",
+          "wall_ms": 35565,
+          "input_tokens": 18,
+          "output_tokens": 1786,
+          "cache_read_tokens": 273713,
+          "cache_creation_tokens": 24059,
+          "audit": {
+            "audited_calls": 8,
+            "errors": 0,
+            "total_duration_ms": 643,
+            "enriched_calls": 4,
+            "enrichment_tokens_full": 348,
+            "enrichment_tokens_dedup": 59
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-headline-tier",
+      "title": "Headline tier order count (plus then enterprise)",
+      "sink": "knowledge_page",
+      "attempt": 3,
+      "captured": false,
+      "capture_attempted": false,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-021@apikey.local",
+          "session_id": "dps_a551c49baa98fe2ea37ed25d3c9fbd47",
+          "tool_calls": 4,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "No dataset context is discoverable from search — the user hasn't named a specific dataset in this session either. I need to ask which dataset this \"headline tier\" definition applies to before I can link it properly.\n\nWhich dataset (or table) does the \"headline tier = plus tier\" definition concern? I want to link the memory to the correct entity URN.",
+          "wall_ms": 22170,
+          "input_tokens": 12,
+          "output_tokens": 921,
+          "cache_read_tokens": 170500,
+          "cache_creation_tokens": 22531,
+          "audit": {
+            "audited_calls": 4,
+            "errors": 0,
+            "total_duration_ms": 322,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-primary-region",
+      "title": "Primary region (gross then net)",
+      "sink": "datahub",
+      "attempt": 1,
+      "insight_id": "404c6daba997d667f3b6097d071a4ad5",
+      "captured": true,
+      "update_correct": true,
+      "update_captured": true,
+      "duplicated": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-022@apikey.local",
+          "session_id": "dps_618b7d2635051ccf9751a2d57b2505c3",
+          "tool_calls": 5,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved. I recorded the \"primary region\" definition (highest gross revenue — sum of `amount` over completed orders, noting `amount` is in cents) as knowledge linked to the `memory.bench.orders` dataset entity (id `404c6daba997d667f3b6097d071a4ad5`); it's queued for review before promotion to the shared catalog.",
+          "wall_ms": 36312,
+          "input_tokens": 16,
+          "output_tokens": 1907,
+          "cache_read_tokens": 248256,
+          "cache_creation_tokens": 23864,
+          "audit": {
+            "audited_calls": 5,
+            "errors": 0,
+            "total_duration_ms": 304,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 100,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update",
+          "identity": "teacher",
+          "email": "bench-agent-022@apikey.local",
+          "session_id": "dps_216caab6d44b856b32ef9f377b97b4be",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: \"primary region\" is now defined as the region with the highest **net** revenue (`amount` − `discount`, in cents, over completed orders) in `memory.bench.orders`, superseding the old gross-revenue definition (insight `404c6da...` → `ab6f330...`).",
+          "wall_ms": 20404,
+          "input_tokens": 10,
+          "output_tokens": 967,
+          "cache_read_tokens": 135394,
+          "cache_creation_tokens": 20788,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 126,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update_recall",
+          "identity": "teacher",
+          "email": "bench-agent-022@apikey.local",
+          "session_id": "dps_99b09f3cee1e6e8c4d74cec5c2f36dce",
+          "tool_calls": 7,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "The corrected definition (per the recorded insight) is: primary region = region with highest **net** revenue (`amount - discount`, cents→USD, completed orders only) in `memory.bench.orders`. Querying orders joined to customers:\n\n| region | net revenue (USD) |\n|---|---|\n| West | 466,889.40 |\n| South | 322,536.20 |\n| East | 257,733.50 |\n| North | 239,402.10 |\n\nWest leads by a wide margin.\n\nFINAL ANSWER: West",
+          "wall_ms": 43865,
+          "input_tokens": 20,
+          "output_tokens": 2102,
+          "cache_read_tokens": 308683,
+          "cache_creation_tokens": 24002,
+          "audit": {
+            "audited_calls": 7,
+            "errors": 0,
+            "total_duration_ms": 480,
+            "enriched_calls": 4,
+            "enrichment_tokens_full": 463,
+            "enrichment_tokens_dedup": 59
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-primary-region",
+      "title": "Primary region (gross then net)",
+      "sink": "datahub",
+      "attempt": 2,
+      "insight_id": "d76c39a0e15c1a9b8618d5fb1ada401c",
+      "captured": true,
+      "update_correct": true,
+      "update_captured": true,
+      "duplicated": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-023@apikey.local",
+          "session_id": "dps_b66c39603d1696427727a4ac775a6369",
+          "tool_calls": 5,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved. The definition — **primary region = the region with the highest gross revenue (sum of `amount` over `status = 'completed'` orders)** in `memory.bench.orders` — is captured as a schema-entity insight linked to that dataset's URN (`urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)`), including the note that `amount` is in cents. It's queued for review/promotion to the shared catalog.",
+          "wall_ms": 37464,
+          "input_tokens": 18,
+          "output_tokens": 2062,
+          "cache_read_tokens": 283248,
+          "cache_creation_tokens": 23696,
+          "audit": {
+            "audited_calls": 5,
+            "errors": 0,
+            "total_duration_ms": 449,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 100,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update",
+          "identity": "teacher",
+          "email": "bench-agent-023@apikey.local",
+          "session_id": "dps_f31120313d7fb399a8bf7617ba5dd8e4",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the \"primary region\" definition is now corrected to **highest NET revenue** (sum of `amount - discount` over completed orders, grouped by region) for `memory.bench.orders`, superseding the prior gross-revenue definition. It's pending catalog review, linked to that dataset entity.",
+          "wall_ms": 22332,
+          "input_tokens": 10,
+          "output_tokens": 1100,
+          "cache_read_tokens": 135566,
+          "cache_creation_tokens": 20995,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 145,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update_recall",
+          "identity": "teacher",
+          "email": "bench-agent-023@apikey.local",
+          "session_id": "dps_ba7e7156fd05a3e1a7b4ba1c5e0577cb",
+          "tool_calls": 9,
+          "tool_errors": 1,
+          "search_called": true,
+          "final_answer": "Both the old gross-revenue view and the corrected net-revenue calculation from `memory.bench.orders` (net of discounts, completed orders only) agree: West has the highest revenue by a wide margin, so it remains the primary region under the corrected definition.\n\nFINAL ANSWER: West",
+          "wall_ms": 48247,
+          "input_tokens": 26,
+          "output_tokens": 2604,
+          "cache_read_tokens": 422621,
+          "cache_creation_tokens": 25690,
+          "audit": {
+            "audited_calls": 9,
+            "errors": 1,
+            "total_duration_ms": 714,
+            "enriched_calls": 5,
+            "enrichment_tokens_full": 628,
+            "enrichment_tokens_dedup": 116
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-primary-region",
+      "title": "Primary region (gross then net)",
+      "sink": "datahub",
+      "attempt": 3,
+      "insight_id": "210dd423d054c0bb2707f1440db03e92",
+      "captured": true,
+      "update_correct": true,
+      "update_captured": true,
+      "duplicated": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-024@apikey.local",
+          "session_id": "dps_619404b41b38eb443174807297778d05",
+          "tool_calls": 5,
+          "tool_errors": 1,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved. The \"primary region\" definition (region with highest gross revenue — sum of `amount` over completed orders) is now recorded and linked to `memory.bench.orders` (entity urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)), pending review for catalog promotion.",
+          "wall_ms": 39741,
+          "input_tokens": 22,
+          "output_tokens": 1951,
+          "cache_read_tokens": 376495,
+          "cache_creation_tokens": 28126,
+          "audit": {
+            "audited_calls": 5,
+            "errors": 1,
+            "total_duration_ms": 270,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 100,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update",
+          "identity": "teacher",
+          "email": "bench-agent-024@apikey.local",
+          "session_id": "dps_dd8070e0facca3d3afe85e6b93d1aabc",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved the correction — \"primary region\" is now recorded as the region with highest **net** revenue (`amount` − `discount`, over completed orders, in cents) for `memory.bench.orders`, superseding the old gross-revenue definition.",
+          "wall_ms": 25801,
+          "input_tokens": 12,
+          "output_tokens": 1155,
+          "cache_read_tokens": 159750,
+          "cache_creation_tokens": 21009,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 132,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update_recall",
+          "identity": "teacher",
+          "email": "bench-agent-024@apikey.local",
+          "session_id": "dps_ce9b56b05f57780b8c301b757d32d602",
+          "tool_calls": 8,
+          "tool_errors": 1,
+          "search_called": true,
+          "final_answer": "Based on the corrected definition (primary region = region with highest **net** revenue — amount minus discount, over completed orders in `memory.bench.orders`, not gross revenue), querying orders joined with customers by region gives:\n\n- West: $466,889.40\n- South: $322,536.20\n- East: $257,733.50\n- North: $239,402.10\n\nWest is the primary region under the corrected definition.\n\nFINAL ANSWER: West",
+          "wall_ms": 38917,
+          "input_tokens": 22,
+          "output_tokens": 2080,
+          "cache_read_tokens": 377984,
+          "cache_creation_tokens": 28687,
+          "audit": {
+            "audited_calls": 8,
+            "errors": 1,
+            "total_duration_ms": 398,
+            "enriched_calls": 4,
+            "enrichment_tokens_full": 463,
+            "enrichment_tokens_dedup": 59
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-reference-cohort",
+      "title": "Reference cohort customer count (2023 then 2024)",
+      "sink": "datahub",
+      "attempt": 1,
+      "insight_id": "cac3c4cda4632147372e60d7c08f3fdd",
+      "captured": true,
+      "update_correct": true,
+      "update_captured": true,
+      "duplicated": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-025@apikey.local",
+          "session_id": "dps_8e2e379630394bbffed34d77ca5b0163",
+          "tool_calls": 8,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved. The \"reference cohort\" definition (customers in `memory.bench.customers` with `created_at` in calendar year 2023) is now recorded as a schema_entity insight linked to that dataset, pending review for catalog promotion.",
+          "wall_ms": 49365,
+          "input_tokens": 26,
+          "output_tokens": 1998,
+          "cache_read_tokens": 415513,
+          "cache_creation_tokens": 23754,
+          "audit": {
+            "audited_calls": 8,
+            "errors": 0,
+            "total_duration_ms": 533,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 49,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update",
+          "identity": "teacher",
+          "email": "bench-agent-025@apikey.local",
+          "session_id": "dps_0f2d12603bd29f687533adbc66c4ac1e",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved the correction — the prior 2023-based \"reference cohort\" definition (`cac3c4cd...`) is now superseded by a new record defining it as customers created in calendar year 2024, linked to `memory.bench.customers`.",
+          "wall_ms": 30728,
+          "input_tokens": 10,
+          "output_tokens": 1243,
+          "cache_read_tokens": 135696,
+          "cache_creation_tokens": 21137,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 139,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update_recall",
+          "identity": "teacher",
+          "email": "bench-agent-025@apikey.local",
+          "session_id": "dps_cb4f98cde8c8e47bc282e4de5154102a",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "The corrected reference cohort definition (per a pending insight) is customers whose `created_at` falls in calendar year 2024, superseding the prior 2023-based definition. Querying `memory.bench.customers` with that filter returns 44 customers.\n\nFINAL ANSWER: 44",
+          "wall_ms": 23348,
+          "input_tokens": 14,
+          "output_tokens": 881,
+          "cache_read_tokens": 212343,
+          "cache_creation_tokens": 25640,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 131,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 49,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-reference-cohort",
+      "title": "Reference cohort customer count (2023 then 2024)",
+      "sink": "datahub",
+      "attempt": 2,
+      "insight_id": "8c2ee4772389af30d8d88054de81e067",
+      "captured": true,
+      "update_correct": true,
+      "update_captured": true,
+      "duplicated": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-026@apikey.local",
+          "session_id": "dps_da3ff51a09bfb9afc6ff21683bdd3f0a",
+          "tool_calls": 4,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the \"reference cohort\" definition (customers with account created in calendar year 2023) is recorded as a schema_entity insight linked to `urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)`, pending review for catalog promotion.",
+          "wall_ms": 28579,
+          "input_tokens": 14,
+          "output_tokens": 1288,
+          "cache_read_tokens": 206666,
+          "cache_creation_tokens": 21136,
+          "audit": {
+            "audited_calls": 4,
+            "errors": 0,
+            "total_duration_ms": 268,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update",
+          "identity": "teacher",
+          "email": "bench-agent-026@apikey.local",
+          "session_id": "dps_fbcb03d831d2a5c80b7de6db4134ba4a",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved the correction — the \"reference cohort\" is now defined as customers created between 2024-01-01 and 2024-12-31 (inclusive), linked to the `customers` dataset. This supersedes the prior 2023-based definition and is pending review for catalog promotion.",
+          "wall_ms": 20387,
+          "input_tokens": 12,
+          "output_tokens": 936,
+          "cache_read_tokens": 159703,
+          "cache_creation_tokens": 20796,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 157,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update_recall",
+          "identity": "teacher",
+          "email": "bench-agent-026@apikey.local",
+          "session_id": "dps_e5d5bd49a19abbc5209810a13cf04182",
+          "tool_calls": 3,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "The corrected reference cohort definition (per a pending insight on the `customers` dataset) is customers whose account was created during calendar year 2024, superseding the prior 2023 definition. Querying `memory.bench.customers` for `created_at` in 2024 returns 44 customers.\n\nFINAL ANSWER: 44",
+          "wall_ms": 23709,
+          "input_tokens": 14,
+          "output_tokens": 881,
+          "cache_read_tokens": 197311,
+          "cache_creation_tokens": 19878,
+          "audit": {
+            "audited_calls": 3,
+            "errors": 0,
+            "total_duration_ms": 138,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 98,
+            "enrichment_tokens_dedup": 54
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-reference-cohort",
+      "title": "Reference cohort customer count (2023 then 2024)",
+      "sink": "datahub",
+      "attempt": 3,
+      "insight_id": "8ffa7d648943ce4a2a9036adeadb90f2",
+      "captured": true,
+      "update_captured": false,
+      "capture_attempted": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-027@apikey.local",
+          "session_id": "dps_ad14a5c677e2c21b4250fa80e77f6886",
+          "tool_calls": 3,
+          "tool_errors": 0,
+          "search_called": true,
+          "capture_attempted": true,
+          "final_answer": "Saved: the \"reference cohort\" definition (customers whose account was created in calendar year 2023) is recorded as a schema_entity memory linked to the `memory.bench.customers` dataset, pending admin review for catalog promotion.",
+          "wall_ms": 24319,
+          "input_tokens": 12,
+          "output_tokens": 1230,
+          "cache_read_tokens": 171459,
+          "cache_creation_tokens": 21022,
+          "audit": {
+            "audited_calls": 3,
+            "errors": 0,
+            "total_duration_ms": 220,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update",
+          "identity": "teacher",
+          "email": "bench-agent-027@apikey.local",
+          "session_id": "dps_437877621e33df5767a9769821dc2d0b",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "Updated the saved \"reference cohort\" definition on the `customers` dataset: it now reads as customers created during calendar year 2024 (2024-01-01 to 2024-12-31 inclusive), replacing the prior 2023 definition, with a note that it supersedes the old one.",
+          "wall_ms": 24935,
+          "input_tokens": 12,
+          "output_tokens": 987,
+          "cache_read_tokens": 159789,
+          "cache_creation_tokens": 20735,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 132,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-reporting-window",
+      "title": "Reporting window completed orders (Q1 then Q3)",
+      "sink": "datahub",
+      "attempt": 1,
+      "captured": false,
+      "capture_attempted": false,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-028@apikey.local",
+          "session_id": "dps_5e62dc531737b076c8b58d7cad645f61",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "I searched the catalog, context documents, and existing memory for anything already established about a \"study,\" \"reporting window,\" or related dataset, but found nothing — this session doesn't have a dataset in context yet.\n\nWhich dataset (or catalog entity/table) should this \"reporting window = Q1 2025 (Jan–Mar)\" definition be linked to? I don't want to guess and attach it to the wrong one.",
+          "wall_ms": 25387,
+          "input_tokens": 12,
+          "output_tokens": 1137,
+          "cache_read_tokens": 159939,
+          "cache_creation_tokens": 20497,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 162,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-reporting-window",
+      "title": "Reporting window completed orders (Q1 then Q3)",
+      "sink": "datahub",
+      "attempt": 2,
+      "captured": false,
+      "capture_attempted": false,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-029@apikey.local",
+          "session_id": "dps_9763347f72c61af093b4c05181cd1156",
+          "tool_calls": 3,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "I've checked platform search but found no specific dataset already associated with a \"study\" or \"reporting window\" context — the message doesn't name which dataset this applies to. Which dataset (or table/catalog entity) should this Q1 2025 reporting-window definition be linked to?",
+          "wall_ms": 26795,
+          "input_tokens": 12,
+          "output_tokens": 1154,
+          "cache_read_tokens": 170675,
+          "cache_creation_tokens": 21627,
+          "audit": {
+            "audited_calls": 3,
+            "errors": 0,
+            "total_duration_ms": 250,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-reporting-window",
+      "title": "Reporting window completed orders (Q1 then Q3)",
+      "sink": "datahub",
+      "attempt": 3,
+      "captured": false,
+      "capture_attempted": false,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-030@apikey.local",
+          "session_id": "dps_47995bd2308c5c0162869e47e2f0b694",
+          "tool_calls": 4,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "I looked through the catalog and don't see anything yet tying \"this study\" to a specific dataset — there are four candidates (`customers`, `orders`, `legacy_orders`, `daily_region_revenue`) and no prior memory or context document naming which one you mean.\n\nWhich dataset(s) should this Q1 2025 reporting-window definition be linked to?",
+          "wall_ms": 40502,
+          "input_tokens": 18,
+          "output_tokens": 1990,
+          "cache_read_tokens": 251444,
+          "cache_creation_tokens": 20167,
+          "audit": {
+            "audited_calls": 4,
+            "errors": 0,
+            "total_duration_ms": 257,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    }
+  ],
+  "metrics": {
+    "protocols": 10,
+    "attempts": 30,
+    "harness_failures": 0,
+    "total_input_tokens": 1048,
+    "total_output_tokens": 91835,
+    "total_cache_read_tokens": 14240413,
+    "total_cache_creation_tokens": 1148110,
+    "capture_rate": {
+      "num": 10,
+      "den": 30,
+      "rate": 0.3333333333333333,
+      "ci_low": 0.16666666666666666,
+      "ci_high": 0.5
+    },
+    "supersede_rate": {
+      "num": 8,
+      "den": 8,
+      "rate": 1,
+      "ci_low": 1,
+      "ci_high": 1
+    },
+    "duplicate_rate": {
+      "num": 0,
+      "den": 8,
+      "rate": 0,
+      "ci_low": 0,
+      "ci_high": 0
+    },
+    "update_correctness": {
+      "num": 8,
+      "den": 8,
+      "rate": 1,
+      "ci_low": 1,
+      "ci_high": 1
+    },
+    "update_capture_rate": {
+      "num": 8,
+      "den": 10,
+      "rate": 0.8,
+      "ci_low": 0.5,
+      "ci_high": 1
+    },
+    "pass_k": {
+      "num": 1,
+      "den": 10,
+      "rate": 0.1,
+      "ci_low": 0,
+      "ci_high": 0.3
+    },
+    "per_protocol": [
+      {
+        "protocol_id": "lc-anchor-region",
+        "title": "Anchor region net revenue (North then South)",
+        "attempts": 3,
+        "captured": 0,
+        "superseded": 0,
+        "duplicated": 0
+      },
+      {
+        "protocol_id": "lc-benchmark-month",
+        "title": "Benchmark month order count (March then September)",
+        "attempts": 3,
+        "captured": 0,
+        "superseded": 0,
+        "duplicated": 0
+      },
+      {
+        "protocol_id": "lc-billing-window",
+        "title": "Billing window completed orders (Q2 then Q4)",
+        "attempts": 3,
+        "captured": 3,
+        "superseded": 2,
+        "duplicated": 0,
+        "update_capture_missed": 1
+      },
+      {
+        "protocol_id": "lc-core-market",
+        "title": "Core market order count (North then East)",
+        "attempts": 3,
+        "captured": 0,
+        "superseded": 0,
+        "duplicated": 0
+      },
+      {
+        "protocol_id": "lc-focus-month",
+        "title": "Focus month order count (June then February)",
+        "attempts": 3,
+        "captured": 0,
+        "superseded": 0,
+        "duplicated": 0
+      },
+      {
+        "protocol_id": "lc-focus-region-net",
+        "title": "Focus region net revenue (West then East)",
+        "attempts": 3,
+        "captured": 0,
+        "superseded": 0,
+        "duplicated": 0
+      },
+      {
+        "protocol_id": "lc-headline-tier",
+        "title": "Headline tier order count (plus then enterprise)",
+        "attempts": 3,
+        "captured": 1,
+        "superseded": 1,
+        "duplicated": 0
+      },
+      {
+        "protocol_id": "lc-primary-region",
+        "title": "Primary region (gross then net)",
+        "attempts": 3,
+        "captured": 3,
+        "superseded": 3,
+        "duplicated": 0
+      },
+      {
+        "protocol_id": "lc-reference-cohort",
+        "title": "Reference cohort customer count (2023 then 2024)",
+        "attempts": 3,
+        "captured": 3,
+        "superseded": 2,
+        "duplicated": 0,
+        "update_capture_missed": 1
+      },
+      {
+        "protocol_id": "lc-reporting-window",
+        "title": "Reporting window completed orders (Q1 then Q3)",
+        "attempts": 3,
+        "captured": 0,
+        "superseded": 0,
+        "duplicated": 0
+      }
+    ]
+  }
+}

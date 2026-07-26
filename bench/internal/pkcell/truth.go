@@ -2,6 +2,7 @@ package pkcell
 
 import (
 	"github.com/txn2/mcp-data-platform/bench/internal/apigen"
+	"github.com/txn2/mcp-data-platform/bench/internal/pkseed"
 )
 
 // Ground truths, computed from the same fixture data the service serves.
@@ -30,6 +31,8 @@ func (q Question) GroundTruth(w apigen.World) (float64, bool) {
 		return trendTotal(f, w, func(p apigen.TrendPoint) int64 { return p.SentimentScore }, maxOf), true
 	case "monitor-count":
 		return float64(w.Monitors), true
+	case "positive-coverage-days":
+		return float64(positiveCoverageDays(f)), true
 	case "weekly-impressions":
 		return float64(weekOneImpressions(f)), true
 	case "unique-reach":
@@ -62,6 +65,20 @@ func trendTotal(f *apigen.Fixture, w apigen.World, field func(apigen.TrendPoint)
 		}
 	}
 	return float64(acc)
+}
+
+// positiveCoverageDays counts the Brand mentions monitor's days at or
+// above the reporting convention's threshold. The threshold constant is
+// shared with the delivered belief text, so the convention the agent
+// reads and the answer the grader expects cannot disagree.
+func positiveCoverageDays(f *apigen.Fixture) int64 {
+	var days int64
+	for _, p := range f.Trend[f.Monitors[0].ID] {
+		if p.SentimentScore >= pkseed.PositiveCoverageThreshold {
+			days++
+		}
+	}
+	return days
 }
 
 // weekOneImpressions totals the main profile's impressions over the first

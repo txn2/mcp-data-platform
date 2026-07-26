@@ -106,6 +106,7 @@ nav:
   - Evaluation:
     - Knowledge-Layer Benchmark: reference/benchmarks.md
     - Benchmark Report: reference/benchmark-report.md
+    - Benchmark Report 2: reference/benchmark-report-2.md
   - Security:
     - Threat Model: security/threat-model.md
   - Go Library:

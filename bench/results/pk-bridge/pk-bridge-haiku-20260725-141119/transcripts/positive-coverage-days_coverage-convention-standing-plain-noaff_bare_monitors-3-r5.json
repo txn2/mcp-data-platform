@@ -1,0 +1,37 @@
+[
+  {
+    "role": "user",
+    "text": "How many days between 1 June and 28 June 2026 counted as positive coverage for ACME's 'Brand mentions' listening monitor?"
+  },
+  {
+    "role": "assistant",
+    "text": "I'll help you find this information. Let me start by checking the platform info and then search for the relevant data."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01AVZFtzGvBbCWH3zzUUFHLk",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:mcp__bench__platform_info,mcp__bench__search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01AVZFtzGvBbCWH3zzUUFHLk",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com."
+  }
+]

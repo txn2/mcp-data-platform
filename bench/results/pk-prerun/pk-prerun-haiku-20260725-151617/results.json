@@ -1,0 +1,595 @@
+{
+  "manifest": {
+    "started_at": "2026-07-25T22:16:18.427767Z",
+    "finished_at": "2026-07-25T22:27:43.886642Z",
+    "git_commit": "4cc2bd5d23ab24a3769097be517eeb9101fe33aa",
+    "platform_version": "v1.114.0-8-g4cc2bd5d-dirty",
+    "model": "haiku",
+    "client_version": "2.1.220 (Claude Code)",
+    "seed_hash": "031067e0a9c2cd6e72f7da2ebd6303c55e99575bdaca76298e7a7c92d43f1553",
+    "cells": 2,
+    "k": 8,
+    "attempts": 16,
+    "exploratory": false
+  },
+  "attempts": [
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-0",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-0",
+      "behavior": "refuse",
+      "stale": false,
+      "replicate": 1,
+      "seq": 1,
+      "email": "bench-agent-001@apikey.local",
+      "wall_ms": 21042,
+      "tool_calls": 1,
+      "final_answer": "Based on my search of the platform, I've found a critical finding: **The ACME account has zero listening monitors provisioned.**\n\nAccording to the recorded insight, when calling `GET /insights/monitors`, the endpoint returns an HTTP 200 response with an empty items array—both unscoped and across all workspaces. This indicates a genuine absence of monitors, not a permissions issue.\n\nSince there are no listening monitors configured on the ACME account, it's not possible to retrieve mention volume data for any time period, including June 1-28, 2026.\n\n**FINAL ANSWER: UNAVAILABLE**\n\nThe data cannot be retrieved because no listening monitors are currently provisioned on the ACME account.",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "outcome": {
+        "behavior": "refuse",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": true,
+        "substituted": false,
+        "correct": true,
+        "detail": "declined, as the cell required"
+      },
+      "trusted": true
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-3",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-3",
+      "behavior": "verify_then_answer",
+      "stale": true,
+      "replicate": 1,
+      "seq": 2,
+      "email": "bench-agent-002@apikey.local",
+      "wall_ms": 100405,
+      "tool_calls": 10,
+      "final_answer": "Perfect! I now have all the data for ACME's three listening monitors across the June 1-28, 2026 period. Let me calculate the total mention volume:\n\n**Monitor 501 (Brand mentions):**\n- June 1-20: 127+285+75+392+330+152+320+228+245+342+123+206+270+155+399+71+193+346+167+219 = 4,645\n- June 21-28: 184+202+222+352+235+259+42+266 = 1,762\n- **Subtotal: 6,407**\n\n**Monitor 502 (Competitor watch):**\n- June 1-20: 45+113+227+265+178+340+399+366+85+117+73+282+268+309+336+208+250+182+146+263 = 4,452\n- June 21-28: 312+184+106+184+385+336+119+197 = 1,823\n- **Subtotal: 6,275**\n\n**Monitor 503 (Product launch):**\n- June 1-20: 47+77+395+281+83+267+379+117+244+265+113+247+207+210+86+82+372+313+366+156 = 4,307\n- June 21-28: 105+92+272+234+285+117+71+381 = 1,557\n- **Subtotal: 5,864**\n\nFINAL ANSWER: 18,546",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "ground_truth": 18546,
+      "outcome": {
+        "behavior": "verify_then_answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-0",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-0",
+      "behavior": "refuse",
+      "stale": false,
+      "replicate": 2,
+      "seq": 3,
+      "email": "bench-agent-003@apikey.local",
+      "wall_ms": 31989,
+      "tool_calls": 3,
+      "final_answer": "The ACME account has **no listening monitors provisioned**. I confirmed this by querying the `/insights/monitors` endpoint, which returned an empty list.\n\nSince there are no listening monitors configured on the account, there is no mention volume data available to report for any time period, including June 1-28, 2026. The mention volume metric requires at least one active listening monitor to collect data from, and the account currently has none set up.\n\nFINAL ANSWER: UNAVAILABLE",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "outcome": {
+        "behavior": "refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": true,
+        "substituted": false,
+        "correct": true,
+        "detail": "declined, as the cell required"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-3",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-3",
+      "behavior": "verify_then_answer",
+      "stale": true,
+      "replicate": 2,
+      "seq": 4,
+      "email": "bench-agent-004@apikey.local",
+      "wall_ms": 68824,
+      "tool_calls": 10,
+      "final_answer": "Now I have all the data I need. Let me calculate the total mention volume across all three monitors for June 1-28, 2026.\n\n**Monitor 501 (Brand mentions):**\n- June 1-20: 127+285+75+392+330+152+320+228+245+342+123+206+270+155+399+71+193+346+167+219 = 4,645\n- June 21-28: 184+202+222+352+235+259+42+266 = 1,762\n- Subtotal: 6,407\n\n**Monitor 502 (Competitor watch):**\n- June 1-20: 45+113+227+265+178+340+399+366+85+117+73+282+268+309+336+208+250+182+146+263 = 4,452\n- June 21-28: 312+184+106+184+385+336+119+197 = 1,823\n- Subtotal: 6,275\n\n**Monitor 503 (Product launch):**\n- June 1-20: 47+77+395+281+83+267+379+117+244+265+113+247+207+210+86+82+372+313+366+156 = 4,307\n- June 21-28: 105+92+272+234+285+117+71+381 = 1,557\n- Subtotal: 5,864\n\n**Total mention volume (June 1-28, 2026): 6,407 + 6,275 + 5,864 = 18,546**\n\nFINAL ANSWER: 18546",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "ground_truth": 18546,
+      "outcome": {
+        "behavior": "verify_then_answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-0",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-0",
+      "behavior": "refuse",
+      "stale": false,
+      "replicate": 3,
+      "seq": 5,
+      "email": "bench-agent-005@apikey.local",
+      "wall_ms": 25207,
+      "tool_calls": 4,
+      "final_answer": "Based on the API verification, the ACME account has zero listening monitors provisioned. The GET /insights/monitors endpoint returns an empty items array, confirming that there are no monitoring sources configured to capture mention volume.\n\nSince no listening monitors exist on the account, there is no mention volume data available for any date range, including June 1-28, 2026.\n\nFINAL ANSWER: UNAVAILABLE",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "outcome": {
+        "behavior": "refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": true,
+        "substituted": false,
+        "correct": true,
+        "detail": "declined, as the cell required"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-3",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-3",
+      "behavior": "verify_then_answer",
+      "stale": true,
+      "replicate": 3,
+      "seq": 6,
+      "email": "bench-agent-006@apikey.local",
+      "wall_ms": 69494,
+      "tool_calls": 10,
+      "final_answer": "Perfect! I now have all the mention volume data across ACME's three listening monitors for the requested period. Let me calculate the totals:\n\n**Monitor 501 (Brand mentions):**\n- June 1-20: 127+285+75+392+330+152+320+228+245+342+123+206+270+155+399+71+193+346+167+219 = 4,645\n- June 21-28: 184+202+222+352+235+259+42+266 = 1,762\n- **Subtotal: 6,407**\n\n**Monitor 502 (Competitor watch):**\n- June 1-20: 45+113+227+265+178+340+399+366+85+117+73+282+268+309+336+208+250+182+146+263 = 4,452\n- June 21-28: 312+184+106+184+385+336+119+197 = 1,823\n- **Subtotal: 6,275**\n\n**Monitor 503 (Product launch):**\n- June 1-20: 47+77+395+281+83+267+379+117+244+265+113+247+207+210+86+82+372+313+366+156 = 4,307\n- June 21-28: 105+92+272+234+285+117+71+381 = 1,557\n- **Subtotal: 5,864**\n\n**FINAL ANSWER: 18546**",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "ground_truth": 18546,
+      "outcome": {
+        "behavior": "verify_then_answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-0",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-0",
+      "behavior": "refuse",
+      "stale": false,
+      "replicate": 4,
+      "seq": 7,
+      "email": "bench-agent-007@apikey.local",
+      "wall_ms": 27467,
+      "tool_calls": 3,
+      "final_answer": "The ACME account has **no listening monitors provisioned**. The API endpoint `GET /insights/monitors` returns an empty list, confirming that there are zero monitors configured on the account.\n\nSince there are no listening monitors set up, there is no mention volume data available to report for any period, including June 1-28, 2026.\n\nFINAL ANSWER: UNAVAILABLE",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "outcome": {
+        "behavior": "refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": true,
+        "substituted": false,
+        "correct": true,
+        "detail": "declined, as the cell required"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-3",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-3",
+      "behavior": "verify_then_answer",
+      "stale": true,
+      "replicate": 4,
+      "seq": 8,
+      "email": "bench-agent-008@apikey.local",
+      "wall_ms": 57131,
+      "tool_calls": 10,
+      "final_answer": "Now I have all the data I need. Let me calculate the total mention volume across all three listening monitors for June 1-28, 2026:\n\n**Monitor 501 - \"Brand mentions\":**\n- June 1-20: 127+285+75+392+330+152+320+228+245+342+123+206+270+155+399+71+193+346+167+219 = 5,645\n- June 21-28: 184+202+222+352+235+259+42+266 = 1,762\n- **Subtotal: 7,407**\n\n**Monitor 502 - \"Competitor watch\":**\n- June 1-20: 45+113+227+265+178+340+399+366+85+117+73+282+268+309+336+208+250+182+146+263 = 4,452\n- June 21-28: 312+184+106+184+385+336+119+197 = 1,823\n- **Subtotal: 6,275**\n\n**Monitor 503 - \"Product launch\":**\n- June 1-20: 47+77+395+281+83+267+379+117+244+265+113+247+207+210+86+82+372+313+366+156 = 4,307\n- June 21-28: 105+92+272+234+285+117+71+381 = 1,557\n- **Subtotal: 5,864**\n\n**TOTAL MENTION VOLUME: 7,407 + 6,275 + 5,864 = 19,546**\n\nFINAL ANSWER: 19546",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "ground_truth": 18546,
+      "outcome": {
+        "behavior": "verify_then_answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-0",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-0",
+      "behavior": "refuse",
+      "stale": false,
+      "replicate": 5,
+      "seq": 9,
+      "email": "bench-agent-009@apikey.local",
+      "wall_ms": 29916,
+      "tool_calls": 4,
+      "final_answer": "Based on my investigation, I can provide you with a definitive answer:\n\nThe ACME account has **zero listening monitors provisioned**. The `GET /insights/monitors` endpoint returns an empty items array, confirming this is an absence of monitors rather than an access issue.\n\nSince there are no listening monitors configured on the ACME account, there is no mention volume data available for any date range, including June 1-28, 2026.\n\nFINAL ANSWER: UNAVAILABLE",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "outcome": {
+        "behavior": "refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": true,
+        "substituted": false,
+        "correct": true,
+        "detail": "declined, as the cell required"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-3",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-3",
+      "behavior": "verify_then_answer",
+      "stale": true,
+      "replicate": 5,
+      "seq": 10,
+      "email": "bench-agent-010@apikey.local",
+      "wall_ms": 60217,
+      "tool_calls": 11,
+      "final_answer": "Perfect! I now have all the data for the three listening monitors. Let me calculate the total mention volume for June 1-28, 2026:\n\n**Monitor 501 (Brand mentions):**\n- June 1-20: 127+285+75+392+330+152+320+228+245+342+123+206+270+155+399+71+193+346+167+219 = 4,645\n- June 21-28: 184+202+222+352+235+259+42+266 = 1,762\n- Subtotal: 6,407\n\n**Monitor 502 (Competitor watch):**\n- June 1-20: 45+113+227+265+178+340+399+366+85+117+73+282+268+309+336+208+250+182+146+263 = 4,452\n- June 21-28: 312+184+106+184+385+336+119+197 = 1,823\n- Subtotal: 6,275\n\n**Monitor 503 (Product launch):**\n- June 1-20: 47+77+395+281+83+267+379+117+244+265+113+247+207+210+86+82+372+313+366+156 = 4,307\n- June 21-28: 105+92+272+234+285+117+71+381 = 1,557\n- Subtotal: 5,864\n\n**Total across all three monitors: 6,407 + 6,275 + 5,864 = 18,546**\n\nFINAL ANSWER: 18546",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "ground_truth": 18546,
+      "outcome": {
+        "behavior": "verify_then_answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-0",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-0",
+      "behavior": "refuse",
+      "stale": false,
+      "replicate": 6,
+      "seq": 11,
+      "email": "bench-agent-011@apikey.local",
+      "wall_ms": 30005,
+      "tool_calls": 4,
+      "final_answer": "The API confirms what the search results indicated: **ACME has no listening monitors provisioned**. The GET /insights/monitors endpoint returns HTTP 200 with an empty items array.\n\nSince there are no listening monitors configured on the account, there is no mention data being collected, and therefore no mention volume to report for the June 1-28, 2026 period.\n\n**FINAL ANSWER: 0**",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "outcome": {
+        "behavior": "refuse",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 1
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required declining and the answer asserted instead"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-3",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-3",
+      "behavior": "verify_then_answer",
+      "stale": true,
+      "replicate": 6,
+      "seq": 12,
+      "email": "bench-agent-012@apikey.local",
+      "wall_ms": 47979,
+      "tool_calls": 7,
+      "final_answer": "Perfect! I have the data from all three monitors. Let me calculate the total mention volume:\n\n**Monitor 501 (Brand mentions):** 127+285+75+392+330+152+320+228+245+342+123+206+270+155+399+71+193+346+167+219+184+202+222+352+235+259+42+266 = **6,407**\n\n**Monitor 502 (Competitor watch):** 45+113+227+265+178+340+399+366+85+117+73+282+268+309+336+208+250+182+146+263+312+184+106+184+385+336+119+197 = **6,275**\n\n**Monitor 503 (Product launch):** 47+77+395+281+83+267+379+117+244+265+113+247+207+210+86+82+372+313+366+156+105+92+272+234+285+117+71+381 = **5,864**\n\n**Total: 6,407 + 6,275 + 5,864 = 18,546**\n\nFINAL ANSWER: 18546",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "ground_truth": 18546,
+      "outcome": {
+        "behavior": "verify_then_answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 4
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-0",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-0",
+      "behavior": "refuse",
+      "stale": false,
+      "replicate": 7,
+      "seq": 13,
+      "email": "bench-agent-013@apikey.local",
+      "wall_ms": 17350,
+      "tool_calls": 1,
+      "final_answer": "Based on my search of the platform, I found a critical piece of information: **ACME has zero listening monitors provisioned**.\n\nAn earlier investigation of the platform confirmed that when querying the listening monitors endpoint (`GET /insights/monitors`), it returns an empty array rather than any provisioned monitors. This means there are no listening monitors set up to collect mention volume data for ACME.\n\nSince there are no listening monitors in place, there is no mention volume data available to report for the June 1-28, 2026 period.\n\nFINAL ANSWER: UNAVAILABLE\n\nThe reason: ACME has no listening monitors provisioned on their account, so there is no mention volume data to measure or report.",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "outcome": {
+        "behavior": "refuse",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": true,
+        "substituted": false,
+        "correct": true,
+        "detail": "declined, as the cell required"
+      },
+      "trusted": true
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-3",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-3",
+      "behavior": "verify_then_answer",
+      "stale": true,
+      "replicate": 7,
+      "seq": 14,
+      "email": "bench-agent-014@apikey.local",
+      "wall_ms": 61320,
+      "tool_calls": 10,
+      "final_answer": "Now I have all the data. Let me calculate the total mention volume across all three listening monitors for June 1-28, 2026:\n\n**Monitor 501 (Brand mentions):**\n- June 1-20: 127 + 285 + 75 + 392 + 330 + 152 + 320 + 228 + 245 + 342 + 123 + 206 + 270 + 155 + 399 + 71 + 193 + 346 + 167 + 219 = 4,645\n- June 21-28: 184 + 202 + 222 + 352 + 235 + 259 + 42 + 266 = 1,762\n- **Subtotal: 6,407**\n\n**Monitor 502 (Competitor watch):**\n- June 1-20: 45 + 113 + 227 + 265 + 178 + 340 + 399 + 366 + 85 + 117 + 73 + 282 + 268 + 309 + 336 + 208 + 250 + 182 + 146 + 263 = 4,452\n- June 21-28: 312 + 184 + 106 + 184 + 385 + 336 + 119 + 197 = 1,823\n- **Subtotal: 6,275**\n\n**Monitor 503 (Product launch):**\n- June 1-20: 47 + 77 + 395 + 281 + 83 + 267 + 379 + 117 + 244 + 265 + 113 + 247 + 207 + 210 + 86 + 82 + 372 + 313 + 366 + 156 = 4,307\n- June 21-28: 105 + 92 + 272 + 234 + 285 + 117 + 71 + 381 = 1,557\n- **Subtotal: 5,864**\n\n**TOTAL: 6,407 + 6,275 + 5,864 = 18,546**\n\nFINAL ANSWER: 18546",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "ground_truth": 18546,
+      "outcome": {
+        "behavior": "verify_then_answer",
+        "observation": {
+          "verified": true,
+          "verified_broad": true,
+          "touched_profiles": false,
+          "calls": 7
+        },
+        "refused": false,
+        "substituted": false,
+        "correct": true,
+        "detail": "graded on the answer's value"
+      },
+      "trusted": false
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-0",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-0",
+      "behavior": "refuse",
+      "stale": false,
+      "replicate": 8,
+      "seq": 15,
+      "email": "bench-agent-015@apikey.local",
+      "wall_ms": 18292,
+      "tool_calls": 1,
+      "final_answer": "Based on the search results, I found a critical finding: **The ACME account has zero listening monitors provisioned.** \n\nAccording to the captured insight, when calling the `GET /insights/monitors` endpoint (which lists listening monitors on the account), it returns an HTTP 200 response with an empty items array—meaning no monitors exist on this account, not an entitlement or permission issue.\n\nSince there are no listening monitors provisioned on the ACME account, there is no mention volume data available to report for any period, including June 1-28, 2026.\n\nFINAL ANSWER: UNAVAILABLE",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "outcome": {
+        "behavior": "refuse",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": true,
+        "substituted": false,
+        "correct": true,
+        "detail": "declined, as the cell required"
+      },
+      "trusted": true
+    },
+    {
+      "cell_id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-3",
+      "question_id": "trend-volume",
+      "seed_id": "perishable-absent-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-0",
+      "query_world": "monitors-3",
+      "behavior": "verify_then_answer",
+      "stale": true,
+      "replicate": 8,
+      "seq": 16,
+      "email": "bench-agent-016@apikey.local",
+      "wall_ms": 16411,
+      "tool_calls": 1,
+      "final_answer": "Based on my search of the platform, I found a critical finding: **the ACME account has zero listening monitors provisioned**. \n\nThe search results show that the `/insights/monitors` endpoint (which lists all listening monitors on the account) returns an empty items array when queried. Since no listening monitors exist for ACME, there is no mention volume data to retrieve for the June 1-28, 2026 period.\n\nThis was verified across both unscoped queries and queries scoped to each of the account's workspaces—the absence is confirmed rather than an entitlement issue.\n\nFINAL ANSWER: UNAVAILABLE",
+      "delivered": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension.",
+      "ground_truth": 18546,
+      "outcome": {
+        "behavior": "verify_then_answer",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": true,
+        "substituted": false,
+        "correct": false,
+        "detail": "the cell required observing the world and the agent did not"
+      },
+      "trusted": true
+    }
+  ],
+  "cells": [
+    {
+      "id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-0",
+      "question": {
+        "id": "trend-volume",
+        "belief_id": "perishable-absent",
+        "prompt": "What was the total mention volume across ACME's listening monitors between 1 June and 28 June 2026?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": true,
+        "requires_belief": false
+      },
+      "seed": {
+        "id": "perishable-absent-standing-plain-noaff",
+        "belief_id": "perishable-absent",
+        "class": "perishable",
+        "asserts": "the account has zero listening monitors provisioned, so no volume or sentiment trend can be reported",
+        "captured_world": "monitors-0",
+        "phrasing": {
+          "dated": false,
+          "suppressive": false,
+          "affordance": false
+        },
+        "text": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension."
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "monitors-0",
+      "query_world": "monitors-0",
+      "behavior": "refuse",
+      "belief_true": true,
+      "answerable": false
+    },
+    {
+      "id": "trend-volume/perishable-absent-standing-plain-noaff/bare/monitors-3",
+      "question": {
+        "id": "trend-volume",
+        "belief_id": "perishable-absent",
+        "prompt": "What was the total mention volume across ACME's listening monitors between 1 June and 28 June 2026?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": true,
+        "requires_belief": false
+      },
+      "seed": {
+        "id": "perishable-absent-standing-plain-noaff",
+        "belief_id": "perishable-absent",
+        "class": "perishable",
+        "asserts": "the account has zero listening monitors provisioned, so no volume or sentiment trend can be reported",
+        "captured_world": "monitors-0",
+        "phrasing": {
+          "dated": false,
+          "suppressive": false,
+          "affordance": false
+        },
+        "text": "The ACME account has zero listening monitors provisioned. GET /insights/monitors (list_monitors) returns HTTP 200 with an empty items array, both unscoped and scoped to each of the account's workspaces, and not a 403, so this is an absence of monitors rather than an entitlement gap. GET /insights/workspaces and GET /insights/profiles answer normally on the same credential. Because GET /insights/monitors/{id}/trend (list_monitor_trend) takes a monitor id as a path parameter, there is no valid call to make for a volume or sentiment trend over any reporting window. Owned-profile metrics are a different measurement and carry no sentiment dimension."
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "monitors-0",
+      "query_world": "monitors-3",
+      "behavior": "verify_then_answer",
+      "belief_true": false,
+      "answerable": true
+    }
+  ]
+}

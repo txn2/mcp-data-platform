@@ -125,7 +125,14 @@ type Attempt struct {
 	Email        string          `json:"email"`
 	WallMS       int64           `json:"wall_ms"`
 	ToolCalls    int             `json:"tool_calls"`
-	FinalAnswer  string          `json:"final_answer"`
+	// Token usage, as the driver reported it. Zero on paths that do not
+	// report usage; on metered runs this is the spend record, and a run
+	// whose archive cannot say what it cost is a run that cannot be
+	// budgeted from.
+	InputTokens     int64  `json:"input_tokens,omitempty"`
+	OutputTokens    int64  `json:"output_tokens,omitempty"`
+	CacheReadTokens int64  `json:"cache_read_tokens,omitempty"`
+	FinalAnswer     string `json:"final_answer"`
 	// Delivered is the belief text the agent was given, verbatim.
 	Delivered string `json:"delivered,omitempty"`
 	// GroundTruth is the expected value, when the cell has one.
@@ -262,6 +269,8 @@ func (o Options) attempt(ctx context.Context, c pkcell.Cell, rep, seq int, res *
 		return a
 	}
 	a.ToolCalls, a.FinalAnswer = out.MCPCalls, out.FinalText
+	a.InputTokens, a.OutputTokens = out.Usage.InputTokens, out.Usage.OutputTokens
+	a.CacheReadTokens = out.Usage.CacheReadInputTokens
 	if out.PlatformVersion != "" {
 		res.Manifest.PlatformVersion = out.PlatformVersion
 	}

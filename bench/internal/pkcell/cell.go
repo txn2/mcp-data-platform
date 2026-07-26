@@ -111,6 +111,9 @@ var truths = map[string]func(apigen.World) bool{
 	// "daily unique counts must not be summed to a period unique" — an
 	// identity over the units, true in every world by construction.
 	"eternal-unique-reach": func(apigen.World) bool { return true },
+	// The reporting convention holds in every world: no world change can
+	// falsify a definition the world never states.
+	"coverage-convention": func(apigen.World) bool { return true },
 }
 
 // Derive builds one cell and computes its correct behavior. seed may be nil
@@ -123,6 +126,11 @@ func Derive(q Question, seed *pkseed.Seed, meta pkseed.Metadata, queryWorld stri
 	c := Cell{
 		Question: q, Seed: seed, Metadata: meta,
 		QueryWorld: queryWorld, Answerable: q.AnswerableIn(w),
+	}
+	// A convention-bound question is answerable only when the convention
+	// was delivered: the world cannot supply the missing definition.
+	if q.RequiresBelief && seed == nil {
+		c.Answerable = false
 	}
 	if seed == nil {
 		c.ID = q.ID + "/none/" + queryWorld
@@ -320,6 +328,74 @@ func AnswerSweepCells() ([]Cell, error) {
 		cells = append(cells, c)
 	}
 	return cells, nil
+}
+
+// BridgeProbeCells are the derivability bridge (the two-regime probe):
+// the same question, once with the convention delivered and once without,
+// in the same world, bare arm.
+//
+// The convention cell's correct behavior is to answer, and the correct
+// answer is reachable only by combining fetched trend data with the
+// delivered threshold, so a correct answer IS reliance on the note. The
+// control cell is the derivability check itself: with no note, the
+// threshold is unknowable and the correct behavior is to establish that
+// and decline. A control agent that produces the "correct" count without
+// the note means the convention leaked or is guessable, and the probe is
+// invalid rather than positive.
+func BridgeProbeCells() ([]Cell, error) {
+	neutral, err := neutralSeed("coverage-convention")
+	if err != nil {
+		return nil, err
+	}
+	q, err := questionByID("positive-coverage-days")
+	if err != nil {
+		return nil, err
+	}
+	withNote, err := Derive(q, neutral, pkseed.Metadata{}, "monitors-3")
+	if err != nil {
+		return nil, err
+	}
+	control, err := Derive(q, nil, pkseed.Metadata{}, "monitors-3")
+	if err != nil {
+		return nil, err
+	}
+	if withNote.Behavior != BehaviorAnswer || control.Behavior != BehaviorProbeRefuse {
+		return nil, fmt.Errorf("pkcell: bridge cells derive %s and %s; want answer with the note and probe-then-refuse without it",
+			withNote.Behavior, control.Behavior)
+	}
+	return []Cell{withNote, control}, nil
+}
+
+// StaleAnswerCells are the last cell of the capability-by-derivability
+// matrix: a note that hands the agent an answer which the world has since
+// falsified. The belief says three monitors; the account has been emptied;
+// the truthful answer is zero. A trusting agent states three — a
+// confidently wrong value, not a wrong refusal — which is the direction
+// the tier that trusts answer-bearing notes is exposed in. The companion
+// no-knowledge control at the same world separates "trusted the stale
+// note" from "cannot count an empty account".
+func StaleAnswerCells() ([]Cell, error) {
+	seed, err := neutralSeed("perishable-present")
+	if err != nil {
+		return nil, err
+	}
+	q, err := questionByID("monitor-count")
+	if err != nil {
+		return nil, err
+	}
+	stale, err := Derive(q, seed, pkseed.Metadata{}, "monitors-0")
+	if err != nil {
+		return nil, err
+	}
+	if !stale.Stale() || stale.Behavior != BehaviorVerifyAnswer {
+		return nil, fmt.Errorf("pkcell: the stale-answer cell derives stale=%v %s; want a stale cell requiring verify-then-answer",
+			stale.Stale(), stale.Behavior)
+	}
+	control, err := Derive(q, nil, pkseed.Metadata{}, "monitors-0")
+	if err != nil {
+		return nil, err
+	}
+	return []Cell{stale, control}, nil
 }
 
 // PreRunCells are the two cells of the internal power pre-run (protocol

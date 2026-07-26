@@ -1,0 +1,26 @@
+bench supersede (S5 isolated): arm=a3 model=sonnet (claude-cli via 2.1.220 (Claude Code)) k=3
+  platform v1.114.0-8-g4cc2bd5d @ http://localhost:8098 | commit 4cc2bd5d23ab | seed 930 | protocols 2af5f205e9a7
+  2026-07-25T18:13:57Z .. 2026-07-25T18:50:22Z
+
+protocols 10  attempts 30  harness failures 0
+tokens: input 1048  output 91835  cache read 14240413  cache write 1148110 (apply current model pricing for cost)
+
+  capture rate            33.3%  95% CI [16.7-50.0]  (10/30)
+  update capture rate     80.0%  95% CI [50.0-100.0]  (8/10)
+  supersede rate         100.0%  (8/8)
+  duplicate rate           0.0%  (0/8)
+  update correctness     100.0%  (8/8)
+  pass^k (protocols)      10.0%  95% CI [0.0-30.0]  (1/10)
+
+per-protocol stability (superseded/duplicated of executed supersedes):
+  lc-anchor-region         cap 0/3  superseded 0  duplicated 0  update-capture missed 0
+  lc-benchmark-month       cap 0/3  superseded 0  duplicated 0  update-capture missed 0
+  lc-billing-window        cap 3/3  superseded 2  duplicated 0  update-capture missed 1
+  lc-core-market           cap 0/3  superseded 0  duplicated 0  update-capture missed 0
+  lc-focus-month           cap 0/3  superseded 0  duplicated 0  update-capture missed 0
+  lc-focus-region-net      cap 0/3  superseded 0  duplicated 0  update-capture missed 0
+  lc-headline-tier         cap 1/3  superseded 1  duplicated 0  update-capture missed 0
+  lc-primary-region        cap 3/3  superseded 3  duplicated 0  update-capture missed 0
+  lc-reference-cohort      cap 3/3  superseded 2  duplicated 0  update-capture missed 1
+  lc-reporting-window      cap 0/3  superseded 0  duplicated 0  update-capture missed 0
+results: build/bench-results/supersede-a3-20260725-111356-probe/supersede-a3.json
