@@ -72,10 +72,11 @@ type Config struct {
 // startup. All methods are nil-safe, so a no-DB deployment (nil Handle) degrades
 // cleanly.
 type Handle struct {
-	store       resource.Store
-	s3Client    resource.S3Client
-	uriScheme   string
-	listChanged ListChangedNotifier
+	store        resource.Store
+	s3Client     resource.S3Client
+	uriScheme    string
+	listChanged  ListChangedNotifier
+	readRecorder resource.ReadRecorder
 }
 
 // ListChangedNotifier schedules a debounced resources/list_changed notification.
@@ -104,6 +105,55 @@ func (h *Handle) NotifyListChanged() {
 		return
 	}
 	h.listChanged.Notify()
+}
+
+// SetReadRecorder binds the recorder that audits served resource content
+// (#1014). Bound after construction because it is built from the audit logger,
+// which the caller assembles separately; a nil recorder (audit disabled) leaves
+// every read serving unchanged and unrecorded. No-op on a nil Handle.
+func (h *Handle) SetReadRecorder(rec resource.ReadRecorder) {
+	if h == nil {
+		return
+	}
+	h.readRecorder = rec
+}
+
+// ReadRecorder returns the bound read recorder, or nil on a nil Handle or when
+// audit is disabled. The caller passes it to every surface that serves resource
+// content so they all record through one implementation.
+func (h *Handle) ReadRecorder() resource.ReadRecorder {
+	if h == nil {
+		return nil
+	}
+	return h.readRecorder
+}
+
+// VersionStore returns the store's content-revision capability, or nil when the
+// configured store does not implement it (or on a nil Handle). The Postgres
+// store does; the capability is type-asserted rather than required of
+// resource.Store so a metadata-only store stays a valid store.
+func (h *Handle) VersionStore() resource.VersionStore {
+	if h == nil || h.store == nil {
+		return nil
+	}
+	vs, ok := h.store.(resource.VersionStore)
+	if !ok {
+		return nil
+	}
+	return vs
+}
+
+// ReadTracker returns the store's last-read stamping capability, or nil when
+// the configured store does not implement it (or on a nil Handle).
+func (h *Handle) ReadTracker() resource.ReadTracker {
+	if h == nil || h.store == nil {
+		return nil
+	}
+	rt, ok := h.store.(resource.ReadTracker)
+	if !ok {
+		return nil
+	}
+	return rt
 }
 
 // New assembles the resource store and — when an S3 connection resolves — the S3

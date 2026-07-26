@@ -90,7 +90,7 @@ func (s *postgresStore) Get(ctx context.Context, id string) (*Resource, error) {
 	query := `
 		SELECT id, scope, scope_id, category, filename, display_name, description,
 		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
-		       created_at, updated_at
+		       created_at, updated_at, last_read_at
 		FROM resources WHERE id = $1
 	`
 	return s.scanOne(s.db.QueryRowContext(ctx, query, id))
@@ -100,7 +100,7 @@ func (s *postgresStore) GetByURI(ctx context.Context, uri string) (*Resource, er
 	query := `
 		SELECT id, scope, scope_id, category, filename, display_name, description,
 		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
-		       created_at, updated_at
+		       created_at, updated_at, last_read_at
 		FROM resources WHERE uri = $1
 	`
 	return s.scanOne(s.db.QueryRowContext(ctx, query, uri))
@@ -131,13 +131,14 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 	if limit > MaxListLimit {
 		limit = MaxListLimit
 	}
-	// #nosec G202 -- dynamic scope filter requires concatenation
+	// #nosec G202 -- dynamic scope filter requires concatenation; the ORDER BY
+	// comes from Sort.orderByClause, a closed set of constant strings.
 	selectQuery := `
 		SELECT id, scope, scope_id, category, filename, display_name, description,
 		       mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
-		       created_at, updated_at
+		       created_at, updated_at, last_read_at
 		FROM resources WHERE ` + where + `
-		ORDER BY updated_at DESC
+		ORDER BY ` + filter.Sort.orderByClause() + `
 		LIMIT $` + fmt.Sprintf("%d", len(args)+1) + ` OFFSET $` + fmt.Sprintf("%d", len(args)+2)
 	args = append(args, limit, filter.Offset)
 
@@ -221,51 +222,64 @@ func (s *postgresStore) Delete(ctx context.Context, id string) error { //nolint:
 
 // --- helpers ---
 
-// scanDest returns the scan destinations for a resource row, in the column order
+// resourceScan holds the landing spots for the nullable columns of a resource
+// row. One value carries them all so adding a nullable column touches this type
+// and nothing else at the call sites.
+type resourceScan struct {
+	scopeID  sql.NullString
+	tags     []string
+	lastRead sql.NullTime
+}
+
+// dest returns the scan destinations for a resource row, in the column order
 // every resource SELECT projects (the list path, the by-id/by-uri reads, and the
 // ranked search). Declared once so a column added to one query cannot silently
 // misalign another's scan. The ranked-search callers append their score columns
 // to the returned slice.
-func scanDest(r *Resource, scopeID *sql.NullString, tags *[]string) []any {
+func (s *resourceScan) dest(r *Resource) []any {
 	return []any{
-		&r.ID, &r.Scope, scopeID, &r.Category, &r.Filename, &r.DisplayName,
+		&r.ID, &r.Scope, &s.scopeID, &r.Category, &r.Filename, &r.DisplayName,
 		&r.Description, &r.MIMEType, &r.SizeBytes, &r.S3Key, &r.URI,
-		pq.Array(tags), &r.UploaderSub, &r.UploaderEmail,
-		&r.CreatedAt, &r.UpdatedAt,
+		pq.Array(&s.tags), &r.UploaderSub, &r.UploaderEmail,
+		&r.CreatedAt, &r.UpdatedAt, &s.lastRead,
 	}
 }
 
-// finishScanned applies the nullable-column conventions after a scan: a NULL
-// scope_id reads as the empty string (global resources), and nil tags read as an
-// empty slice so the JSON encoding is [] rather than null.
-func finishScanned(r *Resource, scopeID sql.NullString, tags []string) {
-	r.ScopeID = scopeID.String
-	if tags != nil {
-		r.Tags = tags
+// finish applies the nullable-column conventions after a scan: a NULL scope_id
+// reads as the empty string (global resources), nil tags read as an empty slice
+// so the JSON encoding is [] rather than null, and a NULL last_read_at leaves
+// the pointer nil, which is how "never read" is distinguished from "read at the
+// zero time".
+func (s *resourceScan) finish(r *Resource) {
+	r.ScopeID = s.scopeID.String
+	if s.tags != nil {
+		r.Tags = s.tags
 	} else {
 		r.Tags = []string{}
+	}
+	if s.lastRead.Valid {
+		t := s.lastRead.Time
+		r.LastReadAt = &t
 	}
 }
 
 func (*postgresStore) scanOne(row *sql.Row) (*Resource, error) { //nolint:revive // interface-adjacent helper
 	var r Resource
-	var scopeID sql.NullString
-	var tags []string
-	if err := row.Scan(scanDest(&r, &scopeID, &tags)...); err != nil {
+	var sc resourceScan
+	if err := row.Scan(sc.dest(&r)...); err != nil {
 		return nil, fmt.Errorf("scanning resource: %w", err)
 	}
-	finishScanned(&r, scopeID, tags)
+	sc.finish(&r)
 	return &r, nil
 }
 
 func (*postgresStore) scanRow(rows *sql.Rows) (*Resource, error) { //nolint:revive // interface-adjacent helper
 	var r Resource
-	var scopeID sql.NullString
-	var tags []string
-	if err := rows.Scan(scanDest(&r, &scopeID, &tags)...); err != nil {
+	var sc resourceScan
+	if err := rows.Scan(sc.dest(&r)...); err != nil {
 		return nil, fmt.Errorf("scanning resource row: %w", err)
 	}
-	finishScanned(&r, scopeID, tags)
+	sc.finish(&r)
 	return &r, nil
 }
 

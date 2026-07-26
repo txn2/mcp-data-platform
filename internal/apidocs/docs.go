@@ -13342,6 +13342,16 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "enum": [
+                            "updated",
+                            "last_read"
+                        ],
+                        "type": "string",
+                        "description": "Ordering (default updated)",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "Max results to return (default 100, max 200)",
                         "name": "limit",
@@ -13707,6 +13717,302 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Uploads new content for an existing resource, recording a version and keeping the resource ID, URI, and filename stable so existing references and prompt attachments keep resolving.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Replace resource content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Replacement file (max 100 MB)",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/{id}/versions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists the recorded content revisions of a resource, newest first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "List resource versions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/resource.versionListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/{id}/versions/{version}/content": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Downloads the content of one recorded revision.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Download a resource version",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/resources/{id}/versions/{version}/restore": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Re-promotes a prior revision's content as a new head revision. The resource ID, URI, and filename are unchanged, and the trail records which version was restored.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Resources"
+                ],
+                "summary": "Restore a resource version",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number to restore",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/resource.errorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/resource.errorResponse"
                         }
@@ -16011,7 +16317,8 @@ const docTemplate = `{
                 "admin",
                 "mcp_tool_call",
                 "apigateway_invoke",
-                "prompt_serve"
+                "prompt_serve",
+                "resource_read"
             ],
             "x-enum-varnames": [
                 "EventTypeToolCall",
@@ -16019,7 +16326,8 @@ const docTemplate = `{
                 "EventTypeAdmin",
                 "EventTypeMCPToolCall",
                 "EventTypeAPIGatewayInvoke",
-                "EventTypePromptServe"
+                "EventTypePromptServe",
+                "EventTypeResourceRead"
             ]
         },
         "audit.Overview": {
@@ -16542,6 +16850,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": "res_01HK7R9F"
                 },
+                "last_read_at": {
+                    "description": "LastReadAt is when the resource's content was last served through any\nsurface, stamped by the read recorder. NULL means never read since the\ndeployment began auditing reads (#1014). It is the durable answer, unlike\nthe audit-derived Usage.LastReadAt, which is bounded by audit retention.",
+                    "type": "string"
+                },
                 "mime_type": {
                     "type": "string",
                     "example": "text/markdown"
@@ -16587,6 +16899,14 @@ const docTemplate = `{
                 "uri": {
                     "type": "string",
                     "example": "mcp://persona/data-engineer/runbooks/etl-runbook.md"
+                },
+                "usage": {
+                    "description": "Usage is the audit-derived read activity of this resource. It is not a\nstored column: the detail read fills it from the audit rollup, and it is\nabsent everywhere the rollup was not consulted.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resource.Usage"
+                        }
+                    ]
                 }
             }
         },
@@ -19183,6 +19503,72 @@ const docTemplate = `{
                 }
             }
         },
+        "resource.Usage": {
+            "type": "object",
+            "properties": {
+                "by_surface_30d": {
+                    "description": "BySurface30d breaks the 30-day count down by Surface* value.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "last_read_at": {
+                    "description": "LastReadAt is the most recent audited read within the retention window.\nThe durable answer lives on the resource row (Resource.LastReadAt), which\noutlives retention; this field is what the rollup itself saw.",
+                    "type": "string"
+                },
+                "reads_30d": {
+                    "description": "Reads30d and Reads90d count audited reads in the trailing 30 and 90\ndays. Both are bounded by the audit retention window: a deployment\nkeeping 30 days of audit reports the same number twice.",
+                    "type": "integer",
+                    "example": 42
+                },
+                "reads_90d": {
+                    "type": "integer",
+                    "example": 117
+                }
+            }
+        },
+        "resource.Version": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "mime_type": {
+                    "type": "string",
+                    "example": "text/markdown"
+                },
+                "resource_id": {
+                    "type": "string",
+                    "example": "a1b2c3d4e5f67890a1b2c3d4e5f67890"
+                },
+                "restored_from": {
+                    "description": "RestoredFrom names the version this revision re-promoted, or nil when the\nrevision was a fresh upload. A restore is recorded as a new head revision\nrather than a rewind so the trail stays append-only.",
+                    "type": "integer",
+                    "example": 1
+                },
+                "s3_key": {
+                    "type": "string",
+                    "example": "resources/persona/data-engineer/a1b2/v3/etl-runbook.md"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "example": 34000
+                },
+                "uploader_email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "uploader_sub": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
         "resource.errorResponse": {
             "type": "object",
             "properties": {
@@ -19204,6 +19590,25 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 42
+                }
+            }
+        },
+        "resource.versionListResponse": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "max_versions": {
+                    "type": "integer",
+                    "example": 10
+                },
+                "versions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resource.Version"
+                    }
                 }
             }
         },

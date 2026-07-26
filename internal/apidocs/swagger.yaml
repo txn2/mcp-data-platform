@@ -1678,6 +1678,7 @@ definitions:
     - mcp_tool_call
     - apigateway_invoke
     - prompt_serve
+    - resource_read
     type: string
     x-enum-varnames:
     - EventTypeToolCall
@@ -1686,6 +1687,7 @@ definitions:
     - EventTypeMCPToolCall
     - EventTypeAPIGatewayInvoke
     - EventTypePromptServe
+    - EventTypeResourceRead
   audit.Overview:
     properties:
       avg_duration_ms:
@@ -2123,6 +2125,13 @@ definitions:
       id:
         example: res_01HK7R9F
         type: string
+      last_read_at:
+        description: |-
+          LastReadAt is when the resource's content was last served through any
+          surface, stamped by the read recorder. NULL means never read since the
+          deployment began auditing reads (#1014). It is the durable answer, unlike
+          the audit-derived Usage.LastReadAt, which is bounded by audit retention.
+        type: string
       mime_type:
         example: text/markdown
         type: string
@@ -2155,6 +2164,13 @@ definitions:
       uri:
         example: mcp://persona/data-engineer/runbooks/etl-runbook.md
         type: string
+      usage:
+        allOf:
+        - $ref: '#/definitions/resource.Usage'
+        description: |-
+          Usage is the audit-derived read activity of this resource. It is not a
+          stored column: the detail read fills it from the audit rollup, and it is
+          absent everywhere the rollup was not consulted.
     type: object
   knowledge.Changeset:
     properties:
@@ -4003,6 +4019,63 @@ definitions:
           type: string
         type: array
     type: object
+  resource.Usage:
+    properties:
+      by_surface_30d:
+        additionalProperties:
+          type: integer
+        description: BySurface30d breaks the 30-day count down by Surface* value.
+        type: object
+      last_read_at:
+        description: |-
+          LastReadAt is the most recent audited read within the retention window.
+          The durable answer lives on the resource row (Resource.LastReadAt), which
+          outlives retention; this field is what the rollup itself saw.
+        type: string
+      reads_30d:
+        description: |-
+          Reads30d and Reads90d count audited reads in the trailing 30 and 90
+          days. Both are bounded by the audit retention window: a deployment
+          keeping 30 days of audit reports the same number twice.
+        example: 42
+        type: integer
+      reads_90d:
+        example: 117
+        type: integer
+    type: object
+  resource.Version:
+    properties:
+      created_at:
+        type: string
+      mime_type:
+        example: text/markdown
+        type: string
+      resource_id:
+        example: a1b2c3d4e5f67890a1b2c3d4e5f67890
+        type: string
+      restored_from:
+        description: |-
+          RestoredFrom names the version this revision re-promoted, or nil when the
+          revision was a fresh upload. A restore is recorded as a new head revision
+          rather than a rewind so the trail stays append-only.
+        example: 1
+        type: integer
+      s3_key:
+        example: resources/persona/data-engineer/a1b2/v3/etl-runbook.md
+        type: string
+      size_bytes:
+        example: 34000
+        type: integer
+      uploader_email:
+        example: marcus.johnson@example.com
+        type: string
+      uploader_sub:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      version:
+        example: 3
+        type: integer
+    type: object
   resource.errorResponse:
     properties:
       error:
@@ -4018,6 +4091,19 @@ definitions:
       total:
         example: 42
         type: integer
+    type: object
+  resource.versionListResponse:
+    properties:
+      current:
+        example: 3
+        type: integer
+      max_versions:
+        example: 10
+        type: integer
+      versions:
+        items:
+          $ref: '#/definitions/resource.Version'
+        type: array
     type: object
   settingsapi.problemDetail:
     properties:
@@ -12620,6 +12706,13 @@ paths:
         in: query
         name: q
         type: string
+      - description: Ordering (default updated)
+        enum:
+        - updated
+        - last_read
+        in: query
+        name: sort
+        type: string
       - description: Max results to return (default 100, max 200)
         in: query
         name: limit
@@ -12875,6 +12968,198 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Download resource content
+      tags:
+      - Resources
+    post:
+      consumes:
+      - multipart/form-data
+      description: Uploads new content for an existing resource, recording a version
+        and keeping the resource ID, URI, and filename stable so existing references
+        and prompt attachments keep resolving.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Replacement file (max 100 MB)
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Replace resource content
+      tags:
+      - Resources
+  /resources/{id}/versions:
+    get:
+      description: Lists the recorded content revisions of a resource, newest first.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/resource.versionListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List resource versions
+      tags:
+      - Resources
+  /resources/{id}/versions/{version}/content:
+    get:
+      description: Downloads the content of one recorded revision.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Download a resource version
+      tags:
+      - Resources
+  /resources/{id}/versions/{version}/restore:
+    post:
+      description: Re-promotes a prior revision's content as a new head revision.
+        The resource ID, URI, and filename are unchanged, and the trail records which
+        version was restored.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number to restore
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/resource.errorResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Restore a resource version
       tags:
       - Resources
 securityDefinitions:

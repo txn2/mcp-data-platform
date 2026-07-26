@@ -128,6 +128,8 @@ The `event_kind` field separates two classes of audited activity that otherwise 
 |--------------|---------------|
 | `mcp_tool_call` | A tool routed through one of the MCP toolkits (`trino`, `datahub`, `s3`, or the MCP gateway). |
 | `apigateway_invoke` | An HTTP API call proxied through the apigateway toolkit (`api_invoke_endpoint`, `api_export`, and the other `api_*` tools). |
+| `prompt_serve` | A database prompt served to an agent (`prompts/get`, or a resolved `manage_prompt use`). Carries `prompt_id`, `prompt_name`, and `version` in `parameters`, and is the source of the per-prompt run counts in the portal. |
+| `resource_read` | A managed resource's content served. Carries `resource_id`, `resource_uri`, `surface`, and (when a specific revision was named) `version` in `parameters`. |
 
 The kind is derived at write time from the toolkit kind, so it does not depend on tool-name string matching. A high-traffic API gateway can produce many rows per agent turn; the split lets the MCP Activity view exclude that traffic by default while a dedicated gateway view includes it.
 
@@ -138,6 +140,20 @@ GET /api/v1/admin/audit/events?event_kind=mcp_tool_call        # MCP tool calls 
 GET /api/v1/admin/audit/events?event_kind=apigateway_invoke    # API gateway calls only
 GET /api/v1/admin/audit/metrics/timeseries?event_kind=mcp_tool_call
 ```
+
+### Resource reads
+
+A managed resource's content reaches a caller through three doors, and each writes one `resource_read` row naming which:
+
+| `surface` | The door |
+|-----------|----------|
+| `mcp_read` | An agent's MCP `resources/read`. |
+| `fetch` | A `search` fetch of an `mcp:resource:<id>` reference. |
+| `rest_download` | A content download from the portal or the REST API, including a download of a specific version. |
+
+Listing resources is deliberately not audited: only content actually served counts as a read, so the counts answer "is anything using this file" rather than "did this file appear in a list". A read that could not be served — a missing blob, a refused visibility check — writes nothing.
+
+These rows are what the portal's resource usage panel aggregates into 30- and 90-day read counts per surface, so the counts inherit the retention window configured below. The resource's own `last_read_at` column is stamped alongside the audit row and outlives retention, which is what the admin table's *Recently read* sort orders on. With `audit.enabled: false` no rows are written, no usage is shown, and reads are served exactly as before.
 
 ## Parameter Sanitization
 

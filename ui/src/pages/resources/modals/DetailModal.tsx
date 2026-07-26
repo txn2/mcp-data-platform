@@ -1,5 +1,6 @@
 import { Tag, Trash2, Pencil, Download, X } from "lucide-react";
 import { resourceFetchRaw } from "@/api/resources/client";
+import { useResource } from "@/api/resources/hooks";
 import { useAuthStore } from "@/stores/auth";
 import { formatBytes } from "@/lib/format";
 import type { Resource } from "@/api/resources/types";
@@ -7,8 +8,17 @@ import { scopeIcon, scopeLabel } from "./shared";
 import { Overlay } from "./Overlay";
 import { ResourcePreview } from "./ResourcePreview";
 import { UsedByPrompts } from "./UsedByPrompts";
+import { UsagePanel } from "./UsagePanel";
+import { VersionsPanel } from "./VersionsPanel";
 
-export function DetailModal({ resource: r, onClose, onEdit, onDelete, admin }: { resource: Resource; onClose: () => void; onEdit: () => void; onDelete: () => void; admin: boolean }) {
+export function DetailModal({ resource, onClose, onEdit, onDelete, admin }: { resource: Resource; onClose: () => void; onEdit: () => void; onDelete: () => void; admin: boolean }) {
+  // The row the list handed over carries no usage: only the detail read
+  // consults the audit rollup. Re-read it so the panel has something to show,
+  // and fall back to the list's copy while that is in flight (and on a
+  // deployment where the detail read fails, where the metadata is still worth
+  // showing).
+  const { data: detail } = useResource(resource.id);
+  const r = detail ?? resource;
   const ScopeIcon = scopeIcon(r.scope);
   const currentUser = useAuthStore((s) => s.user);
   // Users can only edit/delete their own resources. Admins can edit/delete any.
@@ -65,6 +75,10 @@ export function DetailModal({ resource: r, onClose, onEdit, onDelete, admin }: {
             ))}
           </div>
         )}
+
+        <UsagePanel usage={r.usage} lastReadAt={r.last_read_at} createdAt={r.created_at} />
+
+        <VersionsPanel resource={r} canModify={canModify} />
 
         <UsedByPrompts resourceId={r.id} />
 

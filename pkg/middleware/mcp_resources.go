@@ -65,6 +65,10 @@ type ManagedResourceConfig struct {
 	PersonasForRoles PersonasForRoles // resolves roles → persona names
 	Authenticator    Authenticator    // authenticates users for resources/list and resources/read
 	AdminPersona     string           // persona name that grants platform admin
+	// ReadRecorder audits content served through resources/read. Nil when
+	// audit is disabled, which silences the events without affecting reads.
+	// Listing is not recorded: only content served counts as a read (#1014).
+	ReadRecorder resource.ReadRecorder
 }
 
 // MCPManagedResourceMiddleware intercepts resources/list and resources/read
@@ -252,6 +256,12 @@ func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method strin
 
 	slog.Debug("managed resources read: serving content", logKeyURI, uri, "mime_type", res.MIMEType, "s3_key", res.S3Key)
 	result, err := fetchResourceContent(ctx, cfg, res)
+	// Recorded only when content was actually served. A deployment with no blob
+	// storage gets a placeholder body from the fetch above, and counting that as
+	// a read would report usage for a file nobody has ever received.
+	if err == nil && cfg.S3Client != nil {
+		recordManagedRead(ctx, cfg, res, pc)
+	}
 	if err != nil && errors.Is(err, errResourceBlobMissing) {
 		// Self-heal: the backing object is confirmed gone, so the row is a
 		// permanent orphan that would keep appearing in resources/list and
@@ -260,6 +270,29 @@ func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method strin
 		pruneOrphanedResource(ctx, cfg, res)
 	}
 	return result, err
+}
+
+// recordManagedRead reports a served resources/read to the bound recorder.
+// No-op without one (audit disabled). The identity comes from the
+// PlatformContext this request already resolved, so the event names the caller
+// even on the direct-authentication path, where no tool-call middleware ran.
+func recordManagedRead(ctx context.Context, cfg ManagedResourceConfig, res *resource.Resource, pc *PlatformContext) {
+	if cfg.ReadRecorder == nil {
+		return
+	}
+	ev := resource.ReadEvent{
+		ResourceID: res.ID,
+		URI:        res.URI,
+		Surface:    resource.SurfaceMCPRead,
+	}
+	if pc != nil {
+		ev.UserID = pc.UserID
+		ev.UserEmail = pc.UserEmail
+		ev.Persona = pc.PersonaName
+		ev.SessionID = pc.SessionID
+		ev.RequestID = pc.RequestID
+	}
+	cfg.ReadRecorder.RecordRead(ctx, ev)
 }
 
 // pruneOrphanedResource best-effort deletes a resource row whose backing object

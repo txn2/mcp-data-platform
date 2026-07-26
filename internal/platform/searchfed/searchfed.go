@@ -86,6 +86,11 @@ type Config struct {
 	ResourceBlobs  knowledge.ResourceContentReader
 	ResourceBucket string
 
+	// ResourceReads audits resources dereferenced through fetch (#1014). Nil
+	// when audit is disabled, which leaves fetch serving the same content
+	// unrecorded.
+	ResourceReads resource.ReadRecorder
+
 	// PersonasForRoles resolves a caller's roles to every persona they BELONG TO.
 	// The resources provider scopes persona-visible material on that membership
 	// set rather than on the single resolved persona, which falls back to the
@@ -205,7 +210,9 @@ func appendPortalStoreProviders(cfg Config, providers []knowledge.Provider) []kn
 	// can rank (#1012). Uploading one is publishing into a void unless search can
 	// find it.
 	if s, ok := cfg.ResourceStore.(knowledge.ResourceSearcher); ok {
-		providers = append(providers, knowledge.NewResourcesProvider(s, cfg.ResourceBlobs, cfg.ResourceBucket))
+		rp := knowledge.NewResourcesProvider(s, cfg.ResourceBlobs, cfg.ResourceBucket)
+		rp.SetReadRecorder(cfg.ResourceReads)
+		providers = append(providers, rp)
 	}
 	// Feedback threads complete the search corpus (#686): a caller's own feedback
 	// becomes discoverable knowledge. Lexical and per-user (threads carry no

@@ -5,7 +5,12 @@ import {
   type InfiniteResult,
 } from "@/api/portal/hooks/infinite";
 import { resourceFetch, resourceFetchRaw } from "./client";
-import type { Resource, ResourceListResponse, ResourceUpdate } from "./types";
+import type {
+  Resource,
+  ResourceListResponse,
+  ResourceUpdate,
+  ResourceVersionListResponse,
+} from "./types";
 
 interface ResourceQuery {
   scope?: string;
@@ -13,6 +18,9 @@ interface ResourceQuery {
   category?: string;
   tag?: string;
   q?: string;
+  // sort orders the list; "last_read" puts the most recently read first and
+  // never-read resources last, which is how a curator finds dead weight.
+  sort?: "updated" | "last_read";
 }
 
 function resourceParams(params: ResourceQuery | undefined): URLSearchParams {
@@ -22,6 +30,7 @@ function resourceParams(params: ResourceQuery | undefined): URLSearchParams {
   if (params?.category) sp.set("category", params.category);
   if (params?.tag) sp.set("tag", params.tag);
   if (params?.q) sp.set("q", params.q);
+  if (params?.sort) sp.set("sort", params.sort);
   return sp;
 }
 
@@ -114,6 +123,55 @@ export function useDeleteResource() {
         const body = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(body.error || res.statusText);
       }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["resources"] });
+    },
+  });
+}
+
+// useResourceVersions lists a resource's content revisions, newest first.
+export function useResourceVersions(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ["resources", id, "versions"],
+    queryFn: () => resourceFetch<ResourceVersionListResponse>(`/${id}/versions`),
+    enabled: !!id && enabled,
+  });
+}
+
+// useReplaceContent uploads new content for an existing resource. The resource
+// keeps its ID, URI, and filename, so every reference and prompt attachment
+// pointing at it keeps resolving.
+export function useReplaceContent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, file }: { id: string; file: File }) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await resourceFetchRaw(`/${id}/content`, { method: "POST", body: formData });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(body.error || res.statusText);
+      }
+      return res.json() as Promise<Resource>;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["resources"] });
+    },
+  });
+}
+
+// useRestoreVersion re-promotes a prior revision as a new head revision.
+export function useRestoreVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, version }: { id: string; version: number }) => {
+      const res = await resourceFetchRaw(`/${id}/versions/${version}/restore`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(body.error || res.statusText);
+      }
+      return res.json() as Promise<Resource>;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["resources"] });

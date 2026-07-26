@@ -314,3 +314,72 @@ func TestNotifyListChanged(t *testing.T) {
 }
 
 var _ ListChangedNotifier = (*fakeNotifier)(nil)
+
+// stubReadRecorder stands in for the audit-backed recorder.
+type stubReadRecorder struct{}
+
+func (stubReadRecorder) RecordRead(_ context.Context, _ resource.ReadEvent) {}
+
+func TestReadRecorderBinding(t *testing.T) {
+	t.Run("nil handle is safe", func(t *testing.T) {
+		var h *Handle
+		h.SetReadRecorder(stubReadRecorder{}) // no panic
+		if h.ReadRecorder() != nil {
+			t.Error("nil handle must expose no recorder")
+		}
+	})
+
+	t.Run("unbound handle exposes no recorder", func(t *testing.T) {
+		h := &Handle{}
+		if h.ReadRecorder() != nil {
+			t.Error("an unbound handle must expose no recorder; audit-disabled deployments rely on it")
+		}
+	})
+
+	t.Run("bound recorder is returned", func(t *testing.T) {
+		h := &Handle{}
+		rec := stubReadRecorder{}
+		h.SetReadRecorder(rec)
+		if h.ReadRecorder() != resource.ReadRecorder(rec) {
+			t.Error("ReadRecorder did not return the bound recorder")
+		}
+	})
+}
+
+func TestStoreCapabilities(t *testing.T) {
+	t.Run("nil handle has neither capability", func(t *testing.T) {
+		var h *Handle
+		if h.VersionStore() != nil || h.ReadTracker() != nil {
+			t.Error("a nil handle must expose no store capabilities")
+		}
+	})
+
+	t.Run("a store without the capabilities yields nil", func(t *testing.T) {
+		h := &Handle{store: &countingStore{}}
+		if h.VersionStore() != nil {
+			t.Error("a metadata-only store must not be reported as versioning-capable")
+		}
+		if h.ReadTracker() != nil {
+			t.Error("a metadata-only store must not be reported as read-tracking")
+		}
+	})
+
+	t.Run("the postgres store carries both", func(t *testing.T) {
+		db, _, err := sqlmock.New()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = db.Close() }()
+
+		h, err := New(db, Config{})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		if h.VersionStore() == nil {
+			t.Error("the postgres store implements VersionStore; the revision routes depend on this assertion")
+		}
+		if h.ReadTracker() == nil {
+			t.Error("the postgres store implements ReadTracker; last-read sorting depends on this assertion")
+		}
+	})
+}
