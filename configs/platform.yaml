@@ -475,6 +475,19 @@ tuning:
 #       name: "Brand Logo SVG"
 #       mime_type: "image/svg+xml"
 #       content_file: "/etc/platform/logo.svg"
+#
+#   # Managed resources: human-uploaded reference material (templates, runbooks,
+#   # checklists). Enabled automatically when a database is available; blobs go
+#   # to the default S3 toolkit instance unless s3_connection names another.
+#   managed:
+#     enabled: true             # default: true when a database is configured
+#     uri_scheme: mcp           # URI prefix for resource URIs (default: "mcp")
+#     s3_connection: data_lake  # S3 toolkit instance for resource blobs
+#     s3_bucket: managed-resources
+#     # Content revisions kept per resource, counting the current one. A
+#     # revision past the cap deletes the oldest version's stored file; the
+#     # live content is never pruned. Below 2 is raised to 2.
+#     max_versions: 10          # default: 10
 
 # Progress notifications
 # Sends granular progress updates to MCP clients during long-running

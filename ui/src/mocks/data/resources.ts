@@ -15,6 +15,27 @@ interface Resource {
   uploader_email: string;
   created_at: string;
   updated_at: string;
+  last_read_at?: string;
+  usage?: ResourceUsage;
+}
+
+interface ResourceUsage {
+  reads_30d: number;
+  reads_90d: number;
+  by_surface_30d?: Record<string, number>;
+  last_read_at?: string;
+}
+
+interface ResourceVersion {
+  resource_id: string;
+  version: number;
+  mime_type: string;
+  size_bytes: number;
+  s3_key: string;
+  uploader_sub: string;
+  uploader_email: string;
+  restored_from?: number;
+  created_at: string;
 }
 
 const now = new Date();
@@ -563,6 +584,84 @@ const resources: Resource[] = [
     updated_at: daysAgo(14),
   },
 ];
+
+// Read activity for the resources the detail view is opened on. Only a few
+// carry usage: a library where every file is heavily read has nothing to teach
+// a curator, and res-002 is deliberately left with no reads at all so the
+// never-read flag has something to render.
+export const mockResourceUsage: Record<string, ResourceUsage> = {
+  "res-001": {
+    reads_30d: 46,
+    reads_90d: 118,
+    by_surface_30d: { mcp_read: 31, fetch: 11, rest_download: 4 },
+    last_read_at: hoursAgo(5),
+  },
+  "res-027": {
+    reads_30d: 3,
+    reads_90d: 12,
+    by_surface_30d: { mcp_read: 3 },
+    last_read_at: daysAgo(9),
+  },
+};
+
+// Version trails for the resources whose detail view exercises the panel:
+// res-001 has been revised twice (the second a restore of v1), res-027 once.
+export const mockResourceVersions: Record<string, ResourceVersion[]> = {
+  "res-001": [
+    {
+      resource_id: "res-001",
+      version: 3,
+      mime_type: "application/pdf",
+      size_bytes: 2_097_152,
+      s3_key: "resources/global/global/res-001/v/rev3/sql-style-guide.pdf",
+      uploader_sub: "sarah-admin",
+      uploader_email: "sarah.chen@example.com",
+      restored_from: 1,
+      created_at: daysAgo(2),
+    },
+    {
+      resource_id: "res-001",
+      version: 2,
+      mime_type: "application/pdf",
+      size_bytes: 2_150_400,
+      s3_key: "resources/global/global/res-001/v/rev2/sql-style-guide.pdf",
+      uploader_sub: "marcus-engineer",
+      uploader_email: "marcus.johnson@example.com",
+      created_at: daysAgo(11),
+    },
+    {
+      resource_id: "res-001",
+      version: 1,
+      mime_type: "application/pdf",
+      size_bytes: 2_097_152,
+      s3_key: "resources/global/sql-style-guide.pdf",
+      uploader_sub: "sarah-admin",
+      uploader_email: "sarah.chen@example.com",
+      created_at: daysAgo(45),
+    },
+  ],
+  "res-027": [
+    {
+      resource_id: "res-027",
+      version: 1,
+      mime_type: "text/markdown",
+      size_bytes: 28_672,
+      s3_key: "resources/global/runbooks/oauth-troubleshooting.md",
+      uploader_sub: "sarah-admin",
+      uploader_email: "sarah.chen@example.com",
+      created_at: daysAgo(38),
+    },
+  ],
+};
+
+// The list carries last_read_at (what the admin table sorts and flags on); the
+// detail read is where the usage rollup is attached.
+for (const r of resources) {
+  const usage = mockResourceUsage[r.id];
+  if (usage?.last_read_at) {
+    r.last_read_at = usage.last_read_at;
+  }
+}
 
 export const mockResources = {
   resources,

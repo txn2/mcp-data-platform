@@ -40,6 +40,19 @@ type Deps struct {
 	URIScheme string          // defaults to "mcp" if empty
 	OnCreate  func(*Resource) // called after successful create to register with MCP
 	OnDelete  func(string)    // called after successful delete with URI to unregister
+
+	// Versions records content revisions. Absent on a deployment whose store
+	// does not implement VersionStore, which disables the revision and version
+	// routes (503) and leaves create, metadata edits, and reads unaffected.
+	Versions VersionStore
+	// MaxVersions is the retention cap; non-positive selects DefaultMaxVersions.
+	MaxVersions int
+	// ReadRecorder audits served content reads. Absent when audit is disabled,
+	// which silences read events without affecting the reads themselves.
+	ReadRecorder ReadRecorder
+	// Usage supplies audit-derived read counts for the detail read. Absent when
+	// audit is disabled, which leaves the usage field off the response.
+	Usage UsageReader
 }
 
 // ClaimsExtractor extracts resource Claims from an HTTP request.
@@ -118,6 +131,7 @@ func (h *Handler) registerRoutesOn(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/resources/{id}/content", h.handleGetContent)
 	mux.HandleFunc("PATCH /api/v1/resources/{id}", h.handleUpdate)
 	mux.HandleFunc("DELETE /api/v1/resources/{id}", h.handleDelete)
+	h.registerContentRoutes(mux)
 }
 
 // ServeHTTP implements http.Handler.
@@ -320,6 +334,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	h.recordInitialVersion(r.Context(), res, claims)
 	writeJSON(w, http.StatusCreated, res)
 	h.notifyCreate(res)
 }
@@ -412,6 +427,7 @@ func narrowScopes(visible []ScopeFilter, scopeParam, scopeIDParam string) []Scop
 // @Param        category query  string  false  "Filter by category"
 // @Param        tag      query  string  false  "Filter by tag"
 // @Param        q        query  string  false  "Search display_name and description"
+// @Param        sort     query  string  false  "Ordering (default updated)"  Enums(updated, last_read)
 // @Param        limit    query  int     false  "Max results to return (default 100, max 200)"
 // @Param        offset   query  int     false  "Pagination offset (default 0)"
 // @Success      200  {object}  resource.listResponse
@@ -453,6 +469,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		Category: r.URL.Query().Get("category"),
 		Tag:      r.URL.Query().Get("tag"),
 		Query:    r.URL.Query().Get("q"),
+		Sort:     Sort(r.URL.Query().Get("sort")),
 		Limit:    limit,
 		Offset:   offset,
 	}
@@ -489,22 +506,14 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /resources/{id} [get]
 func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
-	claims, ok := h.authenticate(w, r)
+	res, _, ok := h.resolveReadable(w, r)
 	if !ok {
 		return
 	}
-
-	id := r.PathValue(pathParamID)
-	res, err := h.deps.Store.Get(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, msgNotFound)
-		return
-	}
-	if !CanAccessResource(*claims, res) {
-		writeError(w, http.StatusNotFound, msgNotFound)
-		return
-	}
-
+	// The detail read is the one place usage is worth a rollup query: the list
+	// path serves the admin table, which sorts on the stored last_read_at
+	// instead.
+	h.applyUsage(r.Context(), res)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -526,19 +535,8 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /resources/{id}/content [get]
 func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
-	claims, ok := h.authenticate(w, r)
+	res, claims, ok := h.resolveReadable(w, r)
 	if !ok {
-		return
-	}
-
-	id := r.PathValue(pathParamID)
-	res, err := h.deps.Store.Get(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, msgNotFound)
-		return
-	}
-	if !CanAccessResource(*claims, res) {
-		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
 
@@ -553,6 +551,12 @@ func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "retrieving content")
 		return
 	}
+
+	// Recorded before serving so the audit row exists whether or not the client
+	// finishes the download. The bytes are already in memory at this point, so
+	// the record sits between the object read and the response rather than in
+	// front of the whole request.
+	h.recordRead(r.Context(), res, claims, SurfaceDownload, 0)
 
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        res.Filename,
@@ -671,35 +675,25 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /resources/{id} [delete]
 func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
-	claims, ok := h.authenticate(w, r)
+	res, claims, ok := h.resolveReadable(w, r)
 	if !ok {
-		return
-	}
-
-	id := r.PathValue(pathParamID)
-	res, err := h.deps.Store.Get(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, msgNotFound)
-		return
-	}
-	if !CanAccessResource(*claims, res) {
-		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
 	if !CanModifyResource(*claims, res) {
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return
 	}
+	id := res.ID
 
-	// Delete S3 object — fail the request if blob deletion fails to avoid orphaned DB rows.
-	if h.deps.S3Client != nil {
-		if err := h.deps.S3Client.DeleteObject(r.Context(), h.deps.S3Bucket, res.S3Key); err != nil {
-			slog.Error("resource delete: s3 delete failed", msgError, err) //nolint:gosec // structured slog
-			writeError(w, http.StatusInternalServerError, "deleting resource blob")
-			return
-		}
+	// Delete the blobs first — the head's failure fails the request, to avoid
+	// leaving a live object no row points at.
+	if err := h.deleteAllBlobs(r.Context(), res); err != nil {
+		slog.Error("resource delete: s3 delete failed", msgError, err) //nolint:gosec // structured slog
+		writeError(w, http.StatusInternalServerError, "deleting resource blob")
+		return
 	}
 
+	// The version rows go with the resource row (ON DELETE CASCADE).
 	if err := h.deps.Store.Delete(r.Context(), id); err != nil {
 		slog.Error("resource delete failed", msgError, err)
 		writeError(w, http.StatusInternalServerError, "deleting resource")

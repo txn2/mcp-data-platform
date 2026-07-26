@@ -102,7 +102,7 @@ var _ Searcher = (*postgresStore)(nil)
 // searchColumns is the column list every ranked-search SELECT reads, in the
 // order scanRow expects, so the scan cannot drift from the query.
 const searchColumns = `id, scope, scope_id, category, filename, display_name, description, ` +
-	`mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email, created_at, updated_at`
+	`mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email, created_at, updated_at, last_read_at`
 
 // ftsExpr is the full-text expression the lexical arm matches and ranks against.
 // It calls resource_fts() (migration 000091) with the same argument order so the
@@ -195,16 +195,15 @@ func collectHybrid(rows *sql.Rows, limit int) ([]ScoredResource, error) {
 	for rows.Next() {
 		var (
 			r        Resource
-			scopeID  sql.NullString
-			tags     []string
+			sc       resourceScan
 			vecScore float64
 			lexMatch bool
 		)
-		dest := append(scanDest(&r, &scopeID, &tags), &vecScore, &lexMatch)
+		dest := append(sc.dest(&r), &vecScore, &lexMatch)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("scanning hybrid resource row: %w", err)
 		}
-		finishScanned(&r, scopeID, tags)
+		sc.finish(&r)
 		score := fuseHybridScore(vecScore, lexMatch)
 		if prev, ok := byID[r.ID]; !ok || score > prev.Score {
 			byID[r.ID] = ScoredResource{Resource: r, Score: score}
@@ -261,15 +260,14 @@ func (s *postgresStore) searchLexical(ctx context.Context, q SearchQuery) ([]Sco
 	for rows.Next() {
 		var (
 			r       Resource
-			scopeID sql.NullString
-			tags    []string
+			sc      resourceScan
 			lexRank float64
 		)
-		dest := append(scanDest(&r, &scopeID, &tags), &lexRank)
+		dest := append(sc.dest(&r), &lexRank)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("scanning lexical resource row: %w", err)
 		}
-		finishScanned(&r, scopeID, tags)
+		sc.finish(&r)
 		scored = append(scored, ScoredResource{Resource: r, Score: lexRank})
 	}
 	if err := rows.Err(); err != nil {

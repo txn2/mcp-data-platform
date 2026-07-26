@@ -45,6 +45,7 @@ type ResourcesProvider struct {
 	searcher ResourceSearcher
 	blobs    ResourceContentReader
 	bucket   string
+	reads    resource.ReadRecorder
 }
 
 // NewResourcesProvider builds the resources provider over a resource searcher.
@@ -53,6 +54,15 @@ type ResourcesProvider struct {
 // fetch returning metadata plus the canonical URI for every resource.
 func NewResourcesProvider(searcher ResourceSearcher, blobs ResourceContentReader, bucket string) *ResourcesProvider {
 	return &ResourcesProvider{searcher: searcher, blobs: blobs, bucket: bucket}
+}
+
+// SetReadRecorder binds the recorder that audits resources dereferenced through
+// fetch (#1014). Called after construction because audit wiring is resolved
+// later than search federation; a provider with no recorder serves the same
+// content and records nothing, which is what a deployment with audit disabled
+// gets. Search is deliberately not recorded: a ranked hit is not a read.
+func (p *ResourcesProvider) SetReadRecorder(rec resource.ReadRecorder) {
+	p.reads = rec
 }
 
 // Name returns the provenance label.
@@ -139,13 +149,33 @@ func (p *ResourcesProvider) Fetch(ctx context.Context, ref string, caller Caller
 		return nil, true, ErrNotFound
 	}
 
-	return &Document{
+	doc := &Document{
 		Reference: ref,
 		Source:    SourceResources,
 		Title:     res.DisplayName,
 		Body:      p.inlineContent(ctx, res),
 		Content:   res,
-	}, true, nil
+	}
+	p.recordRead(ctx, res, caller)
+	return doc, true, nil
+}
+
+// recordRead reports a dereferenced resource to the bound recorder. It fires
+// for every successful fetch, including one that returned metadata alone: the
+// caller pulled this material into their session either way, which is the
+// question the read trail answers. No-op without a recorder.
+func (p *ResourcesProvider) recordRead(ctx context.Context, res *resource.Resource, caller Caller) {
+	if p.reads == nil {
+		return
+	}
+	p.reads.RecordRead(ctx, resource.ReadEvent{
+		ResourceID: res.ID,
+		URI:        res.URI,
+		Surface:    resource.SurfaceFetch,
+		UserID:     caller.UserID,
+		UserEmail:  caller.Email,
+		Persona:    caller.Persona,
+	})
 }
 
 // inlineContent returns the resource's content as text when it is a text-family

@@ -100,7 +100,7 @@ func searchRows(extraCols []string) *sqlmock.Rows {
 	return sqlmock.NewRows(append([]string{
 		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
-		"created_at", "updated_at",
+		"created_at", "updated_at", "last_read_at",
 	}, extraCols...))
 }
 
@@ -109,7 +109,7 @@ func addSearchRow(rows *sqlmock.Rows, id, displayName string, extra ...driver.Va
 	base := []driver.Value{
 		id, "global", nil, "references", "d.csv", displayName, "desc",
 		"text/csv", int64(10), "k", "mcp://global/references/" + id, pq.Array([]string{"t"}),
-		"sub", "u@example.com", now, now,
+		"sub", "u@example.com", now, now, nil,
 	}
 	vals := make([]driver.Value, 0, len(base)+len(extra))
 	vals = append(vals, base...)

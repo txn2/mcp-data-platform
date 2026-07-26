@@ -6,6 +6,7 @@ cmd/preview-content-viewer -> internal/contentviewer
 internal/httpserver -> internal/apidocs
 internal/httpserver -> internal/platform/branding
 internal/httpserver -> internal/platform/notifydelivery
+internal/httpserver -> internal/platform/resourceaudit
 internal/httpserver -> internal/ui
 internal/httpserver -> pkg/admin
 internal/httpserver -> pkg/audit
@@ -109,6 +110,9 @@ internal/platform/reflexivecapture -> pkg/memory
 internal/platform/reflexivecapture -> pkg/middleware
 internal/platform/reflexivecapture -> pkg/toolkits/memory
 internal/platform/reflexivecapture -> pkg/urnbuild
+internal/platform/resourceaudit -> pkg/audit
+internal/platform/resourceaudit -> pkg/middleware
+internal/platform/resourceaudit -> pkg/resource
 internal/platform/resourcelayer -> internal/platform/toolkitcfg
 internal/platform/resourcelayer -> pkg/portal/s3adapter
 internal/platform/resourcelayer -> pkg/resource
@@ -177,6 +181,7 @@ pkg/admin/settingsapi -> pkg/notification
 pkg/audit -> pkg/observability
 pkg/audit/postgres -> pkg/audit
 pkg/audit/postgres -> pkg/prompt
+pkg/audit/postgres -> pkg/resource
 pkg/auth -> internal/logsan
 pkg/auth -> pkg/middleware
 pkg/auth -> pkg/oauth/signkey
@@ -261,6 +266,7 @@ pkg/platform -> internal/platform/obs
 pkg/platform -> internal/platform/portalstore
 pkg/platform -> internal/platform/promptlayer
 pkg/platform -> internal/platform/reflexivecapture
+pkg/platform -> internal/platform/resourceaudit
 pkg/platform -> internal/platform/resourcelayer
 pkg/platform -> internal/platform/routepolicy
 pkg/platform -> internal/platform/searchfed

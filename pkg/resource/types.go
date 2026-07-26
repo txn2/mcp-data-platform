@@ -38,6 +38,36 @@ type Resource struct {
 	UploaderEmail string    `json:"uploader_email" example:"marcus.johnson@example.com"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+	// LastReadAt is when the resource's content was last served through any
+	// surface, stamped by the read recorder. NULL means never read since the
+	// deployment began auditing reads (#1014). It is the durable answer, unlike
+	// the audit-derived Usage.LastReadAt, which is bounded by audit retention.
+	LastReadAt *time.Time `json:"last_read_at,omitempty"`
+	// Usage is the audit-derived read activity of this resource. It is not a
+	// stored column: the detail read fills it from the audit rollup, and it is
+	// absent everywhere the rollup was not consulted.
+	Usage *Usage `json:"usage,omitempty"`
+}
+
+// Sort names an ordering for the list path.
+type Sort string
+
+const (
+	// SortUpdated orders by most recently updated, the default.
+	SortUpdated Sort = "updated"
+	// SortLastRead orders by most recently read, never-read resources last.
+	// It is what a curator hunting dead weight sorts by.
+	SortLastRead Sort = "last_read"
+)
+
+// orderByClause maps a sort to its SQL ordering. An unknown value falls back to
+// the default so a malformed query parameter degrades to the normal list rather
+// than failing or reaching the SQL.
+func (s Sort) orderByClause() string {
+	if s == SortLastRead {
+		return "last_read_at DESC NULLS LAST, updated_at DESC"
+	}
+	return "updated_at DESC"
 }
 
 // Filter specifies criteria for listing resources.
@@ -46,6 +76,7 @@ type Filter struct {
 	Category string        // optional category filter
 	Tag      string        // optional tag filter
 	Query    string        // optional text search in display_name/description
+	Sort     Sort          // ordering; empty selects SortUpdated
 	Limit    int
 	Offset   int
 }

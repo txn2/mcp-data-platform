@@ -9,6 +9,7 @@ import {
   File,
   FileText,
   Loader2,
+  ArrowDownWideNarrow,
 } from "lucide-react";
 import { useInfiniteResources } from "@/api/resources/hooks";
 import { useAuthStore } from "@/stores/auth";
@@ -42,6 +43,21 @@ function categoryColor(cat: string) {
   }
 }
 
+// NEVER_READ_DAYS is how long a resource must have existed unread before the
+// table flags it. A file uploaded yesterday with no reads is not dead weight.
+const NEVER_READ_DAYS = 30;
+
+// lastReadLabel renders a resource's read recency for the admin table: a date
+// when it has been read, and "Never" when it has not — flagged once the
+// resource is old enough for that to mean something.
+function lastReadLabel(r: Resource): { text: string; stale: boolean } {
+  if (r.last_read_at) {
+    return { text: new Date(r.last_read_at).toLocaleDateString(), stale: false };
+  }
+  const ageDays = (Date.now() - new Date(r.created_at).getTime()) / 86_400_000;
+  return { text: "Never", stale: ageDays >= NEVER_READ_DAYS };
+}
+
 function scopeBadgeColor(scope: string) {
   switch (scope) {
     case "global":
@@ -51,6 +67,85 @@ function scopeBadgeColor(scope: string) {
     default:
       return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
   }
+}
+
+
+// ResourceRow renders one library entry. It is a component rather than an
+// inline map body so the page function stays within the line budget.
+function ResourceRow({
+  resource: r,
+  admin,
+  onOpen,
+}: {
+  resource: Resource;
+  admin: boolean;
+  onOpen: () => void;
+}) {
+  const ScopeIcon = scopeIcon(r.scope);
+  const lastRead = lastReadLabel(r);
+  return (
+    <tr
+      onClick={onOpen}
+      className="border-b last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
+    >
+      <td className="px-4 py-2.5 max-w-0">
+        <div className="flex items-center gap-2">
+          <File className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="min-w-0 flex-1">
+            <span className="font-medium truncate block">{r.display_name}</span>
+            <span className="text-xs text-muted-foreground truncate block">{r.description}</span>
+          </div>
+        </div>
+      </td>
+      {admin && (
+        <td className="px-4 py-2.5">
+          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap inline-flex items-center gap-0.5 ${scopeBadgeColor(r.scope)}`}>
+            <ScopeIcon className="h-2.5 w-2.5" />
+            {scopeLabel(r.scope, r.scope_id)}
+          </span>
+        </td>
+      )}
+      <td className="px-4 py-2.5">
+        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${categoryColor(r.category)}`}>
+          {r.category}
+        </span>
+      </td>
+      <td className="px-4 py-2.5 text-xs text-muted-foreground truncate">{r.mime_type}</td>
+      <td className="px-4 py-2.5 max-w-0">
+        <div className="flex flex-wrap gap-1">
+          {(r.tags ?? []).slice(0, 3).map((t) => (
+            <span key={t} className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[80px]">
+              {t}
+            </span>
+          ))}
+          {(r.tags ?? []).length > 3 && (
+            <span className="text-xs text-muted-foreground">+{(r.tags ?? []).length - 3}</span>
+          )}
+        </div>
+      </td>
+      <td className="px-4 py-2.5 text-right text-muted-foreground">{formatBytes(r.size_bytes)}</td>
+      <td className="px-4 py-2.5 text-xs text-muted-foreground truncate">{r.uploader_email || r.uploader_sub}</td>
+      <td className="px-4 py-2.5 text-xs text-muted-foreground">{new Date(r.updated_at).toLocaleDateString()}</td>
+      {admin && (
+        <td
+          className={`px-4 py-2.5 text-xs ${lastRead.stale ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}
+          data-testid={`resource-last-read-${r.id}`}
+          title={lastRead.stale ? `No reads in the ${NEVER_READ_DAYS} days since upload` : undefined}
+        >
+          {lastRead.text}
+        </td>
+      )}
+      <td className="px-2 py-2.5">
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpen(); }}
+          className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent"
+          title="View details"
+        >
+          <FileText className="h-3.5 w-3.5" />
+        </button>
+      </td>
+    </tr>
+  );
 }
 
 // --- Main Page ---
@@ -69,6 +164,7 @@ export function ResourcesPage({ admin }: Props) {
     return () => clearTimeout(timer);
   }, [searchInput]);
   const [activeTab, setActiveTab] = useState<string>(admin ? "all" : "user");
+  const [sort, setSort] = useState<"updated" | "last_read">("updated");
   const [showUpload, setShowUpload] = useState(false);
   const [detail, setDetail] = useState<Resource | null>(null);
   const [editing, setEditing] = useState<Resource | null>(null);
@@ -78,6 +174,7 @@ export function ResourcesPage({ admin }: Props) {
   const queryParams: Record<string, string | undefined> = {
     category: category || undefined,
     q: search || undefined,
+    sort,
   };
   if (activeTab !== "all") {
     queryParams.scope = activeTab === "user" ? "user" : activeTab === "global" ? "global" : "persona";
@@ -156,6 +253,21 @@ export function ResourcesPage({ admin }: Props) {
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
+        {admin && (
+          <div className="relative">
+            <ArrowDownWideNarrow className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as "updated" | "last_read")}
+              data-testid="resources-sort"
+              aria-label="Sort resources"
+              className="rounded-md border bg-background pl-8 pr-3 py-2 text-sm"
+            >
+              <option value="updated">Recently updated</option>
+              <option value="last_read">Recently read</option>
+            </select>
+          </div>
+        )}
         <button
           onClick={() => setShowUpload(true)}
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -200,68 +312,14 @@ export function ResourcesPage({ admin }: Props) {
                 <th className="px-4 py-2.5 text-right font-medium text-muted-foreground" style={{width:"7%"}}>Size</th>
                 <th className="px-4 py-2.5 text-left font-medium text-muted-foreground" style={{width: admin ? "13%" : "15%"}}>Uploader</th>
                 <th className="px-4 py-2.5 text-left font-medium text-muted-foreground" style={{width:"8%"}}>Updated</th>
+                {admin && <th className="px-4 py-2.5 text-left font-medium text-muted-foreground" style={{width:"8%"}}>Last read</th>}
                 <th className="px-4 py-2.5" style={{width:"3%"}} />
               </tr>
             </thead>
             <tbody>
-              {resources.map((r) => {
-                const ScopeIcon = scopeIcon(r.scope);
-                return (
-                  <tr
-                    key={r.id}
-                    onClick={() => setDetail(r)}
-                    className="border-b last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
-                  >
-                    <td className="px-4 py-2.5 max-w-0">
-                      <div className="flex items-center gap-2">
-                        <File className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <span className="font-medium truncate block">{r.display_name}</span>
-                          <span className="text-xs text-muted-foreground truncate block">{r.description}</span>
-                        </div>
-                      </div>
-                    </td>
-                    {admin && (
-                      <td className="px-4 py-2.5">
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap inline-flex items-center gap-0.5 ${scopeBadgeColor(r.scope)}`}>
-                          <ScopeIcon className="h-2.5 w-2.5" />
-                          {scopeLabel(r.scope, r.scope_id)}
-                        </span>
-                      </td>
-                    )}
-                    <td className="px-4 py-2.5">
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${categoryColor(r.category)}`}>
-                        {r.category}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground truncate">{r.mime_type}</td>
-                    <td className="px-4 py-2.5 max-w-0">
-                      <div className="flex flex-wrap gap-1">
-                        {(r.tags ?? []).slice(0, 3).map((t) => (
-                          <span key={t} className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[80px]">
-                            {t}
-                          </span>
-                        ))}
-                        {(r.tags ?? []).length > 3 && (
-                          <span className="text-xs text-muted-foreground">+{(r.tags ?? []).length - 3}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-muted-foreground">{formatBytes(r.size_bytes)}</td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground truncate">{r.uploader_email || r.uploader_sub}</td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{new Date(r.updated_at).toLocaleDateString()}</td>
-                    <td className="px-2 py-2.5">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setDetail(r); }}
-                        className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent"
-                        title="View details"
-                      >
-                        <FileText className="h-3.5 w-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {resources.map((r) => (
+                <ResourceRow key={r.id} resource={r} admin={!!admin} onOpen={() => setDetail(r)} />
+              ))}
             </tbody>
           </table>
         </div>

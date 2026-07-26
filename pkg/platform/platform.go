@@ -40,6 +40,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
 	"github.com/txn2/mcp-data-platform/internal/platform/searchfed"
@@ -1657,6 +1658,7 @@ func (p *Platform) initSearch() error {
 		ResourceStore:      p.resources.Store(),
 		ResourceBlobs:      p.resources.S3Client(),
 		ResourceBucket:     p.config.Resources.Managed.S3Bucket,
+		ResourceReads:      p.resources.ReadRecorder(),
 		PersonasForRoles:   personasForRolesFunc(p.personaRegistry),
 		Registry:           p.toolkitRegistry,
 		Embedding:          p.embeddingProv,
@@ -1864,6 +1866,19 @@ func (p *Platform) initManagedResources() error {
 		return fmt.Errorf("creating managed-resources layer: %w", err)
 	}
 	p.resources = handle
+
+	// Bind the recorder that audits served resource content (#1014) so the MCP
+	// read path and search fetch record through one implementation. Gated on the
+	// same switch initAudit reads (which runs before this): with audit off there
+	// is no recorder, so reads are neither audited nor counted toward usage and
+	// continue to serve unchanged. The logger is the platform's own —
+	// asynchronous by default — because these surfaces sit in front of an
+	// agent's read.
+	if p.auditLogger != nil && !isExplicitlyDisabled(p.config.Audit.Enabled) {
+		if rec := resourceaudit.New(p.auditLogger, p.resources.ReadTracker()); rec != nil {
+			p.resources.SetReadRecorder(rec)
+		}
+	}
 	return nil
 }
 
@@ -2268,6 +2283,7 @@ func (p *Platform) addManagedResourceMiddleware() {
 		URIScheme:     p.resources.URIScheme(),
 		Authenticator: p.authenticator,
 		AdminPersona:  p.config.Admin.Persona,
+		ReadRecorder:  p.resources.ReadRecorder(),
 	}
 	// Resolve all persona memberships from roles.
 	if p.personaRegistry != nil {
