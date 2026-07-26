@@ -21,7 +21,9 @@ import (
 	"net/http"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mentionhttp"
@@ -214,12 +216,30 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 	}
 
 	deps := resource.Deps{
-		Store:     p.ResourceStore(),
-		S3Client:  p.ResourceS3Client(),
-		S3Bucket:  p.Config().Resources.Managed.S3Bucket,
-		URIScheme: p.Config().Resources.Managed.URIScheme,
-		OnCreate:  p.RegisterManagedResource,
-		OnDelete:  p.UnregisterManagedResource,
+		Store:       p.ResourceStore(),
+		S3Client:    p.ResourceS3Client(),
+		S3Bucket:    p.Config().Resources.Managed.S3Bucket,
+		URIScheme:   p.Config().Resources.Managed.URIScheme,
+		MaxVersions: p.Config().Resources.Managed.MaxVersions,
+		OnCreate:    p.RegisterManagedResource,
+		OnDelete:    p.UnregisterManagedResource,
+	}
+	// Content revision and version history are a capability of the store, not a
+	// requirement of it: the Postgres store implements VersionStore, and a store
+	// that does not leaves the revision routes answering 503 while metadata CRUD
+	// keeps working (#1014).
+	if vs, ok := deps.Store.(resource.VersionStore); ok {
+		deps.Versions = vs
+	}
+	// Read audit and usage stats are gated on the audit store existing, which is
+	// the same switch that gates audit everywhere else. The writes go through the
+	// store directly rather than the platform's async writer: this surface serves
+	// a human clicking Download, not an agent's read path, and the audit row is
+	// one insert (the same choice the DataHub REST surface makes).
+	if store := p.AuditStore(); store != nil {
+		deps.Usage = store
+		tracker, _ := deps.Store.(resource.ReadTracker) // nil when unsupported
+		deps.ReadRecorder = resourceaudit.New(middleware.NewAuditStoreAdapter(store), tracker)
 	}
 
 	handler := resource.NewHandler(deps, extractClaims, nil)

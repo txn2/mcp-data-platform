@@ -37,6 +37,15 @@ const (
 	// the postgres store aggregates these rows into per-prompt run counts
 	// and last-run timestamps (issue #1009).
 	EventTypePromptServe EventType = "prompt_serve"
+
+	// EventTypeResourceRead categorizes a managed resource's content being
+	// served: an MCP resources/read, a search `fetch` of an
+	// mcp:resource:<id> reference, or a REST content download. The event's
+	// parameters carry resource_id, resource_uri, and surface, and the
+	// postgres store aggregates these rows into per-resource read counts,
+	// per-surface breakdowns, and last-read timestamps (issue #1014).
+	// Listing resources is not a read: only content served counts.
+	EventTypeResourceRead EventType = "resource_read"
 )
 
 // toolkitKindAPIGateway is the toolkit-kind discriminator for the

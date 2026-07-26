@@ -51,11 +51,11 @@ func TestPostgresStore_Get(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
-		"created_at", "updated_at",
+		"created_at", "updated_at", "last_read_at",
 	}).AddRow(
 		"id-1", "global", nil, "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://global/samples/test.csv",
-		pq.Array([]string{"t1"}), "sub-1", "user@example.com", now, now,
+		pq.Array([]string{"t1"}), "sub-1", "user@example.com", now, now, nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE id = \\$1").
 		WithArgs("id-1").
@@ -85,11 +85,11 @@ func TestPostgresStore_GetByURI(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
-		"created_at", "updated_at",
+		"created_at", "updated_at", "last_read_at",
 	}).AddRow(
 		"id-1", "user", "sub-1", "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://user/sub-1/samples/test.csv",
-		pq.Array([]string{}), "sub-1", "user@example.com", now, now,
+		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE uri = \\$1").
 		WithArgs("mcp://user/sub-1/samples/test.csv").
@@ -121,11 +121,11 @@ func TestPostgresStore_List(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
-		"created_at", "updated_at",
+		"created_at", "updated_at", "last_read_at",
 	}).AddRow(
 		"id-1", "global", nil, "samples", "test.csv", "Test", "desc",
 		"text/csv", int64(50), "s3/key", "mcp://global/samples/test.csv",
-		pq.Array([]string{}), "sub-1", "user@example.com", now, now,
+		pq.Array([]string{}), "sub-1", "user@example.com", now, now, nil,
 	)
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE").WillReturnRows(rows)
 
@@ -155,7 +155,7 @@ func TestPostgresStore_List_ClampsLimit(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
 		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
-		"created_at", "updated_at",
+		"created_at", "updated_at", "last_read_at",
 	})
 	mock.ExpectQuery("SELECT .+ FROM resources WHERE").
 		WithArgs(string(ScopeGlobal), MaxListLimit, 7).
@@ -324,11 +324,11 @@ func TestPostgresStore_Get_NullTagsAndScopeID(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "scope", "scope_id", "category", "filename", "display_name", "description",
 			"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
-			"created_at", "updated_at",
+			"created_at", "updated_at", "last_read_at",
 		}).AddRow(
 			"id-null", "global", nil, "samples", "t.csv", "T", "d",
 			"text/csv", int64(1), "k", "mcp://global/samples/t.csv",
-			nil, "sub", "u@example.com", now, now,
+			nil, "sub", "u@example.com", now, now, nil,
 		))
 
 	got, err := NewPostgresStore(db).Get(context.Background(), "id-null")

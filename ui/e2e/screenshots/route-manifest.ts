@@ -414,6 +414,22 @@ export const routes: ScreenshotRoute[] = [
     },
   },
   {
+    // Resource detail: version history, usage, and the prompts attaching it
+    // (#1014). Opened on the fixture that carries a revision trail and read
+    // activity, so the capture shows the lifecycle surfaces populated.
+    slug: "resource-detail",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: async (page) => {
+      await page
+        .getByText("SQL Style Guide", { exact: true })
+        .first()
+        .click({ timeout: 3_000 })
+        .catch(() => {});
+      await page.waitForTimeout(700);
+    },
+  },
+  {
     slug: "admin-prompts",
     path: "/portal/admin/prompts",
     category: "admin",

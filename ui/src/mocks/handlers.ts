@@ -50,7 +50,7 @@ import {
   mockPromptUsage,
   mockPromptVersions,
 } from "./data/prompts";
-import { mockResources } from "./data/resources";
+import { mockResources, mockResourceUsage, mockResourceVersions } from "./data/resources";
 import {
   mentionedThreadIDs,
   mockThreadChains,
@@ -2386,6 +2386,17 @@ export const handlers = [
       );
     }
 
+    // sort=last_read orders by read recency with never-read last, matching the
+    // server's ORDER BY last_read_at DESC NULLS LAST.
+    if (url.searchParams.get("sort") === "last_read") {
+      filtered.sort((a, b) => {
+        if (!a.last_read_at && !b.last_read_at) return 0;
+        if (!a.last_read_at) return 1;
+        if (!b.last_read_at) return -1;
+        return b.last_read_at.localeCompare(a.last_read_at);
+      });
+    }
+
     const limit = Number(url.searchParams.get("limit")) || 100;
     const offset = Number(url.searchParams.get("offset")) || 0;
     return HttpResponse.json({
@@ -2394,12 +2405,68 @@ export const handlers = [
     });
   }),
 
+  // The detail read is the only one that carries usage: the server consults the
+  // audit rollup here and nowhere else.
   http.get("/api/v1/resources/:id", ({ params }) => {
     const resource = mockResources.resources.find((r) => r.id === params.id);
     if (!resource) {
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
-    return HttpResponse.json(resource);
+    const usage = mockResourceUsage[resource.id as string];
+    return HttpResponse.json(usage ? { ...resource, usage } : resource);
+  }),
+
+  // Content download: the preview pane and the Download button both read it.
+  // Text fixtures render in the preview; anything else is a byte blob the
+  // viewer reports by type.
+  http.get("/api/v1/resources/:id/content", ({ params }) => {
+    const resource = mockResources.resources.find((r) => r.id === params.id);
+    if (!resource) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    const body = resource.mime_type.startsWith("text/")
+      ? `# ${resource.display_name}\n\n${resource.description}\n`
+      : `binary contents of ${resource.filename}`;
+    return new HttpResponse(body, { headers: { "Content-Type": resource.mime_type } });
+  }),
+
+  http.get("/api/v1/resources/:id/versions", ({ params }) => {
+    const resource = mockResources.resources.find((r) => r.id === params.id);
+    if (!resource) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    const versions = mockResourceVersions[resource.id as string] ?? [];
+    const current = versions[0]?.version ?? 0;
+    return HttpResponse.json({ versions, current, max_versions: 10 });
+  }),
+
+  // Replacing content returns the resource with its identity intact — the same
+  // id, uri, and filename — which is what the panel asserts.
+  http.post("/api/v1/resources/:id/content", ({ params }) => {
+    const resource = mockResources.resources.find((r) => r.id === params.id);
+    if (!resource) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    return HttpResponse.json({ ...resource, updated_at: new Date().toISOString() });
+  }),
+
+  http.post("/api/v1/resources/:id/versions/:version/restore", ({ params }) => {
+    const resource = mockResources.resources.find((r) => r.id === params.id);
+    if (!resource) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    return HttpResponse.json({ ...resource, updated_at: new Date().toISOString() });
+  }),
+
+  http.get("/api/v1/resources/:id/versions/:version/content", ({ params }) => {
+    const versions = mockResourceVersions[params.id as string] ?? [];
+    const version = versions.find((v) => String(v.version) === params.version);
+    if (!version) {
+      return HttpResponse.json({ error: "not found" }, { status: 404 });
+    }
+    return new HttpResponse(`contents of version ${version.version}`, {
+      headers: { "Content-Type": "text/plain" },
+    });
   }),
 
   // =========================================================================

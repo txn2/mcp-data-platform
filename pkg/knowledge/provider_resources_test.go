@@ -371,3 +371,72 @@ func TestResourcesProvider_FetchWithoutBlobReader(t *testing.T) {
 		t.Fatalf("doc=%+v err=%v", doc, err)
 	}
 }
+
+// recordingReads captures the read events fetch reports.
+type recordingReads struct {
+	events []resource.ReadEvent
+}
+
+func (r *recordingReads) RecordRead(_ context.Context, ev resource.ReadEvent) {
+	r.events = append(r.events, ev)
+}
+
+func TestResourcesProvider_FetchRecordsARead(t *testing.T) {
+	reads := &recordingReads{}
+	p := resourcesProvider()
+	p.SetReadRecorder(reads)
+
+	caller := Caller{UserID: "u-1", Email: "analyst@example.com", Persona: "analyst"}
+	if _, _, err := p.Fetch(context.Background(), "mcp:resource:res_g", caller); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+
+	if len(reads.events) != 1 {
+		t.Fatalf("recorded reads = %d, want 1", len(reads.events))
+	}
+	ev := reads.events[0]
+	if ev.ResourceID != "res_g" || ev.Surface != resource.SurfaceFetch {
+		t.Errorf("event = %+v, want a fetch of res_g", ev)
+	}
+	if ev.URI != "mcp://global/references/dict.csv" {
+		t.Errorf("uri = %q, want the resource's canonical URI", ev.URI)
+	}
+	if ev.UserID != "u-1" || ev.UserEmail != "analyst@example.com" || ev.Persona != "analyst" {
+		t.Errorf("caller = %+v, want the fetching caller's identity", ev)
+	}
+}
+
+func TestResourcesProvider_FetchRecordsMetadataOnlyReads(t *testing.T) {
+	reads := &recordingReads{}
+	p := resourcesProvider()
+	p.SetReadRecorder(reads)
+
+	// A binary resource comes back as metadata plus its URI. The caller still
+	// pulled the material into their session, so it still counts as usage.
+	if _, _, err := p.Fetch(context.Background(), "mcp:resource:res_bin", Caller{UserID: "u-1"}); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(reads.events) != 1 {
+		t.Fatalf("recorded reads = %d, want 1 for a metadata-only fetch", len(reads.events))
+	}
+}
+
+func TestResourcesProvider_RefusedFetchRecordsNothing(t *testing.T) {
+	reads := &recordingReads{}
+	p := resourcesProvider()
+	p.SetReadRecorder(reads)
+
+	// A caller outside the resource's scope gets not-found; nothing was served.
+	if _, _, err := p.Fetch(context.Background(), "mcp:resource:res_p", Caller{UserID: "outsider"}); err == nil {
+		t.Fatal("fetch of a persona resource by a non-member succeeded")
+	}
+	if len(reads.events) != 0 {
+		t.Errorf("recorded reads = %d, want 0: a refused fetch is not a read", len(reads.events))
+	}
+}
+
+func TestResourcesProvider_FetchWithoutARecorder(t *testing.T) {
+	if _, _, err := resourcesProvider().Fetch(context.Background(), "mcp:resource:res_g", Caller{}); err != nil {
+		t.Fatalf("fetch with audit disabled: %v", err)
+	}
+}

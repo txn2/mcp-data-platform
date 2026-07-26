@@ -1123,6 +1123,11 @@ type ManagedResourcesCfg struct {
 	URIScheme    string `yaml:"uri_scheme"`    // default: "mcp"
 	S3Connection string `yaml:"s3_connection"` // name of S3 toolkit instance
 	S3Bucket     string `yaml:"s3_bucket"`     // bucket for resource blobs (default: "managed-resources")
+	// MaxVersions caps the content revisions a resource keeps, counting the
+	// current one; a revision past the cap prunes the oldest blob (#1014).
+	// Non-positive selects resource.DefaultMaxVersions (10), and a value below
+	// 2 is raised to 2 (a cap of 1 would keep no history at all).
+	MaxVersions int `yaml:"max_versions"`
 }
 
 // CustomResourceDef defines a user-configured static MCP resource.

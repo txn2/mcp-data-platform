@@ -157,6 +157,22 @@ Administrators can open, edit, and delete any resource by id, including persona 
 
 Opening a resource shows which prompts attach it as reference material. Deleting a resource that prompts depend on does not break them: they keep serving and report the material as missing, and the prompt viewer flags the broken link so its author can repair it.
 
+![Resource detail](../images/screenshots/light/admin-resource-detail-light.webp#only-light)![Resource detail](../images/screenshots/dark/admin-resource-detail-dark.webp#only-dark)
+
+### Revising a resource's content
+
+**Replace content** on the detail view uploads a new file for an existing resource. The resource keeps its id, its canonical `mcp://` URI, and its file name, so every `mcp:resource:<id>` citation and prompt attachment pointing at it keeps resolving — which delete-plus-re-upload does not, since that mints a new id and breaks them all. The uploaded file's own name is ignored for that reason; only the bytes, type, and size change. Agents connected at the time are told the resource list changed, so a client re-reads the new content rather than serving the old.
+
+Every revision is recorded in **Version history** with its number, who uploaded it, when, and how large it was. Any version can be downloaded, and any prior version can be **restored** — which re-promotes that version's exact bytes as a new head revision rather than rewinding, so the trail stays append-only and the restored content is itself restorable. A restored revision is labeled with the version it came from.
+
+History is bounded: a resource keeps its most recent 10 revisions by default (`resources.managed.max_versions`), and a revision past the cap deletes the oldest version's stored file. The live content is never pruned.
+
+### Seeing what is actually used
+
+The detail view shows **Usage**: reads over the last 30 and 90 days, broken down by which door served the content — an agent's `resources/read`, a `search` fetch, or a portal download — plus when it was last read. The admin resources table adds a **Last read** column and a *Recently read* sort, so a curator can order the library by recency and find material nothing has touched; a resource never read since it was uploaded over 30 days ago is flagged.
+
+These counts come from the read audit trail, so they are bounded by the deployment's audit retention window, and a deployment with `audit.enabled: false` records no reads and shows no usage (reads themselves are unaffected). Listing resources is not a read: only content actually served counts.
+
 ### Attaching resources to a prompt
 
 A prompt is a procedure, and a procedure usually depends on material: the template it fills, the checklist it follows, the brand header it embeds. The prompt viewer has an **Attached materials** panel where the prompt's owner (or an admin, for shared prompts) attaches resources from a searchable picker, orders them, and detaches them. The order is authored, not incidental, because it is the order the agent receives them in.
