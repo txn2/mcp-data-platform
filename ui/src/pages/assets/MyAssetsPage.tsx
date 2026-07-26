@@ -558,6 +558,9 @@ function EmptyState({ scope, searching, query }: { scope: Scope; searching: bool
           Try asking your assistant to <em>"create an interactive dashboard"</em> or{" "}
           <em>"save this as an asset"</em> to get started.
         </p>
+        <p className="text-xs">
+          A file you wrote yourself and want used as-is belongs in Resources, not here.
+        </p>
       </div>
     </div>
   );

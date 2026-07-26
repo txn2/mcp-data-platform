@@ -41,10 +41,7 @@ const (
 // allowed by the caller's persona. A set with none of the baseline's tools
 // yields an empty baseline, since there is nothing to say without a tool to name.
 func Build(accessibleTools []string) string {
-	has := make(map[string]bool, len(accessibleTools))
-	for _, t := range accessibleTools {
-		has[t] = true
-	}
+	has := toolSet(accessibleTools)
 
 	var bullets []string
 	if has[toolSearch] {
@@ -97,6 +94,16 @@ func Build(accessibleTools []string) string {
 		lines = append(lines, "- "+bullet)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// toolSet indexes the caller's accessible tool names for the has[tool] lookups
+// the instruction builders gate their fragments on.
+func toolSet(accessibleTools []string) map[string]bool {
+	has := make(map[string]bool, len(accessibleTools))
+	for _, t := range accessibleTools {
+		has[t] = true
+	}
+	return has
 }
 
 // reuseBullet returns the "reuse what is known" instruction, naming `fetch` as the

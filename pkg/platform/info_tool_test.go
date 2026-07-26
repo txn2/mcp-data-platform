@@ -8,13 +8,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgelayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -291,6 +294,86 @@ func TestHandleInfo_NoBaselineWithoutBaselineTools(t *testing.T) {
 	info := requireInfoFromResult(t, result)
 	assert.NotContains(t, info.AgentInstructions, "How to operate this platform:",
 		"no baseline tools registered should yield no baseline")
+}
+
+// resourcesEnabledLayer builds a managed-resources handle backed by a mock
+// database, which is all handleInfo reads: it asks only whether a store exists.
+func resourcesEnabledLayer(t *testing.T) *resourcelayer.Handle {
+	t.Helper()
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	h, err := resourcelayer.New(db, resourcelayer.Config{})
+	require.NoError(t, err)
+	require.NotNil(t, h.Store())
+	return h
+}
+
+// TestHandleInfo_ResourcesNoteStatesThePositioningAndTheRule proves a
+// deployment with managed resources tells the agent both what a resource is and
+// when to reach for one, in the wording every other surface uses (#1015).
+func TestHandleInfo_ResourcesNoteStatesThePositioningAndTheRule(t *testing.T) {
+	p := &Platform{
+		config:          &Config{Server: ServerConfig{Name: "res", Version: testInfoVersion}},
+		personaRegistry: persona.NewRegistry(),
+		toolkitRegistry: regWithTools(t, "search", "fetch"),
+		resources:       resourcesEnabledLayer(t),
+	}
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
+
+	assert.Contains(t, info.AgentInstructions, instructions.ResourcePositioning,
+		"the canonical positioning statement must reach the agent verbatim")
+	assert.Contains(t, info.AgentInstructions, "Before you format a deliverable, `search`")
+	assert.Contains(t, info.AgentInstructions, "`fetch` (pass the result's `reference`)")
+	assert.True(t, info.Features.ManagedResources)
+}
+
+// TestHandleInfo_ResourcesNoteGatedByPersona proves the note obeys the same
+// tool gate as the baseline: a persona denied search is pointed at the
+// resources/list protocol method rather than at a tool it would be refused.
+func TestHandleInfo_ResourcesNoteGatedByPersona(t *testing.T) {
+	pr := persona.NewRegistry()
+	require.NoError(t, pr.Register(&persona.Persona{
+		Name:  "reader",
+		Tools: persona.ToolRules{Allow: []string{"trino_query"}},
+	}))
+	pr.SetDefault("reader")
+
+	p := &Platform{
+		config:          &Config{Server: ServerConfig{Name: "res", Version: testInfoVersion}},
+		personaRegistry: pr,
+		toolkitRegistry: regWithTools(t, "search", "fetch", "trino_query"),
+		resources:       resourcesEnabledLayer(t),
+	}
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
+
+	assert.Contains(t, info.AgentInstructions, instructions.ResourcePositioning)
+	assert.Contains(t, info.AgentInstructions, "`resources/list`")
+	assert.NotContains(t, info.AgentInstructions, "`search`",
+		"a persona denied search must not be told to call it")
+}
+
+// TestHandleInfo_NoResourcesNoteWithoutManagedResources proves the section is
+// absent (not merely empty) on a deployment with no resource store, so an agent
+// is never steered at a library that does not exist.
+func TestHandleInfo_NoResourcesNoteWithoutManagedResources(t *testing.T) {
+	p := &Platform{
+		config:          &Config{Server: ServerConfig{Name: "res", Version: testInfoVersion}},
+		personaRegistry: persona.NewRegistry(),
+		toolkitRegistry: regWithTools(t, "search", "fetch"),
+	}
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
+
+	assert.NotContains(t, info.AgentInstructions, instructions.ResourcePositioning)
+	assert.NotContains(t, info.AgentInstructions, "Uploaded reference material:")
+	assert.False(t, info.Features.ManagedResources)
 }
 
 func TestInfoFeatures(t *testing.T) {

@@ -26,6 +26,11 @@ import (
 
 const resourceBucket = "resources"
 
+// weeklyTemplateBody is the approved layout an agent asked to produce the
+// weekly report is meant to follow rather than invent. Its section order is the
+// evidence: the agent could not have guessed it.
+const weeklyTemplateBody = "# Weekly Report\n\n## Headline\n## Metrics\n## Risks and blockers\n## Next week\n"
+
 // scopedResourceStore is a resource searcher whose Search honors the caller's
 // visible scopes and matches over the same composed index text the FTS index
 // covers (metadata + extracted file content), so a content-only term behaves as
@@ -87,9 +92,17 @@ func scopeVisible(scopes []resource.ScopeFilter, r resource.Resource) bool {
 func seedResourceStore() *scopedResourceStore {
 	return &scopedResourceStore{
 		contents: map[string]string{
-			"res_dict": "column,description\ngross_margin_pct,margin after COGS\n",
+			"res_dict":   "column,description\ngross_margin_pct,margin after COGS\n",
+			"res_weekly": weeklyTemplateBody,
 		},
 		resources: []resource.Resource{
+			{
+				ID: "res_weekly", Scope: resource.ScopeGlobal, Category: "templates",
+				Filename: "weekly-report-template.md", DisplayName: "Weekly Report Template",
+				Description: "Approved structure for the weekly report", MIMEType: "text/markdown",
+				SizeBytes: int64(len(weeklyTemplateBody)), S3Key: "k-weekly",
+				URI: "mcp://global/templates/weekly-report-template.md",
+			},
 			{
 				ID: "res_dict", Scope: resource.ScopeGlobal, Category: "references",
 				Filename: "sales-dictionary.csv", DisplayName: "Sales Dictionary",
@@ -120,10 +133,11 @@ func seedResourceStore() *scopedResourceStore {
 
 func seedResourceBlobs() knowledge.ResourceContentReader {
 	return &staticBlobs{objects: map[string][]byte{
-		"k-dict":  []byte("column,description\ngross_margin_pct,margin after COGS\n"),
-		"k-alice": []byte("alice private notes body"),
-		"k-play":  []byte("analyst playbook body"),
-		"k-logo":  {0x89, 'P', 'N', 'G'},
+		"k-dict":   []byte("column,description\ngross_margin_pct,margin after COGS\n"),
+		"k-alice":  []byte("alice private notes body"),
+		"k-play":   []byte("analyst playbook body"),
+		"k-logo":   {0x89, 'P', 'N', 'G'},
+		"k-weekly": []byte(weeklyTemplateBody),
 	}}
 }
 
@@ -225,6 +239,47 @@ func TestResources_ContentSearchToFetchRoundTrip(t *testing.T) {
 	}
 	if got.Document.Source != knowledge.SourceResources || got.Document.Reference != ref {
 		t.Errorf("document provenance wrong: %+v", got.Document)
+	}
+}
+
+// The weekly-report scenario from #1015: platform_info steers an agent to
+// search for an applicable template before formatting a deliverable, and this
+// proves the path that instruction points at actually delivers one. Asking the
+// discovery front door for "weekly report template" returns the approved
+// template, and fetching its reference returns the layout in full, so following
+// the instruction is sufficient to produce the report in the approved
+// structure without the user pasting anything.
+//
+// What it does not prove is that a model chooses to follow the instruction;
+// that is a behavioral question and belongs to the feature benchmarks (#982).
+// This test covers the half that is deterministic: the material is reachable by
+// the words a person would use for it.
+func TestResources_WeeklyReportTemplateIsReachableByName(t *testing.T) {
+	tk := assembledToolkit()
+	ctx := ctxFor(userAID, userAEmail)
+
+	res, out := callSearchRaw(ctx, t, tk, "weekly report template")
+	ref := referenceFor(t, out, knowledge.SourceResources)
+	if ref != "mcp:resource:res_weekly" {
+		t.Fatalf("reference = %q, want mcp:resource:res_weekly", ref)
+	}
+
+	// A client with native resource support can attach the template directly
+	// instead of round-tripping the bytes through the model.
+	links := resourceLinks(res)
+	if len(links) != 1 || links[0].URI != "mcp://global/templates/weekly-report-template.md" {
+		t.Fatalf("resource links = %+v", links)
+	}
+
+	got := callFetch(ctx, t, tk, ref)
+	if !got.Found || got.Document == nil {
+		t.Fatalf("fetch found=false for the approved template: %+v", got)
+	}
+	// The whole layout, not a summary of it: an agent cannot reproduce a
+	// structure it only got the name of.
+	if got.Document.Body != weeklyTemplateBody {
+		t.Errorf("fetch did not return the template verbatim:\n got: %q\nwant: %q",
+			got.Document.Body, weeklyTemplateBody)
 	}
 }
 

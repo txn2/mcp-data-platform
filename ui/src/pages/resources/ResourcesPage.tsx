@@ -16,6 +16,7 @@ import { useAuthStore } from "@/stores/auth";
 import { usePersonas } from "@/api/admin/hooks";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { formatBytes } from "@/lib/format";
+import { RESOURCE_POSITIONING } from "@/lib/positioning";
 import type { Resource } from "@/api/resources/types";
 import { CATEGORIES, scopeIcon, scopeLabel } from "./modals/shared";
 import { UploadModal } from "./modals/UploadModal";
@@ -188,6 +189,9 @@ export function ResourcesPage({ admin }: Props) {
 
   const resources = data?.data ?? [];
   const total = data?.total ?? 0;
+  // A narrowed view that returns nothing means the filter missed, not that the
+  // scope is empty; the two need different empty states.
+  const filtering = search !== "" || category !== "";
 
   // Build tabs based on mode.
   // User: My Resources + persona tab (if assigned) + Global
@@ -284,20 +288,25 @@ export function ResourcesPage({ admin }: Props) {
           Loading...
         </div>
       ) : resources.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <div data-testid="resources-empty" className="flex flex-col items-center justify-center py-12 text-muted-foreground">
           <FolderOpen className="h-12 w-12 mb-2 opacity-30" />
-          <p className="text-sm font-medium">No resources yet</p>
-          <p className="text-xs mt-1 max-w-sm text-center">
-            Upload reference material like samples, playbooks, templates, or references
-            that will be available to both humans and AI agents.
-          </p>
-          <button
-            onClick={() => setShowUpload(true)}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <FileUp className="h-4 w-4" />
-            Upload Resource
-          </button>
+          {filtering ? (
+            // A filter that matched nothing is not an empty library, and saying
+            // so would send someone off to upload a file they already have.
+            <p className="text-sm font-medium">No resources match this search</p>
+          ) : (
+            <>
+              <p className="text-sm font-medium">No resources yet</p>
+              <p className="text-xs mt-1 max-w-lg text-center">{RESOURCE_POSITIONING}</p>
+              <button
+                onClick={() => setShowUpload(true)}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                <FileUp className="h-4 w-4" />
+                Upload Resource
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <div className="rounded-lg border bg-card overflow-hidden">

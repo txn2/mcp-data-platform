@@ -143,6 +143,12 @@ export function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: bool
             : tag
               ? `No pages tagged "${tag}".`
               : "No knowledge pages yet."}
+          {!searching && !tag && (
+            <p className="mt-2 text-xs">
+              Knowledge pages are curated facts to search and synthesize. A file you wrote and want
+              used as-is belongs in Resources.
+            </p>
+          )}
           {canEdit && !searching && !tag && (
             <div className="mt-3">
               <button onClick={onCreate} className="text-primary hover:underline">

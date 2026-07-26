@@ -53,6 +53,7 @@ nav:
     - Overview: server/overview.md
     - Deployment Shapes: server/deployment-shapes.md
     - The Data Stack: concepts/components.md
+    - Content Model: concepts/content-model.md
     - Installation: server/installation.md
     - Configuration: server/configuration.md
     - Deployment: server/deployment.md
