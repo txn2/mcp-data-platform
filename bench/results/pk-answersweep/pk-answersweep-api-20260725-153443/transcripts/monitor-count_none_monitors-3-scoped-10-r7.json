@@ -1,0 +1,330 @@
+[
+  {
+    "role": "user",
+    "text": "How many listening monitors does ACME have provisioned?"
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_019PTMWV3ZYqBmXnrGmTCSsz",
+        "name": "search",
+        "args": {
+          "intent": "ACME listening monitors provisioned"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_019PTMWV3ZYqBmXnrGmTCSsz",
+        "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /insights/monitors\\nList the listening monitors provisioned on the account.\",\n          \"source\": \"endpoints\",\n          \"ref\": \"acme:list_monitors\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /insights/monitors/{id}\\nFetch one listening monitor by id.\",\n          \"source\": \"endpoints\",\n          \"ref\": \"acme:get_monitor\",\n          \"score\": 0.1617299981290902\n        },\n        {\n          \"text\": \"GET /insights/monitors/{id}/trend\\nList one monitor's daily volume and sentiment over a reporting window.\",\n          \"source\": \"endpoints\",\n          \"ref\": \"acme:list_monitor_trend\",\n          \"score\": 0.08328353633591475\n        },\n        {\n          \"text\": \"GET /crm/contacts\\nList crm contacts with optional filters and cursor pagination.\",\n          \"source\": \"endpoints\",\n          \"ref\": \"acme:list_crm_contacts\",\n          \"score\": 0.04336225557436132\n        },\n        {\n          \"text\": \"GET /crm/contacts:aggregate\\nCount crm contacts records grouped by a dimension.\",\n          \"source\": \"endpoints\",\n          \"ref\": \"acme:aggregate_crm_contacts\",\n          \"score\": 0.04283224139304185\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:f23201b7-bd0a-4dc0-8e7a-1b43e4e31fc9\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.8839698948366187,\n          \"reference\": \"mcp:prompt:e02a7324-b894-4708-8df8-0d278c894503\"\n        },\n        {\n          \"text\": \"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\n          \"source\": \"prompts\",\n          \"ref\": \"save-this-as-an-asset\",\n          \"score\": 0.25782139191661374,\n          \"reference\": \"mcp:prompt:de16e3d6-406a-43f4-98d7-c727148f6b88\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.2418669348455946,\n          \"reference\": \"mcp:prompt:197df81e-d301-4607-b07e-7d7bcaad1fd9\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"acme (api)\\nhttp://127.0.0.1:8112\",\n          \"source\": \"connections\",\n          \"ref\": \"acme\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,acme)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 5,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01F9CmniyRwDv7j5TjeAMpfr",
+        "name": "api_get_endpoint_schema",
+        "args": {
+          "connection": "acme",
+          "operation_id": "acme:list_monitors"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01F9CmniyRwDv7j5TjeAMpfr",
+        "text": "operation_id \"acme:list_monitors\" not found (code: tool_error)",
+        "is_error": true
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Q4kaismrpYQAJHWfsE3oKb",
+        "name": "api_get_endpoint_schema",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Q4kaismrpYQAJHWfsE3oKb",
+        "text": "{\n  \"spec\": \"bench-acme\",\n  \"operation_id\": \"list_monitors\",\n  \"method\": \"GET\",\n  \"path\": \"/insights/monitors\",\n  \"summary\": \"List the listening monitors provisioned on the account.\",\n  \"parameters\": [\n    {\n      \"name\": \"workspace_id\",\n      \"in\": \"query\",\n      \"description\": \"Restrict results to one workspace. Required on accounts with workspace scoping enabled.\",\n      \"schema\": {\n        \"type\": \"integer\"\n      }\n    },\n    {\n      \"name\": \"cursor\",\n      \"in\": \"query\",\n      \"description\": \"Opaque pagination cursor from a previous response\",\n      \"schema\": {\n        \"type\": \"string\"\n      }\n    },\n    {\n      \"name\": \"page_size\",\n      \"in\": \"query\",\n      \"description\": \"Results per page, 1 to 100 (default 20)\",\n      \"schema\": {\n        \"type\": \"integer\"\n      }\n    }\n  ],\n  \"responses\": [\n    {\n      \"status\": \"200\",\n      \"description\": \"Successful response\",\n      \"content_types\": [\n        \"application/json\"\n      ],\n      \"schema\": {\n        \"properties\": {\n          \"items\": {\n            \"description\": \"One page of results\",\n            \"items\": {\n              \"properties\": {\n                \"created_at\": {\n                  \"description\": \"Monitor creation timestamp, UTC\",\n                  \"format\": \"date-time\",\n                  \"type\": \"string\"\n                },\n                \"id\": {\n                  \"description\": \"Unique monitor identifier\",\n                  \"type\": \"integer\"\n                },\n                \"keywords\": {\n                  \"description\": \"Comma-separated terms the monitor tracks\",\n                  \"type\": \"string\"\n                },\n                \"name\": {\n                  \"description\": \"Monitor display name\",\n                  \"type\": \"string\"\n                },\n                \"workspace_id\": {\n                  \"description\": \"Identifier of the workspace the monitor belongs to\",\n                  \"type\": \"integer\"\n                }\n              },\n              \"type\": \"object\"\n            },\n            \"type\": \"array\"\n          },\n          \"next_cursor\": {\n            \"description\": \"Cursor for the next page; absent on the last page\",\n            \"type\": \"string\"\n          }\n        },\n        \"type\": \"object\"\n      }\n    },\n    {\n      \"status\": \"403\",\n      \"description\": \"The credential is not entitled to this product area. Distinct from a successful response carrying an empty collection, which means the account has none of the resource.\",\n      \"content_types\": [\n        \"application/json\"\n      ],\n      \"schema\": {\n        \"properties\": {\n          \"error\": {\n            \"description\": \"Human-readable reason the request was refused\",\n            \"type\": \"string\"\n          }\n        },\n        \"type\": \"object\"\n      }\n    }\n  ]\n}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01PjAJvypz5NzUURiiuvq6Au",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors",
+          "query_params": {
+            "page_size": 100
+          }
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01PjAJvypz5NzUURiiuvq6Au",
+        "text": "{\n  \"status\": 400,\n  \"headers\": {\n    \"Content-Length\": [\n      \"53\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"error\": \"workspace_id is required on this account\"\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_011mQVMoPDMWxw8xDMSVxaqW",
+        "name": "api_list_endpoints",
+        "args": {
+          "connection": "acme",
+          "query": "workspace"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_011mQVMoPDMWxw8xDMSVxaqW",
+        "text": "{\n  \"operations\": [\n    {\n      \"operation_id\": \"list_workspaces\",\n      \"method\": \"GET\",\n      \"path\": \"/insights/workspaces\",\n      \"summary\": \"List the account's workspaces.\",\n      \"tags\": [\n        \"insights\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"aggregate_crm_contacts\",\n      \"method\": \"GET\",\n      \"path\": \"/crm/contacts:aggregate\",\n      \"summary\": \"Count crm contacts records grouped by a dimension.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"aggregate_crm_leads\",\n      \"method\": \"GET\",\n      \"path\": \"/crm/leads:aggregate\",\n      \"summary\": \"Count crm leads records grouped by a dimension.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"list_monitor_trend\",\n      \"method\": \"GET\",\n      \"path\": \"/insights/monitors/{id}/trend\",\n      \"summary\": \"List one monitor's daily volume and sentiment over a reporting window.\",\n      \"tags\": [\n        \"insights\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"search_crm_leads\",\n      \"method\": \"POST\",\n      \"path\": \"/crm/leads:search\",\n      \"summary\": \"Search crm leads with a free-text query.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"aggregate_customers\",\n      \"method\": \"GET\",\n      \"path\": \"/crm/customers:aggregate\",\n      \"summary\": \"Count customers grouped by a dimension.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"search_crm_contacts\",\n      \"method\": \"POST\",\n      \"path\": \"/crm/contacts:search\",\n      \"summary\": \"Search crm contacts with a free-text query.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"update_customer\",\n      \"method\": \"PATCH\",\n      \"path\": \"/crm/customers/{id}\",\n      \"summary\": \"Update a customer's region or tier.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"create_crm_contacts\",\n      \"method\": \"POST\",\n      \"path\": \"/crm/contacts\",\n      \"summary\": \"Create a new record in crm contacts.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"create_crm_leads\",\n      \"method\": \"POST\",\n      \"path\": \"/crm/leads\",\n      \"summary\": \"Create a new record in crm leads.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"list_customer_orders\",\n      \"method\": \"GET\",\n      \"path\": \"/crm/customers/{id}/orders\",\n      \"summary\": \"List one customer's orders with cursor pagination.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"delete_crm_contacts\",\n      \"method\": \"DELETE\",\n      \"path\": \"/crm/contacts/{id}\",\n      \"summary\": \"Delete a crm contacts record by id.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"list_monitors\",\n      \"method\": \"GET\",\n      \"path\": \"/insights/monitors\",\n      \"summary\": \"List the listening monitors provisioned on the account.\",\n      \"tags\": [\n        \"insights\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"aggregate_profile_metrics\",\n      \"method\": \"GET\",\n      \"path\": \"/insights/profiles/{id}/metrics:aggregate\",\n      \"summary\": \"Aggregate one owned profile's metrics over a reporting window.\",\n      \"tags\": [\n        \"insights\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"create_commerce_order_templates\",\n      \"method\": \"POST\",\n      \"path\": \"/commerce/order-templates\",\n      \"summary\": \"Create a new record in commerce order templates.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"update_crm_contacts\",\n      \"method\": \"PATCH\",\n      \"path\": \"/crm/contacts/{id}\",\n      \"summary\": \"Update an existing crm contacts record.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"list_customers\",\n      \"method\": \"GET\",\n      \"path\": \"/crm/customers\",\n      \"summary\": \"List customers with optional filters and cursor pagination.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"delete_crm_leads\",\n      \"method\": \"DELETE\",\n      \"path\": \"/crm/leads/{id}\",\n      \"summary\": \"Delete a crm leads record by id.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"search_procurement_purchase_orders\",\n      \"method\": \"POST\",\n      \"path\": \"/procurement/purchase-orders:search\",\n      \"summary\": \"Search procurement purchase orders with a free-text query.\",\n      \"tags\": [\n        \"procurement\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"update_crm_leads\",\n      \"method\": \"PATCH\",\n      \"path\": \"/crm/leads/{id}\",\n      \"summary\": \"Update an existing crm leads record.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"list_crm_leads\",\n      \"method\": \"GET\",\n      \"path\": \"/crm/leads\",\n      \"summary\": \"List crm leads with optional filters and cursor pagination.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"get_monitor\",\n      \"method\": \"GET\",\n      \"path\": \"/insights/monitors/{id}\",\n      \"summary\": \"Fetch one listening monitor by id.\",\n      \"tags\": [\n        \"insights\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"aggregate_procurement_purchase_orders\",\n      \"method\": \"GET\",\n      \"path\": \"/procurement/purchase-orders:aggregate\",\n      \"summary\": \"Count procurement purchase orders records grouped by a dimension.\",\n      \"tags\": [\n        \"procurement\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"list_crm_contacts\",\n      \"method\": \"GET\",\n      \"path\": \"/crm/contacts\",\n      \"summary\": \"List crm contacts with optional filters and cursor pagination.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"search_commerce_order_templates\",\n      \"method\": \"POST\",\n      \"path\": \"/commerce/order-templates:search\",\n      \"summary\": \"Search commerce order templates with a free-text query.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"list_profiles\",\n      \"method\": \"GET\",\n      \"path\": \"/insights/profiles\",\n      \"summary\": \"List the owned social profiles connected to the account.\",\n      \"tags\": [\n        \"insights\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"list_profile_metrics\",\n      \"method\": \"GET\",\n      \"path\": \"/insights/profiles/{id}/metrics\",\n      \"summary\": \"List one owned profile's engagement metrics over a reporting window.\",\n      \"tags\": [\n        \"insights\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"get_crm_contacts\",\n      \"method\": \"GET\",\n      \"path\": \"/crm/contacts/{id}\",\n      \"summary\": \"Fetch one crm contacts record by id.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"create_order\",\n      \"method\": \"POST\",\n      \"path\": \"/commerce/orders\",\n      \"summary\": \"Create a new order in pending status.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"get_customer\",\n      \"method\": \"GET\",\n      \"path\": \"/crm/customers/{id}\",\n      \"summary\": \"Fetch one customer by id.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"update_commerce_order_templates\",\n      \"method\": \"PATCH\",\n      \"path\": \"/commerce/order-templates/{id}\",\n      \"summary\": \"Update an existing commerce order templates record.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"aggregate_commerce_order_templates\",\n      \"method\": \"GET\",\n      \"path\": \"/commerce/order-templates:aggregate\",\n      \"summary\": \"Count commerce order templates records grouped by a dimension.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"create_procurement_purchase_orders\",\n      \"method\": \"POST\",\n      \"path\": \"/procurement/purchase-orders\",\n      \"summary\": \"Create a new record in procurement purchase orders.\",\n      \"tags\": [\n        \"procurement\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"aggregate_commerce_archived_orders\",\n      \"method\": \"GET\",\n      \"path\": \"/commerce/archived-orders:aggregate\",\n      \"summary\": \"Count commerce archived orders records grouped by a dimension.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"get_crm_leads\",\n      \"method\": \"GET\",\n      \"path\": \"/crm/leads/{id}\",\n      \"summary\": \"Fetch one crm leads record by id.\",\n      \"tags\": [\n        \"crm\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"delete_commerce_order_templates\",\n      \"method\": \"DELETE\",\n      \"path\": \"/commerce/order-templates/{id}\",\n      \"summary\": \"Delete a commerce order templates record by id.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"create_billing_invoices\",\n      \"method\": \"POST\",\n      \"path\": \"/billing/invoices\",\n      \"summary\": \"Create a new record in billing invoices.\",\n      \"tags\": [\n        \"billing\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"list_commerce_order_templates\",\n      \"method\": \"GET\",\n      \"path\": \"/commerce/order-templates\",\n      \"summary\": \"List commerce order templates with optional filters and cursor pagination.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"aggregate_billing_invoices\",\n      \"method\": \"GET\",\n      \"path\": \"/billing/invoices:aggregate\",\n      \"summary\": \"Count billing invoices records grouped by a dimension.\",\n      \"tags\": [\n        \"billing\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"update_procurement_purchase_orders\",\n      \"method\": \"PATCH\",\n      \"path\": \"/procurement/purchase-orders/{id}\",\n      \"summary\": \"Update an existing procurement purchase orders record.\",\n      \"tags\": [\n        \"procurement\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"list_orders_v1\",\n      \"method\": \"GET\",\n      \"path\": \"/commerce/v1/orders\",\n      \"summary\": \"Deprecated. Use list_orders (/commerce/orders) instead.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"search_commerce_archived_orders\",\n      \"method\": \"POST\",\n      \"path\": \"/commerce/archived-orders:search\",\n      \"summary\": \"Search commerce archived orders with a free-text query.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"create_commerce_archived_orders\",\n      \"method\": \"POST\",\n      \"path\": \"/commerce/archived-orders\",\n      \"summary\": \"Create a new record in commerce archived orders.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"delete_procurement_purchase_orders\",\n      \"method\": \"DELETE\",\n      \"path\": \"/procurement/purchase-orders/{id}\",\n      \"summary\": \"Delete a procurement purchase orders record by id.\",\n      \"tags\": [\n        \"procurement\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"search_billing_invoices\",\n      \"method\": \"POST\",\n      \"path\": \"/billing/invoices:search\",\n      \"summary\": \"Search billing invoices with a free-text query.\",\n      \"tags\": [\n        \"billing\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"get_commerce_order_templates\",\n      \"method\": \"GET\",\n      \"path\": \"/commerce/order-templates/{id}\",\n      \"summary\": \"Fetch one commerce order templates record by id.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"delete_commerce_archived_orders\",\n      \"method\": \"DELETE\",\n      \"path\": \"/commerce/archived-orders/{id}\",\n      \"summary\": \"Delete a commerce archived orders record by id.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"cancel_order\",\n      \"method\": \"POST\",\n      \"path\": \"/commerce/orders/{id}:cancel\",\n      \"summary\": \"Cancel a pending order. Orders in any other status cannot be canceled.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"update_commerce_archived_orders\",\n      \"method\": \"PATCH\",\n      \"path\": \"/commerce/archived-orders/{id}\",\n      \"summary\": \"Update an existing commerce archived orders record.\",\n      \"tags\": [\n        \"commerce\"\n      ],\n      \"spec\": \"bench-acme\"\n    },\n    {\n      \"operation_id\": \"get_procurement_purchase_orders\",\n      \"method\": \"GET\",\n      \"path\": \"/procurement/purchase-orders/{id}\",\n      \"summary\": \"Fetch one procurement purchase orders record by id.\",\n      \"tags\": [\n        \"procurement\"\n      ],\n      \"spec\": \"bench-acme\"\n    }\n  ]\n}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01PebJNDFfLUgiMVBtNpmiq2",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_workspaces"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01PebJNDFfLUgiMVBtNpmiq2",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"762\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": [\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 601,\n        \"name\": \"Primary workspace\"\n      },\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 602,\n        \"name\": \"Regional workspace\"\n      },\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 603,\n        \"name\": \"Campaigns workspace\"\n      },\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 604,\n        \"name\": \"Support workspace\"\n      },\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 605,\n        \"name\": \"Partnerships workspace\"\n      },\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 606,\n        \"name\": \"Retail workspace\"\n      },\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 607,\n        \"name\": \"Recruiting workspace\"\n      },\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 608,\n        \"name\": \"Research workspace\"\n      },\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 609,\n        \"name\": \"Events workspace\"\n      },\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 610,\n        \"name\": \"Archive workspace\"\n      }\n    ]\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01VWqYJK4heooZFn2E25jFU8",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors",
+          "query_params": {
+            "page_size": 100,
+            "workspace_id": 601
+          }
+        }
+      },
+      {
+        "id": "toolu_015sS1iwLH2KNinJZb9iA9LC",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors",
+          "query_params": {
+            "page_size": 100,
+            "workspace_id": 602
+          }
+        }
+      },
+      {
+        "id": "toolu_01EWUB1cNYLkSTquygqMRx3C",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors",
+          "query_params": {
+            "page_size": 100,
+            "workspace_id": 603
+          }
+        }
+      },
+      {
+        "id": "toolu_01PtcoTEx1TnaGz1u8B82qg7",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors",
+          "query_params": {
+            "page_size": 100,
+            "workspace_id": 604
+          }
+        }
+      },
+      {
+        "id": "toolu_01J7PX5mPe5FT4Qhujp87rqt",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors",
+          "query_params": {
+            "page_size": 100,
+            "workspace_id": 605
+          }
+        }
+      },
+      {
+        "id": "toolu_019BLSvH3upwvnsSMjP3svE5",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors",
+          "query_params": {
+            "page_size": 100,
+            "workspace_id": 606
+          }
+        }
+      },
+      {
+        "id": "toolu_01Nkmy5b3xZuY3Hx5QaowLHv",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors",
+          "query_params": {
+            "page_size": 100,
+            "workspace_id": 607
+          }
+        }
+      },
+      {
+        "id": "toolu_01Qw8fuEzyotxjPNn7MG28DF",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors",
+          "query_params": {
+            "page_size": 100,
+            "workspace_id": 608
+          }
+        }
+      },
+      {
+        "id": "toolu_01GCiQxrgpggXkHNaQQVtsZJ",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors",
+          "query_params": {
+            "page_size": 100,
+            "workspace_id": 609
+          }
+        }
+      },
+      {
+        "id": "toolu_01K9ot4gmtDKpLiyPrXn4bhW",
+        "name": "api_invoke_endpoint",
+        "args": {
+          "connection": "acme",
+          "operation_id": "list_monitors",
+          "query_params": {
+            "page_size": 100,
+            "workspace_id": 610
+          }
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01VWqYJK4heooZFn2E25jFU8",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"280\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": [\n      {\n        \"created_at\": \"2026-01-05T00:00:00Z\",\n        \"id\": 501,\n        \"keywords\": \"acme, acme corp, @acmehq\",\n        \"name\": \"Brand mentions\",\n        \"workspace_id\": 601\n      },\n      {\n        \"created_at\": \"2026-01-19T00:00:00Z\",\n        \"id\": 503,\n        \"keywords\": \"acme atlas, atlas launch, #acmeatlas\",\n        \"name\": \"Product launch\",\n        \"workspace_id\": 601\n      }\n    ]\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      },
+      {
+        "call_id": "toolu_015sS1iwLH2KNinJZb9iA9LC",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"144\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": [\n      {\n        \"created_at\": \"2026-01-12T00:00:00Z\",\n        \"id\": 502,\n        \"keywords\": \"northwind, globex, initech\",\n        \"name\": \"Competitor watch\",\n        \"workspace_id\": 602\n      }\n    ]\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      },
+      {
+        "call_id": "toolu_01EWUB1cNYLkSTquygqMRx3C",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"13\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": []\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      },
+      {
+        "call_id": "toolu_01PtcoTEx1TnaGz1u8B82qg7",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"13\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": []\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      },
+      {
+        "call_id": "toolu_01J7PX5mPe5FT4Qhujp87rqt",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"13\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": []\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      },
+      {
+        "call_id": "toolu_019BLSvH3upwvnsSMjP3svE5",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"13\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": []\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      },
+      {
+        "call_id": "toolu_01Nkmy5b3xZuY3Hx5QaowLHv",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"13\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": []\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      },
+      {
+        "call_id": "toolu_01Qw8fuEzyotxjPNn7MG28DF",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"13\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": []\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      },
+      {
+        "call_id": "toolu_01GCiQxrgpggXkHNaQQVtsZJ",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"13\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": []\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      },
+      {
+        "call_id": "toolu_01K9ot4gmtDKpLiyPrXn4bhW",
+        "text": "{\n  \"status\": 200,\n  \"headers\": {\n    \"Content-Length\": [\n      \"13\"\n    ],\n    \"Content-Type\": [\n      \"application/json\"\n    ]\n  },\n  \"body\": {\n    \"items\": []\n  },\n  \"duration_ms\": 0\n}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "Across all 10 workspaces on the ACME account, I found 3 listening monitors total: \"Brand mentions\" and \"Product launch\" in the Primary workspace (601), and \"Competitor watch\" in the Regional workspace (602). No other workspace had any monitors provisioned.\n\nFINAL ANSWER: 3"
+  }
+]

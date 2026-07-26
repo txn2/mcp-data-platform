@@ -204,6 +204,14 @@ here as an exploratory contrast, not a confirmatory one.
 - [ ] Admit the metadata block as audited, on the neutral phrasing cell.
 - [ ] Require changes (state them).
 
+## Addendum (2026-07-25): the derivability-bridge belief
+
+One belief was added after the audit above was signed off: `coverage-convention`, the derivability bridge for the two-regime probe. Nothing previously audited changed; the drift gate confirms the earlier strings are byte-identical.
+
+The delivered string: "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value."
+
+Audit: estimator-form (states a definition and where it applies; names no action; the shared build gate runs over it). Provenance: AUTHORED for the study, not corpus-curated, and declared as such in `beliefs.go` — the capture corpus contains no convention because the capture scenarios never taught one. Status: used in the exploratory bridge probe only; any confirmatory use needs this addendum reviewed like the sections above.
+
 ## Provenance, and what the corpus actually showed
 
 Every fragment's source scenario is named in the comments in
