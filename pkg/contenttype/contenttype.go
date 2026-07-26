@@ -196,7 +196,7 @@ func IsTextual(ct string) bool {
 		return true
 	}
 	switch norm {
-	case JSON, NDJSON, XML, YAML, SVG, JavaScript, "application/sql":
+	case JSON, NDJSON, XML, YAML, SVG, JavaScript, "application/sql", "application/typescript":
 		return true
 	default:
 		return false

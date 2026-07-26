@@ -586,13 +586,26 @@ Structured catalog navigation (platform/domain/tag/entity-type filters) stays in
 when configured), canonical knowledge pages (the internal-knowledge home for
 business/domain ontology, searched over their full markdown content), the caller's
 personal memory, captured insights, the caller's feedback threads, saved assets,
-prompts, API endpoints (aggregated across every API gateway connection, reusing
+managed resources (human-uploaded reference material, searched over their metadata
+**and their extracted file content**), prompts, API endpoints (aggregated across
+every API gateway connection, reusing
 the per-connection semantic ranking of `api_list_endpoints`), and connections. Memory, insights, and
 assets are per-user, scoped server-side to the caller, so a search never surfaces
 another user's private records; the catalog, knowledge pages, prompts, endpoints
-(each gateway applies its own route policy), and connections are shared.
+(each gateway applies its own route policy), and connections are shared. Resources
+are visibility-scoped: global material reaches every caller, persona material only
+its members, and user material only its owner, exactly as `resources/list` computes
+it. Persona visibility is **membership** (derived from the caller's roles), not the
+persona the request resolved to — resolution falls back to the configured default
+persona for a caller whose roles match none, and that fallback must not hand them
+the default persona's material.
 A caller with no identity still sees shared sources but no per-user data. API
 endpoints and connections are in the default corpus, not behind an opt-in.
+
+**Resource links.** A hit backed by an uploaded file additionally carries an MCP
+`resource_link` content block with the resource's canonical `mcp://` URI, name,
+description, and MIME type, so a client with native resource support can attach the
+file itself rather than only the pointer the model dereferences.
 
 **Balanced result set.** Rather than one flat relevance list (which lets one
 strong source dominate), the display set is built from a total budget with a
@@ -623,7 +636,7 @@ and `dimension`), and a `coverage` array (`{source, matched, shown}`).
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
 | `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
-| `sources` | array | No | - | Narrow the search to named sources (`catalog`, `context_documents`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
+| `sources` | array | No | - | Narrow the search to named sources (`catalog`, `context_documents`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `resources`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
 
 ---
@@ -678,6 +691,7 @@ routing each well-formed reference by its form to the owning source:
 | `urn:li:document:<id>` | context documents | the full document body (the only MCP path to it) |
 | `urn:li:dataset:<id>` | catalog | the dataset's catalog context |
 | `mcp:asset:<id>` | assets | the asset's metadata record (blob bytes stay in S3, reached with `s3_get_object`/`s3_presign_url`) |
+| `mcp:resource:<id>` | resources | the resource's metadata record, plus its contents inline for a text resource at or under 1 MB; a binary or oversized one returns metadata with its canonical `mcp://` URI, MIME type, and size |
 | `mcp:prompt:<id>` | prompts | the full prompt |
 | `mcp:connection:(kind,name)` | connections | the connection descriptor |
 | `mcp:insight:<id>` | insights | the full captured insight (scoped to the caller; fetch-only, not citable on a page) |
@@ -690,8 +704,9 @@ held from another tool works too (for example a `urn:li:dataset:...` from
 endpoints emit no reference and are not fetch targets.
 
 **Scope mirrors `search` exactly:** the per-user sources (assets, your memory, your
-insights) are read only for the identity that owns the record, and a
-persona/personal-scoped prompt only for the matching caller, so `fetch` never
+insights) are read only for the identity that owns the record, a
+persona/personal-scoped prompt only for the matching caller, and a managed resource
+only for a caller whose visible scopes include it, so `fetch` never
 returns content the same caller could not have
 found with `search`. A reference outside the caller's scope is reported as
 not-found, indistinguishable from a missing one, so existence does not leak.

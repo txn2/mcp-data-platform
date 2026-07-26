@@ -29,7 +29,7 @@ Every failed tool call returns a uniform, self-describing error so an agent can 
 
 | Field | Meaning |
 |-------|---------|
-| `code` | Stable, machine-readable identifier the agent may branch on (for example `missing_required_parameter`, `not_found`, `unauthorized`, `setup_required`, `internal_error`). |
+| `code` | Stable, machine-readable identifier the agent may branch on (for example `missing_required_parameter`, `invalid_arguments`, `not_found`, `unauthorized`, `setup_required`, `internal_error`). |
 | `category` | Broad class (see below) telling the agent whose fault the failure is. |
 | `message` | The specific failure. |
 | `hint` | The corrective action, when the caller can take one. |
@@ -49,6 +49,23 @@ Every failed tool call returns a uniform, self-describing error so an agent can 
 | `tool_error` | Unclassified | A tool failure that has not been given a finer category; the message is still descriptive. |
 
 The contract is uniform by construction: a normalization layer guarantees every error result carries this envelope even when an individual tool returns only a bare message, so an agent never receives an opaque, undifferentiated string. The `category` is also recorded on the audit log (`error_category`) for operators.
+
+### Unknown arguments are refused, not ignored
+
+The platform's own tools publish input schemas that are closed to unknown top-level arguments (`"additionalProperties": false`). A misnamed argument fails at the tool boundary, before the handler runs, with `code: invalid_arguments`, `category: client_input`, and a message naming the offending property — for example, passing `parameters` to `api_invoke_endpoint` instead of `query_params`:
+
+```json
+{
+  "error": {
+    "code": "invalid_arguments",
+    "category": "client_input",
+    "message": "validating \"arguments\": validating root: unexpected additional properties [\"parameters\"]",
+    "hint": "The arguments do not match the tool's input schema. Read the tool's schema, correct or drop the named property, and retry. This is a problem with the call's arguments, not a platform fault."
+  }
+}
+```
+
+Nested maps stay open where they carry a foreign namespace: `query_params`, `headers`, and `body` on the `api_*` tools accept arbitrary keys, because those names belong to the upstream API rather than to the tool. Tools proxied from an upstream MCP server through a gateway connection keep the upstream's own schema, strict or not.
 
 ## Trino Tools
 

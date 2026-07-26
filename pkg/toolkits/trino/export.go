@@ -1,6 +1,7 @@
 package trino //nolint:revive // adapter types for cross-package wiring
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -648,13 +649,24 @@ func buildExportProvenance(ctx context.Context, deps *ExportDeps, p exportProven
 	return prov
 }
 
-// parseExportInput parses the MCP request into an exportInput.
+// parseExportInput parses the MCP request into an exportInput, refusing any
+// argument the schema does not publish so a misnamed field is reported by name
+// instead of being dropped (issue #1057).
+//
+// The refusal lives here rather than in the SDK because trino_export is
+// registered through the untyped Server.AddTool path, which does not validate
+// arguments against the tool's input schema; exportInputSchema's
+// "additionalProperties": false states the contract, and this decoder enforces
+// it. The platform-injected session_id argument never reaches this point: the
+// session resolver strips it in middleware.
 func parseExportInput(req mcp.CallToolRequest) (exportInput, error) {
 	if req.Params == nil || len(req.Params.Arguments) == 0 {
 		return exportInput{}, errors.New("missing arguments")
 	}
 	var input exportInput
-	if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(req.Params.Arguments))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&input); err != nil {
 		return exportInput{}, fmt.Errorf("parsing arguments: %w", err)
 	}
 	return input, nil
@@ -842,6 +854,10 @@ func exportSuccess(out exportOutput) *mcp.CallToolResult {
 func exportInputSchema() map[string]any {
 	return map[string]any{
 		schemaKeyType: schemaTypeObject,
+		// Closed to unknown arguments: a misnamed field is refused by name
+		// rather than dropped (issue #1057). Enforced by parseExportInput,
+		// since the untyped registration path does not schema-validate.
+		"additionalProperties": false,
 		propProperties: map[string]any{
 			propSQL: map[string]any{
 				schemaKeyType: schemaTypeString,

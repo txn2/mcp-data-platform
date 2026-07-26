@@ -2,12 +2,24 @@ package apigateway
 
 import "encoding/json"
 
+// Every api_* input schema below is closed at the top level
+// ("additionalProperties": false), so a misnamed argument is refused by the
+// tool boundary with an error naming the offending property instead of being
+// dropped by the struct unmarshal. Nested maps stay open on purpose:
+// query_params, headers, and body carry the UPSTREAM API's names, not ours.
+//
+// The platform-injected session_id argument is stripped from the arguments by
+// the session resolver before the SDK validates them
+// (middleware.SessionResolver, pkg/middleware/mcp_session_handle.go), so a
+// closed schema does not conflict with it.
+
 // listEndpointsSchema is the JSON Schema for the api_list_endpoints tool input.
 //
 //nolint:gochecknoglobals // MCP tool schema must be a package-level var
 var listEndpointsSchema = json.RawMessage(`{
   "type": "object",
   "required": ["connection"],
+  "additionalProperties": false,
   "properties": {
     "connection": {
       "type": "string",
@@ -41,6 +53,7 @@ var listEndpointsSchema = json.RawMessage(`{
 var listSpecsSchema = json.RawMessage(`{
   "type": "object",
   "required": ["connection"],
+  "additionalProperties": false,
   "properties": {
     "connection": {
       "type": "string",
@@ -56,6 +69,7 @@ var listSpecsSchema = json.RawMessage(`{
 var getEndpointSchemaInputSchema = json.RawMessage(`{
   "type": "object",
   "required": ["connection", "operation_id"],
+  "additionalProperties": false,
   "properties": {
     "connection": {
       "type": "string",
@@ -82,6 +96,7 @@ var getEndpointSchemaInputSchema = json.RawMessage(`{
 var apiExportInputSchema = json.RawMessage(`{
   "type": "object",
   "required": ["connection", "name"],
+  "additionalProperties": false,
   "properties": {
     "connection": {
       "type": "string",
@@ -158,6 +173,7 @@ var apiExportInputSchema = json.RawMessage(`{
 var invokeEndpointSchema = json.RawMessage(`{
   "type": "object",
   "required": ["connection"],
+  "additionalProperties": false,
   "properties": {
     "connection": {
       "type": "string",

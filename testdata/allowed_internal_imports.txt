@@ -65,6 +65,7 @@ internal/platform/indexqueue -> pkg/portal/collectionindex
 internal/platform/indexqueue -> pkg/portal/knowledgepageindex
 internal/platform/indexqueue -> pkg/prompt/promptindex
 internal/platform/indexqueue -> pkg/registry
+internal/platform/indexqueue -> pkg/resource/resourceindex
 internal/platform/indexqueue -> pkg/toolkits/apigateway
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalog
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalogindex
@@ -121,6 +122,7 @@ internal/platform/searchfed -> pkg/portal
 internal/platform/searchfed -> pkg/portal/knowledgepage
 internal/platform/searchfed -> pkg/prompt
 internal/platform/searchfed -> pkg/registry
+internal/platform/searchfed -> pkg/resource
 internal/platform/searchfed -> pkg/semantic
 internal/platform/searchfed -> pkg/toolkits/knowledge
 internal/platform/searchfed -> pkg/toolkits/search
@@ -199,12 +201,14 @@ pkg/gatewayhttp -> pkg/toolkits/apigateway
 pkg/http -> pkg/auth
 pkg/http -> pkg/middleware
 pkg/indexjobs -> pkg/embedding
+pkg/knowledge -> pkg/contenttype
 pkg/knowledge -> pkg/embedding
 pkg/knowledge -> pkg/memory
 pkg/knowledge -> pkg/portal
 pkg/knowledge -> pkg/portal/knowledgepage
 pkg/knowledge -> pkg/portal/threads
 pkg/knowledge -> pkg/prompt
+pkg/knowledge -> pkg/resource
 pkg/knowledge -> pkg/semantic
 pkg/knowledge -> pkg/toolkits/knowledge
 pkg/knowledge/federation -> pkg/knowledge
@@ -215,6 +219,7 @@ pkg/memory -> pkg/semantic
 pkg/memory -> pkg/urnbuild
 pkg/memory/memoryindex -> pkg/indexjobs
 pkg/middleware -> pkg/audit
+pkg/middleware -> pkg/contenttype
 pkg/middleware -> pkg/mcpcontext
 pkg/middleware -> pkg/memory
 pkg/middleware -> pkg/observability
@@ -380,6 +385,9 @@ pkg/registry -> pkg/toolkits/trino
 pkg/resource -> internal/logsan
 pkg/resource -> pkg/blobserve
 pkg/resource -> pkg/contenttype
+pkg/resource/resourceindex -> pkg/contenttype
+pkg/resource/resourceindex -> pkg/indexjobs
+pkg/resource/resourceindex -> pkg/resource
 pkg/semantic/datahub -> pkg/observability
 pkg/semantic/datahub -> pkg/semantic
 pkg/semantic/datahub -> pkg/urnbuild

@@ -71,7 +71,7 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. Cross-e
 
 ## Managed Resources
 
-- [Resources](https://mcp-data-platform.txn2.com/server/portal-user/#resources): Human-uploaded reference files surfaced to AI assistants via MCP resources/list and resources/read, with global, persona, and user scopes. PostgreSQL metadata, S3 blobs, REST API at /api/v1/resources
+- [Resources](https://mcp-data-platform.txn2.com/server/portal-user/#resources): Human-uploaded reference files surfaced to AI assistants via MCP resources/list and resources/read, with global, persona, and user scopes. PostgreSQL metadata, S3 blobs, REST API at /api/v1/resources. Also discoverable through the universal search: a background indexer embeds each resource's metadata plus a bounded text prefix extracted from the uploaded file, search hits carry an mcp:resource:<id> reference and an MCP resource link, and fetch returns text contents inline or metadata plus the canonical URI for binary files
 
 ## MCP Apps
 
@@ -116,7 +116,7 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. Cross-e
 - Gateway toolkits: re-expose any third-party MCP server or REST/HTTP API through the platform's auth, persona, audit pipeline, with optional declarative cross-enrichment rules.
 - Knowledge capture: tribal knowledge from AI sessions written back to DataHub through human-in-the-loop governance with changeset rollback.
 - Memory layer (PostgreSQL + pgvector): persistent memory across sessions with semantic recall, entity recall, graph traversal, and staleness detection.
-- Managed resources: human-uploaded reference material with scope-based visibility, surfaced to AI assistants via MCP resources/list.
+- Managed resources: human-uploaded reference material with scope-based visibility, surfaced to AI assistants via MCP resources/list and through the universal search (indexed over file contents, fetched by mcp:resource:<id>).
 - MCP Apps: interactive UI panels rendered inline in the MCP host.
 - Two transports: stdio for desktop clients, http with OAuth 2.1 for hosted clients.
 - Two operating modes: standalone (no database) for stateless deployments, file + database for the full feature set.

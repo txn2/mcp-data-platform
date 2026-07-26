@@ -79,11 +79,12 @@ func (h *Handle) handlePromptStats(ctx context.Context, input managePromptInput)
 func (h *Handle) handlePromptGetContent(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	return h.contentVerb(ctx, input, func(body string) (map[string]any, error) {
 		return textpatch.ContentFields(body, textpatch.ContentRequest{
-			Syntax:    textpatch.SyntaxMarkdown,
-			Section:   input.Section,
-			Selector:  input.Selector,
-			LineStart: input.LineStart,
-			LineEnd:   input.LineEnd,
+			Syntax:     textpatch.SyntaxMarkdown,
+			Section:    input.Section,
+			Selector:   input.Selector,
+			Occurrence: input.Occurrence,
+			LineStart:  input.LineStart,
+			LineEnd:    input.LineEnd,
 		})
 	})
 }
@@ -97,6 +98,7 @@ func (h *Handle) handlePromptLocate(ctx context.Context, input managePromptInput
 			Pattern:      input.Pattern,
 			Section:      input.Section,
 			Selector:     input.Selector,
+			Occurrence:   input.Occurrence,
 			ContextBytes: input.ContextBytes,
 			Limit:        input.Limit,
 		}, textpatch.Options{Syntax: textpatch.SyntaxMarkdown})

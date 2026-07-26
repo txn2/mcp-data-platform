@@ -195,6 +195,7 @@ var knownSourceNames = map[string]bool{
 	SourceInsights:         true,
 	SourceFeedback:         true,
 	SourceAssets:           true,
+	SourceResources:        true,
 	SourcePrompts:          true,
 	SourceEndpoints:        true,
 	SourceConnections:      true,

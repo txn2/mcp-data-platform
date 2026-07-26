@@ -75,30 +75,6 @@ func (m *mockBlobReader) GetObject(_ context.Context, _, key string) (body []byt
 	return data, "text/plain", nil
 }
 
-func TestIsTextMIME(t *testing.T) {
-	tests := []struct {
-		mime string
-		want bool
-	}{
-		{"text/plain", true},
-		{"text/csv", true},
-		{"text/html", true},
-		{"application/json", true},
-		{"application/xml", true},
-		{"application/yaml", true},
-		{"application/sql", true},
-		{"image/png", false},
-		{"application/pdf", false},
-		{"application/octet-stream", false},
-	}
-	for _, tt := range tests {
-		got := isTextMIME(tt.mime)
-		if got != tt.want {
-			t.Errorf("isTextMIME(%q) = %v, want %v", tt.mime, got, tt.want)
-		}
-	}
-}
-
 func TestExtractResourceURI(t *testing.T) {
 	// Build a mock request matching resources/read format.
 	reqData := map[string]any{
@@ -832,29 +808,6 @@ func TestFetchResourceContent_TransientErrorIsGeneric(t *testing.T) {
 	}
 }
 
-func TestIsObjectNotFound(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"nosuchkey", fmt.Errorf("s3 get: NoSuchKey: the specified key does not exist"), true},
-		{"status 404", fmt.Errorf("s3 get: api error, status code: 404"), true},
-		{"plain not found", fmt.Errorf("not found"), true},
-		{"connection reset", fmt.Errorf("connection reset by peer"), false},
-		{"permission denied", fmt.Errorf("s3 get: AccessDenied: access denied"), false},
-		{"timeout", fmt.Errorf("context deadline exceeded"), false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isObjectNotFound(tt.err); got != tt.want {
-				t.Errorf("isObjectNotFound(%v) = %v, want %v", tt.err, got, tt.want)
-			}
-		})
-	}
-}
-
 // --- handleManagedList error path ---
 
 func TestMCPManagedResourceMiddleware_ListNextError(t *testing.T) {
@@ -940,5 +893,65 @@ func TestMCPManagedResourceMiddleware_NonResourceMethod(t *testing.T) {
 	}
 	if !nextCalled {
 		t.Error("next should have been called for non-resource method")
+	}
+}
+
+// The inline-vs-blob decision now runs through the shared classifier
+// (contenttype.IsTextual) rather than a local MIME list, so the read path and
+// the search `fetch` reference answer alike for the same file. This pins the
+// classification at the boundary that serves agents, including the two cases the
+// swap changed: an SVG is now served as readable text, and a declared alias
+// normalizes before the family test.
+func TestFetchResourceContent_SharedTextClassification(t *testing.T) {
+	tests := []struct {
+		name       string
+		mime       string
+		body       []byte
+		wantInline bool
+	}{
+		{"markdown", "text/markdown", []byte("# title"), true},
+		{"json alias", "text/json", []byte(`{"a":1}`), true},
+		{"typescript", "application/typescript", []byte("export const a = 1"), true},
+		{"svg is readable markup, not an opaque blob", "image/svg+xml", []byte("<svg/>"), true},
+		{"csv with parameters", "text/csv; charset=utf-8", []byte("a,b"), true},
+		{"png", "image/png", []byte{0x89, 'P', 'N', 'G'}, false},
+		{"pdf", "application/pdf", []byte("%PDF-1.7"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newMockBlobReader()
+			blob.objects["k"] = tt.body
+			res := &resource.Resource{URI: "mcp://global/samples/f", MIMEType: tt.mime, S3Key: "k"}
+
+			result, err := fetchResourceContent(context.Background(),
+				ManagedResourceConfig{S3Client: blob, S3Bucket: "b"}, res)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			c := result.Contents[0]
+			if tt.wantInline && (c.Text == "" || c.Blob != nil) {
+				t.Errorf("%q should be served inline as text, got Text=%q Blob=%v", tt.mime, c.Text, c.Blob)
+			}
+			if !tt.wantInline && (c.Blob == nil || c.Text != "") {
+				t.Errorf("%q should be served as a blob, got Text=%q Blob=%v", tt.mime, c.Text, c.Blob)
+			}
+		})
+	}
+}
+
+// A text resource over the shared inline threshold falls back to the blob form,
+// so an oversized file never lands in the model's context as text.
+func TestFetchResourceContent_OversizedTextFallsBackToBlob(t *testing.T) {
+	blob := newMockBlobReader()
+	blob.objects["k"] = make([]byte, resource.MaxInlineContentBytes+1)
+	res := &resource.Resource{URI: "mcp://global/samples/big.csv", MIMEType: "text/csv", S3Key: "k"}
+
+	result, err := fetchResourceContent(context.Background(),
+		ManagedResourceConfig{S3Client: blob, S3Bucket: "b"}, res)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Contents[0].Blob == nil || result.Contents[0].Text != "" {
+		t.Errorf("oversized text must be served as a blob, got Text len=%d", len(result.Contents[0].Text))
 	}
 }

@@ -6,7 +6,7 @@
 // Unlike the store-owning layers, this layer is a reader/aggregator: it owns no
 // store. Its constructor takes explicit inputs — the searchable source
 // handles/stores (memory store, knowledge insight store, portal
-// knowledge-page/asset/thread stores, prompt store), the semantic.Provider plus
+// knowledge-page/asset/thread stores, prompt store, managed resource store), the semantic.Provider plus
 // a catalog-enabled flag, the *registry.Registry, the shared embedding.Provider,
 // the resolved search-timeout values, and the toolkit instance name — performs
 // the per-source provider selection (each source gated on existing and
@@ -40,6 +40,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	searchkit "github.com/txn2/mcp-data-platform/pkg/toolkits/search"
@@ -77,6 +78,20 @@ type Config struct {
 	AssetStore         portal.AssetStore
 	ThreadStore        portal.ThreadStore
 	PromptStore        prompt.Store
+	ResourceStore      resource.Store
+
+	// ResourceBlobs and ResourceBucket let the resources provider return a text
+	// resource's contents inline from `fetch`. Nil leaves fetch returning
+	// metadata plus the canonical URI; it does not affect searchability.
+	ResourceBlobs  knowledge.ResourceContentReader
+	ResourceBucket string
+
+	// PersonasForRoles resolves a caller's roles to every persona they BELONG TO.
+	// The resources provider scopes persona-visible material on that membership
+	// set rather than on the single resolved persona, which falls back to the
+	// configured default persona for a caller whose roles match none. Nil leaves
+	// the caller carrying only the resolved persona.
+	PersonasForRoles func(roles []string) []string
 
 	// Registry backs the registry-federated sources (API endpoints +
 	// connections). Required: New walks it for endpoint searchers and connections
@@ -123,14 +138,16 @@ func New(cfg Config) *Handle {
 	router.SetProviderTimeout(cfg.ProviderTimeout) // 0 keeps the default
 	router.SetEmbedTimeout(cfg.EmbedTimeout)       // 0 keeps the default
 
-	h := &Handle{router: router, toolkit: searchkit.New(cfg.ToolkitName, router)}
+	tk := searchkit.New(cfg.ToolkitName, router)
+	tk.SetPersonasForRoles(cfg.PersonasForRoles)
+	h := &Handle{router: router, toolkit: tk}
 	slog.Info("search enabled", "providers", len(providers))
 	return h
 }
 
 // storeProviders builds the store-backed search providers (memory, insights,
-// technical catalog, context documents, knowledge pages, prompts, assets, and
-// feedback threads), each added only when its backing source exists and
+// technical catalog, context documents, knowledge pages, prompts, assets,
+// managed resources, and feedback threads), each added only when its backing source exists and
 // implements the relevant searcher interface, so a no-database deployment adds
 // none of them.
 func storeProviders(cfg Config) []knowledge.Provider {
@@ -159,6 +176,16 @@ func storeProviders(cfg Config) []knowledge.Provider {
 			providers = append(providers, knowledge.NewContextDocumentsProvider(ds))
 		}
 	}
+	return appendPortalStoreProviders(cfg, providers)
+}
+
+// appendPortalStoreProviders adds the providers whose backing store is a
+// portal-owned corpus (knowledge pages, prompts, assets, managed resources,
+// feedback threads). Each is gated the same way: the store must exist and
+// implement the relevant searcher capability, so a store that cannot rank
+// contributes nothing rather than an always-empty provider. Split from
+// storeProviders to keep each within the cyclomatic budget.
+func appendPortalStoreProviders(cfg Config, providers []knowledge.Provider) []knowledge.Provider {
 	// Canonical knowledge pages (the internal-knowledge home for business
 	// ontology) are shared and searchable over their full content.
 	if s, ok := cfg.KnowledgePageStore.(knowledge.PageSearcher); ok {
@@ -172,6 +199,13 @@ func storeProviders(cfg Config) []knowledge.Provider {
 	// Assets are searchable and fetchable only through the postgres asset store.
 	if s, ok := cfg.AssetStore.(knowledge.AssetSearcher); ok {
 		providers = append(providers, knowledge.NewAssetsProvider(s))
+	}
+	// Managed resources (human-uploaded reference material) join the corpus
+	// through the postgres resource store, which is the only implementation that
+	// can rank (#1012). Uploading one is publishing into a void unless search can
+	// find it.
+	if s, ok := cfg.ResourceStore.(knowledge.ResourceSearcher); ok {
+		providers = append(providers, knowledge.NewResourcesProvider(s, cfg.ResourceBlobs, cfg.ResourceBucket))
 	}
 	// Feedback threads complete the search corpus (#686): a caller's own feedback
 	// becomes discoverable knowledge. Lexical and per-user (threads carry no

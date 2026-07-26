@@ -34,6 +34,13 @@ const (
 	// Promote the insight to the catalog via apply_knowledge and cite the resulting
 	// urn:li:... entity instead. The page-citation path rejects it (ParseCitableRef).
 	RefTargetInsight = "insight"
+	// RefTargetResource is a managed resource: human-uploaded reference material
+	// (#1012). It is fetchable by anyone whose visible scopes include it, but is
+	// NOT citable on a shared knowledge page: the page-reference table has no
+	// resource column and a scoped resource would be a broken citation for
+	// everyone outside its scope. The page-citation path rejects it
+	// (ParseCitableRef).
+	RefTargetResource = "resource"
 	// RefTargetMemory is a personal memory record. It is fetchable by its owner but
 	// must NOT be cited on a shared knowledge page: a per-user reference would
 	// resolve only for its owner and be a broken citation for everyone else (#699).
@@ -66,10 +73,14 @@ type EntityRef struct {
 	InsightID      string `json:"insight_id,omitempty"`
 	// MemoryID is set only by the parser for an mcp:memory: reference (fetch-only);
 	// it is never persisted, since memory is not citable on a page (#699).
-	MemoryID  string    `json:"memory_id,omitempty"`
-	Source    string    `json:"source,omitempty"`
-	CreatedBy string    `json:"created_by,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	MemoryID string `json:"memory_id,omitempty"`
+	// ResourceID is set only by the parser for an mcp:resource: reference
+	// (fetch-only); it is never persisted, since a managed resource is not citable
+	// on a page (#1012).
+	ResourceID string    `json:"resource_id,omitempty"`
+	Source     string    `json:"source,omitempty"`
+	CreatedBy  string    `json:"created_by,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // refKeySep separates the target type from its id in a reference identity key.
@@ -102,6 +113,8 @@ func (r EntityRef) identity() string {
 		return RefTargetInsight + refKeySep + r.InsightID
 	case RefTargetMemory:
 		return RefTargetMemory + refKeySep + r.MemoryID
+	case RefTargetResource:
+		return RefTargetResource + refKeySep + r.ResourceID
 	default:
 		return r.TargetType + refKeySep
 	}

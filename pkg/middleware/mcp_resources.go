@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -278,23 +279,6 @@ func pruneOrphanedResource(ctx context.Context, cfg ManagedResourceConfig, res *
 	slog.Info("managed resource: pruned orphaned row (backing object missing)", logKeyURI, res.URI, "id", res.ID)
 }
 
-// isObjectNotFound reports whether a blob-store GetObject error indicates the
-// object does not exist (an orphaned resource), as opposed to a transient or
-// permission failure that a retry might resolve. The mcp-s3 client wraps the
-// underlying AWS/SeaweedFS error without a typed not-found, so detection is by
-// the standard S3 not-found signatures present in the wrapped message.
-func isObjectNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "nosuchkey") ||
-		strings.Contains(msg, "not found") ||
-		strings.Contains(msg, "notfound") ||
-		strings.Contains(msg, "status code: 404") ||
-		strings.Contains(msg, "404 not found")
-}
-
 // fetchResourceContent fetches resource content from S3 and builds the read result.
 func fetchResourceContent(ctx context.Context, cfg ManagedResourceConfig, res *resource.Resource) (*mcp.ReadResourceResult, error) {
 	if cfg.S3Client == nil {
@@ -310,7 +294,7 @@ func fetchResourceContent(ctx context.Context, cfg ManagedResourceConfig, res *r
 
 	body, _, s3Err := cfg.S3Client.GetObject(ctx, cfg.S3Bucket, res.S3Key)
 	if s3Err != nil {
-		if isObjectNotFound(s3Err) {
+		if resource.IsObjectNotFound(s3Err) {
 			// The resource row exists but its backing object is gone: an
 			// orphaned managed resource (it still appears in resources/list).
 			// Return a distinct, actionable message instead of an opaque
@@ -325,9 +309,11 @@ func fetchResourceContent(ctx context.Context, cfg ManagedResourceConfig, res *r
 		return nil, fmt.Errorf("error reading resource content for %q", res.URI)
 	}
 
-	// For text types under 1 MB, return inline. Otherwise, return as blob.
-	const maxInlineSize = 1 << 20
-	if isTextMIME(res.MIMEType) && int64(len(body)) <= maxInlineSize {
+	// For text types at or under the inline threshold, return inline. Otherwise,
+	// return as blob. The threshold and the text-family test are the shared ones
+	// (resource.MaxInlineContentBytes, contenttype.IsTextual) so this path and the
+	// search `fetch` reference make the same call for the same file (#1012).
+	if contenttype.IsTextual(res.MIMEType) && int64(len(body)) <= resource.MaxInlineContentBytes {
 		return &mcp.ReadResourceResult{
 			Contents: []*mcp.ResourceContents{{
 				URI:      res.URI,
@@ -426,22 +412,4 @@ func extractResourceURI(req mcp.Request) (string, error) {
 		return "", fmt.Errorf("unexpected params type: %T", req.GetParams())
 	}
 	return params.URI, nil
-}
-
-// isTextMIME returns true for MIME types that should be returned as inline text.
-func isTextMIME(mime string) bool {
-	if strings.HasPrefix(mime, "text/") {
-		return true
-	}
-	textTypes := []string{
-		mimeTypeJSON,
-		"application/xml",
-		"application/yaml",
-		"application/x-yaml",
-		"application/javascript",
-		"application/typescript",
-		"application/sql",
-		"application/csv",
-	}
-	return slices.Contains(textTypes, mime)
 }

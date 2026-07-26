@@ -75,7 +75,8 @@ func (*Handle) handleShowPrompts(_ context.Context, input showPromptsInput) (*mc
 // showPromptsSchema returns the JSON schema for show_prompts.
 func showPromptsSchema() any {
 	return map[string]any{
-		schemaKeyType: "object",
+		schemaKeyType:          "object",
+		"additionalProperties": false,
 		"properties": map[string]any{
 			"search": map[string]any{
 				schemaKeyType:        schemaValString,

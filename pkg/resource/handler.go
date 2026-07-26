@@ -500,7 +500,7 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
-	if !CanReadResource(*claims, res) {
+	if !CanAccessResource(*claims, res) {
 		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
@@ -537,7 +537,7 @@ func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
-	if !CanReadResource(*claims, res) {
+	if !CanAccessResource(*claims, res) {
 		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
@@ -619,7 +619,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
-	if !CanReadResource(*claims, res) {
+	if !CanAccessResource(*claims, res) {
 		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
@@ -682,7 +682,7 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}
-	if !CanReadResource(*claims, res) {
+	if !CanAccessResource(*claims, res) {
 		writeError(w, http.StatusNotFound, msgNotFound)
 		return
 	}

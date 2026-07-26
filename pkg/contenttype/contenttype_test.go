@@ -102,7 +102,17 @@ func TestIsGeneric(t *testing.T) {
 func TestIsTextual(t *testing.T) {
 	t.Parallel()
 
-	textual := []string{"text/plain", "text/csv", "application/json", "application/x-ndjson", "application/xml", "application/yaml", "image/svg+xml", "application/sql"}
+	textual := []string{
+		"text/plain", "text/csv", "application/json", "application/x-ndjson", "application/xml",
+		"application/yaml", "image/svg+xml", "application/sql",
+		// TypeScript source is text that carries no text/ prefix; it is listed
+		// because every reader of this predicate (the resource read path, the
+		// search index consumer) must treat a .ts upload as readable text.
+		"application/typescript",
+		// Aliases must normalize before the family test, or a caller that declares
+		// the alias gets the binary answer.
+		"application/csv", "text/json", "application/javascript", "text/markdown; charset=utf-8",
+	}
 	for _, ct := range textual {
 		require.Truef(t, contenttype.IsTextual(ct), "%q must be textual", ct)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -145,7 +146,7 @@ func TestRouter_PerUserQueriedWithIdentity(t *testing.T) {
 	if !perUser.called {
 		t.Fatal("per-user provider should be queried when the caller has identity")
 	}
-	if perUser.gotCaller != caller {
+	if !reflect.DeepEqual(perUser.gotCaller, caller) {
 		t.Errorf("provider got caller %+v, want %+v", perUser.gotCaller, caller)
 	}
 }

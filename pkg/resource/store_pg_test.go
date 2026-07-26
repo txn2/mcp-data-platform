@@ -308,3 +308,37 @@ func TestPostgresStore_Update_AllFields(t *testing.T) {
 		t.Fatalf("Update all fields: %v", err)
 	}
 }
+
+// A row whose tags column is NULL scans to an empty slice, not nil, so the JSON
+// encoding is [] and callers never have to nil-check.
+func TestPostgresStore_Get_NullTagsAndScopeID(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM resources WHERE id = \\$1").
+		WithArgs("id-null").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "scope", "scope_id", "category", "filename", "display_name", "description",
+			"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
+			"created_at", "updated_at",
+		}).AddRow(
+			"id-null", "global", nil, "samples", "t.csv", "T", "d",
+			"text/csv", int64(1), "k", "mcp://global/samples/t.csv",
+			nil, "sub", "u@example.com", now, now,
+		))
+
+	got, err := NewPostgresStore(db).Get(context.Background(), "id-null")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Tags == nil || len(got.Tags) != 0 {
+		t.Errorf("Tags = %v, want an empty slice", got.Tags)
+	}
+	if got.ScopeID != "" {
+		t.Errorf("ScopeID = %q, want empty for a global resource", got.ScopeID)
+	}
+}

@@ -48,6 +48,15 @@ func MemoryRef(id string) string {
 	return refOrEmpty(EntityRef{TargetType: RefTargetMemory, MemoryID: id})
 }
 
+// ResourceRef returns the canonical reference for a managed resource, or "" if
+// id is empty. A resource is fetchable by anyone whose visible scopes include it
+// but is NOT citable on a knowledge page (#1012): it is visibility-scoped, so a
+// shared-page citation would be broken for readers outside that scope. The
+// page-citation path rejects it (ParseCitableRef).
+func ResourceRef(id string) string {
+	return refOrEmpty(EntityRef{TargetType: RefTargetResource, ResourceID: id})
+}
+
 // refOrEmpty serializes a reference and returns it only when it round-trips
 // through ParseEntityRef, so an unresolvable reference is never emitted.
 func refOrEmpty(r EntityRef) string {

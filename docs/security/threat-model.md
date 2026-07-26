@@ -144,7 +144,7 @@ All HTTP surfaces are assembled in one composition root
 | Gateway REST shim | `/api/v1/gateway/{connection}/invoke` | Wrapped by `httpauth.RequireAuth` when auth is enabled; the request runs through an in-memory MCP session so persona and audit apply (`pkg/gatewayhttp/handler.go`). |
 | Observability PromQL proxy | `/api/v1/observability/query`, `/query_range` | Requires authentication and the `observability:read` capability; unauthenticated 401, unauthorized 403 (`pkg/observability/proxy/handler.go`). |
 | Health | `/healthz`, `/readyz` | Unauthenticated by design (`pkg/health/health.go`); liveness/readiness only, no data. |
-| Managed resources | `POST /api/v1/resources`, `GET /api/v1/resources/{id}/content`, and CRUD | Every handler calls `authenticate` first (401 on failure, 403 on CSRF); upload checks `CanWriteScope`, download checks `CanReadResource`; uploads are size-bounded via `MaxBytesReader` (`pkg/resource/handler.go`). |
+| Managed resources | `POST /api/v1/resources`, `GET /api/v1/resources/{id}/content`, and CRUD | Every handler calls `authenticate` first (401 on failure, 403 on CSRF); upload checks `CanWriteScope`, and the by-id reads (get, download, patch, delete) check `CanAccessResource` — the caller's visible scopes, OR current write authority over the scope (platform admin, or that persona's admin), so an admin can manage material they may create but do not belong to, while a revoked role revokes the access with it (the grant is re-derived from current claims, never from the stored uploader); uploads are size-bounded via `MaxBytesReader` (`pkg/resource/handler.go`). |
 
 On the HTTP transports, a missing token yields `401` with a
 `WWW-Authenticate: Bearer` challenge, and a present-but-invalid token yields
