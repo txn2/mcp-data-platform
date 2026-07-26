@@ -10,7 +10,7 @@ the first is [the knowledge-layer benchmark report](benchmark-report.md).*
 | --- | --- |
 | **Author** | Craig Johnston (cj@imti.co), Deasil Works, Inc. / txn2 |
 | **Published** | 2026-07-25 (draft, pending review) |
-| **Report version** | 2.0-draft |
+| **Report version** | Report 2, version 1.0-draft |
 | **DOI** | pending |
 | **Subject under test** | Whether an agent holding platform-delivered knowledge acts on it: the conditions under which stored knowledge is used, re-derived, or replaced by invention. |
 | **Platform builds** | Runs are pinned per-manifest to commits on the `feat/1054-perishable-knowledge-bench` branch (v1.113.4 lineage); manifests carry the exact commit, seed-set hash, model, and driver for every run. A release-tagged rerun is the remaining step before a versioned DOI, mirroring report 1's practice. |
