@@ -366,6 +366,38 @@ func BridgeProbeCells() ([]Cell, error) {
 	return []Cell{withNote, control}, nil
 }
 
+// StaleAnswerCells are the last cell of the capability-by-derivability
+// matrix: a note that hands the agent an answer which the world has since
+// falsified. The belief says three monitors; the account has been emptied;
+// the truthful answer is zero. A trusting agent states three — a
+// confidently wrong value, not a wrong refusal — which is the direction
+// the tier that trusts answer-bearing notes is exposed in. The companion
+// no-knowledge control at the same world separates "trusted the stale
+// note" from "cannot count an empty account".
+func StaleAnswerCells() ([]Cell, error) {
+	seed, err := neutralSeed("perishable-present")
+	if err != nil {
+		return nil, err
+	}
+	q, err := questionByID("monitor-count")
+	if err != nil {
+		return nil, err
+	}
+	stale, err := Derive(q, seed, pkseed.Metadata{}, "monitors-0")
+	if err != nil {
+		return nil, err
+	}
+	if !stale.Stale() || stale.Behavior != BehaviorVerifyAnswer {
+		return nil, fmt.Errorf("pkcell: the stale-answer cell derives stale=%v %s; want a stale cell requiring verify-then-answer",
+			stale.Stale(), stale.Behavior)
+	}
+	control, err := Derive(q, nil, pkseed.Metadata{}, "monitors-0")
+	if err != nil {
+		return nil, err
+	}
+	return []Cell{stale, control}, nil
+}
+
 // PreRunCells are the two cells of the internal power pre-run (protocol
 // section 9). They are the two ends of the staleness axis on the study's
 // primary question, with everything else held at its plainest: the same

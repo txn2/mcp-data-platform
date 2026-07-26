@@ -29,7 +29,7 @@ func main() {
 		fixtureKey  = flag.String("fixture-key", "", "fixture X-API-Key")
 		model       = flag.String("model", "sonnet", "model alias or id (claude-cli alias, or full id with -llm anthropic)")
 		llmKind     = flag.String("llm", "claude-cli", "episode driver: claude-cli (subscription, default) or anthropic (raw API, metered)")
-		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep, answersweep, bridge")
+		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep, answersweep, bridge, staleanswer")
 		k           = flag.Int("k", 8, "replicates per cell")
 		identityKey = flag.Int("identity-keys", 150, "configured identity pool size")
 		out         = flag.String("out", "", "output directory (required)")
@@ -116,6 +116,9 @@ func selectCells(name string) ([]pkcell.Cell, bool, error) {
 		return cells, true, err
 	case "bridge":
 		cells, err := pkcell.BridgeProbeCells()
+		return cells, true, err
+	case "staleanswer":
+		cells, err := pkcell.StaleAnswerCells()
 		return cells, true, err
 	default:
 		return nil, false, fmt.Errorf("unknown cell set %q", name)

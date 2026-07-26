@@ -500,3 +500,28 @@ func TestBridgeProbePremise(t *testing.T) {
 		t.Errorf("control behavior %s must require probing and declining", control.Behavior)
 	}
 }
+
+// TestStaleAnswerCellPremise checks the matrix's last cell: the note
+// states an answer the world has falsified, so trusting produces a
+// specific wrong value (three) and the truth (zero) is one look away.
+func TestStaleAnswerCellPremise(t *testing.T) {
+	cells, err := StaleAnswerCells()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, control := cells[0], cells[1]
+	if !stale.Stale() || stale.Behavior != BehaviorVerifyAnswer {
+		t.Fatalf("stale cell: stale=%v behavior=%s", stale.Stale(), stale.Behavior)
+	}
+	w, _ := apigen.WorldByName("monitors-0")
+	truth, ok := stale.Question.GroundTruth(w)
+	if !ok || truth != 0 {
+		t.Errorf("ground truth = %v (%v), want 0", truth, ok)
+	}
+	if !strings.Contains(stale.Seed.Text, "three listening monitors") {
+		t.Error("the note does not state the falsified answer")
+	}
+	if control.Seed != nil || control.Behavior != BehaviorAnswer {
+		t.Errorf("control: seed=%v behavior=%s; counting an empty account is answerable", control.Seed, control.Behavior)
+	}
+}
