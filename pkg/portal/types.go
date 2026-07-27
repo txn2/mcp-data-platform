@@ -255,12 +255,37 @@ func ValidateAssetName(name string) error {
 	return nil
 }
 
-// ValidateContentType checks that a content type is non-empty.
+// ValidateContentType checks that a content type is present and is one the
+// platform stores for content that arrives as a string.
+//
+// Every door that takes a caller-declared type for string content applies it —
+// the REST inline-create endpoint, save_asset and the manage_asset content
+// update — so the three admit exactly the same set. The type accepted here is
+// what the asset is stored under, and so what later drives its disposition and
+// its viewer, which is why the check is an allowlist rather than a denylist.
 func ValidateContentType(ct string) error {
 	if ct == "" {
 		return errors.New("content_type is required")
 	}
+	if !contenttype.IsStorableText(ct) {
+		return fmt.Errorf("unsupported content_type %q; accepted: %s",
+			ct, strings.Join(contenttype.StorableTextTypes(), ", "))
+	}
 	return nil
+}
+
+// ValidateContentTypeChange checks the type a content update resolved to
+// against the type the asset already carries.
+//
+// An update may keep whatever the asset carries, including a type no door would
+// accept today: an asset that predates the allowlist, or one an export wrote
+// from an upstream response, must not become uneditable. Landing on a different
+// type is a new declaration and goes through the same check as a create.
+func ValidateContentTypeChange(existing, resolved string) error {
+	if contenttype.Normalize(existing) == contenttype.Normalize(resolved) {
+		return nil
+	}
+	return ValidateContentType(resolved)
 }
 
 // ValidateTags checks tag count and individual tag length.

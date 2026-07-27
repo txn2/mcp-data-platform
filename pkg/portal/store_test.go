@@ -721,6 +721,25 @@ func TestValidateAssetName(t *testing.T) {
 func TestValidateContentType(t *testing.T) {
 	assert.Error(t, ValidateContentType(""))
 	assert.NoError(t, ValidateContentType("text/html"))
+	assert.NoError(t, ValidateContentType("text/xml"), "an alias of an accepted family is accepted")
+
+	err := ValidateContentType("application/xhtml+xml")
+	require.Error(t, err, "the scriptable document family must not be storable")
+	assert.Contains(t, err.Error(), "text/markdown", "the error names what would be accepted")
+
+	assert.Error(t, ValidateContentType("application/pdf"), "a binary family cannot arrive as a string")
+	assert.Error(t, ValidateContentType("text/x-shellscript"), "text/* is not a wildcard")
+}
+
+func TestValidateContentTypeChange(t *testing.T) {
+	assert.NoError(t, ValidateContentTypeChange("text/markdown", "text/html"),
+		"a change onto the allowlist is accepted")
+	assert.NoError(t, ValidateContentTypeChange("text/x-log", "text/x-log"),
+		"an asset keeps its own type however it was stored")
+	assert.NoError(t, ValidateContentTypeChange("TEXT/X-LOG; charset=utf-8", "text/x-log"),
+		"the comparison is over normalized types")
+	assert.Error(t, ValidateContentTypeChange("text/x-log", "application/xhtml+xml"),
+		"a change off the allowlist is refused")
 }
 
 func TestValidateTags(t *testing.T) {
