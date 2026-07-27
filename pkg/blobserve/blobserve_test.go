@@ -33,10 +33,58 @@ func TestServeSetsHardeningHeaders(t *testing.T) {
 	}, "")
 	defer func() { _ = res.Body.Close() }()
 
+	require.Equal(t, "default-src 'none'; sandbox", res.Header.Get("Content-Security-Policy"))
 	require.Equal(t, "nosniff", res.Header.Get("X-Content-Type-Options"))
 	require.Equal(t, "application/json", res.Header.Get("Content-Type"))
 	require.Equal(t, "bytes", res.Header.Get("Accept-Ranges"))
 	require.Equal(t, `inline; filename="results.json"`, res.Header.Get("Content-Disposition"))
+}
+
+// TestServeAlwaysSetsSandboxCSP is the invariant that keeps this path safe when
+// the type classification is wrong or absent: whatever the family, the bytes
+// reach the browser under a policy that denies script and gives the document an
+// opaque origin, so it cannot act as the signed-in viewer.
+func TestServeAlwaysSetsSandboxCSP(t *testing.T) {
+	t.Parallel()
+
+	const want = "default-src 'none'; sandbox"
+
+	tests := []struct {
+		name string
+		ct   string
+		data []byte
+	}{
+		{"inert text", "text/plain", []byte("hello")},
+		{"image", "image/png", []byte{0x89, 'P', 'N', 'G'}},
+		{"pdf", "application/pdf", []byte("%PDF-1.4")},
+		{"audio", "audio/mpeg", []byte{0xff, 0xfb}},
+		{"active html", "text/html", []byte("<script>alert(1)</script>")},
+		{"active svg", "image/svg+xml", []byte("<svg/>")},
+		{"xhtml", "application/xhtml+xml", []byte("<html xmlns='http://www.w3.org/1999/xhtml'/>")},
+		{"xml", "application/xml", []byte("<?xml version='1.0'?><a/>")},
+		{"unclassifiable type", "application/vnd.acme.unknown", []byte("x")},
+		{"empty content type", "", []byte("x")},
+		{"unparseable content type", "not a media type", []byte("x")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			res := serve(t, blobserve.Options{Name: "blob", ContentType: tt.ct, Data: tt.data}, "")
+			defer func() { _ = res.Body.Close() }()
+			require.Equal(t, want, res.Header.Get("Content-Security-Policy"))
+		})
+	}
+
+	t.Run("range response", func(t *testing.T) {
+		t.Parallel()
+		res := serve(t, blobserve.Options{
+			Name: "clip.mp4", ContentType: "video/mp4", Data: []byte("0123456789"),
+		}, "bytes=2-5")
+		defer func() { _ = res.Body.Close() }()
+		require.Equal(t, http.StatusPartialContent, res.StatusCode)
+		require.Equal(t, want, res.Header.Get("Content-Security-Policy"))
+	})
 }
 
 func TestServeSanitizesContentType(t *testing.T) {
@@ -65,13 +113,18 @@ func TestServeSanitizesContentType(t *testing.T) {
 	}
 }
 
-// TestServeForcesAttachmentForActiveTypes is the serving half of the
-// active-type rule: HTML, JSX, SVG and JavaScript must never be offered for
-// inline rendering on the platform's own origin.
-func TestServeForcesAttachmentForActiveTypes(t *testing.T) {
+// TestServeForcesAttachmentForScriptableDocuments is the serving half of the
+// scriptable-document rule: a family a browser turns into a live markup
+// document must never be offered for inline rendering on the platform's own
+// origin. The XHTML and XML entries matter most — nosniff does not help there,
+// because the declared type genuinely is a document type.
+func TestServeForcesAttachmentForScriptableDocuments(t *testing.T) {
 	t.Parallel()
 
-	for _, ct := range []string{"text/html", "text/jsx", "image/svg+xml", "application/javascript"} {
+	for _, ct := range []string{
+		"text/html", "text/jsx", "image/svg+xml", "application/javascript",
+		"application/xhtml+xml", "application/xml", "text/xml", "application/rss+xml",
+	} {
 		t.Run(ct, func(t *testing.T) {
 			t.Parallel()
 			res := serve(t, blobserve.Options{Name: "page", ContentType: ct, Data: []byte("<b>x</b>")}, "")
