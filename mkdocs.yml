@@ -105,8 +105,8 @@ nav:
       - Tutorial: mcpapps/tutorial.md
   - Evaluation:
     - Knowledge-Layer Benchmark: reference/benchmarks.md
-    - Benchmark Report: reference/benchmark-report.md
-    - Benchmark Report 2: reference/benchmark-report-2.md
+    - "Benchmark Report: Knowledge Layer": reference/benchmark-report.md
+    - "Benchmark Report: Knowledge Use": reference/benchmark-report-knowledge-use.md
   - Security:
     - Threat Model: security/threat-model.md
   - Go Library:

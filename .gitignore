@@ -85,3 +85,4 @@ internal/contentviewer/dist/*
 
 # Resolved dev ports written by dev/start.sh (auto-relocation)
 dev/.dev-ports.env
+__pycache__/

@@ -1,5 +1,13 @@
 # Perishable knowledge: a pre-registered study of verification, epistemic metadata, and correction propagation in a governed knowledge layer
 
+> **Status: study concluded (2026-07-25) — results published as benchmark
+> report 2** (`docs/reference/benchmark-report-knowledge-use.md`). The
+> primary hypothesis H1a was falsified by the power pre-run; per section 14
+> the falsified premises are recorded on issue #1054 and the confirmatory
+> matrix was never executed. Kept unchanged as the pre-registration of
+> record; the report documents its own relationship to this protocol.
+
+
 Study protocol for issue #1054. This document is the design deliverable
 that gates fixture code: no fixture or task code is written until it is
 reviewed. It is written as a pre-registration. Hypotheses, directional
