@@ -26,6 +26,15 @@
 // declared text/plain stays text/plain; content that sniffs as HTML with no
 // declaration at all becomes text/plain. This keeps a mislabeled upload from
 // turning itself into script-bearing content.
+//
+// # Scriptable-document rule
+//
+// IsActive answers what detection may produce. It does not answer whether
+// stored bytes may render inline on the platform's origin, which is a wider
+// question: XML is safe to name from content and unsafe to render, because a
+// browser navigating to it builds a document that honors an <?xml-stylesheet?>
+// processing instruction. IsScriptableDocument answers that one, over a
+// superset of the active types.
 package contenttype
 
 import (
@@ -61,6 +70,9 @@ const (
 	JSX = "text/jsx"
 	// SVG is the canonical type for SVG images. Active.
 	SVG = "image/svg+xml"
+	// XHTML is the canonical type for XHTML documents. Active: a browser
+	// renders XHTML natively and runs the script inside it.
+	XHTML = "application/xhtml+xml"
 	// JavaScript is the canonical type for standalone JavaScript source.
 	JavaScript = "text/javascript"
 	// PDF is the canonical type for PDF documents.
@@ -129,11 +141,49 @@ var aliases = map[string]string{
 // activeTypes are the media types whose renderers execute author-supplied
 // script or markup. Detection may never produce one of these from content
 // alone; only an explicit declaration can.
+//
+// This set governs detection, not serving. Adding a type here stops a
+// mislabeled upload from turning itself into script-bearing content; it does
+// not decide whether stored bytes may render inline on the platform's origin.
+// That question is IsScriptableDocument, whose set is a superset of this one,
+// because a family can be safe to name from content and still unsafe to render
+// (see scriptableDocumentTypes). Adding a family to only one of the two sets is
+// almost always a mistake.
 var activeTypes = map[string]bool{
 	HTML:       true,
 	JSX:        true,
 	SVG:        true,
 	JavaScript: true,
+	XHTML:      true,
+}
+
+// scriptableDocumentTypes are the media types a browser turns into a live
+// markup document, with a render tree the author of the bytes controls. It is
+// the active types plus the XML family: XML is safe to name from content and a
+// viewer shows it as inert text, but a browser navigating to application/xml
+// builds a document and honors an <?xml-stylesheet?> processing instruction.
+//
+// This set is security-relevant. It is what keeps stored, author-controlled
+// bytes from rendering as a document on the platform's own origin, where script
+// would inherit the viewer's session. A renderable family added to the platform
+// belongs here unless a browser is known to render it inert.
+//
+// The set is a floor, not the whole defense: blobserve serves every response
+// under a sandbox CSP, so a family missed here is contained rather than
+// exploitable. IsScriptableDocument additionally treats any `+xml` structured
+// suffix as a member, so an unregistered XML dialect is covered without an
+// entry.
+var scriptableDocumentTypes = newScriptableDocumentSet()
+
+// newScriptableDocumentSet derives the scriptable-document set from
+// activeTypes, so the two cannot drift: every active type is by definition a
+// scriptable document.
+func newScriptableDocumentSet() map[string]bool {
+	set := map[string]bool{XML: true}
+	for ct := range activeTypes {
+		set[ct] = true
+	}
+	return set
 }
 
 // genericTypes are declarations that carry no information about the shape of
@@ -180,6 +230,18 @@ func Normalize(declared string) string {
 // Detection never upgrades content into one of these types.
 func IsActive(ct string) bool {
 	return activeTypes[Normalize(ct)]
+}
+
+// IsScriptableDocument reports whether a browser navigating to a response of
+// this type builds a document whose render tree the author of the bytes
+// controls. Stored content of such a type must never be served for inline
+// rendering on the platform's origin.
+//
+// Any `+xml` structured suffix qualifies, so an XML dialect that has no entry
+// in scriptableDocumentTypes is still covered.
+func IsScriptableDocument(ct string) bool {
+	norm := Normalize(ct)
+	return scriptableDocumentTypes[norm] || strings.HasSuffix(norm, "+xml")
 }
 
 // IsGeneric reports whether a declared media type is uninformative enough that

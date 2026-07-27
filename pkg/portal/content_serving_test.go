@@ -242,3 +242,66 @@ func TestPublicAssetContentSupportsRange(t *testing.T) {
 	assert.Equal(t, "89ab", w.Body.String())
 	assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
 }
+
+// TestPublicAssetContentCannotScriptTheOrigin covers issue #1068 on the surface
+// that made it reachable: a single-asset public share serves stored bytes with
+// no authentication, on the same origin whose REST API is cookie-authenticated.
+// A document uploaded there must arrive unable to run script — as a download
+// rather than a rendered document, and under a policy that denies script even
+// if the disposition were wrong or the family unrecognized.
+//
+// The assertion is on the response headers rather than on browser behavior,
+// because the headers are what the platform controls.
+func TestPublicAssetContentCannotScriptTheOrigin(t *testing.T) {
+	const payload = `<html xmlns="http://www.w3.org/1999/xhtml"><script>fetch("/api/v1/portal/assets")</script></html>`
+
+	for _, ct := range []string{
+		"application/xhtml+xml", "application/xml", "text/xml", "text/html", "image/svg+xml",
+	} {
+		t.Run(ct, func(t *testing.T) {
+			asset := &Asset{
+				ID: "a1", OwnerID: "u1", Name: "doc", ContentType: ct, S3Bucket: "b", S3Key: "k",
+			}
+			share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
+			h := NewHandler(Deps{
+				AssetStore: &mockAssetStore{getAsset: asset},
+				ShareStore: &mockShareStore{getByTokenRes: share},
+				S3Client:   &mockS3Client{getData: []byte(payload), getCT: ct},
+			}, nil)
+
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/content", http.NoBody)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.True(t, strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment"),
+				"%q must not be offered for inline rendering, got %q", ct, w.Header().Get("Content-Disposition"))
+			assert.Equal(t, "default-src 'none'; sandbox", w.Header().Get("Content-Security-Policy"))
+			assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
+		})
+	}
+}
+
+// TestPublicAssetContentAlwaysCarriesCSP is the unconditional half: the policy
+// is on the response whatever the family, so a type nobody classified is
+// contained rather than exploitable.
+func TestPublicAssetContentAlwaysCarriesCSP(t *testing.T) {
+	for _, ct := range []string{"text/plain", "image/png", "application/pdf", "application/vnd.acme.unknown", ""} {
+		t.Run("content type "+ct, func(t *testing.T) {
+			asset := &Asset{ID: "a1", OwnerID: "u1", Name: "blob", ContentType: ct, S3Bucket: "b", S3Key: "k"}
+			share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
+			h := NewHandler(Deps{
+				AssetStore: &mockAssetStore{getAsset: asset},
+				ShareStore: &mockShareStore{getByTokenRes: share},
+				S3Client:   &mockS3Client{getData: []byte("payload"), getCT: ct},
+			}, nil)
+
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/content", http.NoBody)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, "default-src 'none'; sandbox", w.Header().Get("Content-Security-Policy"))
+		})
+	}
+}

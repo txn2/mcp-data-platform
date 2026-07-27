@@ -106,21 +106,40 @@ Every raw-content endpoint (portal assets, asset versions, thumbnails, public
 share content, managed resources) writes through one shared code path, so the
 guarantees below hold on all of them:
 
+- **`Content-Security-Policy: default-src 'none'; sandbox`**, on every response
+  regardless of type. `default-src 'none'` denies the document every fetch it
+  could make and, because `script-src` falls back to it, kills inline script,
+  event handler attributes and `javascript:` URLs; `sandbox` with no `allow-`
+  tokens puts the document in an opaque origin with scripting off. The header is
+  unconditional on purpose: stored content has no legitimate need for
+  same-origin script here, and a conditional header would make the guarantee
+  depend on the type classification below staying complete.
 - **`X-Content-Type-Options: nosniff`**, so a browser cannot decide for itself
   that a `text/plain` response is really HTML and run it.
 - **A parsed, parameter-free `Content-Type`**, so a stored value cannot smuggle
   anything into the header.
-- **`Content-Disposition: attachment` for active types** (HTML, JSX, SVG,
-  JavaScript), which never render inline on the platform's own origin, and
-  `inline` for the passive families a viewer embeds.
+- **`Content-Disposition: attachment` for scriptable document types** (HTML,
+  XHTML, JSX, SVG, JavaScript, XML and any `+xml` dialect), which never render
+  inline on the platform's own origin, and `inline` for the passive families a
+  viewer embeds.
 - **Byte-range support**, so audio and video elements seek by requesting the
   range they need instead of downloading the whole object first.
+
+The scriptable set is wider than the set of types the sniffer refuses to
+promote. XML is safe to name from content, and a viewer shows it as inert text,
+but a browser navigating to `application/xml` builds a document and honors an
+`<?xml-stylesheet?>` processing instruction, so it is served as a download.
+`nosniff` is no help for XHTML or XML: it enforces the declared type, and the
+declared type genuinely is a document type.
 
 The PDF viewer deliberately carries no iframe `sandbox`: Chrome refuses to
 instantiate its PDF plugin inside any sandboxed frame, with or without
 `allow-scripts`, so a sandboxed PDF frame shows a broken-plugin icon rather than
-the document. Containment for PDFs comes from the serving guarantees above plus
-the `object-src 'self'` directive in the public viewer's CSP.
+the document. The response-level sandbox CSP above is a different mechanism and
+does not have that effect — a PDF served under it still renders in Chrome's
+viewer through `<object>`. Containment for PDFs comes from the serving
+guarantees above plus the `object-src 'self'` directive in the public viewer's
+CSP.
 
 Binary content is served from these endpoints rather than embedded in the
 viewer page. The public viewer embeds text content in the page as a JSON string,
