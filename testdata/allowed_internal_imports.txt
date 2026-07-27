@@ -342,6 +342,7 @@ pkg/portal -> pkg/portal/knowledgepage
 pkg/portal -> pkg/portal/mention
 pkg/portal -> pkg/portal/publicviewer
 pkg/portal -> pkg/portal/shareaccess
+pkg/portal -> pkg/portal/sharecache
 pkg/portal -> pkg/portal/shareguest
 pkg/portal -> pkg/portal/threads
 pkg/portal -> pkg/portal/viewerlimit
@@ -365,6 +366,8 @@ pkg/portal/mention -> internal/logsan
 pkg/portal/mentionhttp -> pkg/portal/mention
 pkg/portal/mentionhttp -> pkg/portal/threads
 pkg/portal/mentionhttp -> pkg/user
+pkg/portal/sharecache -> pkg/blobserve
+pkg/portal/sharecache -> pkg/portal/shareaccess
 pkg/portal/threads -> pkg/portal/mention
 pkg/portal/viewerlimit -> pkg/ratelimit
 pkg/prompt/attachhttp -> pkg/prompt

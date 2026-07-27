@@ -859,7 +859,9 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	// canViewAsset decided this on the caller, so the bytes may sit in that
+	// caller's browser cache and nowhere a second caller can reach.
+	blobserve.CachePrivate(w, time.Hour)
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        asset.ID + ".png",
 		ContentType: mimeTypePNG,

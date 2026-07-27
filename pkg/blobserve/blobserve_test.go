@@ -242,3 +242,79 @@ func TestServeEmptyData(t *testing.T) {
 	require.Equal(t, http.StatusOK, res.StatusCode)
 	require.Equal(t, "0", res.Header.Get("Content-Length"))
 }
+
+// TestServeDefaultsToPrivateCache is the caching half of the same guarantee the
+// sandbox CSP gives: every endpoint reaching this package authorizes its caller
+// first, and a response with no directive at all is heuristically storable by a
+// shared cache, which would let one authorized fetch answer for every later
+// request to the URL.
+func TestServeDefaultsToPrivateCache(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		opts blobserve.Options
+	}{
+		{"text", blobserve.Options{Name: "notes.txt", ContentType: "text/plain", Data: []byte("x")}},
+		{"image", blobserve.Options{Name: "thumb.png", ContentType: "image/png", Data: []byte{0x89}}},
+		{"with modtime", blobserve.Options{
+			Name: "doc.pdf", ContentType: "application/pdf", Data: []byte("%PDF"),
+			ModTime: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		}},
+		{"empty", blobserve.Options{Name: "empty.bin", Data: nil}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			res := serve(t, tt.opts, "")
+			defer func() { _ = res.Body.Close() }()
+			require.Equal(t, "private", res.Header.Get("Cache-Control"))
+		})
+	}
+}
+
+// TestServeKeepsCallerCacheControl covers the one endpoint family that serves
+// genuinely anonymous bytes — a fully public share's thumbnail — where the
+// handler knows the object has no audience to protect and says so.
+func TestServeKeepsCallerCacheControl(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/thumbnail", http.NoBody)
+	rec := httptest.NewRecorder()
+	rec.Header().Set("Cache-Control", "public, max-age=3600")
+
+	blobserve.Serve(rec, req, blobserve.Options{Name: "t.png", ContentType: "image/png", Data: []byte("png")})
+
+	res := rec.Result()
+	defer func() { _ = res.Body.Close() }()
+	require.Equal(t, "public, max-age=3600", res.Header.Get("Cache-Control"))
+}
+
+// TestCachePrivate pins the pairing the helper exists for: an endpoint that
+// authorized its caller gets both the directive that keeps shared caches out
+// and the key that stops one that stores it anyway from answering a second
+// caller.
+func TestCachePrivate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		maxAge time.Duration
+		want   string
+	}{
+		{"hour", time.Hour, "private, max-age=3600"},
+		{"minute", time.Minute, "private, max-age=60"},
+		{"zero", 0, "private, max-age=0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			blobserve.CachePrivate(rec, tt.maxAge)
+			require.Equal(t, tt.want, rec.Header().Get("Cache-Control"))
+			require.Equal(t, "Cookie", rec.Header().Get("Vary"))
+		})
+	}
+}

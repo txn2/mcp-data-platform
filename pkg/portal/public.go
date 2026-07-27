@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/portal/publicviewer"
+	"github.com/txn2/mcp-data-platform/pkg/portal/sharecache"
 )
 
 // resolvePublicBaseURL returns the absolute URL prefix the public viewer
@@ -645,17 +646,25 @@ func (h *Handler) publicCollectionItemView(w http.ResponseWriter, r *http.Reques
 	h.renderAssetViewer(w, r, pad, share)
 }
 
-// servePublicThumbnail writes a thumbnail object as a publicly cacheable image
-// response. Any fetch failure is a 404: a public viewer cannot act on the
-// difference between "no thumbnail" and "storage is down", and the distinction
-// would leak whether the key exists.
+// servePublicThumbnail writes a thumbnail object as an image response under the
+// caching scope the share's access mode allows (sharecache.Thumbnail): shared
+// caches may hold a fully public share's thumbnail, the one object on this
+// surface with no audience to protect and the one a link preview refetches on
+// every paste of the URL. Any other mode gets the authorized browser and
+// nothing else, because there the gate's verdict is the caller's and not the
+// URL's (#1070).
+//
+// Any fetch failure is a 404: a public viewer cannot act on the difference
+// between "no thumbnail" and "storage is down", and the distinction would leak
+// whether the key exists.
 func (h *Handler) servePublicThumbnail(w http.ResponseWriter, r *http.Request, bucket, key string) {
 	data, contentType, err := h.deps.S3Client.GetObject(r.Context(), bucket, key)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	share := shareFromRequest(r)
+	sharecache.Thumbnail(w, share.AccessMode, share.ExpiresAt, time.Now())
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        "thumbnail.png",
 		ContentType: cmp.Or(contentType, mimeTypePNG),
