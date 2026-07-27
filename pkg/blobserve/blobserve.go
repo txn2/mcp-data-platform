@@ -3,7 +3,7 @@
 // Every raw-content endpoint in the platform — portal assets, asset versions,
 // thumbnails, public share content, managed resources — serves bytes that a
 // user uploaded or an upstream API produced, under a content type that came
-// from the same untrusted place. They all need the same five things, and
+// from the same untrusted place. They all need the same six things, and
 // getting any of them wrong on one endpoint is a bug on that endpoint alone,
 // which is why this is one function rather than a convention:
 //
@@ -20,6 +20,8 @@
 //     viewer embeds.
 //   - Byte-range support, so an audio or video element can seek without
 //     downloading the whole object first.
+//   - A Cache-Control default of `private`, so an endpoint that authorizes its
+//     caller does not hand its bytes to a shared cache by saying nothing.
 package blobserve
 
 import (
@@ -57,6 +59,36 @@ import (
 // text/html and in an application/xhtml+xml document does not run.
 const sandboxCSP = "default-src 'none'; sandbox"
 
+// defaultCacheControl is written when the caller set no Cache-Control of its
+// own. Every endpoint reaching this package authorizes its caller first, and a
+// response carrying no directive at all is heuristically storable by a shared
+// cache: with ServeContent's Last-Modified as the freshness basis, a CDN or
+// ingress cache in front of the platform may reuse one authorized fetch for
+// every later request to the same URL, which is authorization bypass by
+// omission. `private` says the browser that was authorized may keep it and no
+// shared cache may.
+//
+// Unlike the CSP above this is a default rather than an override: an endpoint
+// whose bytes are genuinely anonymous — a fully public share's thumbnail — sets
+// `public` deliberately, and that decision belongs to the handler that knows
+// who may read the object.
+const defaultCacheControl = "private"
+
+// CachePrivate marks the response as one only the caller that was authorized
+// for it may keep: storable by that browser for maxAge, never by a shared
+// cache, and keyed on the credential the browser sends so a cache that does
+// store it cannot answer a second caller from the first one's copy.
+//
+// It is one call rather than two Set lines per endpoint because the pairing is
+// the point — a `private` that lost its Vary, or a Vary that lost its
+// directive, is the same authorization bypass the pair exists to prevent. An
+// endpoint whose bytes are genuinely anonymous writes `public` itself, so the
+// exception stays visible at the one place that takes it.
+func CachePrivate(w http.ResponseWriter, maxAge time.Duration) {
+	w.Header().Set("Cache-Control", fmt.Sprintf("private, max-age=%d", int(maxAge.Seconds())))
+	w.Header().Set("Vary", "Cookie")
+}
+
 // Options describes one blob to serve.
 type Options struct {
 	// Name is the object's display filename. It is used for the
@@ -92,6 +124,9 @@ func Serve(w http.ResponseWriter, r *http.Request, opts Options) {
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Content-Disposition", disposition(ct, opts))
+	if w.Header().Get("Cache-Control") == "" {
+		w.Header().Set("Cache-Control", defaultCacheControl)
+	}
 
 	// http.ServeContent supplies Range, If-Range, If-Modified-Since,
 	// Content-Length and the 206/416 responses. It only sniffs a Content-Type

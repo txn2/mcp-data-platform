@@ -162,6 +162,13 @@ guarantees below hold on all of them:
   viewer embeds.
 - **Byte-range support**, so audio and video elements seek by requesting the
   range they need instead of downloading the whole object first.
+- **`Cache-Control: private` by default**, so an endpoint that authorized its
+  caller does not hand the bytes to a shared cache by saying nothing: a response
+  carrying no directive at all is heuristically storable, and a CDN or ingress
+  cache in front of the platform would then answer later requests for the same
+  URL from one authorized fetch. This one is a default rather than an override —
+  a fully public share's thumbnail is genuinely anonymous and sets `public,
+  max-age=3600` deliberately.
 
 The scriptable set is wider than the set of types the sniffer refuses to
 promote. XML is safe to name from content, and a viewer shows it as inert text,

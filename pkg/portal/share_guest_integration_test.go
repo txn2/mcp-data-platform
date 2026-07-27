@@ -205,6 +205,10 @@ func TestGuestJourney(t *testing.T) {
 	h.ServeHTTP(wd, req)
 	require.Equal(t, http.StatusOK, wd.Code)
 	assert.Equal(t, "file content", wd.Body.String())
+	// The guest cookie is the whole credential here, so these bytes may not be
+	// stored anywhere a second caller can reach (#1070).
+	assert.Equal(t, "private", wd.Header().Get("Cache-Control"))
+	assert.Equal(t, "Cookie", wd.Header().Get("Vary"))
 
 	// 6. Replaying the claimed link fails and lands back on the landing
 	// page, which explains and re-offers the request button.

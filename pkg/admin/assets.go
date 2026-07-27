@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -28,6 +29,10 @@ const errAdminStorageNotReady = "content storage not configured"
 
 // errAdminAssetDeleted is the error message for deleted assets.
 const errAdminAssetDeleted = "asset has been deleted"
+
+// thumbnailCacheMaxAge is how long a browser may reuse a thumbnail it was
+// authorized for, matching the portal's own thumbnail route.
+const thumbnailCacheMaxAge = time.Hour
 
 // headerContentType is the HTTP Content-Type header name.
 const headerContentType = "Content-Type"
@@ -448,7 +453,9 @@ func (h *Handler) getAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// Admin-authenticated bytes: the caller's to keep for the hour, no shared
+	// cache's to hand on.
+	blobserve.CachePrivate(w, thumbnailCacheMaxAge)
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        asset.ID + ".png",
 		ContentType: mimeTypePNG,
