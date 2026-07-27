@@ -1,5 +1,13 @@
 # API-connection architecture study: fixture, generator, and tier design
 
+> **Status: study closed, not planned (2026-07-24).** The design held its
+> discriminating variable at an easy setting and saturated by construction;
+> the postmortem is recorded on issue #1027 and the pilot data is archived
+> under `bench/results/api-study-pilot/`. The fixture and harness this
+> protocol produced were reused by the perishable-knowledge study. Kept as
+> the pre-registration of record for the archived pilot.
+
+
 > **Outcome (2026-07-24): harness delivered; study not published.** The
 > full k=1 matrix ran (4 arms x 3 tiers x 50 tasks, claude-cli, Sonnet;
 > 600 episodes, zero harness failures; results archived under

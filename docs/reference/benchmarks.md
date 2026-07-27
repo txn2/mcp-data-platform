@@ -78,7 +78,7 @@ benchmarks are two ends of the same pipe.
   knowledge-trap breakdown, the cold-start learning curve, the S5 lifecycle
   scorecard, threats to validity, reproducibility, and the data-availability
   table. Every number is recomputed from committed raw data by
-  `bench/report/report.ipynb`.
+  `bench/reports/knowledge-layer/report.ipynb`.
 - **[`bench/README.md`](https://github.com/txn2/mcp-data-platform/tree/main/bench)**
   is the operator manual: how to run every suite, arm definitions, the identity
   pool, grading, and the regression gate.

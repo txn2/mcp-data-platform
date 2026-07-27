@@ -29,8 +29,12 @@ fi
 # `make verify` catches patch coverage issues BEFORE committing.
 # - If HEAD != merge-base, diff committed changes + any uncommitted on top.
 # - If HEAD == merge-base (no commits yet), diff working tree against base.
-HAS_UNCOMMITTED=$(git diff --name-only HEAD 2>/dev/null | head -1)
-HAS_STAGED=$(git diff --cached --name-only 2>/dev/null | head -1)
+# --quiet avoids piping a potentially enormous diff into head: under
+# `set -o pipefail`, head closing the pipe early turns git's SIGPIPE into
+# exit 141 and kills the script on exactly the large diffs (bulk renames,
+# archived run data) it most needs to handle.
+if git diff --quiet HEAD 2>/dev/null; then HAS_UNCOMMITTED=""; else HAS_UNCOMMITTED="yes"; fi
+if git diff --cached --quiet 2>/dev/null; then HAS_STAGED=""; else HAS_STAGED="yes"; fi
 
 if [ "$MERGE_BASE" = "$(git rev-parse HEAD)" ] && [ -z "$HAS_UNCOMMITTED" ] && [ -z "$HAS_STAGED" ]; then
     echo "SKIP: HEAD is the merge base (on $BASE_BRANCH or no new commits) and no uncommitted changes."

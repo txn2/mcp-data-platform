@@ -13,6 +13,7 @@ authors:
     given-names: Craig
     email: cj@imti.co
     affiliation: "Deasil Works, Inc."
+    orcid: "https://orcid.org/0009-0000-9041-4079"
 repository-code: "https://github.com/txn2/mcp-data-platform"
 url: "https://mcp-data-platform.txn2.com"
 license: Apache-2.0

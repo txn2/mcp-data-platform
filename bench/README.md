@@ -13,6 +13,48 @@ This is distinct from the load harness (`test/load`): that suite answers "how
 much" (throughput, latency, memory); this one answers "how well" (accuracy,
 tool-call efficiency, knowledge-trap resistance).
 
+## Reports: what belongs to what
+
+Two published reports, one closed study. Every artifact belongs to exactly
+one row; run-family directories under `results/` are never shared between
+reports.
+
+| | Report 1: knowledge-layer effectiveness | Report 2: knowledge use | API-connection study (closed) |
+| --- | --- | --- | --- |
+| **Published page** | `docs/reference/benchmark-report.md` (URL frozen by its Zenodo DOI) | `docs/reference/benchmark-report-knowledge-use.md` | none (closed not planned; postmortem on #1027) |
+| **Protocol / design docs** | issues #930/#942-#945 | `docs/perishable-knowledge-study-design.md`, `-fixture.md`, `-estimator-audit.md` | `docs/api-connection-study-design.md` |
+| **Recompute + render toolchain** | `reports/knowledge-layer/` (`report.ipynb`, figures, `render-report.sh`, `make bench-report-pdf`) | `reports/knowledge-use/` (`report.ipynb`, `pk_tables.py`, `render-report.sh`, `make bench-report-knowledge-use-pdf`) | none |
+| **Run families under `results/`** | top-level families (`phase2-anthropic-k3/`, `claude-cli-949/`, cold-start and lifecycle runs) — paths frozen by the deposited report-1 PDF | everything under `results/knowledge-use/` | `api-study-pilot/` |
+| **Status** | published, DOI 10.5281/zenodo.21438044 | version 1.0, pinned to v1.116.0, DOI pending | closed |
+
+Negative results and evidence-backed platform decisions are indexed in
+`docs/findings-register.md` — a retired study candidate gets a register
+row, not silence, so concluded research is never repeated unknowingly.
+
+### The convention for every future report
+
+One slug per report, used in exactly four places, so the next report is
+organized before its first run exists. Ordinals ("report 2") never appear
+in anything a reader sees — not titles, subtitles, version strings, nav
+labels, or citations. A report's version is its own (starting at 1.0),
+series membership is a prose line with a link to the sibling reports, and
+the series name ("mcp-data-platform benchmark report series") is what a
+citation carries. Ordinals live only in this internal map:
+
+1. Published page: `docs/reference/benchmark-report-<slug>.md` (plus a nav
+   entry, the llms files, and the doc-check tool-token gate list).
+2. Toolchain: `bench/reports/<slug>/` — recompute (`report.ipynb` and/or a
+   script), `render-report.sh`, `pandoc/`, and a
+   `make bench-report-<slug>-pdf` target.
+3. Run data: `bench/results/<slug>/<family>/<run-dir>/`, each family with a
+   README stating what it does and does not establish.
+4. Protocol and design docs: `bench/docs/<slug or study>-*.md`, each with a
+   status banner at the top.
+
+Report 1 predates the convention and its `results/` families stay at the
+top level because the deposited PDF cites those paths; that exception is
+permanent and this table is its record.
+
 ## Why a separate module
 
 `bench/` is its own Go module (same rationale as `test/load`): the repository
@@ -656,11 +698,12 @@ bench/
 ├── apigen/              fixture catalog + spec + task + seed generator CLI
 ├── pkcorpus/            perishable-knowledge capture-corpus runner CLI (#1054 stage 1)
 ├── pkrun/               perishable-knowledge cell runner CLI (#1054)
-├── docs/                study protocols and fixture references
+├── docs/                study protocols and design docs (status banner at the top of each)
 ├── tasks/               generated task YAML + smoke script (committed)
 ├── protocols/           generated S5 lifecycle protocol YAML + smoke (committed)
 ├── curriculum/          generated cold-start curriculum YAML + smoke (committed)
 ├── judge/               versioned rubric + human-labeled calibration set
+├── reports/             per-report recompute + render toolchains (see the map above)
 └── internal/
     ├── gen/             dataset model, emitters, ground-truth computation, protocols, curriculum
     ├── apigen/          fixture catalog model, spec emitter, seeded state, perishable world registry

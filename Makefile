@@ -1296,7 +1296,11 @@ bench-compare:
 
 ## bench-report-pdf: Render the benchmark report to PDF + HTML in build/report/ (needs pandoc + tectonic; not part of verify)
 bench-report-pdf:
-	@bash bench/report/render-report.sh
+	@bash bench/reports/knowledge-layer/render-report.sh
+
+## bench-report-knowledge-use-pdf: Render benchmark report 2 (knowledge use) to PDF + HTML in build/report-knowledge-use/ (needs pandoc + tectonic; not part of verify)
+bench-report-knowledge-use-pdf:
+	@bash bench/reports/knowledge-use/render-report.sh
 
 ## bench-calibrate: Run the judge calibration and print its human-agreement rate (needs ANTHROPIC_API_KEY; uses the rubric's pinned model)
 bench-calibrate:

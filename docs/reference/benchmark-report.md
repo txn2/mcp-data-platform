@@ -2,12 +2,12 @@
 
 *A neutral evaluation report for the mcp-data-platform knowledge layer. Every
 statistic below is recomputed from raw run data committed under `bench/results/`
-by the notebook `bench/report/report.ipynb`; each claim cites the run directory
+by the notebook `bench/reports/knowledge-layer/report.ipynb`; each claim cites the run directory
 it comes from.*
 
 | | |
 | --- | --- |
-| **Author** | Craig Johnston (cj@imti.co), Deasil Works, Inc. / txn2 |
+| **Author** | Craig Johnston (cj@imti.co), Deasil Works, Inc. / txn2 — ORCID [0009-0000-9041-4079](https://orcid.org/0009-0000-9041-4079) |
 | **Published** | 2026-07-19 |
 | **Report version** | 1.1 |
 | **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept DOI, resolves to the latest version) |
@@ -497,18 +497,18 @@ discovery conditions, which is future work.
 ## 8. Reproducibility
 
 Every figure and every number in this report is regenerated from the committed
-raw data by `bench/report/report.ipynb`. The notebook reads only the
+raw data by `bench/reports/knowledge-layer/report.ipynb`. The notebook reads only the
 `results.json` files under `bench/results/`; it needs no API key, no running
 platform, and no network access.
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install -r bench/report/requirements.txt
-jupyter nbconvert --to notebook --execute --inplace bench/report/report.ipynb
+pip install -r bench/reports/knowledge-layer/requirements.txt
+jupyter nbconvert --to notebook --execute --inplace bench/reports/knowledge-layer/report.ipynb
 ```
 
 Re-running the notebook rewrites the figures (the canonical copies under
-`bench/report/figures/` and the docs-served copies under
+`bench/reports/knowledge-layer/figures/` and the docs-served copies under
 `docs/reference/benchmark-figures/`, which this page embeds) and prints the exact
 tables quoted above. A mismatch between a number in this document and the
 notebook's recomputed value is a factual-integrity defect to be fixed in the
