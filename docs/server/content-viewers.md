@@ -44,6 +44,44 @@ When detection replaces a declaration, the original is recorded in the asset's
 provenance as `declared_content_type`, so a stored type that disagrees with its
 source is explainable after the fact.
 
+### Accepted types
+
+Detection settles what a payload *is*. What the platform will *store* is a
+separate question, and the answer differs by what the door carries.
+
+**Doors that carry content as a string** — `POST /api/v1/portal/assets` (inline
+create), `save_asset`, and `manage_asset action=update` — accept one list:
+`text/markdown`, `text/plain`, `text/html`, `text/jsx`, `text/csv`,
+`text/tab-separated-values`, `image/svg+xml`, `application/json`,
+`application/x-ndjson`, `application/xml`, `application/yaml`,
+`text/javascript`, `text/css`, `text/x-python`, `application/sql` and
+`application/octet-stream`. Aliases normalize first, so declaring `text/json` or
+`text/xml` works, and membership is exact: `text/*` is not a wildcard, because
+it would admit every `text/x-*` type a caller cares to invent. A refused write
+names the accepted types rather than failing silently.
+
+The list is textual because these doors are. Content reaches them inside a JSON
+document, so a binary family has no way through in the first place; the list
+costs no capability. `application/xhtml+xml` is deliberately absent — a browser
+renders XHTML natively and runs the script inside it.
+
+A content update may keep whatever type its asset already carries, including one
+no door would accept today: an asset written by `api_export` from an upstream
+response, or one that predates the list. Changing the type is a new declaration
+and goes through the same check as a create.
+
+**The resource upload door carries bytes and keeps a denylist**, refusing the
+executable MIME types and `application/xhtml+xml`, alongside a denylist of
+executable file extensions. A resource is human-uploaded reference material —
+report templates, brand files, CAD exports, sample documents — so the long tail
+of formats has to get through, and an allowlist there would refuse the library's
+purpose to buy little: every stored byte is already served under the sandbox CSP
+and disposition rules below, whatever its type.
+
+`api_export` is not gated either: it stores the upstream response's own type,
+which is neither caller-declared nor carried as a string. `trino_export` sets its
+type from its own formatter.
+
 ### The active-type rule
 
 Detection may reclassify content **into passive families only**: JSON, images,

@@ -143,7 +143,7 @@ An uploaded resource is also **discoverable through `search`**, the front door a
 
 ![Resources](../images/screenshots/light/user-resources-light.webp#only-light)![Resources](../images/screenshots/dark/user-resources-dark.webp#only-dark)
 
-Uploading opens a modal for the file plus its category, display name, description, and tags. The category says how the agent should treat the file and the dialog spells each one out as you pick it: `templates` are layouts a deliverable must be produced in, `playbooks` are procedures to follow rather than summarize, `samples` are examples to pattern-match against, and `references` are documents to consult. A custom category is accepted for anything that fits none of the four.
+Uploading opens a modal for the file plus its category, display name, description, and tags. The category says how the agent should treat the file and the dialog spells each one out as you pick it: `templates` are layouts a deliverable must be produced in, `playbooks` are procedures to follow rather than summarize, `samples` are examples to pattern-match against, and `references` are documents to consult. A custom category is accepted for anything that fits none of the four. The file itself may be any format the library needs — documents, spreadsheets, images, media, archives, CAD exports — apart from executables, which are refused by both extension and MIME type ([Accepted types](content-viewers.md#accepted-types)).
 
 ![Upload resource](../images/screenshots/light/user-resource-upload-light.webp#only-light)![Upload resource](../images/screenshots/dark/user-resource-upload-dark.webp#only-dark)
 

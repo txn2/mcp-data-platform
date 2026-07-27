@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 )
 
 // Validation limits.
@@ -32,6 +34,13 @@ var DeniedExtensions = map[string]bool{
 }
 
 // DeniedMIMETypes lists MIME types that are blocked for upload.
+//
+// A resource is human-uploaded reference material — report templates, brand
+// files, sample documents, CAD exports — so this stays a denylist. An allowlist
+// here would refuse the long tail the library exists to hold, and it would buy
+// almost nothing: blobserve serves every stored byte under a sandbox CSP and
+// hands the scriptable document families to the browser as attachments, and
+// DeniedExtensions already refuses the executable extensions.
 var DeniedMIMETypes = map[string]bool{
 	"application/x-executable":    true,
 	"application/x-msdos-program": true,
@@ -40,6 +49,10 @@ var DeniedMIMETypes = map[string]bool{
 	"application/x-shellscript":   true,
 	"application/x-bat":           true,
 	"application/x-msi":           true,
+	// A browser renders XHTML natively and runs the script inside it. Serving
+	// already contains it; storing it has no use case that text/html does not
+	// cover, so it is refused at the door as well.
+	contenttype.XHTML: true,
 }
 
 // ValidateCategory checks that a category matches the required pattern.
@@ -87,12 +100,14 @@ func ValidateTags(tags []string) error {
 	return nil
 }
 
-// ValidateMIMEType checks that the MIME type is not on the deny list.
-// The base type is extracted (e.g. "text/html" from "text/html; charset=utf-8")
-// before checking the deny list.
+// ValidateMIMEType checks that the MIME type is not on the deny list. The type
+// is normalized first (parameters stripped, aliases collapsed), so a denied
+// family cannot be smuggled in under a spelling the map does not list.
 func ValidateMIMEType(mt string) error {
-	base, _, _ := strings.Cut(mt, ";")
-	base = strings.TrimSpace(base)
+	base := contenttype.Normalize(mt)
+	if base == "" {
+		base = strings.TrimSpace(strings.Split(mt, ";")[0])
+	}
 	if DeniedMIMETypes[base] {
 		return fmt.Errorf("mime type %q is not allowed", base)
 	}

@@ -22,7 +22,6 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
-	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -2470,32 +2469,6 @@ type createAssetRequest struct {
 	Tags        []string `json:"tags,omitempty"`
 }
 
-// allowedCreateAssetContentTypes lists the MIME types accepted by the inline
-// asset-create endpoint. The request body is a JSON string, so only textual
-// families can travel through it; binary types (images, audio, video, PDF) must
-// go through a path that carries bytes.
-//
-// Keys are canonical types, so a caller may declare any alias of a family
-// (text/json, text/xml, ...) and still be admitted.
-var allowedCreateAssetContentTypes = map[string]struct{}{
-	contenttype.Markdown:    {},
-	contenttype.PlainText:   {},
-	contenttype.HTML:        {},
-	contenttype.JSX:         {},
-	contenttype.CSV:         {},
-	contenttype.TSV:         {},
-	contenttype.SVG:         {},
-	contenttype.JSON:        {},
-	contenttype.NDJSON:      {},
-	contenttype.XML:         {},
-	contenttype.YAML:        {},
-	contenttype.JavaScript:  {},
-	contenttype.OctetStream: {},
-	"application/sql":       {},
-	"text/x-python":         {},
-	"text/css":              {},
-}
-
 // validateCreateAssetRequest validates the request body and returns the
 // normalized name and content type, or an httpError with the appropriate
 // status code. Extracted from createAsset to keep its cyclomatic complexity
@@ -2513,10 +2486,11 @@ func validateCreateAssetRequest(req createAssetRequest) (name, contentType strin
 	}
 	// Detection runs before the allowlist check, so a caller that declared a
 	// generic type is admitted or refused on what the content actually is —
-	// the same type the asset will be stored and rendered under.
+	// the same type the asset will be stored and rendered under. The check
+	// itself is ValidateContentType, shared with the tool paths.
 	contentType = ResolveContentType(req.ContentType, []byte(req.Content))
-	if _, ok := allowedCreateAssetContentTypes[contentType]; !ok {
-		return "", "", &httpError{http.StatusUnsupportedMediaType, "unsupported content_type for inline create; use the save_asset tool for binary types"}
+	if vErr := ValidateContentType(contentType); vErr != nil {
+		return "", "", &httpError{http.StatusUnsupportedMediaType, vErr.Error()}
 	}
 	if int64(len(req.Content)) > MaxContentUploadBytes {
 		return "", "", &httpError{http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit"}

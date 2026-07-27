@@ -882,7 +882,7 @@ Save AI-generated content to the asset portal as a versioned asset. Automaticall
 |-----------|------|----------|---------|-------------|
 | `name` | string | Yes | - | Display name for the asset (max 255 chars) |
 | `content` | string | Yes | - | The asset content (JSX, HTML, SVG, Markdown, etc.) |
-| `content_type` | string | Yes | - | MIME type: text/html, text/jsx, image/svg+xml, text/markdown, application/json, text/csv |
+| `content_type` | string | Yes | - | MIME type the asset is stored under. One of `application/json`, `application/octet-stream`, `application/sql`, `application/x-ndjson`, `application/xml`, `application/yaml`, `image/svg+xml`, `text/css`, `text/csv`, `text/html`, `text/javascript`, `text/jsx`, `text/markdown`, `text/plain`, `text/tab-separated-values`, `text/x-python`; anything else is refused (see [Accepted types](content-viewers.md#accepted-types)) |
 | `description` | string | No | - | Description of the asset (max 2000 chars) |
 | `tags` | array | No | [] | Tags for categorization (max 20 tags, each max 100 chars) |
 
@@ -908,7 +908,7 @@ List, retrieve, update, or delete saved assets, and edit an asset's content in p
 | `name` | string | No | - | New name (for update) |
 | `description` | string | No | - | New description (for update) |
 | `tags` | array | No | - | New tags (for update) |
-| `content_type` | string | No | - | New content type (for update, only when replacing content) |
+| `content_type` | string | No | - | New content type (for update, only when replacing content). Same accepted set as `save_asset`; omit it to keep the type the asset already carries |
 | `change_summary` | string | No | - | Summary recorded on the new version (update and patch) |
 | `query` | string | Conditional | - | Free-text relevance query (required for search) |
 | `limit` | integer | No | 50 | Max results for list (max 200); ranked search defaults to 20 (max 100) |
