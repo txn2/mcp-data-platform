@@ -17525,6 +17525,13 @@ const docTemplate = `{
                 "username": {
                     "type": "string",
                     "example": "mailer@example.com"
+                },
+                "warnings": {
+                    "description": "Warnings describes accepted-but-hazardous combinations in the stored\nconfiguration. They never block a save; they exist so the operator sees\nthe hazard at the surface where the setting was chosen.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

@@ -309,14 +309,28 @@ function TestEmailSection() {
 function StatusBanners({
   isReadOnly,
   loadFailed,
+  warnings,
   onRetry,
 }: {
   isReadOnly: boolean;
   loadFailed: boolean;
+  warnings: string[];
   onRetry: () => void;
 }) {
   return (
     <>
+      {/* Hazards in the SAVED configuration (#1072), not validation of the
+          current form: the server evaluates them against the stored settings,
+          where an unchanged password is still a credential on the wire. */}
+      {warnings.map((warning) => (
+        <div
+          key={warning}
+          className="flex items-start gap-2 border-b bg-amber-50/50 px-5 py-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-400"
+        >
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{warning}</span>
+        </div>
+      ))}
       {isReadOnly && (
         <div className="flex items-center gap-2 border-b bg-amber-50/50 px-5 py-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
           <AlertCircle className="h-3.5 w-3.5" />
@@ -429,6 +443,7 @@ export function AdminSettingsPage() {
       <StatusBanners
         isReadOnly={isReadOnly}
         loadFailed={!!loadError}
+        warnings={settings?.warnings ?? []}
         onRetry={() => void refetch()}
       />
 

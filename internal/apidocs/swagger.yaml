@@ -2616,6 +2616,14 @@ definitions:
       username:
         example: mailer@example.com
         type: string
+      warnings:
+        description: |-
+          Warnings describes accepted-but-hazardous combinations in the stored
+          configuration. They never block a save; they exist so the operator sees
+          the hazard at the surface where the setting was chosen.
+        items:
+          type: string
+        type: array
     type: object
   notification.TestEmailRequest:
     properties:

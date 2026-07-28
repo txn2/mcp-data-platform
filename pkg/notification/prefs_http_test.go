@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -297,6 +298,32 @@ func TestSMTPSettingsView(t *testing.T) {
 	u := UnconfiguredSMTPView()
 	if u.Port != 587 || u.TLSMode != TLSModeStartTLS || u.Enabled {
 		t.Errorf("unconfigured view wrong: %+v", u)
+	}
+}
+
+// TestSMTPSettingsView_PlaintextAuthWarning covers #1072: TLSModeNone with a
+// credential is accepted but hazardous, and the view is what carries the
+// hazard to the operator.
+func TestSMTPSettingsView_PlaintextAuthWarning(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings SMTPSettings
+		want     bool
+	}{
+		{"none with password", SMTPSettings{TLSMode: TLSModeNone, Password: "p"}, true},
+		{"none with username", SMTPSettings{TLSMode: TLSModeNone, Username: "u"}, true},
+		{"none without credentials", SMTPSettings{TLSMode: TLSModeNone}, false},
+		{"starttls with credentials", SMTPSettings{TLSMode: TLSModeStartTLS, Username: "u", Password: "p"}, false},
+		{"implicit with credentials", SMTPSettings{TLSMode: TLSModeImplicit, Username: "u", Password: "p"}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			warnings := tc.settings.View().Warnings
+			got := slices.Contains(warnings, PlaintextAuthWarning)
+			if got != tc.want {
+				t.Errorf("plaintext warning = %v; want %v (warnings: %v)", got, tc.want, warnings)
+			}
+		})
 	}
 }
 

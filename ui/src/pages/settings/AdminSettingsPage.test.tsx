@@ -119,6 +119,31 @@ describe("AdminSettingsPage: loading and loaded states", () => {
   });
 });
 
+describe("AdminSettingsPage: stored-configuration warnings (#1072)", () => {
+  it("shows the plaintext-credential warning the server reports", () => {
+    mockUseSMTPSettings.mockReturnValue({
+      data: makeSettings({
+        tls_mode: "none",
+        password_set: true,
+        warnings: [
+          "TLS is disabled (tls_mode: none) while SMTP credentials are configured; the username and password are sent in cleartext.",
+        ],
+      }),
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useSMTPSettings>);
+
+    render(<AdminSettingsPage />);
+    expect(screen.getByText(/sent in cleartext/)).toBeInTheDocument();
+  });
+
+  it("shows no warning banner when the server reports none", () => {
+    render(<AdminSettingsPage />);
+    expect(screen.queryByText(/sent in cleartext/)).not.toBeInTheDocument();
+  });
+});
+
 describe("AdminSettingsPage: saving", () => {
   it("saves the edited form and shows the transient Saved state", () => {
     saveMutate.mockImplementation((_input, opts) => {

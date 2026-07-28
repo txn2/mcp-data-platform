@@ -16,6 +16,10 @@ export interface SMTPSettings {
   tls_mode: string;
   updated_by?: string;
   updated_at?: string;
+  // warnings describes accepted-but-hazardous combinations in the stored
+  // configuration, e.g. credentials configured with TLS off (#1072). Absent
+  // when the stored configuration raises none.
+  warnings?: string[];
 }
 
 // SMTPSettingsInput is the PUT body. The password field is write-only:

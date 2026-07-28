@@ -263,9 +263,9 @@ func (b *lockedBuffer) String() string {
 }
 
 // TestSendTest_SendErrorIsLogged pins the operator-facing half of a failed
-// test send. The queue worker logs its own delivery failures; without this the
-// admin test send is the only delivery path whose error exists solely in an
-// HTTP response body, leaving nothing behind to diagnose a misconfiguration.
+// test send. The admin API answers with fixed text that does not vary with the
+// failure mode (#1072), so this log is the only surviving record of what went
+// wrong; it must carry the host and port that produced it.
 func TestSendTest_SendErrorIsLogged(t *testing.T) {
 	var out lockedBuffer
 	prev := slog.Default()
@@ -273,7 +273,9 @@ func TestSendTest_SendErrorIsLogged(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	h := &Handle{
-		settings: &fakeSettings{settings: &notification.SMTPSettings{Enabled: true, Host: "smtp.example.com"}},
+		settings: &fakeSettings{settings: &notification.SMTPSettings{
+			Enabled: true, Host: "smtp.example.com", Port: 2525,
+		}},
 		renderer: testRenderer(t),
 		sender:   &captureSender{err: errors.New("dial failed: i/o timeout")},
 	}
@@ -282,10 +284,72 @@ func TestSendTest_SendErrorIsLogged(t *testing.T) {
 	}
 
 	logged := out.String()
-	for _, want := range []string{"test send failed", "a@b.io", "dial failed: i/o timeout"} {
+	for _, want := range []string{"test send failed", "a@b.io", "dial failed: i/o timeout", "smtp.example.com", "2525"} {
 		if !strings.Contains(logged, want) {
 			t.Errorf("log missing %q; got: %s", want, logged)
 		}
+	}
+}
+
+// TestSendTest_LoggedHostIsSanitized covers the log-forging path: the host is
+// admin-supplied with no character restriction, and it now reaches a log line.
+func TestSendTest_LoggedHostIsSanitized(t *testing.T) {
+	var out lockedBuffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&out, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	h := &Handle{
+		settings: &fakeSettings{settings: &notification.SMTPSettings{
+			Enabled: true, Host: "evil\nlevel=ERROR msg=\"forged\"", Port: 25,
+		}},
+		renderer: testRenderer(t),
+		sender:   &captureSender{err: errors.New("refused")},
+	}
+	if err := h.SendTest(context.Background(), "a@b.io"); err == nil {
+		t.Fatal("expected send error")
+	}
+	logged := out.String()
+	if strings.Contains(logged, "evil\n") {
+		t.Errorf("host newline reached the log verbatim: %q", logged)
+	}
+	if !strings.Contains(logged, "evillevel=ERROR") {
+		t.Errorf("sanitized host missing from log: %q", logged)
+	}
+}
+
+// TestSendTest_SettingsErrorIsLogged covers the other end of the same
+// contract: a store failure is no longer visible in the API response, so it
+// must reach the log. ErrSMTPNotConfigured is excluded: the API reports that
+// state verbatim, and logging every misconfigured-relay probe would be noise.
+func TestSendTest_SettingsErrorIsLogged(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		wantLog bool
+	}{
+		{name: "store failure", err: errors.New("db down"), wantLog: true},
+		{name: "not configured", err: notification.ErrNotFound, wantLog: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var out lockedBuffer
+			prev := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&out, nil)))
+			t.Cleanup(func() { slog.SetDefault(prev) })
+
+			h := &Handle{
+				settings: &fakeSettings{err: tc.err},
+				renderer: testRenderer(t),
+				sender:   &captureSender{},
+			}
+			if err := h.SendTest(context.Background(), "a@b.io"); err == nil {
+				t.Fatal("expected an error")
+			}
+			if got := strings.Contains(out.String(), "test send failed"); got != tc.wantLog {
+				t.Errorf("logged = %v; want %v (log: %s)", got, tc.wantLog, out.String())
+			}
+		})
 	}
 }
 
