@@ -210,13 +210,13 @@ func (p *ResourcesProvider) inlineContent(ctx context.Context, res *resource.Res
 //
 // The persona set comes from Caller.Personas (membership derived from roles) and
 // ONLY from there. Caller.Persona — the persona the request resolved to — is
-// deliberately not used, not even as a fallback: resolution substitutes the
-// configured default_persona when a caller's roles match none, so falling back
-// to it would hand every unmatched caller the default persona's material, which
-// resources/list and resources/read refuse them. An empty set therefore means
-// "belongs to no persona", and the caller sees only global and their own
-// user-scoped material — the fail-closed answer, and also what a caller gets if
-// a deployment never binds the resolver (see Toolkit.SetPersonasForRoles).
+// deliberately not used, not even as a fallback: it can be set explicitly on a
+// request, so falling back to it would grant material on the strength of the
+// persona a request claims to act as rather than one the caller belongs to. An
+// empty set therefore means "belongs to no persona", and the caller sees only
+// global and their own user-scoped material — the fail-closed answer, and also
+// what a caller gets if a deployment never binds the resolver (see
+// Toolkit.SetPersonasForRoles).
 //
 // Roles are not carried on a search caller, so the claims grant no persona-admin
 // or platform-admin authority: visibility here is the caller's own global +
