@@ -453,7 +453,7 @@ Setting `dsn` enables audit logging, knowledge capture, session externalization,
 
 ## Config Store
 
-When a database is available (`database.dsn` is set), individual config entries in the `config_entries` table override file defaults for whitelisted keys. Changes via the admin API take effect immediately (hot-reload) without restart. Deleting a database entry restores the file default.
+When a database is available (`database.dsn` is set), individual config entries in the `config_entries` table override file defaults for whitelisted keys. The store is the authority: every read resolves the key from it and falls back to the file value when no row exists, so a change via the admin API is in force on every replica as soon as it commits, without restart. Deleting a database entry restores the file default everywhere on the next read. If the store cannot be read, the file-config value is used.
 
 **Whitelisted keys (phase 1):** `server.description`, `server.agent_instructions`
 

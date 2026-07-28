@@ -18,9 +18,15 @@ const (
 
 // ToolVisibilityConfig configures tool visibility filtering for tools/list responses.
 type ToolVisibilityConfig struct {
-	// GlobalAllow/GlobalDeny are static glob patterns from the config file.
+	// GlobalAllow holds static glob patterns from the config file.
 	GlobalAllow []string
-	GlobalDeny  []string
+
+	// ResolveGlobalDeny returns the deny globs in force for this request.
+	// It is a function rather than a slice because the deny list is
+	// admin-editable and database-backed: a value captured when the
+	// middleware was registered would ignore every later edit. Nil means
+	// nothing is denied globally.
+	ResolveGlobalDeny func(ctx context.Context) []string
 
 	// Authenticator resolves the caller's identity from the request context.
 	Authenticator Authenticator
@@ -64,16 +70,24 @@ func filterToolVisibility(ctx context.Context, cfg ToolVisibilityConfig, method 
 	}
 
 	roles := resolveRolesIfNeeded(ctx, cfg)
-	listResult.Tools = filterTools(ctx, listResult.Tools, cfg, roles)
+	// Resolved once per tools/list rather than once per tool: the deny list
+	// is one lookup, and every tool in the response must be judged against
+	// the same snapshot of it.
+	var deny []string
+	if cfg.ResolveGlobalDeny != nil {
+		deny = cfg.ResolveGlobalDeny(ctx)
+	}
+	listResult.Tools = filterTools(ctx, listResult.Tools, cfg, roles, deny)
 
 	return listResult, nil
 }
 
 // filterTools applies global and persona-based filtering to a tool list.
-func filterTools(ctx context.Context, tools []*mcp.Tool, cfg ToolVisibilityConfig, roles []string) []*mcp.Tool {
+// deny is the caller-resolved global deny list for this request.
+func filterTools(ctx context.Context, tools []*mcp.Tool, cfg ToolVisibilityConfig, roles, deny []string) []*mcp.Tool {
 	filtered := make([]*mcp.Tool, 0, len(tools))
 	for _, tool := range tools {
-		if !IsToolVisible(tool.Name, cfg.GlobalAllow, cfg.GlobalDeny) {
+		if !IsToolVisible(tool.Name, cfg.GlobalAllow, deny) {
 			continue
 		}
 		if roles != nil && cfg.IsToolAllowedForPersona != nil {

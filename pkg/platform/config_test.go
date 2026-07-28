@@ -1855,39 +1855,6 @@ session_gate:
 	}
 }
 
-func TestApplyConfigEntry(t *testing.T) {
-	cfg := &Config{}
-
-	cfg.ApplyConfigEntry("server.description", "test description")
-	if cfg.Server.Description != "test description" {
-		t.Errorf("Description = %q, want %q", cfg.Server.Description, "test description")
-	}
-
-	cfg.ApplyConfigEntry("server.agent_instructions", "test instructions")
-	if cfg.Server.AgentInstructions != "test instructions" {
-		t.Errorf("AgentInstructions = %q, want %q", cfg.Server.AgentInstructions, "test instructions")
-	}
-
-	// Unknown key should be a no-op.
-	cfg.ApplyConfigEntry("unknown.key", "value")
-	if cfg.Server.Description != "test description" {
-		t.Error("unknown key should not modify config")
-	}
-
-	// tool.<name>.description writes into Tools.DescriptionOverrides
-	// (lazy-init the map on first use).
-	cfg.ApplyConfigEntry("tool.trino_query.description", "custom desc")
-	if got := cfg.Tools.DescriptionOverrides["trino_query"]; got != "custom desc" {
-		t.Errorf("DescriptionOverrides[trino_query] = %q, want %q", got, "custom desc")
-	}
-
-	// Empty value removes the override.
-	cfg.ApplyConfigEntry("tool.trino_query.description", "")
-	if _, exists := cfg.Tools.DescriptionOverrides["trino_query"]; exists {
-		t.Error("empty value should remove the override")
-	}
-}
-
 func TestParseToolsDenyValue(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1920,30 +1887,6 @@ func TestParseToolsDenyValue(t *testing.T) {
 				t.Errorf("%s: parseToolsDenyValue(%q)[%d] = %q, want %q", tc.name, tc.value, i, got[i], tc.want[i])
 			}
 		}
-	}
-}
-
-func TestApplyConfigEntry_ToolsDeny_PreservesOnMalformed(t *testing.T) {
-	// Bug guard: a corrupt tools.deny config_entry must NOT clobber the
-	// live deny list. Otherwise a bad row could silently open up tools
-	// the file config wanted hidden.
-	cfg := &Config{}
-	cfg.Tools.Deny = []string{"trino_admin_kill"}
-	cfg.ApplyConfigEntry("tools.deny", "not valid json")
-	if len(cfg.Tools.Deny) != 1 || cfg.Tools.Deny[0] != "trino_admin_kill" {
-		t.Errorf("malformed tools.deny clobbered live slice: got %v", cfg.Tools.Deny)
-	}
-}
-
-func TestApplyConfigEntry_ToolsDeny(t *testing.T) {
-	cfg := &Config{}
-	cfg.ApplyConfigEntry("tools.deny", `["trino_admin_kill","s3_delete"]`)
-	if len(cfg.Tools.Deny) != 2 || cfg.Tools.Deny[0] != "trino_admin_kill" {
-		t.Errorf("Tools.Deny = %v, want [trino_admin_kill s3_delete]", cfg.Tools.Deny)
-	}
-	cfg.ApplyConfigEntry("tools.deny", `[]`)
-	if len(cfg.Tools.Deny) != 0 {
-		t.Errorf("Tools.Deny after empty array = %v, want []", cfg.Tools.Deny)
 	}
 }
 

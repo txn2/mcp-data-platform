@@ -2777,7 +2777,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates or updates a database-backed config override entry and hot-reloads it into the live config.",
+                "description": "Creates or updates a database-backed config override entry. The stored value is authoritative and is in force on every replica from the next read.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2836,7 +2836,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Removes a database-backed config override entry, reverting the live config to the file default if one exists.",
+                "description": "Removes a database-backed config override entry. Subsequent reads on every replica fall through to the file-config default.",
                 "produces": [
                     "application/json"
                 ],

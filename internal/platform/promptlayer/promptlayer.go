@@ -76,10 +76,14 @@ type Config struct {
 	// PromptsDir is the directory the tuning prompt manager loads file prompts
 	// from (empty is valid: the manager loads nothing).
 	PromptsDir string
-	// ServerName / ServerDescription title and seed the auto-generated
-	// platform-overview prompt (an empty description skips it).
-	ServerName        string
-	ServerDescription string
+	// ServerName titles the auto-generated platform-overview prompt.
+	ServerName string
+	// ServerDescription supplies that prompt's body text. It is a function
+	// because the description is admin-editable and database-backed, so the
+	// text must be resolved when the prompt is served rather than baked in
+	// at registration. Nil skips the prompt entirely; the caller passes nil
+	// when no description exists and none can appear later.
+	ServerDescription func(ctx context.Context) string
 	// AdminPersona is the persona name that grants admin authority over prompts
 	// at every scope; matched against the caller's persona in each command.
 	AdminPersona string
@@ -107,7 +111,7 @@ type Handle struct {
 	registry      ToolkitRegistry
 
 	serverName        string
-	serverDescription string
+	serverDescription func(ctx context.Context) string
 	adminPersona      string
 	operatorPrompts   []PromptSpec
 	builtinPrompts    map[string]bool

@@ -15,15 +15,27 @@ import (
 
 // newRegisterHandle builds a Handle for the static/workflow registration path:
 // no store, the given toolkit registry, server name/description, and operator
-// prompt specs.
+// prompt specs. An empty serverDesc becomes a nil resolver, mirroring how the
+// platform composes the handle when no description exists and none can be
+// authored later.
 func newRegisterHandle(serverName, serverDesc string, operator []PromptSpec, reg ToolkitRegistry) *Handle {
+	var describe func(context.Context) string
+	if serverDesc != "" {
+		describe = func(context.Context) string { return serverDesc }
+	}
+	return newRegisterHandleFunc(serverName, describe, operator, reg)
+}
+
+// newRegisterHandleFunc is newRegisterHandle with the description resolver
+// supplied directly, for tests that vary what it returns between calls.
+func newRegisterHandleFunc(serverName string, describe func(context.Context) string, operator []PromptSpec, reg ToolkitRegistry) *Handle {
 	if reg == nil {
 		reg = registry.NewRegistry()
 	}
 	return &Handle{
 		registry:          reg,
 		serverName:        serverName,
-		serverDescription: serverDesc,
+		serverDescription: describe,
 		operatorPrompts:   operator,
 	}
 }
@@ -306,7 +318,7 @@ func TestDynamicOverviewContentWithToolkits(t *testing.T) {
 
 	h := newRegisterHandle("Test Platform", "Test platform for analytics.", nil, reg)
 
-	content := h.buildDynamicOverviewContent()
+	content := h.buildDynamicOverviewContent(context.Background())
 
 	assert.Contains(t, content, "Test platform for analytics.")
 	assert.Contains(t, content, "Explore available data")
@@ -580,4 +592,39 @@ func promptNames(prompts []*mcp.Prompt) []string {
 		names = append(names, p.Name)
 	}
 	return names
+}
+
+// TestRegisterAutoPrompt_ResolvesDescriptionPerRequest guards the staleness the
+// old design baked in: the overview text was built once at registration, so an
+// operator's later edit never reached the prompt, and a description authored
+// after startup produced no prompt at all.
+func TestRegisterAutoPrompt_ResolvesDescriptionPerRequest(t *testing.T) {
+	current := ""
+	h := newRegisterHandleFunc("My Platform", func(context.Context) string { return current }, nil, nil)
+
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
+	h.registerAutoPrompt(mcpServer)
+
+	session, cleanup := connectTestClient(t, mcpServer)
+	defer cleanup()
+
+	ctx := context.Background()
+	get := func() string {
+		resp, err := session.GetPrompt(ctx, &mcp.GetPromptParams{Name: autoPromptName})
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.Messages)
+		textContent, ok := resp.Messages[0].Content.(*mcp.TextContent)
+		require.True(t, ok)
+		return textContent.Text
+	}
+
+	// Registered despite an empty description, and serving without a blank
+	// leading paragraph.
+	first := get()
+	assert.NotContains(t, first, "Covers all analytics data.")
+	assert.False(t, strings.HasPrefix(first, "\n"), "empty description must not leave a blank lead")
+
+	// The operator authors one; the very next read carries it.
+	current = "Covers all analytics data."
+	assert.Contains(t, get(), "Covers all analytics data.")
 }
