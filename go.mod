@@ -22,7 +22,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/ollama v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
-	github.com/txn2/mcp-datahub v1.12.0
+	github.com/txn2/mcp-datahub v1.13.0
 	github.com/txn2/mcp-s3 v1.3.0
 	github.com/txn2/mcp-trino v1.3.1
 	github.com/wneessen/go-mail v0.8.1
