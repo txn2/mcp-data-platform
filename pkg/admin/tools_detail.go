@@ -169,7 +169,7 @@ func (h *Handler) getToolDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	h.fillToolPersonaMatrix(r.Context(), name, &detail)
 	if h.deps.Config != nil {
-		if pattern, hidden := matchGlobalDeny(h.deps.Config.ToolsDenySnapshot(), name); hidden {
+		if pattern, hidden := matchGlobalDeny(h.deps.Config.ToolsDenySnapshot(r.Context()), name); hidden {
 			detail.HiddenByGlobalDeny = true
 			detail.GlobalDenyPattern = pattern
 		}
@@ -267,8 +267,8 @@ func (h *Handler) fillDescriptionOverride(ctx context.Context, name string, d *T
 	if err != nil || entry == nil {
 		return
 	}
-	// An entry with empty value is treated by ApplyConfigEntry as a
-	// deletion — the live override is gone, so don't claim it's
+	// An empty value resolves as "no override" — the tool keeps whatever
+	// description it would otherwise carry — so don't claim it is
 	// overridden in the UI just because a stale row exists.
 	if entry.Value == "" {
 		return
@@ -333,12 +333,12 @@ func toolDescriptionConfigKey(toolName string) string {
 
 // toolsDenyConfigKey is the canonical key for the platform-wide tool
 // kill-switch. The value stored in config_entries is a JSON-encoded
-// []string. Centralized so the live-config hot-reload path and the
-// admin UI agree.
+// []string. Centralized so the tools/list read path and the admin UI
+// agree on where the kill-switch lives.
 //
 // CONCURRENCY: any code path that mutates this entry must hold
 // Handler.toolsDenyMu across the read-modify-write critical section
-// (load → modify → save → ApplyConfigEntry). The single mutator today
+// (load → modify → save). The single mutator today
 // is setToolVisibility; future bulk-hide / YAML-import / similar
 // handlers must participate in the same lock or they recreate the
 // lost-update race fixed in #343.
@@ -402,9 +402,12 @@ func (h *Handler) setToolVisibility(w http.ResponseWriter, r *http.Request) {
 // Splitting this out of setToolVisibility keeps the response write
 // (writeJSON) outside the lock — a slow HTTP client must not block
 // other admins from toggling visibility. The lock covers only the
-// load → modify → save → ApplyConfigEntry sequence, which is the
-// full atomicity boundary needed to defeat the lost-update race
-// fixed in #343.
+// load → modify → save sequence, which is the full atomicity boundary
+// needed to defeat the lost-update race fixed in #343.
+//
+// The lock is per-process, so it serializes admins on one replica only.
+// Two replicas writing at the same instant can still lose an update; the
+// durable fix is a conditional write in the store, tracked separately.
 func (h *Handler) applyToolVisibilityChange(r *http.Request, name string, hidden bool) (deny []string, status int, errMsg string) {
 	h.toolsDenyMu.Lock()
 	defer h.toolsDenyMu.Unlock()
@@ -423,9 +426,8 @@ func (h *Handler) applyToolVisibilityChange(r *http.Request, name string, hidden
 	if err := h.deps.ConfigStore.Set(r.Context(), toolsDenyConfigKey, string(encoded), extractAuthor(r)); err != nil {
 		return nil, http.StatusInternalServerError, "failed to save tools.deny"
 	}
-	if h.deps.Config != nil {
-		h.deps.Config.ApplyConfigEntry(toolsDenyConfigKey, string(encoded))
-	}
+	// No in-memory apply: tools/list resolves tools.deny from the store on
+	// every call, so the saved value is in force everywhere immediately.
 	return updated, http.StatusOK, ""
 }
 
@@ -468,7 +470,7 @@ func (h *Handler) loadCurrentToolsDeny(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("loading tools.deny: %w", err)
 	}
 	if h.deps.Config != nil {
-		return h.deps.Config.ToolsDenySnapshot(), nil
+		return h.deps.Config.ToolsDenySnapshot(ctx), nil
 	}
 	return nil, nil
 }

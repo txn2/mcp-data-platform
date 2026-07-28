@@ -50,7 +50,7 @@ type systemFeatures struct {
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/system/info [get]
-func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) getSystemInfo(w http.ResponseWriter, r *http.Request) {
 	cfg := h.deps.Config
 	resp := systemInfoResponse{
 		Version:    mcpserver.Version,
@@ -60,7 +60,7 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 	}
 	if cfg != nil {
 		resp.Name = cfg.Server.Name
-		resp.Description = cfg.Server.Description
+		resp.Description = cfg.ServerDescription(r.Context())
 		resp.Transport = cfg.Server.Transport
 		resp.PortalTitle = cfg.Portal.Title
 		resp.PortalLogo = cfg.Portal.Logo
@@ -152,11 +152,10 @@ func (h *Handler) listTools(w http.ResponseWriter, r *http.Request) {
 
 	var allow, deny []string
 	if h.deps.Config != nil {
-		// Snapshot via accessors — tools.deny is mutated at runtime by
-		// the visibility endpoint and would otherwise race the iteration
-		// inside IsToolVisible.
+		// Resolved per request: tools.deny is admin-editable and lives in
+		// the config store, so a value read once would go stale.
 		allow = h.deps.Config.ToolsAllowSnapshot()
-		deny = h.deps.Config.ToolsDenySnapshot()
+		deny = h.deps.Config.ToolsDenySnapshot(r.Context())
 	}
 
 	tools := h.collectToolkitTools(titleMap, allow, deny)
@@ -291,11 +290,11 @@ type connectionListResponse struct {
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/connections [get]
-func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) listConnections(w http.ResponseWriter, r *http.Request) {
 	var allow, deny []string
 	if h.deps.Config != nil {
 		allow = h.deps.Config.ToolsAllowSnapshot()
-		deny = h.deps.Config.ToolsDenySnapshot()
+		deny = h.deps.Config.ToolsDenySnapshot(r.Context())
 	}
 
 	var conns []connectionInfo

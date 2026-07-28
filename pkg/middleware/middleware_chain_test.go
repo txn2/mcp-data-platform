@@ -1998,7 +1998,9 @@ func TestMiddlewareChain_ToolVisibility_DenyOnly(t *testing.T) {
 	}
 
 	// Deny s3_delete_* only
-	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(middleware.ToolVisibilityConfig{GlobalDeny: []string{"s3_delete_*"}}))
+	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(middleware.ToolVisibilityConfig{
+		ResolveGlobalDeny: func(context.Context) []string { return []string{"s3_delete_*"} },
+	}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -2383,7 +2385,7 @@ func TestDescriptionOverrides_ToolsList(t *testing.T) {
 
 	// Add description override middleware (uses built-in defaults)
 	overrides := middleware.MergedDescriptionOverrides(nil)
-	server.AddReceivingMiddleware(middleware.MCPDescriptionOverrideMiddleware(overrides))
+	server.AddReceivingMiddleware(middleware.MCPDescriptionOverrideMiddlewareDynamic(func(context.Context) map[string]string { return overrides }))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)

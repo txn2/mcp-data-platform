@@ -3725,18 +3725,6 @@ func TestBuildConfigEntryMap(t *testing.T) {
 	}
 }
 
-func TestApplyConfigEntryPlatform(t *testing.T) {
-	p := &Platform{config: &Config{}}
-	p.applyConfigEntry("server.description", "new desc")
-	if p.config.Server.Description != "new desc" {
-		t.Errorf("Description = %q, want %q", p.config.Server.Description, "new desc")
-	}
-	p.applyConfigEntry("server.agent_instructions", "new instr")
-	if p.config.Server.AgentInstructions != "new instr" {
-		t.Errorf("AgentInstructions = %q, want %q", p.config.Server.AgentInstructions, "new instr")
-	}
-}
-
 func TestFileDefaults(t *testing.T) {
 	p := &Platform{
 		fileDefaults: map[string]string{
@@ -3758,9 +3746,7 @@ func TestInitConfigStoreNoDatabase(t *testing.T) {
 			},
 		},
 	}
-	if err := p.initConfigStore(); err != nil {
-		t.Fatalf("initConfigStore() error = %v", err)
-	}
+	p.initConfigStore()
 	if p.configStore == nil {
 		t.Fatal("configStore should not be nil")
 	}
@@ -3769,6 +3755,43 @@ func TestInitConfigStoreNoDatabase(t *testing.T) {
 	}
 	if p.fileDefaults["server.description"] != "file desc" {
 		t.Errorf("fileDefaults[server.description] = %q, want %q", p.fileDefaults["server.description"], "file desc")
+	}
+	// Without a database there is nothing to override with, so reads resolve
+	// straight from the file config.
+	if got := p.config.ServerDescription(context.Background()); got != "file desc" {
+		t.Errorf("ServerDescription() = %q, want %q", got, "file desc")
+	}
+}
+
+func TestInitConfigStoreWithDatabase(t *testing.T) {
+	// No query expectations: initConfigStore constructs the store and binds
+	// it, and must not read anything at startup.
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	p := &Platform{
+		db: db,
+		config: &Config{
+			Server: ServerConfig{Description: "file desc"},
+		},
+	}
+	p.initConfigStore()
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("startup must not query the config store: %v", err)
+	}
+	if p.configStore == nil {
+		t.Fatal("configStore should not be nil")
+	}
+	if p.configStore.Mode() != "database" {
+		t.Errorf("Mode() = %q, want %q", p.configStore.Mode(), "database")
+	}
+	// Bound, and failing safe: the mock has no rows or expectations, so the
+	// read must fall back to the file config rather than to empty.
+	if got := p.config.ServerDescription(context.Background()); got != "file desc" {
+		t.Errorf("ServerDescription() = %q, want %q", got, "file desc")
 	}
 }
 

@@ -235,7 +235,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 
 	// Apply the persona description override; the persona's agent-instruction
 	// tuning is applied to the admin layer inside ComposeForCaller below.
-	description := p.config.Server.Description
+	description := p.config.ServerDescription(ctx)
 	var caller *personapkg.Persona
 	if persona != nil {
 		if full, ok := p.personaRegistry.Get(persona.Name); ok {
@@ -258,7 +258,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		notes = append(notes, instructions.ResourcesNote(accessibleTools))
 	}
 	agentInstructions := instructions.ComposeForCaller(
-		p.config.Server.AgentInstructions,
+		p.config.ServerAgentInstructions(ctx),
 		p.toolkitRegistry.AllTools(),
 		caller,
 		p.personaRegistry,

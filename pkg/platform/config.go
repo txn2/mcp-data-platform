@@ -6,13 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 	"os"
 	"reflect"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -133,11 +131,17 @@ type Config struct {
 	APIGateway           APIGatewayConfig    `yaml:"apigateway"`
 	Observability        ObservabilityConfig `yaml:"observability"`
 
-	// runtimeMu guards fields that can be mutated at runtime via the admin
-	// API (Tools.DescriptionOverrides, Tools.Deny). Other fields are
-	// loaded once from YAML and not protected here. Unexported so YAML
-	// marshaling ignores it.
-	runtimeMu sync.RWMutex
+	// overrides resolves the database-overridable settings (server
+	// description, agent instructions, tools.deny, per-tool description
+	// overrides) on every read. No field of this struct is mutated after
+	// load: an override lives in the store, never in a copy here, so
+	// replicas sharing one database cannot disagree. Nil means file config
+	// only.
+	//
+	// Held behind a pointer so Config itself carries no lock and stays
+	// copyable — the admin export builds a copy with the resolved values
+	// substituted. Unexported so YAML marshaling ignores it.
+	overrides *overrideBinding
 }
 
 // ConfigMeta holds meta-configuration controlling how the config file itself is
@@ -1893,99 +1897,6 @@ func applySessionDefaults(cfg *Config) {
 	if cfg.Sessions.CleanupInterval == 0 {
 		cfg.Sessions.CleanupInterval = defaultCleanupInterval
 	}
-}
-
-// ApplyConfigEntry updates a live config field for a whitelisted config entry key.
-//
-// In addition to the static keys, any key matching tool.<name>.description
-// is treated as a per-tool description override and written into
-// Tools.DescriptionOverrides. An empty value removes the override so the
-// tool reverts to its default (built-in or file-config) description.
-//
-// The "tools.deny" key carries a JSON-encoded []string. An empty/blank
-// value clears the deny list. A malformed JSON value is logged and
-// IGNORED — the existing live slice is left untouched so a corrupt
-// config_entries row can't silently open up tools that were supposed to
-// be hidden by the file config.
-//
-// Writes to the runtime-mutable Tools.* fields go through the runtimeMu
-// lock so concurrent reads (notably the description-override middleware
-// and tools.deny visibility checks) see consistent state.
-func (c *Config) ApplyConfigEntry(key, value string) {
-	switch key {
-	case cfgKeyServerDescription:
-		c.Server.Description = value
-		return
-	case cfgKeyServerAgentInstructions:
-		c.Server.AgentInstructions = value
-		return
-	case ConfigKeyToolsDeny:
-		deny, err := parseToolsDenyValue(value)
-		if err != nil {
-			slog.Warn("ignoring malformed tools.deny config entry; live deny list unchanged",
-				"error", err)
-			return
-		}
-		c.SetToolsDeny(deny)
-		return
-	}
-	if name, ok := toolDescriptionKey(key); ok {
-		c.SetToolDescriptionOverride(name, value)
-	}
-}
-
-// SetToolDescriptionOverride writes a single per-tool description override
-// under the runtime lock. An empty value removes the override.
-func (c *Config) SetToolDescriptionOverride(name, value string) {
-	c.runtimeMu.Lock()
-	defer c.runtimeMu.Unlock()
-	if c.Tools.DescriptionOverrides == nil {
-		c.Tools.DescriptionOverrides = make(map[string]string)
-	}
-	if value == "" {
-		delete(c.Tools.DescriptionOverrides, name)
-		return
-	}
-	c.Tools.DescriptionOverrides[name] = value
-}
-
-// ToolDescriptionOverridesSnapshot returns a shallow copy of the live
-// description overrides map. Callers may mutate the returned map without
-// affecting the live config.
-func (c *Config) ToolDescriptionOverridesSnapshot() map[string]string {
-	c.runtimeMu.RLock()
-	defer c.runtimeMu.RUnlock()
-	return maps.Clone(c.Tools.DescriptionOverrides)
-}
-
-// SetToolsDeny replaces the tools.deny slice atomically under the runtime lock.
-func (c *Config) SetToolsDeny(deny []string) {
-	c.runtimeMu.Lock()
-	defer c.runtimeMu.Unlock()
-	c.Tools.Deny = deny
-}
-
-// ToolsDenySnapshot returns a copy of the current tools.deny slice.
-// Callers may mutate the returned slice without affecting the live config.
-func (c *Config) ToolsDenySnapshot() []string {
-	c.runtimeMu.RLock()
-	defer c.runtimeMu.RUnlock()
-	if len(c.Tools.Deny) == 0 {
-		return nil
-	}
-	return append([]string(nil), c.Tools.Deny...)
-}
-
-// ToolsAllowSnapshot returns a copy of tools.allow. Currently allow is
-// not mutable at runtime, but callers should still go through this
-// accessor in case that changes.
-func (c *Config) ToolsAllowSnapshot() []string {
-	c.runtimeMu.RLock()
-	defer c.runtimeMu.RUnlock()
-	if len(c.Tools.Allow) == 0 {
-		return nil
-	}
-	return append([]string(nil), c.Tools.Allow...)
 }
 
 // parseToolsDenyValue decodes the JSON-encoded []string stored in the

@@ -539,7 +539,7 @@ Returns a single config entry by key. Returns `404 Not Found` if the key has no 
 PUT /api/v1/admin/config/entries/{key}
 ```
 
-Sets a config entry for a whitelisted key. The change takes effect immediately (hot-reload) without restart. Requires a database connection. Returns `400 Bad Request` for non-whitelisted keys and `409 Conflict` when no database is configured.
+Sets a config entry for a whitelisted key. The change takes effect immediately on every replica, without restart: the platform resolves these keys from the store on each read rather than caching them per process. Requires a database connection. Returns `400 Bad Request` for non-whitelisted keys and `409 Conflict` when no database is configured.
 
 **Whitelisted keys (phase 1):** `server.description`, `server.agent_instructions`
 

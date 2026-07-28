@@ -224,7 +224,7 @@ func TestFilterToolVisibility(t *testing.T) {
 		result := &mcp.ListToolsResult{
 			Tools: makeTools(testAuditToolName, "s3_delete_object", "datahub_search"),
 		}
-		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalDeny: []string{"s3_delete_*"}}, "tools/list", result)
+		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{ResolveGlobalDeny: staticDeny("s3_delete_*")}, "tools/list", result)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -242,7 +242,7 @@ func TestFilterToolVisibility(t *testing.T) {
 		result := &mcp.ListToolsResult{
 			Tools: makeTools(testAuditToolName, "trino_delete_table", "datahub_search", "s3_list_objects"),
 		}
-		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}, GlobalDeny: []string{"*_delete_*"}}, "tools/list", result)
+		got, err := filterToolVisibility(context.Background(), ToolVisibilityConfig{GlobalAllow: []string{"trino_*"}, ResolveGlobalDeny: staticDeny("*_delete_*")}, "tools/list", result)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -366,8 +366,8 @@ func TestFilterToolVisibility_PersonaFiltering(t *testing.T) {
 		}
 
 		cfg := ToolVisibilityConfig{
-			GlobalDeny:    []string{"*_delete*"},
-			Authenticator: &NoopAuthenticator{},
+			ResolveGlobalDeny: staticDeny("*_delete*"),
+			Authenticator:     &NoopAuthenticator{},
 			IsToolAllowedForPersona: func(_ context.Context, _ []string, toolName string) bool {
 				return toolName != "s3_list_objects"
 			},
@@ -406,4 +406,10 @@ func TestFilterToolVisibility_PersonaFiltering(t *testing.T) {
 		require.True(t, ok)
 		assert.Len(t, listResult.Tools, 2)
 	})
+}
+
+// staticDeny returns a ResolveGlobalDeny that always yields the given
+// patterns, for tests that do not exercise the resolution itself.
+func staticDeny(patterns ...string) func(context.Context) []string {
+	return func(context.Context) []string { return patterns }
 }

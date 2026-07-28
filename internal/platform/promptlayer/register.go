@@ -71,14 +71,16 @@ func (h *Handle) RegisterPlatformPrompts(server *mcp.Server) {
 	h.registerDatabasePrompts()
 }
 
-// registerAutoPrompt registers the auto-generated "platform-overview" prompt when
-// the server description is non-empty. It is skipped if an operator-configured
-// prompt already uses the name "platform-overview".
+// registerAutoPrompt registers the auto-generated "platform-overview" prompt
+// when a server description resolver is configured. It is skipped if an
+// operator-configured prompt already uses the name "platform-overview".
 //
-// The content is built dynamically based on enabled toolkits, listing what the
-// user can do with this platform.
+// The content is built per request, not at registration: both the description
+// (admin-editable, database-backed) and the toolkit capability bullets are
+// resolved when the prompt is served, so an operator's edit is reflected in
+// the next prompts/get on every replica.
 func (h *Handle) registerAutoPrompt(server *mcp.Server) {
-	if h.serverDescription == "" {
+	if h.serverDescription == nil {
 		return
 	}
 
@@ -87,14 +89,12 @@ func (h *Handle) registerAutoPrompt(server *mcp.Server) {
 		return
 	}
 
-	content := h.buildDynamicOverviewContent()
-
 	server.AddPrompt(&mcp.Prompt{
 		Name:        autoPromptName,
 		Title:       h.serverName,
 		Description: "Overview of this data platform — what it covers and how to use it",
-	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-		return buildPromptResult(content), nil
+	}, func(ctx context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return buildPromptResult(h.buildDynamicOverviewContent(ctx)), nil
 	})
 
 	// platform-overview is auto-invoked; it is not included in promptInfos
@@ -102,11 +102,17 @@ func (h *Handle) registerAutoPrompt(server *mcp.Server) {
 }
 
 // buildDynamicOverviewContent builds the platform overview content dynamically
-// based on the server description and enabled toolkits.
-func (h *Handle) buildDynamicOverviewContent() string {
+// from the server description in force for ctx and the enabled toolkits. A
+// description that resolves empty is omitted rather than written as a blank
+// leading paragraph, so the overview still lists capabilities.
+func (h *Handle) buildDynamicOverviewContent(ctx context.Context) string {
 	var b strings.Builder
-	b.WriteString(h.serverDescription)
-	b.WriteString("\n\n")
+	if h.serverDescription != nil {
+		if desc := h.serverDescription(ctx); desc != "" {
+			b.WriteString(desc)
+			b.WriteString("\n\n")
+		}
+	}
 
 	capabilities := h.collectCapabilityBullets()
 	if len(capabilities) > 0 {

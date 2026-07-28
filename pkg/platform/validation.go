@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"context"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -25,8 +26,11 @@ var toolTokenPattern = regexp.MustCompile(`\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b`)
 // validateAgentInstructions scans the agent_instructions text for tokens that
 // look like tool names and logs warnings for any that don't match registered tools.
 // This helps catch stale references after tool renames or removals.
+//
+// Startup-only, so it lints the value in force at boot. An override authored
+// later is not re-linted; the warning is a developer aid, not a gate.
 func (p *Platform) validateAgentInstructions() {
-	instructions := p.config.Server.AgentInstructions
+	instructions := p.config.ServerAgentInstructions(context.Background())
 	if instructions == "" {
 		return
 	}

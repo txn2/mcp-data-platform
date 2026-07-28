@@ -71,7 +71,7 @@ func TestMCPDescriptionOverrideMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mw := MCPDescriptionOverrideMiddleware(tt.overrides)
+			mw := MCPDescriptionOverrideMiddlewareDynamic(staticOverrides(tt.overrides))
 			handler := mw(func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 				return tt.nextResult, nil
 			})
@@ -90,7 +90,7 @@ func TestMCPDescriptionOverrideMiddleware(t *testing.T) {
 }
 
 func TestMCPDescriptionOverrideMiddleware_ErrorPassthrough(t *testing.T) {
-	mw := MCPDescriptionOverrideMiddleware(map[string]string{"trino_query": "overridden"})
+	mw := MCPDescriptionOverrideMiddlewareDynamic(staticOverrides(map[string]string{"trino_query": "overridden"}))
 	handler := mw(func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return nil, assert.AnError
 	})
@@ -133,7 +133,7 @@ func TestMCPDescriptionOverrideMiddlewareDynamic(t *testing.T) {
 	// as a successful save.
 	current := map[string]string{"trino_query": "v1"}
 
-	mw := MCPDescriptionOverrideMiddlewareDynamic(func() map[string]string {
+	mw := MCPDescriptionOverrideMiddlewareDynamic(func(context.Context) map[string]string {
 		return current
 	})
 	handler := mw(func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
@@ -158,4 +158,10 @@ func TestMCPDescriptionOverrideMiddlewareDynamic(t *testing.T) {
 	listResult, ok = result.(*mcp.ListToolsResult)
 	require.True(t, ok)
 	assert.Equal(t, "v2", listResult.Tools[0].Description)
+}
+
+// staticOverrides returns a getter that always yields the same map, for tests
+// that exercise the replacement rather than the re-resolution.
+func staticOverrides(m map[string]string) func(context.Context) map[string]string {
+	return func(context.Context) map[string]string { return m }
 }

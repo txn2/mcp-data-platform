@@ -380,7 +380,11 @@ database:
 
 ## Config Store
 
-When a database is available (`database.dsn` is set), the platform uses a granular key/value config store. Individual config entries in the `config_entries` table override file defaults for whitelisted keys. Changes made via the admin API take effect immediately (hot-reload) without restart. Deleting a database entry restores the file default for that key.
+When a database is available (`database.dsn` is set), the platform uses a granular key/value config store. Individual config entries in the `config_entries` table override file defaults for whitelisted keys.
+
+The store is the authority for these keys: nothing is copied into memory at startup and nothing is patched in place on a write. Every read resolves the key from the store and falls back to the file value when no row exists. A change made through the admin API is therefore in force on every replica as soon as it commits, with no restart and no cross-replica notification, and deleting a row restores the file default everywhere on the next read.
+
+If the store cannot be read, the file-config value is used. A database outage degrades to the YAML the operator shipped rather than to an empty value, so agent instructions and deny patterns survive it.
 
 **Whitelisted keys (phase 1):**
 
