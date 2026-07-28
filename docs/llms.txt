@@ -47,7 +47,7 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. Cross-e
 
 ## Personas
 
-- [Overview](https://mcp-data-platform.txn2.com/personas/overview/): Role-based tool access control with connection-level filtering. Personas are the access boundary: a caller whose roles match no persona reaches nothing (tools refused, portal 403), there is no fallback persona, and anonymous/no-auth callers carry the "anonymous" role a persona must list to grant them access
+- [Overview](https://mcp-data-platform.txn2.com/personas/overview/): Role-based tool access control with connection-level filtering. Personas are the access boundary: a caller whose roles match no persona reaches nothing (tools refused, portal 403), there is no fallback persona, and anonymous/no-auth callers carry the "anonymous" role a persona must list to grant them access. Deny-by-default connection rules bound discovery as well as action: search, fetch, list_connections, and the portal search show only granted connections, and report what they withheld
 - [Tool Filtering](https://mcp-data-platform.txn2.com/personas/tool-filtering/): Allow/deny patterns with wildcards; persona-level filtering (security boundary) vs global tool visibility (token optimization)
 - [Role Mapping](https://mcp-data-platform.txn2.com/personas/role-mapping/): Map OIDC roles to personas; roles matching nothing resolve to the deny-all persona rather than a configured default
 
@@ -61,7 +61,7 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. Cross-e
 
 ## Knowledge Capture
 
-- [Overview](https://mcp-data-platform.txn2.com/knowledge/overview/): Tribal knowledge capture for data catalogs: memory_capture records insights during AI sessions, apply_knowledge promotes reviewed knowledge to DataHub or canonical knowledge pages with changeset tracking and rollback, and the universal search/fetch tools are the discovery and read path across every knowledge source
+- [Overview](https://mcp-data-platform.txn2.com/knowledge/overview/): Tribal knowledge capture for data catalogs: memory_capture records insights during AI sessions, apply_knowledge promotes reviewed knowledge to DataHub or canonical knowledge pages with changeset tracking and rollback, and the universal search/fetch tools are the discovery and read path across every knowledge source, bounded by the caller's persona connection rules and reporting what those rules withheld
 - [Governance Workflow](https://mcp-data-platform.txn2.com/knowledge/governance/): Human-in-the-loop curation: bulk review, approve/reject, synthesized change proposals, DataHub write-back, changeset tracking, and rollback
 - [Admin API](https://mcp-data-platform.txn2.com/knowledge/admin-api/): REST endpoints for managing insights and changesets
 

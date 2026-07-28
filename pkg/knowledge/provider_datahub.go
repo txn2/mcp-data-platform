@@ -29,8 +29,12 @@ type tableSearcher interface {
 // entry alongside the URN-linked memory and insights. Structured catalog
 // navigation (platform/domain/tag/entity-type filters) stays in datahub_browse.
 //
-// It is shared: the catalog is global, so it is queried for every request and
-// needs no caller identity.
+// It is shared: the catalog holds no per-user records, so it is queried for
+// every request. Its entities are still connection-scoped (#1108): a dataset
+// belongs to the connections that can serve its URN, and a caller whose persona
+// is not granted any of them does not see it. A URN that maps to no connection
+// stays visible — the mapping failed, not the permission check, and hiding on a
+// guess would silently drop entities no connection claims.
 //
 // DataHub ranks search results but does not return a numeric score, so the
 // provider derives a descending positional score from the result order;
@@ -65,8 +69,19 @@ func (p *CatalogProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 // legitimately have no catalog entry, so a miss must not blank the provider.
 // Only entities the catalog actually returned (non-empty URN) yield a hit, so a
 // non-existent URN produces nothing.
+//
+// The connection boundary is applied after resolution, against the URN the
+// CATALOG returned rather than the one the caller passed. Those differ, and only
+// the resolved one can be trusted: the lookup keys on the table identifier and
+// re-derives the platform from the adapter's configuration, so a caller who
+// writes a real table name under a platform no connection claims would otherwise
+// make its dataset unattributable — and therefore visible — while still
+// resolving it. Checking after resolution also makes the withheld count mean "an
+// entity exists here that you may not see" rather than counting URNs that
+// resolve to nothing.
 func (p *CatalogProvider) searchByEntity(ctx context.Context, q Query, seen map[string]bool) []Hit {
 	var hits []Hit
+	withheld := 0
 	for _, urn := range q.EntityURNs {
 		if seen[urn] {
 			continue
@@ -83,7 +98,13 @@ func (p *CatalogProvider) searchByEntity(ctx context.Context, q Query, seen map[
 		if tc == nil || tc.URN == "" {
 			continue
 		}
+		// Mark the URN handled before the boundary check so the text arm does not
+		// re-consider (and re-count) an entity this arm already withheld.
 		seen[urn] = true
+		if !q.Caller.allowsURN(tc.URN) {
+			withheld++
+			continue
+		}
 		hits = append(hits, Hit{
 			Text:       catalogContextText(table, tc),
 			Source:     SourceCatalog,
@@ -94,10 +115,12 @@ func (p *CatalogProvider) searchByEntity(ctx context.Context, q Query, seen map[
 			Reference: urn,
 		})
 	}
+	q.Caller.withhold(withheld)
 	return hits
 }
 
-// searchByText returns catalog entities relevant to the intent. A query with no
+// searchByText returns catalog entities relevant to the intent, minus those
+// belonging to connections the caller's persona may not reach. A query with no
 // intent yields nothing.
 func (p *CatalogProvider) searchByText(ctx context.Context, q Query, seen map[string]bool) ([]Hit, error) {
 	if q.Intent == "" {
@@ -114,11 +137,16 @@ func (p *CatalogProvider) searchByText(ctx context.Context, q Query, seen map[st
 
 	n := len(results)
 	hits := make([]Hit, 0, n)
+	withheld := 0
 	for i := range results {
 		if seen[results[i].URN] {
 			continue
 		}
 		seen[results[i].URN] = true
+		if !q.Caller.allowsURN(results[i].URN) {
+			withheld++
+			continue
+		}
 		hits = append(hits, Hit{
 			Text:       catalogHitText(results[i]),
 			Source:     SourceCatalog,
@@ -129,6 +157,7 @@ func (p *CatalogProvider) searchByText(ctx context.Context, q Query, seen map[st
 			Reference: results[i].URN,
 		})
 	}
+	q.Caller.withhold(withheld)
 	return hits, nil
 }
 
@@ -144,9 +173,15 @@ const datasetPrefix = "urn:li:dataset:"
 // the catalog errors on is ErrNotFound: DataHub reports a missing/deleted entity as
 // an error rather than an empty result (mcp-datahub GetEntity), and the search
 // entity path treats that same lookup error as a skip (searchByEntity), so a stale
-// dataset citation must be a clean not-found here too, not a hard tool failure. The
-// catalog is global, so no per-caller scope applies.
-func (p *CatalogProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Document, bool, error) {
+// dataset citation must be a clean not-found here too, not a hard tool failure.
+//
+// A dataset belonging only to connections the caller's persona is not granted is
+// ErrNotFound as well (#1108): fetch must not hand back by citation what search
+// declined to show. The boundary is evaluated against the URN the catalog
+// resolved, not the one the reference carried — the lookup keys on the table
+// identifier and re-derives the platform, so trusting the caller's platform
+// segment would let a crafted reference read around the boundary.
+func (p *CatalogProvider) Fetch(ctx context.Context, ref string, caller Caller) (*Document, bool, error) {
 	if !strings.HasPrefix(ref, datasetPrefix) {
 		return nil, false, nil
 	}
@@ -163,6 +198,9 @@ func (p *CatalogProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Doc
 		return nil, true, ErrNotFound
 	}
 	if tc == nil || tc.URN == "" {
+		return nil, true, ErrNotFound
+	}
+	if !caller.allowsURN(tc.URN) {
 		return nil, true, ErrNotFound
 	}
 	return &Document{

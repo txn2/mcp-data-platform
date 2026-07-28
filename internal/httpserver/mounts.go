@@ -428,8 +428,13 @@ func (a portalSearchAdapter) Search(ctx context.Context, q portal.SearchQuery) (
 		out.Groups = append(out.Groups, portal.SearchGroup{Source: g.Source, Hits: hits})
 	}
 	for _, c := range res.Coverage {
-		out.Coverage = append(out.Coverage, portal.SearchCoverage{Source: c.Source, Matched: c.Matched, Shown: c.Shown})
+		out.Coverage = append(out.Coverage, portal.SearchCoverage{
+			Source: c.Source, Matched: c.Matched, Shown: c.Shown, Withheld: c.Withheld,
+		})
 	}
+	// The notice is rendered here, from the knowledge package, so the portal and the
+	// MCP search tool explain a persona-withheld result with identical copy.
+	out.WithheldNotice = knowledge.WithheldNotice(res.Coverage, q.Caller.Persona)
 	return out, nil
 }
 

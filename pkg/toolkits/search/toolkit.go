@@ -83,6 +83,12 @@ type searchOutput struct {
 	// source, so a typo (e.g. "documnets") is reported instead of silently
 	// returning nothing.
 	UnknownSources []string `json:"unknown_sources,omitempty"`
+	// WithheldNotice explains the coverage block's withheld counts in one line:
+	// how many results the caller's persona hid, from which sources, and how to
+	// get access (#1108). Present only when something was withheld. Without it an
+	// agent reads a shortened result set as "this does not exist" and goes off to
+	// re-derive what it was not permitted to see.
+	WithheldNotice string `json:"withheld_notice,omitempty"`
 }
 
 // searchSchema is the JSON Schema for the search tool input.
@@ -339,12 +345,13 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		return t.handleBrowse(ctx, input)
 	}
 
+	caller := t.callerFromContext(ctx)
 	res, err := t.router.Search(ctx, knowledge.Query{
 		Intent:     searchText,
 		EntityURNs: input.EntityURNs,
 		Status:     strings.TrimSpace(input.Status),
 		Sources:    input.Sources,
-		Caller:     t.callerFromContext(ctx),
+		Caller:     caller,
 		Limit:      input.Limit,
 	})
 	if err != nil {
@@ -369,6 +376,7 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		Count:          shown,
 		Ranking:        res.Ranking,
 		UnknownSources: res.UnknownSources,
+		WithheldNotice: knowledge.WithheldNotice(coverage, caller.Persona),
 	})
 	return withResourceLinks(result, groups), structured, err
 }

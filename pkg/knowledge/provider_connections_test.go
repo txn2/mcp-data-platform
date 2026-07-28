@@ -146,3 +146,102 @@ func TestConnectionsProvider_Fetch(t *testing.T) {
 		}
 	})
 }
+
+func TestConnectionsProvider_HidesConnectionsThePersonaCannotReach(t *testing.T) {
+	l := &fakeConnLister{conns: []ConnectionInfo{
+		{Name: "warehouse-a", Kind: "trino", Description: "analytics"},
+		{Name: "warehouse-b", Kind: "trino", Description: "analytics"},
+		{Name: "ledger", Kind: "trino", Description: "unrelated"},
+	}}
+	p := NewConnectionsProvider(l)
+	caller, gate := scopedCaller(stubScope{allowed: map[string]bool{"warehouse-a": true}})
+
+	hits, err := p.Search(context.Background(), Query{Intent: "analytics", Limit: 10, Caller: caller})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Ref != "warehouse-a" {
+		t.Fatalf("expected only warehouse-a, got %+v", hits)
+	}
+	// warehouse-b matched the intent and was hidden; ledger did not match at all
+	// and so is not withheld — the count means "matched, but not yours to see".
+	if gate.withheld != 1 {
+		t.Errorf("withheld = %d, want 1", gate.withheld)
+	}
+}
+
+func TestConnectionsProvider_WithheldReportedWhenNothingRemains(t *testing.T) {
+	l := &fakeConnLister{conns: []ConnectionInfo{{Name: "payroll", Kind: "trino", Description: "analytics"}}}
+	p := NewConnectionsProvider(l)
+	caller, gate := scopedCaller(stubScope{})
+
+	hits, err := p.Search(context.Background(), Query{Intent: "analytics", Limit: 10, Caller: caller})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hits != nil {
+		t.Errorf("expected no hits, got %+v", hits)
+	}
+	if gate.withheld != 1 {
+		t.Errorf("withheld = %d, want 1 even when the source is emptied", gate.withheld)
+	}
+}
+
+func TestConnectionsProvider_FetchDeniedConnectionIsNotFound(t *testing.T) {
+	l := &fakeConnLister{conns: []ConnectionInfo{
+		{Name: "warehouse-a", Kind: "trino"},
+		{Name: "payroll", Kind: "trino"},
+	}}
+	p := NewConnectionsProvider(l)
+	caller, _ := scopedCaller(stubScope{allowed: map[string]bool{"warehouse-a": true}})
+
+	doc, owned, err := p.Fetch(context.Background(), knowledgepage.ConnectionRef("trino", "payroll"), caller)
+	if !owned {
+		t.Fatal("a connection reference is owned by this provider even when denied")
+	}
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+	if doc != nil {
+		t.Errorf("denied fetch must return no document, got %+v", doc)
+	}
+
+	// The permitted connection still resolves through the same path.
+	doc, owned, err = p.Fetch(context.Background(), knowledgepage.ConnectionRef("trino", "warehouse-a"), caller)
+	if !owned || err != nil || doc == nil {
+		t.Fatalf("permitted fetch: doc=%+v owned=%v err=%v", doc, owned, err)
+	}
+}
+
+func TestConnectionsProvider_FiltersOnThePersonaFacingConnectionName(t *testing.T) {
+	// A single-connection toolkit whose configured connection_name differs from
+	// its instance name: the persona rules and the audit trail key on the former,
+	// so discovery must too, or a granted connection would be hidden.
+	l := &fakeConnLister{conns: []ConnectionInfo{
+		{Name: "lake", Kind: "s3", Connection: "prod-lake", Description: "analytics"},
+		{Name: "vault", Kind: "s3", Connection: "prod-vault", Description: "analytics"},
+	}}
+	p := NewConnectionsProvider(l)
+	caller, gate := scopedCaller(stubScope{allowed: map[string]bool{"prod-lake": true}})
+
+	hits, err := p.Search(context.Background(), Query{Intent: "analytics", Limit: 10, Caller: caller})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Ref != "lake" {
+		t.Fatalf("expected the granted connection, listed by its instance name, got %+v", hits)
+	}
+	if gate.withheld != 1 {
+		t.Errorf("withheld = %d, want 1", gate.withheld)
+	}
+
+	// Fetch resolves by the reference's name and authorizes by the same
+	// persona-facing identity.
+	if _, _, err := p.Fetch(context.Background(), knowledgepage.ConnectionRef("s3", "lake"), caller); err != nil {
+		t.Errorf("granted connection should fetch: %v", err)
+	}
+	_, owned, err := p.Fetch(context.Background(), knowledgepage.ConnectionRef("s3", "vault"), caller)
+	if !owned || !errors.Is(err, ErrNotFound) {
+		t.Errorf("denied connection: owned=%v err=%v, want owned + ErrNotFound", owned, err)
+	}
+}

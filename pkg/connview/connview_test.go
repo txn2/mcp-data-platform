@@ -76,7 +76,7 @@ func TestBuild_KnowledgeBoundedByCap(t *testing.T) {
 		"trino/acme": pageRefs(7), // more than the cap
 	}}
 	src := fakeSource{names: map[string]string{"trino/acme": "trino_src"}}
-	out := Build(context.Background(), []registry.Toolkit{tk}, src, pages)
+	out := Build(context.Background(), []registry.Toolkit{tk}, src, pages, nil)
 
 	require.Len(t, out.Connections, 1)
 	e := out.Connections[0]
@@ -93,7 +93,7 @@ func TestBuild_FallbackKindFilterAndSource(t *testing.T) {
 		&mockTK{kind: "api", name: "gw", conn: "gw-conn"},                 // not a data kind -> skipped
 	}
 	src := fakeSource{names: map[string]string{"trino/warehouse": "trino_src"}}
-	out := Build(context.Background(), toolkits, src, nil)
+	out := Build(context.Background(), toolkits, src, nil, nil)
 
 	require.Len(t, out.Connections, 1, "non-data kinds are dropped in the fallback path")
 	assert.Equal(t, "trino", out.Connections[0].Kind)
@@ -106,19 +106,19 @@ func TestBuild_NoEnrichmentWhenLookupNilOrEmpty(t *testing.T) {
 	tk := &listerTK{mockTK: mockTK{kind: "trino"}, conns: []toolkit.ConnectionDetail{{Name: "acme"}}}
 
 	// Nil lookup: no enrichment fields.
-	out := Build(context.Background(), []registry.Toolkit{tk}, nil, nil)
+	out := Build(context.Background(), []registry.Toolkit{tk}, nil, nil, nil)
 	require.Len(t, out.Connections, 1)
 	assert.Zero(t, out.Connections[0].KnowledgePageCount)
 	assert.Empty(t, out.Connections[0].KnowledgePages)
 
 	// Lookup with no referencing pages for this connection.
-	out = Build(context.Background(), []registry.Toolkit{tk}, nil, fakePages{})
+	out = Build(context.Background(), []registry.Toolkit{tk}, nil, fakePages{}, nil)
 	assert.Zero(t, out.Connections[0].KnowledgePageCount)
 }
 
 func TestBuild_LookupErrorSkipped(t *testing.T) {
 	tk := &listerTK{mockTK: mockTK{kind: "trino"}, conns: []toolkit.ConnectionDetail{{Name: "acme"}}}
-	out := Build(context.Background(), []registry.Toolkit{tk}, nil, fakePages{err: errors.New("boom")})
+	out := Build(context.Background(), []registry.Toolkit{tk}, nil, fakePages{err: errors.New("boom")}, nil)
 	require.Len(t, out.Connections, 1)
 	assert.Zero(t, out.Connections[0].KnowledgePageCount, "a lookup error leaves the connection unenriched, not failed")
 }
@@ -174,7 +174,7 @@ func TestBuild_KnowledgeEnrichmentFansOut(t *testing.T) {
 	rec := &concurrencyRecorder{byConn: byConn}
 	rec.barrier.Add(n)
 
-	out := Build(context.Background(), []registry.Toolkit{tk}, nil, rec)
+	out := Build(context.Background(), []registry.Toolkit{tk}, nil, rec, nil)
 
 	require.Len(t, out.Connections, n)
 	for i, e := range out.Connections {
@@ -186,4 +186,78 @@ func TestBuild_KnowledgeEnrichmentFansOut(t *testing.T) {
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
 	assert.Greater(t, rec.maxSeen, 1, "per-connection lookups must run concurrently")
+}
+
+func TestBuild_PermitFiltersAndCounts(t *testing.T) {
+	tk := &listerTK{
+		mockTK: mockTK{kind: "trino", name: "warehouse"},
+		conns: []toolkit.ConnectionDetail{
+			{Name: "warehouse-a", Description: "Analytics"},
+			{Name: "warehouse-b", Description: "Payroll"},
+		},
+	}
+	fallback := &mockTK{kind: "s3", name: "lake"}
+
+	permit := Permit(func(_, name string) bool { return name == "warehouse-a" })
+	out := Build(context.Background(), []registry.Toolkit{tk, fallback}, nil, nil, permit)
+
+	if len(out.Connections) != 1 || out.Connections[0].Name != "warehouse-a" {
+		t.Fatalf("expected only warehouse-a, got %+v", out.Connections)
+	}
+	if out.Count != 1 {
+		t.Errorf("Count = %d, want 1", out.Count)
+	}
+	// warehouse-b (listed) and lake (fallback data toolkit) were both hidden.
+	if out.Withheld != 2 {
+		t.Errorf("Withheld = %d, want 2", out.Withheld)
+	}
+}
+
+func TestBuild_NilPermitEnumeratesEverything(t *testing.T) {
+	tk := &listerTK{
+		mockTK: mockTK{kind: "trino", name: "warehouse"},
+		conns:  []toolkit.ConnectionDetail{{Name: "warehouse-a"}, {Name: "warehouse-b"}},
+	}
+	out := Build(context.Background(), []registry.Toolkit{tk}, nil, nil, nil)
+	if out.Count != 2 || out.Withheld != 0 {
+		t.Errorf("nil permit should enumerate everything: count=%d withheld=%d", out.Count, out.Withheld)
+	}
+}
+
+func TestBuild_PermitUsesThePersonaFacingConnectionName(t *testing.T) {
+	// The fallback (non-lister) toolkit's persona identity is its connection
+	// name, not its instance name; a persona granted the former must see it.
+	granted := &mockTK{kind: "s3", name: "lake", conn: "prod-lake"}
+	denied := &mockTK{kind: "s3", name: "vault", conn: "prod-vault"}
+	// A toolkit with no connection name falls back to its instance name.
+	unnamed := &mockTK{kind: "datahub", name: "primary"}
+
+	permit := Permit(func(_, name string) bool { return name == "prod-lake" || name == "primary" })
+	out := Build(context.Background(), []registry.Toolkit{granted, denied, unnamed}, nil, nil, permit)
+
+	names := make([]string, 0, len(out.Connections))
+	for _, c := range out.Connections {
+		names = append(names, c.Name)
+	}
+	assert.ElementsMatch(t, []string{"lake", "primary"}, names)
+	assert.Equal(t, 1, out.Withheld)
+}
+
+func TestConnectionNames(t *testing.T) {
+	// A multi-connection toolkit is its connections, not its instance: those are
+	// the names a persona's rules and a tool call's connection argument carry.
+	lister := &listerTK{
+		mockTK: mockTK{kind: "trino", name: "warehouse"},
+		conns:  []toolkit.ConnectionDetail{{Name: "warehouse-a"}, {Name: "warehouse-b"}},
+	}
+	assert.Equal(t, []string{"warehouse-a", "warehouse-b"}, ConnectionNames(lister))
+
+	// A single-connection toolkit is its configured connection name.
+	assert.Equal(t, []string{"prod-lake"}, ConnectionNames(&mockTK{kind: "s3", name: "lake", conn: "prod-lake"}))
+
+	// With none configured, its instance name is that identity.
+	assert.Equal(t, []string{"primary"}, ConnectionNames(&mockTK{kind: "datahub", name: "primary"}))
+
+	// A lister that currently serves nothing contributes no name.
+	assert.Empty(t, ConnectionNames(&listerTK{mockTK: mockTK{kind: "api", name: "gw"}}))
 }

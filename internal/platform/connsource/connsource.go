@@ -129,16 +129,18 @@ func (m *Map) ConnectionsForURN(urn string) []*Source {
 	if m == nil {
 		return nil
 	}
-	platform := platformFromURN(urn)
+	platform := PlatformFromURN(urn)
 	if platform == "" {
 		return nil
 	}
 	return m.bySourceName[platform]
 }
 
-// platformFromURN extracts the platform name from a DataHub URN.
+// PlatformFromURN extracts the platform name from a DataHub URN.
 // Example: "urn:li:dataset:(urn:li:dataPlatform:trino,...)" returns "trino".
-func platformFromURN(urn string) string {
+// Exported so callers that resolve a URN against the live connection set (rather
+// than this map's entries) parse the platform the same way.
+func PlatformFromURN(urn string) string {
 	const prefix = "urn:li:dataPlatform:"
 	_, after, found := strings.Cut(urn, prefix)
 	if !found {

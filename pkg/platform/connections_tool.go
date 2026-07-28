@@ -7,6 +7,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/connview"
+	"github.com/txn2/mcp-data-platform/pkg/knowledge"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
 // connectionEntry and listConnectionsOutput are the list_connections view types,
@@ -35,6 +37,11 @@ func (p *Platform) registerConnectionsTool() {
 
 // handleListConnections handles the list_connections tool call, delegating the view
 // build (and the knowledge-page reverse-lookup enrichment) to pkg/connview.
+//
+// The enumeration is narrowed to the connections the caller's persona is granted
+// (#1108) by the same predicate search and fetch apply, and reports how many it
+// withheld: an operator who grants one connection should not have the tool hand
+// back the inventory of the rest.
 func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
 	var src connview.SourceResolver
 	if p.connectionSources != nil {
@@ -45,7 +52,17 @@ func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolReq
 		pages = kp
 	}
 
-	out := connview.Build(ctx, p.toolkitRegistry.All(), src, pages)
+	personaName := ""
+	if pc := middleware.GetPlatformContext(ctx); pc != nil {
+		personaName = pc.PersonaName
+	}
+	var permit connview.Permit
+	if scope := connectionScopeFor(p.personaRegistry, p.connectionSources, p.toolkitRegistry); scope != nil {
+		permit = func(_, name string) bool { return scope.AllowConnection(personaName, name) }
+	}
+
+	out := connview.Build(ctx, p.toolkitRegistry.All(), src, pages, permit)
+	out.Notice = knowledge.ConnectionsWithheldNotice(out.Withheld, personaName)
 
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {

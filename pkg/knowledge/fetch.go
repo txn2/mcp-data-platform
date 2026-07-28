@@ -90,7 +90,9 @@ type Fetcher interface {
 	//
 	// A per-user provider must scope the read to caller exactly as its Search does:
 	// a reference the caller could not have searched must return ErrNotFound, not
-	// content, so fetch never widens what a persona can see.
+	// content, so fetch never widens what a persona can see. A connection-scoped
+	// provider (catalog, connections) must likewise apply the caller's connection
+	// boundary, which the Router attaches to caller before the walk.
 	Fetch(ctx context.Context, ref string, caller Caller) (doc *Document, owned bool, err error)
 }
 
@@ -113,6 +115,10 @@ func (r *Router) Fetch(ctx context.Context, ref string, caller Caller) (*Documen
 	if ref == "" {
 		return nil, ErrNotFound
 	}
+	// Attach the same connection boundary search applies, so a reference naming a
+	// connection the caller's persona may not reach resolves to not-found instead
+	// of handing back by citation what search declined to show (#1108).
+	caller, _ = r.scoped(caller)
 	for _, p := range r.providers {
 		f, ok := p.(Fetcher)
 		if !ok {

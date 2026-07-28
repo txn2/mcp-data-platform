@@ -539,17 +539,23 @@ export interface SearchGroup {
 }
 
 // SearchCoverage reports, per source, how many records matched vs how many are
-// shown, so breadth beyond the display set stays visible.
+// shown, so breadth beyond the display set stays visible. withheld counts the
+// matches the caller's persona hid because they belong to connections it is not
+// granted (#1108); it separates "nothing matched" from "matches you may not see".
 export interface SearchCoverage {
   source: string;
   matched: number;
   shown: number;
+  withheld?: number;
 }
 
-// SearchResponse is the GET /api/v1/portal/search envelope.
+// SearchResponse is the GET /api/v1/portal/search envelope. withheld_notice is
+// the one-line explanation of the coverage withheld counts (how many, why, and
+// how to get access); it is present only when something was withheld.
 export interface SearchResponse {
   groups: SearchGroup[];
   coverage: SearchCoverage[];
   count: number;
   ranking: string;
+  withheld_notice?: string;
 }

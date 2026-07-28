@@ -27,7 +27,9 @@ func Run(ctx context.Context, db *sql.DB, toolkits []registry.Toolkit) {
 	if db == nil {
 		return
 	}
-	for _, c := range connview.Build(ctx, toolkits, nil, nil).Connections {
+	// A nil permit enumerates every connection: the backfill is a system sweep
+	// that must seed a row for each one, not a caller whose persona narrows it.
+	for _, c := range connview.Build(ctx, toolkits, nil, nil, nil).Connections {
 		if _, err := db.ExecContext(ctx,
 			`INSERT INTO connection_instances (kind, name, description, created_by)
 			 VALUES ($1, $2, $3, 'system') ON CONFLICT (kind, name) DO NOTHING`,

@@ -216,7 +216,7 @@ Override fields (`description_override`, `agent_instructions_override`) take pre
 
 ## Connection Access Control
 
-Personas can restrict which toolkit connections a user may access. This is enforced at the `tools/call` level: a tool call must pass both the tool pattern check and the connection check.
+Personas can restrict which toolkit connections a user may access. The boundary applies to both halves of using the platform: a tool call must pass the tool pattern check and the connection check, and the discovery surfaces show only the connections a persona is granted.
 
 ```yaml
 personas:
@@ -244,7 +244,22 @@ personas:
 2. The user's persona connection rules are evaluated: deny patterns are checked first, then allow patterns
 3. If the connection is denied (or not allowed), the tool call is rejected
 
+Discovery evaluates the same rules against the same persona, so what a caller can find and what a caller can call cannot disagree.
+
 Connections are **deny-by-default**, mirroring the tool axis: a persona reaches a connection only when a `connections.allow` pattern matches its name. If the `connections` block is omitted or `allow` is empty, the persona is granted **no** connections, so every tool call that targets a connection is denied. Grant each persona exactly the connections it needs (the admin persona typically uses `allow: ["*"]`).
+
+### What Discovery Shows
+
+The same rules narrow what a persona can see, not only what it can call:
+
+- **`search`** omits catalog datasets, connections, and API endpoints that belong to a connection the persona is not granted. A dataset is attributed to a connection through its DataHub platform name; a dataset whose URN maps to no configured connection stays visible, and one reachable through any granted connection stays visible.
+- **`fetch`** returns `found: false` for a reference behind a connection the persona is not granted, so a citation cannot read around what search omitted.
+- **`list_connections`** enumerates only the granted connections.
+- The **portal search** applies the same boundary; it shares one router with the `search` tool.
+
+Nothing is dropped silently. Each surface reports what it removed: `search` adds a `withheld` count per source in its coverage block plus a `withheld_notice` naming the persona and the remedy, `list_connections` returns `withheld` and `notice`, and the portal search UI renders the same message above the results. An agent that reads a shortened result set with no explanation concludes the data does not exist and re-derives it; the count turns that into "present, but not yours to see."
+
+This is a metadata boundary. It hides names, descriptions, and inventory across connections; the data behind them was already gated at `tools/call`.
 
 ### Pattern Syntax
 

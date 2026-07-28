@@ -19,6 +19,23 @@ type ConnectionInfo struct {
 	Name        string
 	Kind        string
 	Description string
+	// Connection is the identity a persona's connections rules and the audit
+	// trail use for this connection, when a toolkit carries a configured
+	// connection_name distinct from its instance name. Empty means Name is that
+	// identity, which is the case for every connection a multi-connection
+	// toolkit enumerates.
+	Connection string
+}
+
+// policyName is the identity the persona connection rules match on. Discovery
+// keys on exactly what the authorizer checks, so a connection an operator
+// granted can never be hidden by the platform preferring a different one of its
+// two names.
+func (c ConnectionInfo) policyName() string {
+	if c.Connection != "" {
+		return c.Connection
+	}
+	return c.Name
 }
 
 // ConnectionLister enumerates the deployment's configured connections. The
@@ -35,11 +52,12 @@ type ConnectionLister interface {
 // list_connections stays the full enumeration; this surfaces the connections
 // relevant to a query.
 //
-// It is shared: connection metadata (name, kind, description) is already
-// globally visible through list_connections, so there is no per-user record to
-// scope here. The security-sensitive boundary is which connections a persona
-// may use, and that is enforced fail-closed at tool-call time on the scoped
-// tools (trino_query, api_invoke_endpoint, ...), unchanged by this provider.
+// It is shared: connections are deployment-level, not per-user records. It is
+// not unfiltered, though — results are narrowed to the connections the caller's
+// persona is granted (#1108), the same connections.allow boundary the authorizer
+// applies to a tool call and list_connections applies to its enumeration, so a
+// persona restricted to one connection cannot discover the inventory of the
+// rest.
 type ConnectionsProvider struct {
 	lister ConnectionLister
 }
@@ -56,10 +74,17 @@ func (*ConnectionsProvider) Name() string { return SourceConnections }
 // list_connections.
 func (*ConnectionsProvider) Scope() Scope { return ScopeShared }
 
-// Search returns connections whose name, kind, or description match the intent,
-// ranked by a lexical token-overlap score. Connections carry no embeddings, so
-// ranking is lexical; the score still feeds the allocator's per-source
-// normalization. It responds to the text path only.
+// Search returns connections whose name, kind, or description match the intent
+// AND that the caller's persona may reach, ranked by a lexical token-overlap
+// score. Connections carry no embeddings, so ranking is lexical; the score still
+// feeds the allocator's per-source normalization. It responds to the text path
+// only.
+//
+// A connection that matches the intent but is outside the persona's
+// connections.allow is counted as withheld rather than dropped silently, so the
+// coverage summary can say "present, but not yours to see". The filter runs
+// before the candidate cap, so a permitted connection is never crowded out of
+// the candidate list by ones the caller may not see.
 func (p *ConnectionsProvider) Search(_ context.Context, q Query) ([]Hit, error) {
 	if q.Intent == "" {
 		return nil, nil
@@ -74,11 +99,17 @@ func (p *ConnectionsProvider) Search(_ context.Context, q Query) ([]Hit, error) 
 		score float64
 	}
 	var matches []scored
+	withheld := 0
 	for _, c := range p.lister.Connections() {
 		if s := connectionScore(c, tokens); s > 0 {
+			if !q.Caller.allowsConnection(c.policyName()) {
+				withheld++
+				continue
+			}
 			matches = append(matches, scored{conn: c, score: s})
 		}
 	}
+	q.Caller.withhold(withheld)
 	if len(matches) == 0 {
 		return nil, nil
 	}
@@ -108,12 +139,11 @@ func (p *ConnectionsProvider) Search(_ context.Context, q Query) ([]Hit, error) 
 // Fetch dereferences an mcp:connection:(kind,name) reference to the connection's
 // descriptor (#694), folding what list_connections enumerates into the one fetch
 // verb. It owns only the connection reference form; any other reference is declined
-// (owned=false). Connection metadata is global (the same list_connections exposes),
-// so no per-caller scope applies; a reference that matches no current connection is
-// ErrNotFound. As with search, this surfaces only the descriptor: which personas
-// may USE a connection is enforced fail-closed at tool-call time on the scoped
-// tools, unchanged by this read.
-func (p *ConnectionsProvider) Fetch(_ context.Context, ref string, _ Caller) (*Document, bool, error) {
+// (owned=false). A reference that matches no current connection, or one naming a
+// connection outside the caller's persona (#1108), is ErrNotFound — the same
+// answer search gives by omitting it, so a citation cannot be used to read around
+// the boundary search enforces.
+func (p *ConnectionsProvider) Fetch(_ context.Context, ref string, caller Caller) (*Document, bool, error) {
 	parsed, err := knowledgepage.ParseEntityRef(ref)
 	if err != nil || parsed.TargetType != knowledgepage.RefTargetConnection {
 		// Not a connection reference: decline so the Router tries the next provider.
@@ -121,6 +151,9 @@ func (p *ConnectionsProvider) Fetch(_ context.Context, ref string, _ Caller) (*D
 	}
 	for _, c := range p.lister.Connections() {
 		if c.Kind == parsed.ConnectionKind && c.Name == parsed.ConnectionName {
+			if !caller.allowsConnection(c.policyName()) {
+				return nil, true, ErrNotFound
+			}
 			return &Document{
 				Reference: ref,
 				Source:    SourceConnections,
