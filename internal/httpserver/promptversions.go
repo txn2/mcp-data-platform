@@ -88,7 +88,14 @@ func adminAttachmentIdentity(pr *persona.Registry, adminPersona string) func(r *
 		if u == nil {
 			return nil
 		}
-		claims := buildResourceClaims(&portal.User{UserID: u.UserID, Email: adminEmail(r), Roles: u.Roles}, pr, adminPersona)
+		// buildResourceClaims refuses a caller belonging to no persona. It cannot
+		// happen here — admin.RequirePersona already resolved this caller to the
+		// admin persona — so a refusal means the surface was mounted without that
+		// gate, and no identity is the safe answer.
+		claims, err := buildResourceClaims(&portal.User{UserID: u.UserID, Email: adminEmail(r), Roles: u.Roles}, pr, adminPersona)
+		if err != nil {
+			return nil
+		}
 		claims.IsAdmin = true
 		return claims
 	}
@@ -103,6 +110,13 @@ func portalAttachmentIdentity(pr *persona.Registry, adminPersona string) func(r 
 		if user == nil {
 			return nil
 		}
-		return buildResourceClaims(user, pr, adminPersona)
+		// A caller belonging to no persona has no identity here. The portal's
+		// persona gate already refuses them before this runs; this is the second
+		// line of defense if these routes are ever mounted without it.
+		claims, err := buildResourceClaims(user, pr, adminPersona)
+		if err != nil {
+			return nil
+		}
+		return claims
 	}
 }

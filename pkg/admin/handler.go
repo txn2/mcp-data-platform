@@ -59,7 +59,6 @@ type PersonaRegistry interface {
 	Get(name string) (*persona.Persona, bool)
 	Register(p *persona.Persona) error
 	Unregister(name string) error
-	DefaultName() string
 }
 
 // APIKeyManager manages API keys at runtime.

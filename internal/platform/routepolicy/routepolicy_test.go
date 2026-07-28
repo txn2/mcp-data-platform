@@ -123,27 +123,51 @@ func TestAllow_DirectCases(t *testing.T) {
 		}
 	})
 
-	t.Run("connection-targeted persona but auth context absent → fail-closed", func(t *testing.T) {
-		// The default persona has APIRoutes touching crm, so empty roles still
-		// resolve to it and the route check applies; an unmatched (method, path)
-		// is denied.
+	t.Run("connection-targeted persona denies an unmatched method/path", func(t *testing.T) {
+		// A persona whose APIRoutes touch crm restricts that connection to the
+		// rules it lists; a (method, path) no allow rule matches is denied.
 		reg := persona.NewRegistry()
-		def := &persona.Persona{
-			Name:  "default",
-			Roles: []string{},
+		restricted := &persona.Persona{
+			Name:  "restricted",
+			Roles: []string{"restricted"},
 			Tools: persona.ToolRules{Allow: []string{"*"}},
 			APIRoutes: []persona.APIRouteRule{
 				{Connection: "crm", Methods: []string{"GET"}, Paths: []string{"/v1/users/*"}},
 			},
 		}
-		_ = reg.Register(def)
-		reg.SetDefault("default")
+		_ = reg.Register(restricted)
 		mapper2 := &persona.OIDCRoleMapper{Registry: reg}
 		auth2 := persona.NewAuthorizer(reg, mapper2)
-		policy2 := routepolicy.New(routepolicy.Deps{Authorizer: auth2})
+		policy2 := routepolicy.New(routepolicy.Deps{
+			Authenticator: stubAuthenticator{roles: []string{"restricted"}},
+			Authorizer:    auth2,
+		})
 		allowed, _ := policy2.Allow(context.Background(), "crm", "DELETE", "/v1/anything")
 		if allowed {
 			t.Error("DELETE on path-restricted connection allowed without explicit allow rule")
+		}
+	})
+
+	t.Run("roles matching no persona reach no tool", func(t *testing.T) {
+		// The route policy layers on top of the tool gate rather than replacing
+		// it (a persona with no APIRoutes rule for a connection leaves the route
+		// check a no-op), so the gate that stops an unmapped caller is
+		// IsAuthorized. With no fallback persona, empty roles resolve to the
+		// deny-all default and reach nothing.
+		reg := persona.NewRegistry()
+		_ = reg.Register(&persona.Persona{
+			Name:  "analyst",
+			Roles: []string{"analyst"},
+			Tools: persona.ToolRules{Allow: []string{"*"}},
+		})
+		auth2 := persona.NewAuthorizer(reg, &persona.OIDCRoleMapper{Registry: reg})
+
+		allowed, personaName, _ := auth2.IsAuthorized(context.Background(), "u", nil, "api_invoke_endpoint", "crm")
+		if allowed {
+			t.Errorf("unmapped caller authorized under persona %q", personaName)
+		}
+		if personaName != "default" {
+			t.Errorf("persona = %q, want the deny-all %q", personaName, "default")
 		}
 	})
 }

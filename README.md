@@ -133,7 +133,7 @@ Each feature links to its full documentation.
 | [Authentication](https://mcp-data-platform.txn2.com/auth/overview/) | Fail-closed model: OIDC (Keycloak, Auth0, Okta, Azure AD) and API keys for service accounts |
 | [OAuth 2.1 server](https://mcp-data-platform.txn2.com/auth/oauth-server/) | Built-in authorization server with PKCE and Dynamic Client Registration; Claude signs in through your IdP |
 | [Outbound OAuth](https://mcp-data-platform.txn2.com/auth/oauth-gateway/) | OAuth to upstream MCPs and APIs with encrypted refresh tokens that survive restarts |
-| [Personas](https://mcp-data-platform.txn2.com/personas/overview/) | Role-mapped allow/deny tool and connection filtering, default-deny |
+| [Personas](https://mcp-data-platform.txn2.com/personas/overview/) | Role-mapped allow/deny tool and connection filtering, default-deny; roles that match no persona reach nothing, in the portal as well as over MCP |
 | [Audit logging](https://mcp-data-platform.txn2.com/server/audit/) | Every tool call logged to PostgreSQL with identity, persona, sanitized parameters, and timing |
 | [Observability](https://mcp-data-platform.txn2.com/server/observability/) | Prometheus metrics and optional OpenTelemetry distributed tracing |
 | [Session externalization](https://mcp-data-platform.txn2.com/server/session-externalization/) | PostgreSQL-backed sessions for zero-downtime restarts, horizontal scaling, and live tool-inventory updates |

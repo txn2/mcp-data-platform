@@ -47,9 +47,9 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. Cross-e
 
 ## Personas
 
-- [Overview](https://mcp-data-platform.txn2.com/personas/overview/): Role-based tool access control with connection-level filtering
+- [Overview](https://mcp-data-platform.txn2.com/personas/overview/): Role-based tool access control with connection-level filtering. Personas are the access boundary: a caller whose roles match no persona reaches nothing (tools refused, portal 403), there is no fallback persona, and anonymous/no-auth callers carry the "anonymous" role a persona must list to grant them access
 - [Tool Filtering](https://mcp-data-platform.txn2.com/personas/tool-filtering/): Allow/deny patterns with wildcards; persona-level filtering (security boundary) vs global tool visibility (token optimization)
-- [Role Mapping](https://mcp-data-platform.txn2.com/personas/role-mapping/): Map OIDC roles to personas
+- [Role Mapping](https://mcp-data-platform.txn2.com/personas/role-mapping/): Map OIDC roles to personas; roles matching nothing resolve to the deny-all persona rather than a configured default
 
 ## Administration
 

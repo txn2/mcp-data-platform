@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/accessgate"
 	"github.com/txn2/mcp-data-platform/pkg/portal/datahubapi"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
@@ -241,7 +242,14 @@ func mountObservabilityProxy(mux *http.ServeMux, p *platform.Platform, requireAu
 
 // buildResourceClaims creates resource Claims from an authenticated user,
 // resolving persona memberships and admin status from the persona registry.
-func buildResourceClaims(user *portal.User, pr *persona.Registry, adminPersona string) *resource.Claims {
+//
+// It returns resource.ErrForbidden when the user belongs to no persona. The
+// managed-resources API authenticates through the portal authenticator but not
+// through the portal handler, so this is where it applies the persona gate the
+// rest of the portal gets from accessgate; without it an account no persona
+// claims would still read every resource whose visibility is not
+// persona-restricted.
+func buildResourceClaims(user *portal.User, pr *persona.Registry, adminPersona string) (*resource.Claims, error) {
 	claims := &resource.Claims{
 		Sub:   user.UserID,
 		Email: user.Email,
@@ -257,8 +265,11 @@ func buildResourceClaims(user *portal.User, pr *persona.Registry, adminPersona s
 			}
 		}
 	}
+	if len(claims.Personas) == 0 {
+		return nil, resource.ErrForbidden
+	}
 	claims.AdminOfPersonas = extractPersonaAdminRoles(user.Roles)
-	return claims
+	return claims, nil
 }
 
 // personaAdminInfix is the role substring that marks a persona-admin grant.
@@ -438,14 +449,79 @@ func buildPersonaResolver(pr *persona.Registry, tr *registry.Registry) portal.Pe
 	}
 }
 
+// portalAuthChain composes the portal's authentication and persona
+// authorization into the single middleware every authenticated portal route is
+// wrapped with. The gate is inner by necessity: it reads the user that
+// RequirePortalAuth puts on the context.
+func portalAuthChain(auth *portal.Authenticator, gate *accessgate.Gate) func(http.Handler) http.Handler {
+	authenticate := portal.RequirePortalAuth(auth)
+	return func(next http.Handler) http.Handler {
+		return authenticate(gate.Require(next))
+	}
+}
+
+// portalAccessGate builds the persona gate with the portal's own branding, so a
+// refusal looks like the product rather than a bare server error. A nil
+// resolver yields a gate that denies everyone, which is the correct reading of
+// "access cannot be evaluated".
+func portalAccessGate(p *platform.Platform, resolver portal.PersonaResolver) *accessgate.Gate {
+	return accessgate.New(accessgate.PersonaResolver(resolver), accessgate.Brand{
+		Name:               portalBrandName(p),
+		LogoSVG:            p.BrandLogoSVG(),
+		URL:                p.BrandURL(),
+		ImplementorName:    p.Config().Portal.Implementor.Name,
+		ImplementorLogoSVG: p.ResolveImplementorLogo(),
+		ImplementorURL:     p.Config().Portal.Implementor.URL,
+	})
+}
+
 // mountPortalUI registers the unified portal SPA frontend on the mux when the
 // portal UI config gate is enabled and assets are available.
 func mountPortalUI(mux *http.ServeMux, p *platform.Platform, assetsAvailable bool) {
 	if p == nil || portalDisabled(p) || !assetsAvailable {
 		return
 	}
-	mux.Handle("/portal/", http.StripPrefix("/portal", ui.Handler()))
+	var spa http.Handler
+	spa = http.StripPrefix("/portal", ui.Handler())
+	if gated := gateSPAShell(p, spa); gated != nil {
+		spa = gated
+	}
+	mux.Handle("/portal/", spa)
 	log.Println("Portal UI enabled on /portal/")
+}
+
+// gateSPAShell wraps the portal SPA so a signed-in caller with no persona is
+// answered with the branded refusal instead of an application shell whose every
+// request will 403. It returns nil when there is no cookie authenticator to
+// identify the caller with, leaving the shell unwrapped.
+//
+// Only a caller who already holds a valid session cookie is judged here.
+// Anyone else falls through to the SPA, which is what makes the sign-in flow
+// still work: an unauthenticated visitor must reach the shell to be sent to the
+// identity provider. The shell is static markup and grants nothing on its own;
+// the data behind it is gated by portalAuthChain regardless of this wrapper.
+func gateSPAShell(p *platform.Platform, spa http.Handler) http.Handler {
+	browserAuth := p.BrowserSessionAuth()
+	if browserAuth == nil {
+		return nil
+	}
+	// Mirror the sibling persona wiring's nil guard (buildPersonaResolver would
+	// dereference a nil registry per request). A nil resolver leaves a gate that
+	// admits nobody, which is the same verdict the API layer reaches when access
+	// cannot be evaluated.
+	var resolver portal.PersonaResolver
+	if pr := p.PersonaRegistry(); pr != nil {
+		resolver = buildPersonaResolver(pr, p.ToolkitRegistry())
+	}
+	gate := portalAccessGate(p, resolver)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		info, err := browserAuth.AuthenticateHTTP(r)
+		if err != nil || info == nil || gate.Allows(info.Roles) {
+			spa.ServeHTTP(w, r)
+			return
+		}
+		gate.Deny(w, r, info.Email)
+	})
 }
 
 // buildAdminAuth constructs the admin persona-gate middleware. Shared by the

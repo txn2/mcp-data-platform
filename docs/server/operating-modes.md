@@ -98,7 +98,6 @@ personas:
     roles: ["analyst"]
     tools:
       allow: ["trino_*", "datahub_*"]
-  default_persona: analyst
 ```
 
 The `system/info` endpoint reports:
@@ -203,7 +202,6 @@ personas:
     roles: ["admin"]
     tools:
       allow: ["*"]
-  default_persona: analyst
 ```
 
 On first boot with an empty database, the platform seeds the config store with the bootstrap YAML. Subsequent boots load from the database and merge the bootstrap fields on top.

@@ -238,7 +238,6 @@ personas:
     roles: ["admin"]
     tools:
       allow: ["*"]
-  default_persona: admin
 ```
 
 There is no semantic: or query: block. Omitting them selects the noop providers, a supported configuration rather than an error, and enrichment stays enabled at no cost because it no-ops without a semantic provider.
@@ -1869,8 +1868,17 @@ personas:
     roles: ["admin"]
     tools:
       allow: ["*"]
-  default_persona: analyst
 ```
+
+A caller whose roles match no persona is unmapped and reaches nothing: MCP tool
+calls resolve to the built-in deny-all persona and are refused, the portal
+answers 403 with a branded page naming the refused account, and the
+managed-resources API refuses the request. There is no fallback persona -
+granting access means granting a role one of the personas lists. A deployment
+with auth.allow_anonymous, or with no authenticators configured, gives its
+callers the role "anonymous", so open access is something a persona opts into by
+listing that role. personas.default_persona was removed and a config that still
+sets it is refused at startup.
 
 ## Tool Filtering
 

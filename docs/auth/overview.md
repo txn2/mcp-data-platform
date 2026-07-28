@@ -200,8 +200,11 @@ personas:
     tools:
       allow: ["trino_query", "trino_execute", "trino_explain", "datahub_*"]
       deny: ["*_delete_*"]
-  default_persona: analyst  # Required: users need explicit persona
 ```
+
+A caller whose roles match no persona here reaches nothing: tool calls are
+refused and the portal answers `403`. Authenticating is not access — grant a
+role a persona lists.
 
 This configuration:
 

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <title>{{.Title}}{{if .BrandName}} - {{.BrandName}}{{end}}</title>
+    <style>
+        :root {
+            --bg: #f5f5f5; --bg-surface: #fff; --text: #1a1a1a; --text-muted: #6b7280;
+            --page-border: #e5e5e5; --accent: #2563eb; --accent-text: #fff;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #111113; --bg-surface: #1a1a1e; --text: #e4e4e7; --text-muted: #71717a;
+                --page-border: #27272a; --accent: #3b82f6; --accent-text: #fff;
+            }
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background: var(--bg); color: var(--text);
+            min-height: 100vh; display: flex; flex-direction: column;
+        }
+        .header {
+            display: flex; align-items: center; gap: 10px; padding: 12px 20px;
+            background: var(--bg-surface); border-bottom: 1px solid var(--page-border);
+        }
+        .brand { display: flex; align-items: center; gap: 8px; }
+        .brand a { display: flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; }
+        .brand-logo { width: 24px; height: 24px; }
+        .brand-logo svg { width: 100%; height: 100%; }
+        .brand-name { font-size: 14px; font-weight: 600; }
+        .spacer { flex: 1; }
+        .muted-brand { color: var(--text-muted); font-size: 12px; }
+        .main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+        .card {
+            background: var(--bg-surface); border: 1px solid var(--page-border); border-radius: 12px;
+            padding: 32px; max-width: 440px; width: 100%; text-align: center;
+        }
+        .card h1 { font-size: 18px; margin-bottom: 10px; }
+        .card p { font-size: 14px; color: var(--text-muted); line-height: 1.55; margin-bottom: 10px; }
+        .account {
+            font-size: 13px; border: 1px solid var(--page-border); border-radius: 8px;
+            padding: 10px 12px; margin-top: 14px; color: var(--text); word-break: break-all;
+        }
+        .account .label { color: var(--text-muted); }
+        .actions { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+        .btn {
+            display: inline-block; padding: 10px 16px; border-radius: 8px; font-size: 14px;
+            font-weight: 500; text-decoration: none; cursor: pointer; border: 1px solid var(--page-border);
+            background: var(--bg-surface); color: var(--text); font-family: inherit;
+        }
+        .hint { font-size: 12px; color: var(--text-muted); margin-top: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        {{if .ImplementorName}}
+        <div class="brand muted-brand">
+            {{if .ImplementorURL}}<a href="{{.ImplementorURL}}" target="_blank" rel="noopener noreferrer">{{end}}
+            {{if .ImplementorLogoSVG}}<div class="brand-logo">{{.ImplementorLogoSVG}}</div>{{end}}
+            <span class="brand-name">{{.ImplementorName}}</span>
+            {{if .ImplementorURL}}</a>{{end}}
+        </div>
+        {{end}}
+        <div class="spacer"></div>
+        <div class="brand">
+            {{if .BrandURL}}<a href="{{.BrandURL}}" target="_blank" rel="noopener noreferrer">{{end}}
+            {{if .BrandLogoSVG}}<div class="brand-logo">{{.BrandLogoSVG}}</div>{{end}}
+            <span class="brand-name">{{.BrandName}}</span>
+            {{if .BrandURL}}</a>{{end}}
+        </div>
+    </div>
+    <div class="main">
+        <div class="card">
+            <h1>{{.Title}}</h1>
+            <p>{{.Message}}</p>
+            {{if .Email}}<div class="account"><span class="label">Signed in as</span> {{.Email}}</div>{{end}}
+            <div class="actions">
+                <a class="btn" href="{{.SignOutURL}}">Sign out and switch accounts</a>
+            </div>
+            <div class="hint">Access is granted by role. An administrator assigns your account a role that a persona lists, and this page becomes the portal.</div>
+        </div>
+    </div>
+</body>
+</html>

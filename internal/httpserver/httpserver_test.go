@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -1426,7 +1427,10 @@ func TestBuildResourceClaims(t *testing.T) {
 			Email:  "admin@example.com",
 			Roles:  []string{"dp_admin"},
 		}
-		claims := buildResourceClaims(user, reg, "admin")
+		claims, err := buildResourceClaims(user, reg, "admin")
+		if err != nil {
+			t.Fatalf("buildResourceClaims() = %v", err)
+		}
 		if !claims.IsAdmin {
 			t.Error("expected IsAdmin=true for user with dp_admin role mapped to admin persona")
 		}
@@ -1441,7 +1445,10 @@ func TestBuildResourceClaims(t *testing.T) {
 			Email:  "analyst@example.com",
 			Roles:  []string{"dp_analyst"},
 		}
-		claims := buildResourceClaims(user, reg, "admin")
+		claims, err := buildResourceClaims(user, reg, "admin")
+		if err != nil {
+			t.Fatalf("buildResourceClaims() = %v", err)
+		}
 		if claims.IsAdmin {
 			t.Error("expected IsAdmin=false for non-admin user")
 		}
@@ -1450,18 +1457,46 @@ func TestBuildResourceClaims(t *testing.T) {
 		}
 	})
 
-	t.Run("nil registry skips persona resolution", func(t *testing.T) {
+	// With no registry there are no personas to belong to, which is the same
+	// refusal an unmapped caller gets: resources are not readable by an identity
+	// no persona claims.
+	t.Run("nil registry is refused", func(t *testing.T) {
 		user := &portal.User{
 			UserID: "u3",
 			Email:  "u3@example.com",
 			Roles:  []string{"dp_admin"},
 		}
-		claims := buildResourceClaims(user, nil, "admin")
-		if claims.IsAdmin {
-			t.Error("expected IsAdmin=false when registry is nil")
+		claims, err := buildResourceClaims(user, nil, "admin")
+		if !errors.Is(err, resource.ErrForbidden) {
+			t.Errorf("err = %v, want resource.ErrForbidden", err)
 		}
-		if len(claims.Personas) != 0 {
-			t.Errorf("expected no personas, got %v", claims.Personas)
+		if claims != nil {
+			t.Errorf("claims = %+v, want nil on refusal", claims)
+		}
+	})
+
+	// The hole the persona gate closes, on the managed-resources surface: an
+	// authenticated account carrying a role no persona names.
+	t.Run("roles matching no persona are refused", func(t *testing.T) {
+		user := &portal.User{
+			UserID: "u5",
+			Email:  "nobody@example.com",
+			Roles:  []string{"dp_unmapped"},
+		}
+		claims, err := buildResourceClaims(user, reg, "admin")
+		if !errors.Is(err, resource.ErrForbidden) {
+			t.Errorf("err = %v, want resource.ErrForbidden", err)
+		}
+		if claims != nil {
+			t.Errorf("claims = %+v, want nil on refusal", claims)
+		}
+	})
+
+	t.Run("no roles at all is refused", func(t *testing.T) {
+		user := &portal.User{UserID: "u6", Email: "empty@example.com"}
+		_, err := buildResourceClaims(user, reg, "admin")
+		if !errors.Is(err, resource.ErrForbidden) {
+			t.Errorf("err = %v, want resource.ErrForbidden", err)
 		}
 	})
 
@@ -1471,7 +1506,10 @@ func TestBuildResourceClaims(t *testing.T) {
 			Email:  "multi@example.com",
 			Roles:  []string{"dp_admin", "dp_analyst"},
 		}
-		claims := buildResourceClaims(user, reg, "admin")
+		claims, err := buildResourceClaims(user, reg, "admin")
+		if err != nil {
+			t.Fatalf("buildResourceClaims() = %v", err)
+		}
 		if !claims.IsAdmin {
 			t.Error("expected IsAdmin=true")
 		}
@@ -1486,7 +1524,10 @@ func TestBuildResourceClaims(t *testing.T) {
 			Email:  "pa@example.com",
 			Roles:  []string{"dp_persona-admin:finance", "dp_analyst"},
 		}
-		claims := buildResourceClaims(user, reg, "admin")
+		claims, err := buildResourceClaims(user, reg, "admin")
+		if err != nil {
+			t.Fatalf("buildResourceClaims() = %v", err)
+		}
 		if !slices.Contains(claims.AdminOfPersonas, "finance") {
 			t.Errorf("expected finance in AdminOfPersonas, got %v", claims.AdminOfPersonas)
 		}

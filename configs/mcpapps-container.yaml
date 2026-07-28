@@ -16,14 +16,16 @@ server:
 auth:
   allow_anonymous: true
 
+# A caller whose roles match no persona has no access, so the persona that
+# serves this anonymous container lists the "anonymous" role the allowed-anonymous
+# identity carries. Access is always something a persona names.
 personas:
   admin:
     display_name: "Developer"
-    roles: ["admin"]
+    roles: ["admin", "anonymous"]
     tools:
       allow: ["*"]
       deny: []
-  default_persona: admin
 
 # Trino connection - uses Docker internal hostname
 toolkits:

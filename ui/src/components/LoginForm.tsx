@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAuthStore } from "@/stores/auth";
 import { useResolvedDark } from "@/stores/theme";
 import { useBranding } from "@/api/portal/hooks";
+import { resolvePortalLogo } from "@/lib/portalLogo";
 import { LogIn } from "lucide-react";
 
 const DEFAULT_PORTAL_TITLE = "MCP Data Platform";
@@ -24,24 +25,6 @@ function getAuthError(): string | null {
   return AUTH_ERROR_MESSAGES[code] || "Authentication failed. Please try again.";
 }
 
-// resolveLogo picks the appropriate logo for the current theme, falling
-// back through portal_logo_<theme> → portal_logo → bundled-default.
-// Same precedence as Sidebar so the branding override pattern is
-// consistent across the shell.
-function resolveLogo(
-  branding: { portal_logo?: string; portal_logo_light?: string; portal_logo_dark?: string } | undefined,
-  isDark: boolean,
-): string {
-  const base = import.meta.env.BASE_URL;
-  const fallback = isDark
-    ? `${base}images/activity-svgrepo-com-white.svg`
-    : `${base}images/activity-svgrepo-com.svg`;
-  if (isDark) {
-    return branding?.portal_logo_dark || branding?.portal_logo || fallback;
-  }
-  return branding?.portal_logo_light || branding?.portal_logo || fallback;
-}
-
 export function LoginForm() {
   const [key, setKey] = useState("");
   const [error, setError] = useState(() => getAuthError() || "");
@@ -56,7 +39,7 @@ export function LoginForm() {
   const portalTitle = branding?.portal_title || DEFAULT_PORTAL_TITLE;
   const portalTagline = branding?.portal_tagline || DEFAULT_PORTAL_TAGLINE;
   const oidcButtonLabel = branding?.oidc_button_label || DEFAULT_OIDC_BUTTON_LABEL;
-  const portalLogo = resolveLogo(branding ?? undefined, isDark);
+  const portalLogo = resolvePortalLogo(branding ?? undefined, isDark);
   const oidcEnabled = branding?.oidc_enabled ?? false;
 
   async function handleApiKeyLogin() {

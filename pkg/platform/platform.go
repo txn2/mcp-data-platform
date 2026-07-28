@@ -2783,10 +2783,6 @@ func (p *Platform) loadPersonas() error {
 		}
 	}
 
-	if p.config.Personas.DefaultPersona != "" {
-		p.personaRegistry.SetDefault(p.config.Personas.DefaultPersona)
-	}
-
 	return nil
 }
 
