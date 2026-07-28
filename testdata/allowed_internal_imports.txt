@@ -410,6 +410,7 @@ pkg/textpatch/patchmcp -> pkg/middleware
 pkg/textpatch/patchmcp -> pkg/textpatch
 pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> pkg/authevents
+pkg/toolkits/apigateway -> pkg/blobserve
 pkg/toolkits/apigateway -> pkg/connoauth
 pkg/toolkits/apigateway -> pkg/contenttype
 pkg/toolkits/apigateway -> pkg/embedding

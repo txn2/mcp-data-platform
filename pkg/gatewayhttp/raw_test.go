@@ -85,6 +85,70 @@ func TestIntegration_RawPassthrough_StreamsBinary(t *testing.T) {
 	assert.True(t, bytes.Equal(payload, body), "raw body must be streamed verbatim (got %d bytes, want %d)", len(body), len(payload))
 }
 
+// TestIntegration_RawPassthrough_HostileUpstreamHeaders proves the assembled
+// raw path answers under the platform's header contract rather than the
+// upstream's: an upstream serving a script-bearing document inline, under a
+// filename built to close its own quoted parameter and open a second header,
+// reaches the client as a sandboxed attachment with a sanitized filename and
+// exactly one Content-Disposition.
+func TestIntegration_RawPassthrough_HostileUpstreamHeaders(t *testing.T) {
+	page := []byte(`<script>fetch("/api/v1/admin/settings")</script>`)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Disposition", `inline; filename="pw\"ned.html"`)
+		w.Header().Set("Etag", `"v9"`)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(page)
+	}))
+	defer upstream.Close()
+
+	gateway := newRawGatewayServer(t, upstream.URL, "acme", 1<<20)
+	defer gateway.Close()
+
+	status, body, header := postRaw(t, gateway.URL+"/api/v1/gateway/acme/invoke-raw",
+		`{"method":"GET","path":"/page"}`)
+
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, page, body, "the body itself is still streamed verbatim")
+	assert.Equal(t, "text/html", header.Get("Content-Type"))
+	assert.Equal(t, "nosniff", header.Get("X-Content-Type-Options"))
+	assert.Equal(t, "default-src 'none'; sandbox", header.Get("Content-Security-Policy"))
+	assert.Equal(t, []string{`attachment; filename="pw_ned.html"`}, header.Values("Content-Disposition"))
+	assert.Equal(t, "private", header.Get("Cache-Control"), "an upstream that states no cacheability leaves the platform's own default in place")
+	assert.Equal(t, `"v9"`, header.Get("Etag"), "validators still pass through")
+}
+
+// TestIntegration_RawPassthrough_PartialContent proves a partial body is
+// usable end to end: the caller's Range reaches the upstream through the call's
+// headers, and the 206 comes back with the Content-Range that names which bytes
+// it holds and how many exist in total. Without that header the caller has the
+// bytes and no way to place them.
+func TestIntegration_RawPassthrough_PartialContent(t *testing.T) {
+	full := bytes.Repeat([]byte("R"), 4096)
+	var gotRange string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRange = r.Header.Get("Range")
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-99/%d", len(full)))
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(full[:100])
+	}))
+	defer upstream.Close()
+
+	gateway := newRawGatewayServer(t, upstream.URL, "acme", 1<<20)
+	defer gateway.Close()
+
+	status, body, header := postRaw(t, gateway.URL+"/api/v1/gateway/acme/invoke-raw",
+		`{"method":"GET","path":"/blob","headers":{"Range":"bytes=0-99"}}`)
+
+	assert.Equal(t, "bytes=0-99", gotRange, "the caller's Range must reach the upstream")
+	require.Equal(t, http.StatusPartialContent, status)
+	assert.Equal(t, "bytes 0-99/4096", header.Get("Content-Range"))
+	assert.Equal(t, full[:100], body)
+	assert.Empty(t, header.Get("Accept-Ranges"), "the route honors no transport-level Range on its own POST, so it must not advertise one")
+}
+
 // TestIntegration_RawPassthrough_TooLarge413 proves the all-or-nothing
 // 413: an upstream Content-Length over the configured raw cap is
 // rejected with HTTP 413 and the structured envelope, before any bytes
