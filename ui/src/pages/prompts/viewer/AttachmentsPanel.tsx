@@ -10,6 +10,7 @@ import {
 } from "@/api/portal/hooks/attachments";
 import { useResources } from "@/api/resources/hooks";
 import { formatBytes } from "@/lib/format";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 
 // AttachmentsPanel manages the reference material a prompt carries (#1013):
@@ -238,7 +239,7 @@ function ReadableLabel({ attachment }: { attachment: PromptAttachment }) {
     <>
       <p className="truncate text-sm font-medium">{attachment.display_name}</p>
       {attachment.description && (
-        <p className="truncate text-xs text-muted-foreground">{attachment.description}</p>
+        <p className="truncate text-xs text-muted-foreground">{markdownToPlainText(attachment.description)}</p>
       )}
       <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <ScopeChip scope={attachment.scope} scopeId={attachment.scope_id} />

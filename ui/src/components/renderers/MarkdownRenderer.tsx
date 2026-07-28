@@ -279,9 +279,11 @@ export function MarkdownRenderer({
   if (!content) return null;
 
   return (
+    // prose-code:before/after:content-none suppresses Typography's inline-code
+    // quotes: rendered markdown never displays the backticks of its own source.
     <div
       data-feedback-anchorable
-      className={`prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${bare ? "" : "rounded-lg border bg-card p-6"}`}
+      className={`prose prose-sm max-w-none dark:prose-invert prose-code:before:content-none prose-code:after:content-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${bare ? "" : "rounded-lg border bg-card p-6"}`}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkEntityRefs]}

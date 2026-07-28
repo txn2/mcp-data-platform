@@ -8,6 +8,7 @@ import {
   usePromptCollections,
 } from "@/api/portal/hooks";
 import type { Prompt, PromptCollection } from "@/api/admin/types";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 import { CollectionsManagerDialog } from "./CollectionsManagerDialog";
 import { PromptCreateForm } from "./PromptCreateForm";
@@ -288,7 +289,9 @@ export function MyPromptsPage({ onNavigate }: Props) {
                   {group.collection?.name ?? "General"}
                 </h3>
                 {group.collection?.description && (
-                  <span className="text-xs text-muted-foreground truncate">{group.collection.description}</span>
+                  <span className="text-xs text-muted-foreground truncate">
+                    {markdownToPlainText(group.collection.description)}
+                  </span>
                 )}
                 <span className="text-xs text-muted-foreground/70">({group.rows.length})</span>
               </div>

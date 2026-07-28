@@ -6,6 +6,7 @@ import {
 } from "@/api/admin/hooks";
 import type { ConnectionOAuthHealthSummary } from "@/api/admin/types";
 import type { EffectiveConnection } from "@/api/admin/types";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 import { Plus, Cable } from "lucide-react";
 import {
@@ -204,7 +205,7 @@ export function ConnectionsPanel() {
                       )}
                       {c.description && (
                         <span className="mt-1 block truncate text-xs text-muted-foreground">
-                          {c.description}
+                          {markdownToPlainText(c.description)}
                         </span>
                       )}
                       {c.tools && c.tools.length > 0 && (

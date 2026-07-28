@@ -8,6 +8,7 @@ import {
   useUpdateAPICatalog,
 } from "@/api/admin/hooks";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { PromptDialog } from "@/components/PromptDialog";
 import { LabeledInput, LabeledTextarea } from "./forms";
 import { SpecsManager } from "./SpecsManager";
@@ -196,7 +197,9 @@ export function CatalogEditor({
               )}
             </div>
             {catalog.description && (
-              <p className="mt-2 text-sm text-muted-foreground">{catalog.description}</p>
+              <div className="mt-2 text-sm text-muted-foreground">
+                <CollapsibleMarkdown content={catalog.description} maxHeightPx={160} />
+              </div>
             )}
           </div>
         )}

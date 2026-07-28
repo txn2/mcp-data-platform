@@ -44,10 +44,15 @@ test.describe("DataHub Catalog", () => {
       .locator("..")
       .getByRole("button", { name: "Edit" })
       .click();
+    // The shared markdown editor (#1101) shows source and preview side by side,
+    // so the typed text is on screen twice until the save closes the editor.
     const box = page.getByRole("textbox").first();
-    await box.fill("Daily sales, refreshed at 06:00 UTC.");
+    await box.fill("Daily sales, refreshed at **06:00 UTC**.");
     await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
     await expect(page.getByText("Daily sales, refreshed at 06:00 UTC.")).toBeVisible();
+    // The read view renders the markdown rather than printing its source.
+    await expect(page.locator("strong", { hasText: "06:00 UTC" })).toBeVisible();
   });
 
   test("adds a tag via the name picker and it appears in the tag set", async ({ page }) => {

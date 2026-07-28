@@ -4,6 +4,7 @@ import { useCollection, useDeleteCollection, useUpdateCollectionConfig } from "@
 import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { AuthImg } from "@/components/AuthImg";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { ShareDialog } from "@/components/ShareDialog";
 import { CollectionThumbnailGenerator } from "@/components/CollectionThumbnailQueue";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
@@ -194,7 +195,7 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
                     </div>
                     {item.asset_description && (
                       <p className="text-xs text-muted-foreground line-clamp-2 mb-1.5">
-                        {item.asset_description}
+                        {markdownToPlainText(item.asset_description)}
                       </p>
                     )}
                     {item.asset_content_type && (

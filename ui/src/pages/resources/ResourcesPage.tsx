@@ -16,6 +16,7 @@ import { useAuthStore } from "@/stores/auth";
 import { usePersonas } from "@/api/admin/hooks";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { formatBytes } from "@/lib/format";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
 import type { Resource } from "@/api/resources/types";
 import { CATEGORIES, scopeIcon, scopeLabel } from "./modals/shared";
@@ -94,7 +95,9 @@ function ResourceRow({
           <File className="h-4 w-4 text-muted-foreground shrink-0" />
           <div className="min-w-0 flex-1">
             <span className="font-medium truncate block">{r.display_name}</span>
-            <span className="text-xs text-muted-foreground truncate block">{r.description}</span>
+            <span className="text-xs text-muted-foreground truncate block">
+              {markdownToPlainText(r.description)}
+            </span>
           </div>
         </div>
       </td>

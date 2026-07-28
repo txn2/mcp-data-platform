@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FolderOpen, Pencil, Plus, Trash2, X } from "lucide-react";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { useAuthStore } from "@/stores/auth";
 import {
   usePromptCollections,
@@ -194,7 +195,7 @@ function CollectionList({
           <div className="min-w-0 flex-1">
             <div className="font-medium truncate">{c.name}</div>
             {c.description && (
-              <div className="text-xs text-muted-foreground truncate">{c.description}</div>
+              <div className="text-xs text-muted-foreground truncate">{markdownToPlainText(c.description)}</div>
             )}
           </div>
           <span className="text-xs text-muted-foreground whitespace-nowrap">
