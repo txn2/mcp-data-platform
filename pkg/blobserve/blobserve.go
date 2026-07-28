@@ -27,6 +27,7 @@ package blobserve
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -59,7 +60,7 @@ import (
 // text/html and in an application/xhtml+xml document does not run.
 const sandboxCSP = "default-src 'none'; sandbox"
 
-// defaultCacheControl is written when the caller set no Cache-Control of its
+// DefaultCacheControl is written when the caller set no Cache-Control of its
 // own. Every endpoint reaching this package authorizes its caller first, and a
 // response carrying no directive at all is heuristically storable by a shared
 // cache: with ServeContent's Last-Modified as the freshness basis, a CDN or
@@ -72,7 +73,11 @@ const sandboxCSP = "default-src 'none'; sandbox"
 // whose bytes are genuinely anonymous — a fully public share's thumbnail — sets
 // `public` deliberately, and that decision belongs to the handler that knows
 // who may read the object.
-const defaultCacheControl = "private"
+//
+// It is exported because the surfaces that do not write through Serve — the
+// gateway raw passthrough streams to its own sink — apply the same default, and
+// the directive is the contract rather than each surface's opinion.
+const DefaultCacheControl = "private"
 
 // CachePrivate marks the response as one only the caller that was authorized
 // for it may keep: storable by that browser for maxAge, never by a shared
@@ -112,20 +117,37 @@ type Options struct {
 	ForceAttachment bool
 }
 
-// Serve writes the blob to w, honoring range requests in r.
-func Serve(w http.ResponseWriter, r *http.Request, opts Options) {
+// Headers returns the headers that decide how a browser treats untrusted
+// bytes: the parsed, parameter-free Content-Type, the sandbox CSP, nosniff, and
+// a Content-Disposition whose kind follows the type's family and whose filename
+// cannot break out of its quoted parameter.
+//
+// Only Name, ContentType and ForceAttachment are read; ModTime and Data
+// describe a body this function does not write. It is separate from Serve for
+// the surfaces that do not answer through an http.ResponseWriter — the gateway
+// raw passthrough streams to its own sink — so the rendering decision is made
+// once for every byte-serving surface rather than restated per transport.
+// Cache-Control is not included: it is a default a caller may override, not a
+// rendering decision, and DefaultCacheControl carries it.
+func Headers(opts Options) http.Header {
 	ct := contenttype.Normalize(opts.ContentType)
 	if ct == "" {
 		ct = contenttype.OctetStream
 	}
+	h := make(http.Header, 4)
+	h.Set("Content-Security-Policy", sandboxCSP)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Type", ct)
+	h.Set("Content-Disposition", disposition(ct, opts))
+	return h
+}
 
-	w.Header().Set("Content-Security-Policy", sandboxCSP)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Type", ct)
+// Serve writes the blob to w, honoring range requests in r.
+func Serve(w http.ResponseWriter, r *http.Request, opts Options) {
+	maps.Copy(w.Header(), Headers(opts))
 	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Content-Disposition", disposition(ct, opts))
 	if w.Header().Get("Cache-Control") == "" {
-		w.Header().Set("Cache-Control", defaultCacheControl)
+		w.Header().Set("Cache-Control", DefaultCacheControl)
 	}
 
 	// http.ServeContent supplies Range, If-Range, If-Modified-Since,

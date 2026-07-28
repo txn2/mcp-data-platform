@@ -291,6 +291,38 @@ func TestServeKeepsCallerCacheControl(t *testing.T) {
 	require.Equal(t, "public, max-age=3600", res.Header.Get("Cache-Control"))
 }
 
+// TestHeadersCarriesTheRenderingDecisionOnly pins what a surface that does not
+// answer through an http.ResponseWriter gets from the contract: the four
+// headers that decide how a browser treats the bytes, and nothing that belongs
+// to the body or to the caller's own cache policy.
+func TestHeadersCarriesTheRenderingDecisionOnly(t *testing.T) {
+	t.Parallel()
+
+	h := blobserve.Headers(blobserve.Options{
+		Name:        `re"port.html`,
+		ContentType: `text/html; charset=utf-8"><script>`,
+	})
+
+	require.Equal(t, "default-src 'none'; sandbox", h.Get("Content-Security-Policy"))
+	require.Equal(t, "nosniff", h.Get("X-Content-Type-Options"))
+	require.Equal(t, "text/html", h.Get("Content-Type"))
+	require.Equal(t, `attachment; filename="re_port.html"`, h.Get("Content-Disposition"))
+	require.Empty(t, h.Get("Cache-Control"), "Cache-Control is a caller-overridable default, not part of the returned set")
+	require.Empty(t, h.Get("Accept-Ranges"), "range support belongs to the body writer, not the header contract")
+}
+
+// TestHeadersUnknownTypeIsOpaque pins that a response whose type the platform
+// cannot parse is named application/octet-stream rather than left for the
+// browser to guess at.
+func TestHeadersUnknownTypeIsOpaque(t *testing.T) {
+	t.Parallel()
+
+	h := blobserve.Headers(blobserve.Options{Name: "blob.bin", ContentType: "not a media type"})
+
+	require.Equal(t, "application/octet-stream", h.Get("Content-Type"))
+	require.Equal(t, `inline; filename="blob.bin"`, h.Get("Content-Disposition"))
+}
+
 // TestCachePrivate pins the pairing the helper exists for: an endpoint that
 // authorized its caller gets both the directive that keeps shared caches out
 // and the key that stops one that stores it anyway from answering a second

@@ -85,6 +85,39 @@ func TestIntegration_RawPassthrough_StreamsBinary(t *testing.T) {
 	assert.True(t, bytes.Equal(payload, body), "raw body must be streamed verbatim (got %d bytes, want %d)", len(body), len(payload))
 }
 
+// TestIntegration_RawPassthrough_HostileUpstreamHeaders proves the assembled
+// raw path answers under the platform's header contract rather than the
+// upstream's: an upstream serving a script-bearing document inline, under a
+// filename built to close its own quoted parameter and open a second header,
+// reaches the client as a sandboxed attachment with a sanitized filename and
+// exactly one Content-Disposition.
+func TestIntegration_RawPassthrough_HostileUpstreamHeaders(t *testing.T) {
+	page := []byte(`<script>fetch("/api/v1/admin/settings")</script>`)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Disposition", `inline; filename="pw\"ned.html"`)
+		w.Header().Set("Etag", `"v9"`)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(page)
+	}))
+	defer upstream.Close()
+
+	gateway := newRawGatewayServer(t, upstream.URL, "acme", 1<<20)
+	defer gateway.Close()
+
+	status, body, header := postRaw(t, gateway.URL+"/api/v1/gateway/acme/invoke-raw",
+		`{"method":"GET","path":"/page"}`)
+
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, page, body, "the body itself is still streamed verbatim")
+	assert.Equal(t, "text/html", header.Get("Content-Type"))
+	assert.Equal(t, "nosniff", header.Get("X-Content-Type-Options"))
+	assert.Equal(t, "default-src 'none'; sandbox", header.Get("Content-Security-Policy"))
+	assert.Equal(t, []string{`attachment; filename="pw_ned.html"`}, header.Values("Content-Disposition"))
+	assert.Equal(t, "private", header.Get("Cache-Control"), "an upstream that states no cacheability leaves the platform's own default in place")
+	assert.Equal(t, `"v9"`, header.Get("Etag"), "validators still pass through")
+}
+
 // TestIntegration_RawPassthrough_TooLarge413 proves the all-or-nothing
 // 413: an upstream Content-Length over the configured raw cap is
 // rejected with HTTP 413 and the structured envelope, before any bytes
