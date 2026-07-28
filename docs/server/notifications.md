@@ -74,6 +74,16 @@ write-only: no API response ever includes it.
 | `from`, `from_name` | Sender address and optional display name. |
 | `tls_mode` | `starttls` (default), `implicit`, or `none` (closed-network relays only). |
 
+The read and update responses carry a `warnings` array describing accepted
+but hazardous combinations in the stored configuration; the admin UI shows
+them as a banner above the form. A save is never blocked by one. The only
+warning today fires when `tls_mode: none` is stored alongside a username or
+password: SMTP AUTH then runs over an unencrypted connection and the
+credential crosses the network in the clear. It is evaluated against the
+stored settings rather than the request body, so it still fires when the
+write-only password field was left empty and the previously stored
+credential was kept.
+
 The **Send test** action delivers a test email through the stored settings
 so the configuration can be verified end to end before users depend on it.
 It requires an enabled, saved configuration; a disabled or unconfigured
@@ -83,6 +93,17 @@ deliver); when the target address has opted out of notification emails,
 the admin UI shows an informational notice next to the send action so
 "receives test mail but never notifications" is self-explaining rather
 than a troubleshooting mystery.
+
+A failed send answers 502 with fixed text that does not vary with the
+failure mode. The host and port are admin-chosen and deliberately
+unrestricted, so a reflected dial error would distinguish refused from
+timed out from TLS handshake failure for any address the server can reach.
+The underlying error is written to the server log instead, together with
+the host and port that produced it:
+
+```
+level=ERROR msg="notification: test send failed" recipient=admin@example.com smtp_host=smtp.example.com smtp_port=587 error="..."
+```
 
 ```
 GET  /api/v1/admin/settings/smtp                     read settings (password_set only, never the password)

@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,6 +39,13 @@ func (f *fakeSettings) GetSMTP(context.Context) (*notification.SMTPSettings, err
 func (f *fakeSettings) SetSMTP(_ context.Context, s notification.SMTPSettings, author string) error {
 	if f.setErr != nil {
 		return f.setErr
+	}
+	// Model the real store's contract: an empty incoming password keeps the
+	// stored one, so the admin UI can stay write-only (settings_postgres.go
+	// encryptedPassword). A fake that dropped it here would report no stored
+	// credential on every save that left the password field untouched.
+	if s.Password == "" && f.settings != nil {
+		s.Password = f.settings.Password
 	}
 	f.lastSet = &s
 	f.author = author
@@ -209,6 +218,85 @@ func TestSetSMTP_Validation(t *testing.T) {
 	}
 }
 
+// TestSetSMTP_PlaintextCredentialWarning covers #1072: tls_mode none with a
+// credential authenticates over an unencrypted connection, and the save
+// response is where the operator sees it.
+func TestSetSMTP_PlaintextCredentialWarning(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		req  notification.SMTPSettingsInput
+		warn bool
+	}{
+		{
+			name: "none with password",
+			req:  notification.SMTPSettingsInput{Enabled: true, Host: "relay.internal", Port: 25, Password: "s3cret", From: "p@example.com", TLSMode: notification.TLSModeNone},
+			warn: true,
+		},
+		{
+			name: "none with username only",
+			req:  notification.SMTPSettingsInput{Enabled: true, Host: "relay.internal", Port: 25, Username: "mailer", From: "p@example.com", TLSMode: notification.TLSModeNone},
+			warn: true,
+		},
+		{
+			name: "none without credentials",
+			req:  notification.SMTPSettingsInput{Enabled: true, Host: "relay.internal", Port: 25, From: "p@example.com", TLSMode: notification.TLSModeNone},
+			warn: false,
+		},
+		{
+			name: "starttls with password",
+			req:  notification.SMTPSettingsInput{Enabled: true, Host: "smtp.example.com", Port: 587, Username: "mailer", Password: "s3cret", From: "p@example.com", TLSMode: notification.TLSModeStartTLS},
+			warn: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mux := testMux(Config{Settings: &fakeSettings{}, Mutable: true})
+			res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", tc.req)
+			if res.Code != http.StatusOK {
+				t.Fatalf("status = %d; want 200 (%s)", res.Code, res.Body.String())
+			}
+			var got notification.SMTPSettingsView
+			if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			hasWarning := slices.Contains(got.Warnings, notification.PlaintextAuthWarning)
+			if hasWarning != tc.warn {
+				t.Errorf("plaintext warning present = %v; want %v (warnings: %v)", hasWarning, tc.warn, got.Warnings)
+			}
+		})
+	}
+}
+
+// TestSetSMTP_WarningSurvivesUnchangedPassword guards the case the input
+// alone cannot see: the operator switches an already-credentialed relay to
+// tls_mode none and leaves the write-only password field empty, so the stored
+// credential is what goes out in the clear.
+func TestSetSMTP_WarningSurvivesUnchangedPassword(t *testing.T) {
+	t.Parallel()
+	store := &fakeSettings{settings: &notification.SMTPSettings{
+		Enabled: true, Host: "relay.internal", Port: 587, Username: "mailer",
+		Password: "stored", From: "p@example.com", TLSMode: notification.TLSModeStartTLS,
+	}}
+	mux := testMux(Config{Settings: store, Mutable: true})
+
+	res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", notification.SMTPSettingsInput{
+		Enabled: true, Host: "relay.internal", Port: 25, Username: "mailer",
+		From: "p@example.com", TLSMode: notification.TLSModeNone,
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (%s)", res.Code, res.Body.String())
+	}
+	var got notification.SMTPSettingsView
+	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(got.Warnings, notification.PlaintextAuthWarning) {
+		t.Errorf("warnings = %v; want the plaintext-credential warning", got.Warnings)
+	}
+}
+
 func TestSetSMTP_DecodeError(t *testing.T) {
 	t.Parallel()
 	mux := testMux(Config{Settings: &fakeSettings{}, Mutable: true})
@@ -315,6 +403,41 @@ func TestSendTest_DeliveryFailure(t *testing.T) {
 	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", notification.TestEmailRequest{To: "a@b.io"})
 	if res.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d; want 502", res.Code)
+	}
+}
+
+// TestSendTest_FailureResponseIsInvariant is the anti-scan-oracle assertion
+// (#1072): the host and port are operator-chosen and unrestricted, so a
+// response that varied with the dial outcome would report reachable from
+// refused from filtered for any address the server can route to.
+func TestSendTest_FailureResponseIsInvariant(t *testing.T) {
+	t.Parallel()
+	failures := []error{
+		&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect: connection refused")},
+		&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("i/o timeout")},
+		errors.New("tls: first record does not look like a TLS handshake"),
+		errors.New("550 5.7.1 relay access denied"),
+	}
+	var first string
+	for i, failErr := range failures {
+		send := func(context.Context, string) error { return failErr }
+		mux := testMux(Config{Settings: &fakeSettings{}, SendTest: send, Mutable: true})
+		res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", notification.TestEmailRequest{To: "a@b.io"})
+		if res.Code != http.StatusBadGateway {
+			t.Fatalf("failure %d: status = %d; want 502", i, res.Code)
+		}
+		body := res.Body.String()
+		if strings.Contains(body, "refused") || strings.Contains(body, "timeout") ||
+			strings.Contains(body, "tls:") || strings.Contains(body, "5.7.1") {
+			t.Errorf("failure %d: response reflects the underlying error: %s", i, body)
+		}
+		if i == 0 {
+			first = body
+			continue
+		}
+		if body != first {
+			t.Errorf("failure %d body differs from the first:\n got %s\nwant %s", i, body, first)
+		}
 	}
 }
 

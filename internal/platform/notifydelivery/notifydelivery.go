@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
@@ -191,28 +192,44 @@ func (h *Handle) smtpSettings(ctx context.Context) (*notification.SMTPSettings, 
 
 // SendTest delivers a test email to the given recipient using the currently
 // stored SMTP settings, so an admin can verify the configuration end to end.
+//
+// The admin API answers a failed test with fixed text that does not vary with
+// the failure mode (#1072), so this log is the only place the underlying error
+// survives. Every failure below is therefore recorded, with the host and port
+// that produced it.
 func (h *Handle) SendTest(ctx context.Context, to string) error {
 	if h == nil {
 		return errors.New("notifications unavailable: no database configured")
 	}
 	// Mirror the worker's deliverability gate: a disabled or hostless
 	// configuration refuses the test instead of sending around the switch.
+	// ErrSMTPNotConfigured is a configuration state the API reports verbatim,
+	// not a failure to investigate, so it is returned unlogged.
 	settings, err := h.smtpSettings(ctx)
 	if err != nil {
+		if !errors.Is(err, notification.ErrSMTPNotConfigured) {
+			slog.Error("notification: test send failed", "recipient", to, logKeyError, err)
+		}
 		return err
 	}
+	// The recipient is a mail.ParseAddress-validated address and the host is
+	// sanitized, so neither can forge a log line.
+	if err := h.deliverTest(ctx, *settings, to); err != nil {
+		slog.Error("notification: test send failed",
+			"recipient", to,
+			"smtp_host", logsan.SanitizeForLog(settings.Host),
+			"smtp_port", settings.Port,
+			logKeyError, err)
+		return err
+	}
+	return nil
+}
+
+// deliverTest renders and delivers the test email through settings.
+func (h *Handle) deliverTest(ctx context.Context, settings notification.SMTPSettings, to string) error {
 	email, err := h.renderer.RenderTest(to)
 	if err != nil {
 		return fmt.Errorf("rendering test email: %w", err)
 	}
-	// The queue worker logs its own delivery failures, so without this the
-	// admin test send is the one delivery path that fails silently: its error
-	// reaches a single browser in the HTTP response and is then discarded,
-	// leaving an operator nothing to investigate. The recipient is a
-	// mail.ParseAddress-validated address, so it carries no control bytes.
-	if err := h.sender.Send(ctx, *settings, *email); err != nil {
-		slog.Error("notification: test send failed", "recipient", to, logKeyError, err)
-		return err //nolint:wrapcheck // sender error already carries context
-	}
-	return nil
+	return h.sender.Send(ctx, settings, *email) //nolint:wrapcheck // sender error already carries context
 }

@@ -693,7 +693,20 @@ const smtpSettings = {
   tls_mode: "starttls",
   updated_by: "sarah.chen@example.com",
   updated_at: "2026-04-10T15:30:00Z",
+  warnings: [] as string[],
 };
+
+// smtpWarnings mirrors the server's hazard check on the STORED settings
+// (#1072): credentials plus tls_mode none means the username and password
+// cross the wire in the clear.
+function smtpWarnings(): string[] {
+  if (smtpSettings.tls_mode !== "none") return [];
+  if (smtpSettings.username === "" && !smtpSettings.password_set) return [];
+  return [
+    "TLS is disabled (tls_mode: none) while SMTP credentials are configured; " +
+      "the username and password are sent in cleartext. Use starttls or implicit unless the relay is on a closed network.",
+  ];
+}
 
 const notificationPrefs = {
   mode: "immediate",
@@ -2779,6 +2792,7 @@ export const handlers = [
   // =========================================================================
 
   http.get(`${ADMIN_BASE}/settings/smtp`, () => {
+    smtpSettings.warnings = smtpWarnings();
     return HttpResponse.json(smtpSettings);
   }),
 
@@ -2797,6 +2811,7 @@ export const handlers = [
     smtpSettings.tls_mode = String(body.tls_mode ?? "starttls");
     smtpSettings.updated_by = "sarah.chen@example.com";
     smtpSettings.updated_at = new Date().toISOString();
+    smtpSettings.warnings = smtpWarnings();
     return HttpResponse.json(smtpSettings);
   }),
 

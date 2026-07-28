@@ -76,6 +76,12 @@ func (in *SMTPSettingsInput) validateSender() string {
 	return ""
 }
 
+// PlaintextAuthWarning is reported when SMTP credentials are configured
+// alongside TLSModeNone: go-mail then authenticates over an unencrypted
+// connection, putting the username and password on the wire in the clear.
+const PlaintextAuthWarning = "TLS is disabled (tls_mode: none) while SMTP credentials are configured; " +
+	"the username and password are sent in cleartext. Use starttls or implicit unless the relay is on a closed network."
+
 // SMTPSettingsView is the read shape for the admin SMTP configuration. The
 // password is write-only: the view reports only whether one is stored.
 type SMTPSettingsView struct {
@@ -89,6 +95,10 @@ type SMTPSettingsView struct {
 	TLSMode     string    `json:"tls_mode" example:"starttls"`
 	UpdatedBy   string    `json:"updated_by,omitempty" example:"admin@example.com"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// Warnings describes accepted-but-hazardous combinations in the stored
+	// configuration. They never block a save; they exist so the operator sees
+	// the hazard at the surface where the setting was chosen.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // View maps stored settings to the password-free read shape.
@@ -104,7 +114,19 @@ func (s *SMTPSettings) View() SMTPSettingsView {
 		TLSMode:     s.TLSMode,
 		UpdatedBy:   s.UpdatedBy,
 		UpdatedAt:   s.UpdatedAt,
+		Warnings:    s.warnings(),
 	}
+}
+
+// warnings reports the hazards in the stored configuration. It is evaluated on
+// the stored settings rather than the write input because an empty incoming
+// password keeps the stored one: judging the input alone would drop the
+// warning on every save that leaves the existing credential in place.
+func (s *SMTPSettings) warnings() []string {
+	if s.TLSMode == TLSModeNone && (s.Username != "" || s.Password != "") {
+		return []string{PlaintextAuthWarning}
+	}
+	return nil
 }
 
 // UnconfiguredSMTPView is the read shape served before SMTP has ever been

@@ -17,6 +17,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
+// testSendFailureDetail is the invariant response detail for a failed test
+// send. It must stay independent of the underlying error; see sendTest.
+const testSendFailureDetail = "sending test email failed; check the server log for the underlying error"
+
 // Config carries the stores and parent-owned helpers the routes need.
 type Config struct {
 	// Settings persists the admin SMTP configuration. nil disables every
@@ -153,7 +157,14 @@ func (h *handler) sendTest(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "SMTP is disabled; enable and save the settings first")
 			return
 		}
-		writeError(w, http.StatusBadGateway, "sending test email failed: "+err.Error())
+		// Fixed text, never the underlying error (#1072). Host and port are
+		// unrestricted by design so an admin can point at any relay, and a
+		// reflected dial error distinguishes refused from timed out from TLS
+		// handshake failure: that pairing answers "is this address reachable"
+		// for anything the server can route to. The sender logs the real error
+		// with the host and port, so the response gives up no detail an
+		// operator cannot read there.
+		writeError(w, http.StatusBadGateway, testSendFailureDetail)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "sent", "to": req.To})
