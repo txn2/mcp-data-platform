@@ -103,7 +103,12 @@ func (l ConnectionLister) Connections() []knowledge.ConnectionInfo {
 		if !fallbackConnectionKinds[tk.Kind()] {
 			continue
 		}
-		infos = append(infos, knowledge.ConnectionInfo{Name: tk.Name(), Kind: tk.Kind()})
+		// A single-connection toolkit's persona/audit identity is its configured
+		// connection name, which may differ from its instance name; carry both so
+		// discovery filters on exactly what the authorizer checks.
+		infos = append(infos, knowledge.ConnectionInfo{
+			Name: tk.Name(), Kind: tk.Kind(), Connection: tk.Connection(),
+		})
 	}
 	return infos
 }

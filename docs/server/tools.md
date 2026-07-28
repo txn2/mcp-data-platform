@@ -602,6 +602,18 @@ the default persona's material.
 A caller with no identity still sees shared sources but no per-user data. API
 endpoints and connections are in the default corpus, not behind an opt-in.
 
+**Connection boundary.** The three topology sources (catalog, connections,
+endpoints) are additionally narrowed to the connections the caller's persona is
+granted by its `connections.allow` rules — the same predicate that authorizes a
+tool call, so what a caller can find and what a caller can call never disagree.
+A catalog dataset is attributed to a connection through its DataHub platform
+name; a dataset that maps to no configured connection stays visible, and one
+reachable through any granted connection stays visible. Removals are reported,
+never silent: each `coverage` entry carries a `withheld` count and the response
+carries a `withheld_notice` naming the persona and the remedy, so a shortened
+result set reads as "present, but not yours to see" rather than "does not
+exist". See [Persona Connection Access](../personas/overview.md#connection-access-control).
+
 **Resource links.** A hit backed by an uploaded file additionally carries an MCP
 `resource_link` content block with the resource's canonical `mcp://` URI, name,
 description, and MIME type, so a client with native resource support can attach the
@@ -626,7 +638,9 @@ lexical-only otherwise; an entity-only query reports ranking `entity`. The
 response carries a `ranking` field, a `count` (total hits shown), a `groups`
 array (each `{source, hits[]}` where every hit pairs the matched `text` with its
 `source`, a `ref`, a relevance `score`, and where present `status`, `entity_urns`,
-and `dimension`), and a `coverage` array (`{source, matched, shown}`).
+and `dimension`), and a `coverage` array (`{source, matched, shown, withheld}`,
+where `withheld` is present only when the persona connection boundary removed
+matches, alongside a top-level `withheld_notice`).
 
 **Parameters:**
 
@@ -708,7 +722,10 @@ insights) are read only for the identity that owns the record, a
 persona/personal-scoped prompt only for the matching caller, and a managed resource
 only for a caller whose visible scopes include it, so `fetch` never
 returns content the same caller could not have
-found with `search`. A reference outside the caller's scope is reported as
+found with `search`. The connection boundary applies here too: a dataset URN or
+connection reference belonging to a connection the caller's persona is not granted
+is reported as not-found, so a citation cannot read around what `search` omitted.
+A reference outside the caller's scope is reported as
 not-found, indistinguishable from a missing one, so existence does not leak.
 
 **Parameters:**

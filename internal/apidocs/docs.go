@@ -17909,6 +17909,9 @@ const docTemplate = `{
                 },
                 "source": {
                     "type": "string"
+                },
+                "withheld": {
+                    "type": "integer"
                 }
             }
         },
@@ -19053,6 +19056,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "withheld_notice": {
+                    "type": "string"
                 }
             }
         },

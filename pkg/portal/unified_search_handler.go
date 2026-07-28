@@ -50,6 +50,11 @@ type SearchResult struct {
 	Coverage       []SearchCoverage
 	Ranking        string
 	UnknownSources []string
+	// WithheldNotice explains, in one line, results the caller's persona hid
+	// because they belong to connections it is not granted (#1108). Empty when
+	// nothing was withheld. The adapter builds it from the router's coverage so
+	// the portal and the MCP search tool render identical copy.
+	WithheldNotice string
 }
 
 // SearchGroup is one source's slice of the balanced display set.
@@ -71,11 +76,14 @@ type SearchHit struct {
 }
 
 // SearchCoverage reports, per source, how many records matched versus how many
-// are shown, the anti-tunnel signal that breadth exists beyond the display set.
+// are shown, the anti-tunnel signal that breadth exists beyond the display set,
+// plus how many the caller's persona hid (#1108) so "nothing matched" and
+// "matches you may not see" render differently.
 type SearchCoverage struct {
-	Source  string `json:"source"`
-	Matched int    `json:"matched"`
-	Shown   int    `json:"shown"`
+	Source   string `json:"source"`
+	Matched  int    `json:"matched"`
+	Shown    int    `json:"shown"`
+	Withheld int    `json:"withheld,omitempty"`
 }
 
 // registerSearchRoutes wires the unified knowledge-search endpoint. It is
@@ -97,6 +105,7 @@ type searchResponse struct {
 	Count          int              `json:"count"`
 	Ranking        string           `json:"ranking"`
 	UnknownSources []string         `json:"unknown_sources,omitempty"`
+	WithheldNotice string           `json:"withheld_notice,omitempty"`
 }
 
 // search handles GET /api/v1/portal/search. It is a thin REST adapter over the
@@ -165,6 +174,7 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		Count:          shown,
 		Ranking:        res.Ranking,
 		UnknownSources: res.UnknownSources,
+		WithheldNotice: res.WithheldNotice,
 	})
 }
 

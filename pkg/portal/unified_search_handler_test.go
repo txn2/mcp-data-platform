@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -226,4 +227,44 @@ func TestKnowledgePage_CreateByCapabilityNotRole(t *testing.T) {
 			t.Error("store must not be written without apply_knowledge capability")
 		}
 	})
+}
+
+// TestSearch_CarriesWithheldCountsAndNotice proves the REST surface renders the
+// persona boundary the router applied: per-source withheld counts plus the
+// one-line explanation the UI shows, so a filtered result set never reads as an
+// empty one.
+func TestSearch_CarriesWithheldCountsAndNotice(t *testing.T) {
+	router := &fakeSearchRouter{result: SearchResult{
+		Ranking:  "lexical",
+		Groups:   []SearchGroup{{Source: "catalog", Hits: []SearchHit{{Text: "orders", Source: "catalog", Ref: "urn:1"}}}},
+		Coverage: []SearchCoverage{{Source: "catalog", Matched: 1, Shown: 1, Withheld: 2}},
+		WithheldNotice: "2 results are hidden because your persona (analyst) is not granted the connections " +
+			"they belong to in catalog. Ask an administrator to grant your persona access to the connections you need.",
+	}}
+	h := newSearchHandler(router, kpViewer, func([]string) *PersonaInfo { return &PersonaInfo{Name: "analyst"} })
+
+	rec := doKP(h, "GET", "/api/v1/portal/search?q=orders", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+
+	var resp searchResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Coverage) != 1 || resp.Coverage[0].Withheld != 2 {
+		t.Errorf("coverage = %+v, want catalog withheld=2", resp.Coverage)
+	}
+	if resp.WithheldNotice == "" {
+		t.Error("the response must carry the notice explaining the withheld count")
+	}
+
+	// The field is omitted entirely when nothing was withheld, so its presence is
+	// a signal rather than boilerplate.
+	router.result.WithheldNotice = ""
+	router.result.Coverage = []SearchCoverage{{Source: "catalog", Matched: 1, Shown: 1}}
+	rec = doKP(h, "GET", "/api/v1/portal/search?q=orders", "")
+	if body := rec.Body.String(); strings.Contains(body, "withheld") {
+		t.Errorf("nothing withheld should emit no withheld fields, got %s", body)
+	}
 }

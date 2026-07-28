@@ -1663,6 +1663,7 @@ func (p *Platform) initSearch() error {
 		ResourceBucket:     p.config.Resources.Managed.S3Bucket,
 		ResourceReads:      p.resources.ReadRecorder(),
 		PersonasForRoles:   personasForRolesFunc(p.personaRegistry),
+		ConnectionScope:    connectionScopeFor(p.personaRegistry, p.connectionSources, p.toolkitRegistry),
 		Registry:           p.toolkitRegistry,
 		Embedding:          p.embeddingProv,
 	})
@@ -2596,12 +2597,7 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 			return src.DataHubSourceName, src.CatalogMapping
 		}
 		cfg.ConnectionsForURN = func(urn string) []string {
-			sources := p.connectionSources.ConnectionsForURN(urn)
-			names := make([]string, len(sources))
-			for i, s := range sources {
-				names[i] = s.Name
-			}
-			return names
+			return connectionNamesForURN(p.connectionSources, p.toolkitRegistry.All(), urn)
 		}
 	}
 

@@ -17903,6 +17903,9 @@
                 },
                 "source": {
                     "type": "string"
+                },
+                "withheld": {
+                    "type": "integer"
                 }
             }
         },
@@ -19047,6 +19050,9 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "withheld_notice": {
+                    "type": "string"
                 }
             }
         },

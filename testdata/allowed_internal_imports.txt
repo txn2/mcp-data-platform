@@ -52,6 +52,7 @@ internal/platform/completionlayer -> pkg/semantic
 internal/platform/connauth -> pkg/authevents
 internal/platform/connauth -> pkg/connoauth
 internal/platform/connauth -> pkg/platform/fieldcrypt
+internal/platform/connscope -> pkg/persona
 internal/platform/dedup -> pkg/middleware
 internal/platform/exportadapters -> pkg/portal
 internal/platform/exportadapters -> pkg/toolkits/apigateway
@@ -253,6 +254,7 @@ pkg/platform -> internal/platform/branding
 pkg/platform -> internal/platform/browserauth
 pkg/platform -> internal/platform/completionlayer
 pkg/platform -> internal/platform/connauth
+pkg/platform -> internal/platform/connscope
 pkg/platform -> internal/platform/connsource
 pkg/platform -> internal/platform/dedup
 pkg/platform -> internal/platform/exportadapters

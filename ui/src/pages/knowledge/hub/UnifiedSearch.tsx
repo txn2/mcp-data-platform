@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, ChevronRight, X } from "lucide-react";
+import { Search, ChevronRight, X, Lock } from "lucide-react";
 import { useSearch, MIN_SEARCH_LEN } from "@/api/portal/hooks";
 import type { SearchHit } from "@/api/portal/types";
 import { formatEntityUrn } from "@/lib/formatEntityUrn";
@@ -162,6 +162,20 @@ function HitDetailDrawer({
   );
 }
 
+// WithheldBanner explains results the caller's persona hid because they belong
+// to connections it is not granted. The copy comes from the server so the portal
+// and the MCP search tool say the same thing; rendering it above the groups is
+// deliberate, since a source can be filtered down to nothing and then has no
+// group of its own to carry the count.
+function WithheldBanner({ notice }: { notice: string }) {
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
+      <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+      <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-300">{notice}</p>
+    </div>
+  );
+}
+
 // UnifiedSearch fans one query across every source the caller can access and
 // renders the result grouped by source with a coverage summary, a source
 // filter, and a detail drawer per result.
@@ -246,22 +260,29 @@ export function UnifiedSearch({ onOpen }: { onOpen: (hit: SearchHit) => void }) 
               Search is unavailable right now.
             </p>
           )}
-          {data && data.count === 0 && (
+          {data?.withheld_notice && <WithheldBanner notice={data.withheld_notice} />}
+          {data && data.count === 0 && !data.withheld_notice && (
             <p className="py-8 text-center text-sm text-muted-foreground">
               Nothing matched &quot;{query.trim()}&quot;.
             </p>
           )}
           {data?.groups.map((group) => {
             const cov = coverageFor(group.source);
+            const withheld = cov?.withheld ?? 0;
             return (
               <div key={group.source} className="space-y-2">
                 <div className="flex items-baseline justify-between">
                   <h3 className="text-sm font-semibold">{sourceLabel(group.source)}</h3>
-                  {cov && cov.matched > cov.shown && (
-                    <span className="text-[11px] text-muted-foreground">
-                      {cov.shown} of {cov.matched} shown
-                    </span>
-                  )}
+                  <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    {cov && cov.matched > cov.shown && (
+                      <span>
+                        {cov.shown} of {cov.matched} shown
+                      </span>
+                    )}
+                    {withheld > 0 && (
+                      <span className="text-amber-600 dark:text-amber-400">{withheld} hidden</span>
+                    )}
+                  </span>
                 </div>
                 <div className="space-y-2">
                   {group.hits.map((hit) => (

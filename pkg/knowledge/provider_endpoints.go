@@ -41,9 +41,13 @@ type EndpointSearcher interface {
 // api_list_endpoints stays the scoped drill-down, the way datahub_browse is the
 // scoped counterpart to catalog search.
 //
-// It is shared: endpoints are global to the deployment, and each searcher
-// enforces its own per-connection route policy fail-closed, so the provider
-// needs no caller identity of its own.
+// It is shared: endpoints are deployment-level, not per-user records. Two
+// filters narrow them. Each searcher applies its own per-(method, path) route
+// policy, which is a no-op for a connection no APIRoutes rule mentions; the
+// provider then applies the caller's connection boundary (#1108), so a persona
+// that is not granted an API connection never sees that connection's operation
+// inventory — the route policy alone cannot express that, because it defers to
+// the connection-level gate the discovery path was missing.
 type EndpointsProvider struct {
 	searchers []EndpointSearcher
 }
@@ -62,9 +66,14 @@ func (*EndpointsProvider) Name() string { return SourceEndpoints }
 func (*EndpointsProvider) Scope() Scope { return ScopeShared }
 
 // Search returns API operations relevant to the intent, aggregated across every
-// configured API gateway. It responds to the text path only; a query with no
-// intent yields nothing. A single searcher erroring is logged and skipped so
-// one unhealthy gateway does not blank the endpoints group.
+// configured API gateway and narrowed to the connections the caller's persona
+// may reach. It responds to the text path only; a query with no intent yields
+// nothing. A single searcher erroring is logged and skipped so one unhealthy
+// gateway does not blank the endpoints group.
+//
+// The connection filter runs on the aggregate before the per-source cap, so a
+// permitted gateway's operations are never crowded out of the candidate list by
+// a gateway the caller may not see.
 func (p *EndpointsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 	if q.Intent == "" {
 		return nil, nil
@@ -79,6 +88,7 @@ func (p *EndpointsProvider) Search(ctx context.Context, q Query) ([]Hit, error) 
 		}
 		cands = append(cands, got...)
 	}
+	cands = permittedEndpoints(cands, q.Caller)
 	if len(cands) == 0 {
 		return nil, nil
 	}
@@ -105,6 +115,24 @@ func (p *EndpointsProvider) Search(ctx context.Context, q Query) ([]Hit, error) 
 		})
 	}
 	return hits, nil
+}
+
+// permittedEndpoints drops the candidates whose API connection the caller's
+// persona may not reach and records the count on the caller's connection gate,
+// so the coverage summary reports "present, but not yours to see" rather than
+// letting the endpoints group silently shorten.
+func permittedEndpoints(cands []EndpointCandidate, caller Caller) []EndpointCandidate {
+	out := make([]EndpointCandidate, 0, len(cands))
+	withheld := 0
+	for _, c := range cands {
+		if !caller.allowsConnection(c.Connection) {
+			withheld++
+			continue
+		}
+		out = append(out, c)
+	}
+	caller.withhold(withheld)
+	return out
 }
 
 // endpointRef renders a stable, navigational reference for an operation:

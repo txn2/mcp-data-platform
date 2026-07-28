@@ -8,7 +8,8 @@
 // handles/stores (memory store, knowledge insight store, portal
 // knowledge-page/asset/thread stores, prompt store, managed resource store), the semantic.Provider plus
 // a catalog-enabled flag, the *registry.Registry, the shared embedding.Provider,
-// the resolved search-timeout values, and the toolkit instance name — performs
+// the resolved search-timeout values, the persona connection boundary discovery
+// enforces, and the toolkit instance name — performs
 // the per-source provider selection (each source gated on existing and
 // implementing the relevant searcher interface), builds the DataHub
 // LineageExpander and the knowledge.Router, and constructs the search toolkit.
@@ -98,6 +99,13 @@ type Config struct {
 	// the caller carrying only the resolved persona.
 	PersonasForRoles func(roles []string) []string
 
+	// ConnectionScope is the persona connection boundary the topology sources
+	// (catalog, connections, endpoints) apply to discovery, so a caller never sees
+	// material belonging to a connection their persona could not reach (#1108).
+	// Nil leaves those sources unfiltered, which is what a deployment with no
+	// persona registry gets.
+	ConnectionScope knowledge.ConnectionScope
+
 	// Registry backs the registry-federated sources (API endpoints +
 	// connections). Required: New walks it for endpoint searchers and connections
 	// even when no store-backed source is present.
@@ -142,6 +150,7 @@ func New(cfg Config) *Handle {
 	router := knowledge.NewRouter(cfg.Embedding, lineage, providers...)
 	router.SetProviderTimeout(cfg.ProviderTimeout) // 0 keeps the default
 	router.SetEmbedTimeout(cfg.EmbedTimeout)       // 0 keeps the default
+	router.SetConnectionScope(cfg.ConnectionScope) // nil leaves discovery unfiltered
 
 	tk := searchkit.New(cfg.ToolkitName, router)
 	tk.SetPersonasForRoles(cfg.PersonasForRoles)

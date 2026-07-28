@@ -83,6 +83,13 @@ type Caller struct {
 	// Empty when no resolver is wired, which is the same fallback the resources
 	// middleware applies.
 	Personas []string
+
+	// conn is the persona connection boundary for this arm, set by the Router
+	// (never by an external caller, hence unexported): it answers whether the
+	// caller may see material belonging to a given connection and accumulates the
+	// count of candidates that boundary removed. Nil leaves discovery unfiltered,
+	// which is what a deployment with no connection scope wired gets.
+	conn *connGate
 }
 
 // Anonymous reports whether the caller carries no identity at all. The Router

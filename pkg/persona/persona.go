@@ -36,8 +36,11 @@ type Persona struct {
 	Tools ToolRules `json:"tools" yaml:"tools"`
 
 	// Connections defines connection-level access rules. A tool call must pass
-	// both the tool check and the connection check. If Connections.Allow is
-	// empty, all connections are permitted (backward-compatible default).
+	// both the tool check and the connection check, and so must every discovery
+	// surface (#1108): search, fetch, and list_connections show only the
+	// connections these rules admit. Connections are deny-by-default (see
+	// ToolFilter.IsConnectionAllowed) — an empty Allow grants no connection, so a
+	// persona that should reach data must list what it may reach.
 	Connections ConnectionRules `json:"connections" yaml:"connections"`
 
 	// APIRoutes defines per-(connection, method, path) rules for the HTTP

@@ -94,6 +94,7 @@ type Router struct {
 	providers       []Provider
 	providerTimeout time.Duration
 	embedTimeout    time.Duration
+	connScope       ConnectionScope
 }
 
 // NewRouter builds a router over an embedder, an optional lineage expander, and
@@ -146,6 +147,26 @@ func (r *Router) SetEmbedTimeout(d time.Duration) {
 	if d != 0 {
 		r.embedTimeout = d
 	}
+}
+
+// SetConnectionScope binds the persona connection boundary that the topology
+// sources (catalog, connections, endpoints) apply to discovery, so a caller
+// never sees material belonging to a connection their persona could not reach
+// (#1108). Nil (the default) leaves discovery unfiltered, which is what a
+// deployment with no persona registry gets. Not safe for concurrent use with
+// Search; call once at wiring time.
+func (r *Router) SetConnectionScope(s ConnectionScope) {
+	r.connScope = s
+}
+
+// scoped returns caller with this router's connection boundary attached and a
+// fresh withheld counter, plus the gate to read the count back from. Every arm
+// (each search provider, each fetch attempt) gets its own gate, so counting
+// needs no synchronization even though the search fan-out is concurrent.
+func (r *Router) scoped(caller Caller) (Caller, *connGate) {
+	gate := &connGate{scope: r.connScope}
+	caller.conn = gate
+	return caller, gate
 }
 
 // embedContext derives the context for the intent-embedding call: the request
@@ -295,7 +316,7 @@ func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 		q.EntityURNs = r.lineage.Expand(ctx, q.EntityURNs)
 	}
 
-	perProvider, attempted, errs := r.fanOut(ctx, q)
+	results, attempted, errs := r.fanOut(ctx, q)
 
 	// Every queried provider failed: surface the failure rather than an empty
 	// success.
@@ -303,7 +324,7 @@ func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 		return Result{Ranking: ranking}, fmt.Errorf("all knowledge providers failed: %w", errors.Join(errs...))
 	}
 
-	groups, coverage := allocate(perProvider, displayBudget)
+	groups, coverage := allocate(results, displayBudget)
 	return Result{
 		Groups:         groups,
 		Coverage:       coverage,
@@ -333,9 +354,9 @@ func (r *Router) selectProviders(q Query) []Provider {
 }
 
 // fanOut queries every applicable provider with the prepared query, returning each
-// provider's hits, the number of providers actually queried, and any errors. A
-// provider error is logged and collected so a single unhealthy store does not blank
-// the search.
+// provider's hits (plus the count its connection boundary withheld), the number of
+// providers actually queried, and any errors. A provider error is logged and
+// collected so a single unhealthy store does not blank the search.
 //
 // The applicable providers are independent (each Search shares no state with the
 // others, and several issue their own DB or network call), so the fan-out runs them
@@ -345,15 +366,19 @@ func (r *Router) selectProviders(q Query) []Provider {
 // allocation deterministic. A WaitGroup (not errgroup) is used deliberately: every
 // provider must run to completion even when another errors, so one unhealthy store
 // still cannot blank the search.
-func (r *Router) fanOut(ctx context.Context, q Query) (perProvider [][]Hit, attempted int, errs []error) {
+//
+// Each arm gets its own copy of the query carrying its own connection gate, so the
+// concurrent arms record their withheld counts without sharing state.
+func (r *Router) fanOut(ctx context.Context, q Query) (out []sourceResult, attempted int, errs []error) {
 	selected := r.selectProviders(q)
 	if len(selected) == 0 {
 		return nil, 0, nil
 	}
 
 	type providerResult struct {
-		hits []Hit
-		err  error
+		hits     []Hit
+		withheld int
+		err      error
 	}
 	results := make([]providerResult, len(selected))
 	var wg sync.WaitGroup
@@ -378,8 +403,11 @@ func (r *Router) fanOut(ctx context.Context, q Query) (perProvider [][]Hit, atte
 			// network calls, so cancellation unblocks the WaitGroup promptly.
 			pctx, cancel := r.providerContext(ctx)
 			defer cancel()
-			hits, err := p.Search(pctx, q)
-			results[i] = providerResult{hits: hits, err: err}
+			pq := q
+			var gate *connGate
+			pq.Caller, gate = r.scoped(q.Caller)
+			hits, err := p.Search(pctx, pq)
+			results[i] = providerResult{hits: hits, withheld: gate.withheld, err: err}
 		}(i, selected[i])
 	}
 	wg.Wait()
@@ -391,9 +419,13 @@ func (r *Router) fanOut(ctx context.Context, q Query) (perProvider [][]Hit, atte
 			errs = append(errs, results[i].err)
 			continue
 		}
-		if len(results[i].hits) > 0 {
-			perProvider = append(perProvider, results[i].hits)
+		if len(results[i].hits) > 0 || results[i].withheld > 0 {
+			out = append(out, sourceResult{
+				source:   selected[i].Name(),
+				hits:     results[i].hits,
+				withheld: results[i].withheld,
+			})
 		}
 	}
-	return perProvider, attempted, errs
+	return out, attempted, errs
 }
