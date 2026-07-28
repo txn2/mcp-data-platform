@@ -993,7 +993,6 @@ personas:
     roles: ["admin"]
     tools:
       allow: ["*"]
-  default_persona: analyst
 ```
 
 | Field | Type | Default | Description |
@@ -1007,10 +1006,11 @@ personas:
 | `<name>.context.description_override` | string | - | Replaces platform description entirely |
 | `<name>.context.agent_instructions_suffix` | string | - | Appended to the admin `agent_instructions` layer |
 | `<name>.context.agent_instructions_override` | string | - | Replaces the admin `agent_instructions` layer only; the platform baseline is always present |
-| `default_persona` | string | - | Persona for users without role match |
 
-!!! warning "Default-Deny Security"
-    Users without a resolved persona have **no tool access**. The built-in default persona denies all tools. You must define explicit personas with tool access for your users.
+!!! warning "No persona means no access"
+    A caller whose roles match no persona has **no access at all**: tool calls resolve to the built-in deny-all persona and are refused, the portal answers `403` with a branded page, and the managed-resources API refuses the request. There is no fallback persona, so every user who should reach anything needs a role one of your personas lists.
+
+    `personas.default_persona` was removed. It assigned its persona to every caller whose roles matched nothing, including accounts carrying no claims. A config that still sets it is refused at startup with an error naming the key.
 
 ## Knowledge Capture Configuration
 
@@ -1427,7 +1427,6 @@ personas:
     roles: ["admin"]
     tools:
       allow: ["*"]
-  default_persona: analyst
 ```
 
 ## Next Steps

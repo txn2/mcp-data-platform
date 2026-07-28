@@ -71,7 +71,6 @@ personas:
     roles: ["admin"]
     tools:
       allow: ["*"]
-  default_persona: admin
 ```
 
 There is no `semantic:` or `query:` block. Omitting them selects the noop providers, which is a supported configuration rather than an error, and enrichment stays enabled at no cost because it no-ops without a semantic provider.

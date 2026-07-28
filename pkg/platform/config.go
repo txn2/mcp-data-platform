@@ -605,9 +605,14 @@ type DatabaseConfig struct {
 
 // PersonasConfig holds persona definitions.
 type PersonasConfig struct {
-	Definitions    map[string]PersonaDef `yaml:",inline"`
-	DefaultPersona string                `yaml:"default_persona"`
-	RoleMapping    RoleMappingConfig     `yaml:"role_mapping"`
+	Definitions map[string]PersonaDef `yaml:",inline"`
+	// DefaultPersona is no longer honored: a caller whose roles match no
+	// persona has no access. The field is still parsed so Validate can reject a
+	// config that sets it, and — because Definitions is an inline map — so that
+	// `default_persona: analyst` does not decode as a persona *named*
+	// "default_persona".
+	DefaultPersona string            `yaml:"default_persona"`
+	RoleMapping    RoleMappingConfig `yaml:"role_mapping"`
 }
 
 // PersonaDef defines a persona.
@@ -1941,6 +1946,7 @@ func (c *Config) Validate() error {
 	errs = c.validateOAuth(errs)
 	errs = c.validateSessions(errs)
 	errs = c.validateBrowserSession(errs)
+	errs = c.validatePersonas(errs)
 
 	if err := c.Audit.ValidateDelivery(); err != nil {
 		errs = append(errs, err.Error())
@@ -2010,6 +2016,23 @@ func (c *Config) validateBrowserSession(errs []string) []string {
 	if browsersession.ParseSameSite(c.Auth.BrowserSession.SameSite) == http.SameSiteNoneMode &&
 		!c.Auth.BrowserSession.IsSecure() {
 		errs = append(errs, "auth.browser_session.same_site=none requires auth.browser_session.secure=true")
+	}
+	return errs
+}
+
+// errDefaultPersonaRemovedMsg tells an operator what to do about a config that
+// still sets personas.default_persona. The key granted its persona to every
+// identity the IdP would issue a token for, whether or not anyone had been
+// given a role, so it is refused rather than ignored: silently dropping it
+// would change who has access with no signal in the logs.
+const errDefaultPersonaRemovedMsg = "personas.default_persona is no longer supported: " +
+	"it granted that persona to every authenticated caller whose roles matched no persona. " +
+	"Remove the key and grant access by listing the caller's roles on a persona"
+
+// validatePersonas rejects persona configuration that no longer has an effect.
+func (c *Config) validatePersonas(errs []string) []string {
+	if c.Personas.DefaultPersona != "" {
+		errs = append(errs, errDefaultPersonaRemovedMsg)
 	}
 	return errs
 }

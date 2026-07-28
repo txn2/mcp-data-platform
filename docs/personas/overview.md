@@ -74,22 +74,52 @@ personas:
         - "trino_query"
         - "trino_execute"
         - "s3_get_object"
-
-  default_persona: viewer
 ```
 
-## Default Persona
+## No persona means no access
 
-The `default_persona` is used when:
+Personas are the access boundary, not a set of preferences applied after the
+fact. A caller whose roles match no persona is *unmapped*, and an unmapped
+caller reaches nothing:
 
-- Authentication is disabled
-- User has no roles that match any persona
-- An anonymous request is made
+- MCP tool calls resolve to the built-in deny-all persona and are refused.
+- The portal answers `403` with a branded page telling the person which account
+  was refused and to ask an administrator for access.
+- The managed-resources API refuses the request.
+
+There is no fallback persona. Granting someone access means granting them a role
+one of your personas lists — authenticating is not enough. An identity provider
+will happily issue a token to every account in the directory; those accounts
+have no roles you granted, so they map to no persona and get in nowhere.
+
+!!! warning "`default_persona` was removed"
+
+    Earlier releases accepted `personas.default_persona`, which assigned that
+    persona to every caller whose roles matched nothing — including accounts
+    with no claims at all. A config that still sets it is refused at startup
+    with an error naming the key. Remove it and list the roles you actually
+    want to grant on the personas themselves.
+
+### Anonymous and no-auth deployments
+
+A deployment running with `auth.allow_anonymous: true`, or with no
+authenticators configured at all, gives its callers the role `anonymous`. Open
+access is therefore something a persona opts into by name:
 
 ```yaml
+auth:
+  allow_anonymous: true
+
 personas:
-  default_persona: viewer    # Fall back to viewer for unknown users
+  developer:
+    display_name: "Developer"
+    roles: ["admin", "anonymous"]   # anonymous callers land here
+    tools:
+      allow: ["*"]
 ```
+
+Without a persona listing `anonymous`, an unidentified caller maps to no persona
+and reaches nothing — the same rule as everyone else.
 
 ## Built-in Personas
 
@@ -291,8 +321,6 @@ personas:
         You are helping a marketing analyst.
         Focus on: campaign metrics, customer segments, attribution.
       agent_instructions_suffix: "Query the hive.marketing schema for marketing data."
-
-  default_persona: viewer
 ```
 
 ## Next Steps

@@ -23,6 +23,7 @@ internal/httpserver -> pkg/persona
 internal/httpserver -> pkg/pkcestore
 internal/httpserver -> pkg/platform
 internal/httpserver -> pkg/portal
+internal/httpserver -> pkg/portal/accessgate
 internal/httpserver -> pkg/portal/datahubapi
 internal/httpserver -> pkg/portal/mention
 internal/httpserver -> pkg/portal/mentionhttp
@@ -350,6 +351,8 @@ pkg/portal -> pkg/prompt
 pkg/portal -> pkg/ratelimit
 pkg/portal -> pkg/registry
 pkg/portal -> pkg/toolkits/knowledge
+pkg/portal/accessgate -> internal/logsan
+pkg/portal/accessgate -> pkg/portal
 pkg/portal/assetindex -> pkg/indexjobs
 pkg/portal/assetindex -> pkg/portal
 pkg/portal/collectionindex -> pkg/indexjobs

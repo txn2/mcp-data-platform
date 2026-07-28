@@ -98,7 +98,7 @@ func TestSeedAdminSelfConnection_RegistersAndRestricts(t *testing.T) {
 	if err := preg.Register(persona.AdminPersona()); err != nil {
 		t.Fatalf("register admin persona: %v", err)
 	}
-	authz := persona.NewAuthorizer(preg, &persona.StaticRoleMapper{Registry: preg, DefaultPersonaName: "admin"})
+	authz := persona.NewAuthorizer(preg, &persona.StaticRoleMapper{Registry: preg, PersonaName: "admin"})
 
 	p := &Platform{toolkitRegistry: reg, authorizer: authz}
 
@@ -197,7 +197,7 @@ func TestWireAdminSelfConnection_EnabledRegistersOnStart(t *testing.T) {
 		toolkitRegistry: reg,
 		lifecycle:       NewLifecycle(),
 		config:          &Config{},
-		authorizer:      persona.NewAuthorizer(preg, &persona.StaticRoleMapper{Registry: preg, DefaultPersonaName: "admin"}),
+		authorizer:      persona.NewAuthorizer(preg, &persona.StaticRoleMapper{Registry: preg, PersonaName: "admin"}),
 	}
 	p.WireAdminSelfConnection("0.0.0.0:8080")
 	if err := p.lifecycle.Start(context.Background()); err != nil {
@@ -287,7 +287,7 @@ func TestSeedAdminSelfConnection_EnqueuesEmbedding(t *testing.T) {
 	_ = preg.Register(persona.AdminPersona())
 	p := &Platform{
 		toolkitRegistry: reg,
-		authorizer:      persona.NewAuthorizer(preg, &persona.StaticRoleMapper{Registry: preg, DefaultPersonaName: "admin"}),
+		authorizer:      persona.NewAuthorizer(preg, &persona.StaticRoleMapper{Registry: preg, PersonaName: "admin"}),
 	}
 
 	enq := &stubEnqueuer{}

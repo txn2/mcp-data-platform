@@ -156,8 +156,6 @@ personas:
     oidc_to_persona:
       "legacy_readonly": "viewer"
       "legacy_analyst": "analyst"
-
-  default_persona: viewer
 ```
 
 ### Read-Only Mode Enforcement
@@ -298,8 +296,6 @@ personas:
         When showing query results, explain what the data means.
         If data quality is below 80%, mention this to the user.
         If a table is deprecated, always suggest the replacement.
-
-  default_persona: business_analyst
 ```
 
 ### Cross-Team Data Discovery

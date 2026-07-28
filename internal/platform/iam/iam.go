@@ -84,12 +84,16 @@ func NewIdentity(in Input) (Identity, error) {
 		authenticators = append(authenticators, apiKeyAuth)
 	}
 
-	// No authenticators configured: permissive noop (anonymous).
+	// No authenticators configured: noop identity. It carries the same
+	// RoleAnonymous the allowed-anonymous fallback does, so the two
+	// unidentified-caller shapes are granted access the same way — by a persona
+	// naming that role — rather than one of them being a special case. Without a
+	// persona that lists it, this identity maps to none and reaches nothing.
 	if len(authenticators) == 0 {
 		return Identity{
 			Authenticator: &middleware.NoopAuthenticator{
 				DefaultUserID: "anonymous",
-				DefaultRoles:  []string{},
+				DefaultRoles:  []string{auth.RoleAnonymous},
 			},
 		}, nil
 	}

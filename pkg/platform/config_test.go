@@ -671,18 +671,51 @@ func TestConfigTypes_ServerConfig(t *testing.T) {
 	}
 }
 
-func TestConfigTypes_PersonasConfig(t *testing.T) {
-	cfg := PersonasConfig{
-		DefaultPersona: cfgTestRoleAdmin,
-		RoleMapping: RoleMappingConfig{
-			OIDCToPersona: map[string]string{"admin_role": cfgTestRoleAdmin},
-		},
+// personas.default_persona granted its persona to every caller whose roles
+// matched nothing, so a config that still sets it is refused at startup rather
+// than started with different access than the operator wrote down.
+func TestConfig_Validate_RejectsDefaultPersona(t *testing.T) {
+	cfg := &Config{Personas: PersonasConfig{DefaultPersona: cfgTestRoleAdmin}}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() accepted a config setting personas.default_persona")
 	}
-	if cfg.DefaultPersona != cfgTestRoleAdmin {
-		t.Errorf("DefaultPersona = %q", cfg.DefaultPersona)
+	if !strings.Contains(err.Error(), "default_persona") {
+		t.Errorf("error does not name the offending key: %v", err)
 	}
-	if cfg.RoleMapping.OIDCToPersona["admin_role"] != cfgTestRoleAdmin {
-		t.Error("OIDCToPersona mapping incorrect")
+	if !strings.Contains(err.Error(), "no longer supported") {
+		t.Errorf("error does not tell the operator the key was removed: %v", err)
+	}
+}
+
+func TestConfig_Validate_AcceptsUnsetDefaultPersona(t *testing.T) {
+	cfg := &Config{Personas: PersonasConfig{
+		Definitions: map[string]PersonaDef{cfgTestRoleAdmin: {Roles: []string{cfgTestRoleAdmin}}},
+	}}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() = %v, want nil for a config with no default_persona", err)
+	}
+}
+
+// PersonasConfig.Definitions is an inline map, so the field must stay declared:
+// without it, default_persona would decode as a persona *named*
+// "default_persona" instead of being rejected.
+func TestConfig_DefaultPersonaParsesIntoItsOwnField(t *testing.T) {
+	var cfg Config
+	unknown, err := strictDecode([]byte("personas:\n  default_persona: admin\n"), &cfg)
+	if err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if len(unknown) != 0 {
+		t.Errorf("unknown keys = %v, want none", unknown)
+	}
+	if cfg.Personas.DefaultPersona != cfgTestRoleAdmin {
+		t.Errorf("DefaultPersona = %q, want %q", cfg.Personas.DefaultPersona, cfgTestRoleAdmin)
+	}
+	if _, isPersona := cfg.Personas.Definitions["default_persona"]; isPersona {
+		t.Error("default_persona decoded as a persona definition")
 	}
 }
 

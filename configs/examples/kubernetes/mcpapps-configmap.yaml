@@ -58,11 +58,12 @@ data:
     personas:
       analyst:
         display_name: "Data Analyst"
-        roles: ["analyst"]
+        # A caller whose roles match no persona has no access, so this persona
+        # lists the "anonymous" role the allowed-anonymous identity carries.
+        roles: ["analyst", "anonymous"]
         tools:
           allow: ["*"]
           deny: []
-      default_persona: analyst
 
     toolkits:
       trino:

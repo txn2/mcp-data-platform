@@ -105,7 +105,6 @@ func TestOIDCRoleMapper_MapToPersona(t *testing.T) {
 	user := &Persona{Name: mapperTestUser, DisplayName: "User", Roles: []string{mapperTestUser}}
 	_ = registry.Register(admin)
 	_ = registry.Register(user)
-	registry.SetDefault(mapperTestUser)
 
 	t.Run("explicit mapping", func(t *testing.T) {
 		mapper := &OIDCRoleMapper{
@@ -138,7 +137,10 @@ func TestOIDCRoleMapper_MapToPersona(t *testing.T) {
 		}
 	})
 
-	t.Run("default persona", func(t *testing.T) {
+	// A role that matches no persona resolves to the deny-all DefaultPersona:
+	// there is no configured fallback that would hand an unmapped caller
+	// another persona's tools.
+	t.Run("unmapped role denies all", func(t *testing.T) {
 		mapper := &OIDCRoleMapper{
 			Registry: registry,
 		}
@@ -147,8 +149,12 @@ func TestOIDCRoleMapper_MapToPersona(t *testing.T) {
 		if err != nil {
 			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
-		if persona.Name != mapperTestUser {
-			t.Errorf("expected default user persona, got %q", persona.Name)
+		if persona.Name != "default" {
+			t.Errorf("expected deny-all default persona, got %q", persona.Name)
+		}
+		filter := NewToolFilter(registry)
+		if filter.IsAllowed(persona, "trino_query") {
+			t.Error("unmapped caller was allowed trino_query")
 		}
 	})
 }
@@ -157,7 +163,6 @@ func TestStaticRoleMapper(t *testing.T) {
 	registry := NewRegistry()
 	admin := &Persona{Name: filterTestAdmin, DisplayName: "Admin"}
 	_ = registry.Register(admin)
-	registry.SetDefault(filterTestAdmin)
 
 	t.Run("MapToRoles returns empty", func(t *testing.T) {
 		mapper := &StaticRoleMapper{
@@ -173,10 +178,10 @@ func TestStaticRoleMapper(t *testing.T) {
 		}
 	})
 
-	t.Run("MapToPersona with default name", func(t *testing.T) {
+	t.Run("MapToPersona with configured name", func(t *testing.T) {
 		mapper := &StaticRoleMapper{
-			DefaultPersonaName: filterTestAdmin,
-			Registry:           registry,
+			PersonaName: filterTestAdmin,
+			Registry:    registry,
 		}
 
 		persona, err := mapper.MapToPersona(context.Background(), nil)
@@ -188,7 +193,7 @@ func TestStaticRoleMapper(t *testing.T) {
 		}
 	})
 
-	t.Run("MapToPersona fallback to registry default", func(t *testing.T) {
+	t.Run("MapToPersona with no configured name denies all", func(t *testing.T) {
 		mapper := &StaticRoleMapper{
 			Registry: registry,
 		}
@@ -197,8 +202,8 @@ func TestStaticRoleMapper(t *testing.T) {
 		if err != nil {
 			t.Fatalf(mapperTestUnexpectedErr, err)
 		}
-		if persona.Name != filterTestAdmin {
-			t.Errorf("expected admin persona from registry default, got %q", persona.Name)
+		if persona.Name != "default" {
+			t.Errorf("expected deny-all default persona, got %q", persona.Name)
 		}
 	})
 }
@@ -360,9 +365,8 @@ func TestOIDCRoleMapper_MapToPersona_NoMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
-	// Should return DefaultPersona when nothing matches
-	if persona == nil {
-		t.Error("expected non-nil persona")
+	if persona == nil || persona.Name != "default" {
+		t.Fatalf("expected deny-all default persona, got %+v", persona)
 	}
 }
 
@@ -371,17 +375,21 @@ func TestStaticRoleMapper_MapToPersona_NotFound(t *testing.T) {
 	// Don't register the default persona
 
 	mapper := &StaticRoleMapper{
-		DefaultPersonaName: "nonexistent",
-		Registry:           registry,
+		PersonaName: "nonexistent",
+		Registry:    registry,
 	}
 
 	persona, err := mapper.MapToPersona(context.Background(), nil)
 	if err != nil {
 		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
-	// Should return DefaultPersona when persona name not found
-	if persona == nil {
-		t.Error("expected non-nil persona")
+	// An unregistered persona name yields the deny-all DefaultPersona rather
+	// than any persona that happens to be registered.
+	if persona == nil || persona.Name != "default" {
+		t.Fatalf("expected deny-all default persona, got %+v", persona)
+	}
+	if NewToolFilter(registry).IsAllowed(persona, "trino_query") {
+		t.Error("persona resolved from an unregistered name allowed trino_query")
 	}
 }
 
@@ -397,9 +405,8 @@ func TestStaticRoleMapper_MapToPersona_NoDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
-	// Should return DefaultPersona when no default set in registry
-	if persona == nil {
-		t.Error("expected non-nil persona")
+	if persona == nil || persona.Name != "default" {
+		t.Fatalf("expected deny-all default persona, got %+v", persona)
 	}
 }
 
@@ -444,7 +451,6 @@ func TestOIDCRoleMapper_MapToPersona_MappingToNonExistent(t *testing.T) {
 	registry := NewRegistry()
 	user := &Persona{Name: mapperTestUser, DisplayName: "User", Roles: []string{mapperTestUser}}
 	_ = registry.Register(user)
-	registry.SetDefault(mapperTestUser)
 
 	mapper := &OIDCRoleMapper{
 		PersonaMapping: map[string]string{
@@ -453,14 +459,16 @@ func TestOIDCRoleMapper_MapToPersona_MappingToNonExistent(t *testing.T) {
 		Registry: registry,
 	}
 
-	// Should fallback to registry role matching or default when mapping target doesn't exist
+	// The explicit mapping names a persona that is not registered, so it does
+	// not apply. "admin_role" also matches no persona's roles, so the caller is
+	// unmapped and gets the deny-all default rather than the one other
+	// registered persona.
 	persona, err := mapper.MapToPersona(context.Background(), []string{"admin_role"})
 	if err != nil {
 		t.Fatalf(mapperTestUnexpectedErr, err)
 	}
-	// Should fall through to role matching or default persona
-	if persona.Name != mapperTestUser {
-		t.Errorf("expected fallback to default user persona, got %q", persona.Name)
+	if persona.Name != "default" {
+		t.Errorf("expected deny-all default persona, got %q", persona.Name)
 	}
 }
 

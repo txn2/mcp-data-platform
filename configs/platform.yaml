@@ -93,6 +93,11 @@ database:
 # its connections.allow matches the connection name (the same way tools.allow
 # works). An empty/omitted connections block grants no connections, so every
 # persona that should use data must list the connections it may reach.
+#
+# Personas are also the access boundary itself: a caller whose roles match no
+# persona here reaches nothing — no tools, and no portal. There is no fallback
+# persona, so granting someone access means granting them a role one of these
+# personas lists.
 personas:
   analyst:
     display_name: "Data Analyst"
@@ -152,8 +157,6 @@ personas:
     connections:
       allow:
         - "*"
-
-  default_persona: analyst
 
   role_mapping:
     oidc_to_persona:

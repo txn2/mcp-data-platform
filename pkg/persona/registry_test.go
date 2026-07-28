@@ -93,25 +93,6 @@ func TestRegistry_GetNotFound(t *testing.T) {
 	}
 }
 
-func TestRegistry_SetDefaultAndGetDefault(t *testing.T) {
-	reg := NewRegistry()
-	p := &Persona{Name: personaTestDefault, DisplayName: "Default"}
-
-	if err := reg.Register(p); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
-
-	reg.SetDefault(personaTestDefault)
-
-	got, ok := reg.GetDefault()
-	if !ok {
-		t.Fatal("GetDefault() returned false")
-	}
-	if got.Name != personaTestDefault {
-		t.Errorf("Name = %q, want %q", got.Name, personaTestDefault)
-	}
-}
-
 func TestRegistry_All(t *testing.T) {
 	reg := NewRegistry()
 	_ = reg.Register(&Persona{Name: "p1"})
@@ -127,7 +108,6 @@ func TestRegistry_GetForRoles(t *testing.T) {
 	reg := NewRegistry()
 	_ = reg.Register(&Persona{Name: personaTestAnalyst, Roles: []string{personaTestAnalyst}, Priority: 10})
 	_ = reg.Register(&Persona{Name: filterTestAdmin, Roles: []string{filterTestAdmin}, Priority: personaTestAdminPriority})
-	reg.SetDefault(personaTestAnalyst)
 
 	// Should match admin (higher priority)
 	got, ok := reg.GetForRoles([]string{personaTestAnalyst, filterTestAdmin})
@@ -147,23 +127,25 @@ func TestRegistry_GetForRoles(t *testing.T) {
 		t.Errorf("Name = %q, want %q", got.Name, personaTestAnalyst)
 	}
 
-	// Should fall back to default
+	// A role matching no persona resolves to nothing. There is no fallback:
+	// returning some persona here would grant its tools to any identity the
+	// IdP will issue a token for.
 	got, ok = reg.GetForRoles([]string{"unknown"})
-	if !ok {
-		t.Fatal("GetForRoles() returned false for fallback")
+	if ok {
+		t.Errorf("GetForRoles() matched %q for an unmapped role, want no match", got.Name)
 	}
-	if got.Name != personaTestAnalyst {
-		t.Errorf("Name = %q, want %q (default)", got.Name, personaTestAnalyst)
+	if got != nil {
+		t.Errorf("GetForRoles() = %+v for an unmapped role, want nil", got)
 	}
 }
 
-func TestRegistry_GetForRolesNoMatchNoDefault(t *testing.T) {
+func TestRegistry_GetForRolesNoMatch(t *testing.T) {
 	reg := NewRegistry()
 	_ = reg.Register(&Persona{Name: personaTestAnalyst, Roles: []string{personaTestAnalyst}})
 
 	_, ok := reg.GetForRoles([]string{"unknown"})
 	if ok {
-		t.Error("GetForRoles() returned true with no match and no default")
+		t.Error("GetForRoles() returned true with no matching persona")
 	}
 }
 
@@ -192,63 +174,6 @@ func TestRegistry_Unregister(t *testing.T) {
 		}
 	})
 
-	t.Run("clears default when unregistering default persona", func(t *testing.T) {
-		reg := NewRegistry()
-		_ = reg.Register(&Persona{Name: personaTestDefault})
-		reg.SetDefault(personaTestDefault)
-
-		err := reg.Unregister(personaTestDefault)
-		if err != nil {
-			t.Fatalf("Unregister() error = %v", err)
-		}
-
-		if reg.DefaultName() != "" {
-			t.Errorf("DefaultName() = %q, want empty after unregistering default", reg.DefaultName())
-		}
-	})
-
-	t.Run("does not clear default when unregistering other persona", func(t *testing.T) {
-		reg := NewRegistry()
-		_ = reg.Register(&Persona{Name: personaTestDefault})
-		_ = reg.Register(&Persona{Name: "other"})
-		reg.SetDefault(personaTestDefault)
-
-		err := reg.Unregister("other")
-		if err != nil {
-			t.Fatalf("Unregister() error = %v", err)
-		}
-
-		if reg.DefaultName() != personaTestDefault {
-			t.Errorf("DefaultName() = %q, want %q", reg.DefaultName(), personaTestDefault)
-		}
-	})
-}
-
-func TestRegistry_DefaultName(t *testing.T) {
-	t.Run("returns empty when no default set", func(t *testing.T) {
-		reg := NewRegistry()
-		if reg.DefaultName() != "" {
-			t.Errorf("DefaultName() = %q, want empty", reg.DefaultName())
-		}
-	})
-
-	t.Run("returns default name", func(t *testing.T) {
-		reg := NewRegistry()
-		_ = reg.Register(&Persona{Name: personaTestDefault})
-		reg.SetDefault(personaTestDefault)
-
-		if reg.DefaultName() != personaTestDefault {
-			t.Errorf("DefaultName() = %q, want %q", reg.DefaultName(), personaTestDefault)
-		}
-	})
-}
-
-func TestRegistry_GetDefaultNotSet(t *testing.T) {
-	reg := NewRegistry()
-	_, ok := reg.GetDefault()
-	if ok {
-		t.Error("GetDefault() returned true when no default set")
-	}
 }
 
 func TestRegistry_LoadFromConfig(t *testing.T) {

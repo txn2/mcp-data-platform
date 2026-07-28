@@ -240,7 +240,6 @@ personas:
     roles: ["admin"]
     tools:
       allow: ["*"]
-  default_persona: analyst
 
 enrichment:
   trino_semantic_enrichment: true

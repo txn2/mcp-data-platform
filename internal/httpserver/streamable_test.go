@@ -271,12 +271,8 @@ func buildProductionMiddleware(t *testing.T, signingKey []byte, issuer string) (
 			Deny:  []string{"*_delete_*"},
 		},
 	})
-	// Default persona: denies all (same as production)
-	_ = registry.Register(&persona.Persona{
-		Name:  "default",
-		Tools: persona.ToolRules{Allow: []string{}, Deny: []string{"*"}},
-	})
-	registry.SetDefault("default")
+	// A caller matching no persona resolves to the deny-all persona the mapper
+	// synthesizes; nothing is registered for it (same as production).
 
 	// Create OIDCRoleMapper + Authorizer (same as production)
 	mapper := &persona.OIDCRoleMapper{

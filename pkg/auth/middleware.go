@@ -59,6 +59,14 @@ func LooksLikeJWT(s string) bool {
 	return !slices.Contains(parts, "")
 }
 
+// RoleAnonymous is the role carried by the allowed-anonymous fallback identity.
+//
+// Anonymous callers present no claims, so without a role they would map to no
+// persona and reach nothing. Naming the role lets a deployment that wants open
+// access say so explicitly — a persona lists "anonymous" among its roles — instead
+// of a fallback persona quietly covering every unidentified caller.
+const RoleAnonymous = "anonymous"
+
 // ChainedAuthenticator tries multiple authenticators in order.
 type ChainedAuthenticator struct {
 	authenticators []middleware.Authenticator
@@ -130,6 +138,7 @@ func (c *ChainedAuthenticator) Authenticate(ctx context.Context) (*middleware.Us
 		return &middleware.UserInfo{
 			UserID:   "anonymous",
 			AuthType: middleware.AuthTypeAnonymous,
+			Roles:    []string{RoleAnonymous},
 			Claims:   make(map[string]any),
 		}, nil
 	}

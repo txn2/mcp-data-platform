@@ -265,14 +265,14 @@ func TestHandleInfo_BaselineGatedByPersona(t *testing.T) {
 		Name:  "reader",
 		Tools: persona.ToolRules{Allow: []string{"search"}},
 	}))
-	pr.SetDefault("reader")
 
 	p := &Platform{
 		config:          &Config{Server: ServerConfig{Name: "g", Version: testInfoVersion}},
 		personaRegistry: pr,
 		toolkitRegistry: regWithTools(t, "search", "memory_capture"),
 	}
-	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{PersonaName: "reader"})
+	result, _, err := p.handleInfo(ctx, &mcp.CallToolRequest{})
 	require.NoError(t, err)
 	info := requireInfoFromResult(t, result)
 
@@ -340,7 +340,6 @@ func TestHandleInfo_ResourcesNoteGatedByPersona(t *testing.T) {
 		Name:  "reader",
 		Tools: persona.ToolRules{Allow: []string{"trino_query"}},
 	}))
-	pr.SetDefault("reader")
 
 	p := &Platform{
 		config:          &Config{Server: ServerConfig{Name: "res", Version: testInfoVersion}},
@@ -348,7 +347,8 @@ func TestHandleInfo_ResourcesNoteGatedByPersona(t *testing.T) {
 		toolkitRegistry: regWithTools(t, "search", "fetch", "trino_query"),
 		resources:       resourcesEnabledLayer(t),
 	}
-	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{PersonaName: "reader"})
+	result, _, err := p.handleInfo(ctx, &mcp.CallToolRequest{})
 	require.NoError(t, err)
 	info := requireInfoFromResult(t, result)
 
@@ -574,9 +574,11 @@ func TestInfoPersona(t *testing.T) {
 		assert.Equal(t, "Analyze data and run queries", info.Persona.Description)
 	})
 
-	t.Run("falls back to default persona when no context", func(t *testing.T) {
+	// With no persona on the context the caller mapped to none, and
+	// platform_info reports that rather than naming a persona they were never
+	// granted.
+	t.Run("reports no persona when the caller mapped to none", func(t *testing.T) {
 		reg := newPersonaRegistry(t)
-		reg.SetDefault("admin")
 		p := &Platform{config: &cfg, personaRegistry: reg, toolkitRegistry: registry.NewRegistry()}
 
 		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
@@ -584,8 +586,7 @@ func TestInfoPersona(t *testing.T) {
 		require.NoError(t, err)
 		info := requireInfoFromResult(t, result)
 
-		require.NotNil(t, info.Persona)
-		assert.Equal(t, "admin", info.Persona.Name)
+		assert.Nil(t, info.Persona)
 	})
 
 	t.Run("no persona when no context and no default", func(t *testing.T) {
