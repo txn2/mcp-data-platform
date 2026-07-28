@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Pencil } from "lucide-react";
 import type { Asset, AssetVersion } from "@/api/portal/types";
 import { ProvenancePanel } from "@/components/ProvenancePanel";
+import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { VersionHistoryPanel } from "@/components/VersionHistoryPanel";
 import { formatBytes } from "@/lib/format";
 import type { MutationLike } from "./types";
@@ -111,7 +112,9 @@ export function AssetMetadataSidebar({
               )}
             </div>
             {asset.description && (
-              <p className="text-sm text-muted-foreground">{asset.description}</p>
+              <div className="text-sm text-muted-foreground">
+                <CollapsibleMarkdown content={asset.description} maxHeightPx={120} />
+              </div>
             )}
             <dl className="text-sm space-y-1.5">
               {detailRows?.map((row) => (

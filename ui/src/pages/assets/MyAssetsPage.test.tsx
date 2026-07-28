@@ -120,6 +120,27 @@ describe("MyAssetsPage: share icons overlay on card thumbnail", () => {
     expect(screen.getByTitle("Has public link")).toBeInTheDocument();
   });
 
+  it("shows a markdown description as readable text on the card (#1101)", () => {
+    // Asset descriptions are authored as markdown. A card has two clamped
+    // lines, so the source is stripped to prose rather than rendered or shown
+    // with its own asterisks and backticks.
+    mockUseAssets.mockReturnValue({
+      data: {
+        data: [makeAsset({ description: "**Revenue** rollup from `orders`" })],
+        total: 1,
+        limit: 50,
+        offset: 0,
+        share_summaries: {},
+      },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
+
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+
+    expect(screen.getByText("Revenue rollup from orders")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("**Revenue**");
+  });
+
   it("renders ranked search results without crashing on a missing description", () => {
     // Search is server-side (useSearchAssets). The API serializes description
     // with `omitempty`, so a ranked result can arrive with description

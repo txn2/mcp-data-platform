@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, ChevronsUpDown, FolderOpen, Users } from "lucide-react";
 import type { Prompt, PromptCollection, PromptUsage } from "@/api/admin/types";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 import { PromptStatusBadge } from "./PromptStatusBadge";
 import { formatLastRun, isInactive, staleAfterDays } from "./promptUsage";
@@ -156,7 +157,7 @@ function PromptRow({
         </td>
       )}
       <td className="px-4 py-2 align-top text-muted-foreground">
-        <div className="break-words whitespace-normal">{p.description}</div>
+        <div className="break-words whitespace-normal">{markdownToPlainText(p.description)}</div>
       </td>
       <td className="px-4 py-2 align-top text-right tabular-nums text-muted-foreground">
         {usageReady ? (usage?.run_count ?? 0) : "–"}

@@ -2,6 +2,7 @@ import { Tag, Trash2, Pencil, Download, X } from "lucide-react";
 import { resourceFetchRaw } from "@/api/resources/client";
 import { useResource } from "@/api/resources/hooks";
 import { useAuthStore } from "@/stores/auth";
+import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { formatBytes } from "@/lib/format";
 import type { Resource } from "@/api/resources/types";
 import { scopeIcon, scopeLabel } from "./shared";
@@ -38,7 +39,11 @@ export function DetailModal({ resource, onClose, onEdit, onDelete, admin }: { re
           <button onClick={onClose} className="rounded p-1 hover:bg-muted shrink-0"><X className="h-4 w-4" /></button>
         </div>
 
-        <p className="text-sm text-muted-foreground">{r.description}</p>
+        {r.description && (
+          <div className="text-sm text-muted-foreground">
+            <CollapsibleMarkdown content={r.description} maxHeightPx={160} />
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>

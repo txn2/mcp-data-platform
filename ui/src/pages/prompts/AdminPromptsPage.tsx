@@ -25,6 +25,7 @@ import {
   useDeleteAdminPrompt,
 } from "@/api/admin/hooks";
 import type { Prompt } from "@/api/admin/types";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { PromptNameField } from "./PromptNameField";
@@ -496,7 +497,7 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
                         </div>
                       </td>
                       <td className="px-4 py-2"><ScopeBadge scope={p.scope} /></td>
-                      <td className="px-4 py-2 truncate text-muted-foreground">{p.description}</td>
+                      <td className="px-4 py-2 truncate text-muted-foreground">{markdownToPlainText(p.description)}</td>
                       <td className="px-4 py-2 text-xs text-muted-foreground truncate">{p.owner_email || "\u2014"}</td>
                       <td className="px-4 py-2">
                         <span className={cn("text-xs font-medium", p.enabled ? "text-green-500" : "text-zinc-500")}>

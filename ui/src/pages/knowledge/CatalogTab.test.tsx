@@ -21,6 +21,14 @@ vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
   DataHubConnectionSelect: () => null,
   useConnectionWritable: vi.fn(() => true),
 }));
+// CodeMirror does not render cleanly in jsdom; stand in a plain textarea. The
+// markdown renderer is left real so these tests see the formatting a reader
+// gets.
+vi.mock("@/components/MarkdownEditor", () => ({
+  MarkdownEditor: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <textarea aria-label="description" value={value} onChange={(e) => onChange(e.target.value)} />
+  ),
+}));
 
 let mockIsAdmin = true;
 let mockTools: string[] = [];
@@ -50,10 +58,14 @@ const q = (data: unknown) => ({ data, isLoading: false, isError: false }) as nev
 const lookupResult = (data: unknown) => ({ data, isFetching: false, isError: false }) as never;
 const noopMut = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }) as never;
 
+// Descriptions are authored as markdown: DataHub stores the source and the
+// platform's own write paths (apply_knowledge, datahub_update) emit it.
+const markdownDescription = "**Daily sales.** One row per `order_id`.";
+
 const daily = {
   urn: "urn:li:dataset:(urn:li:dataPlatform:trino,analytics.public.daily_sales,PROD)",
   name: "analytics.public.daily_sales",
-  description: "Daily sales.",
+  description: markdownDescription,
   tags: ["urn:li:tag:finance"],
 };
 
@@ -68,14 +80,16 @@ beforeEach(() => {
       urn: daily.urn,
       context: {
         urn: daily.urn,
-        description: "Daily sales.",
+        description: markdownDescription,
         tags: ["finance"],
         tag_refs: [{ urn: "urn:li:tag:finance", name: "finance" }],
         owners: [{ urn: "urn:li:corpuser:sarah", type: "TECHNICAL_OWNER", name: "Sarah" }],
         glossary_terms: [{ urn: "urn:li:glossaryTerm:Revenue", name: "Revenue" }],
         domain: { urn: "urn:li:domain:finance", name: "Finance" },
       },
-      columns: { revenue: { name: "revenue", description: "USD", is_sensitive: true } },
+      columns: {
+        revenue: { name: "revenue", description: "Revenue in **USD**", is_sensitive: true },
+      },
     }),
   );
   [useUpdateDescription, useUpdateTags, useUpdateOwners, useUpdateGlossaryTerms, useUpdateDomain].forEach((h) =>
@@ -101,6 +115,32 @@ describe("CatalogTab", () => {
     expect(screen.getByText("Sensitive")).toBeInTheDocument();
   });
 
+  it("renders the entity description as markdown, not as source (#1101)", () => {
+    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
+
+    const bold = document.querySelector("strong");
+    expect(bold?.textContent).toBe("Daily sales.");
+    expect(document.querySelector("code")?.textContent).toBe("order_id");
+    expect(document.body.textContent).not.toContain("**Daily sales.**");
+  });
+
+  it("renders column descriptions as markdown (#1101)", () => {
+    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
+
+    const cell = screen.getByText("revenue").closest("tr")!;
+    expect(cell.querySelector("strong")?.textContent).toBe("USD");
+    expect(cell.textContent).not.toContain("**USD**");
+  });
+
+  it("strips markdown from the search-result snippet (#1101)", () => {
+    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+
+    expect(screen.getByText("Daily sales. One row per order_id.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("**Daily sales.**");
+  });
+
   it("shows edit affordances for a writer and drives a description edit", () => {
     const mutate = vi.fn();
     vi.mocked(useUpdateDescription).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
@@ -110,10 +150,10 @@ describe("CatalogTab", () => {
     // Edit the description.
     const editButtons = screen.getAllByRole("button", { name: "Edit" });
     fireEvent.click(editButtons[0]!);
-    // The description editor renders a <textarea>; the tag/owner/domain add fields
-    // are <input>s. Target the textarea specifically.
-    const textarea = document.querySelector("textarea")!;
-    fireEvent.change(textarea, { target: { value: "Updated." } });
+    // The description is edited in the shared markdown editor, stubbed here as a
+    // labelled textarea; the tag/owner/domain add fields are <input>s.
+    const editor = screen.getByLabelText("description");
+    fireEvent.change(editor, { target: { value: "Updated." } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(mutate).toHaveBeenCalledWith(
       { urn: daily.urn, description: "Updated." },

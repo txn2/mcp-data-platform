@@ -3,6 +3,7 @@ import { Pencil, Trash2, ArrowLeft, History } from "lucide-react";
 import { useKnowledgePage, useResolveRefs, useDeleteKnowledgePage } from "@/api/portal/hooks";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { extractRefUrns } from "@/lib/entityRefs";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { RelatedPanel } from "@/components/knowledge/RelatedPanel";
 import { LineagePanel } from "@/components/knowledge/LineagePanel";
 import { RefPicker } from "@/components/knowledge/RefPicker";
@@ -78,7 +79,9 @@ export function KnowledgePageDetail({
 
       <div>
         <h1 className="text-2xl font-semibold text-foreground">{page.title}</h1>
-        {page.summary && <p className="mt-1 text-muted-foreground">{page.summary}</p>}
+        {page.summary && (
+          <p className="mt-1 text-muted-foreground">{markdownToPlainText(page.summary)}</p>
+        )}
         <p className="mt-2 text-xs text-muted-foreground">
           v{page.current_version}
           {page.updated_by ? ` · last edited by ${page.updated_by}` : ""}

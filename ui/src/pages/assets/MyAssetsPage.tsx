@@ -8,6 +8,7 @@ import { AssetsTabs } from "@/components/AssetsTabs";
 import { ScopeFilter, getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
 import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { formatBytes } from "@/lib/format";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { AuthImg } from "@/components/AuthImg";
 import { AssetPreviewModal } from "@/components/AssetPreviewModal";
@@ -306,7 +307,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                   </div>
                   {asset.description && (
                     <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
-                      {asset.description}
+                      {markdownToPlainText(asset.description)}
                     </p>
                   )}
                   <div className="flex flex-wrap gap-1.5 mb-2">
@@ -382,7 +383,9 @@ export function MyAssetsPage({ onNavigate }: Props) {
                           {share ? (
                             <span className="text-xs text-muted-foreground truncate block">Shared by {share.shared_by}</span>
                           ) : asset.description ? (
-                            <span className="text-xs text-muted-foreground truncate block">{asset.description}</span>
+                            <span className="text-xs text-muted-foreground truncate block">
+                              {markdownToPlainText(asset.description)}
+                            </span>
                           ) : null}
                         </div>
                         <FeedbackCountBadge count={threadCounts?.[asset.id]} />

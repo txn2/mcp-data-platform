@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useDeleteEnrichmentRule } from "@/api/admin/hooks";
 import type { EnrichmentRule } from "@/api/admin/types";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
 
@@ -38,7 +39,7 @@ export function RuleListItem({
             </span>
           </div>
           {rule.description && (
-            <p className="mt-1 text-xs text-muted-foreground">{rule.description}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{markdownToPlainText(rule.description)}</p>
           )}
           <p className="mt-1 text-xs text-muted-foreground font-mono">
             {rule.enrich_action.source}.{rule.enrich_action.operation} →{" "}

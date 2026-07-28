@@ -7,6 +7,7 @@ import { AssetsTabs } from "@/components/AssetsTabs";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { ScopeFilter, getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
 import { SharePermissionBadge } from "@/components/SharePermissionBadge";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { AuthImg } from "@/components/AuthImg";
 import { CollectionThumbnailQueue } from "@/components/CollectionThumbnailQueue";
 
@@ -251,7 +252,7 @@ export function CollectionsPage({ onNavigate }: Props) {
                   </div>
                   {coll.description && (
                     <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
-                      {coll.description}
+                      {markdownToPlainText(coll.description)}
                     </p>
                   )}
                   {tags.length > 0 && (
@@ -309,7 +310,9 @@ export function CollectionsPage({ onNavigate }: Props) {
                           {share ? (
                             <span className="text-xs text-muted-foreground truncate block">Shared by {share.shared_by}</span>
                           ) : coll.description ? (
-                            <span className="text-xs text-muted-foreground truncate block">{coll.description}</span>
+                            <span className="text-xs text-muted-foreground truncate block">
+                              {markdownToPlainText(coll.description)}
+                            </span>
                           ) : null}
                         </div>
                         <FeedbackCountBadge count={threadCounts?.[coll.id]} />
