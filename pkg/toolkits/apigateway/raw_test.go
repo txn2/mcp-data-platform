@@ -98,6 +98,7 @@ func TestCopyRawHeaders_ForwardsFramingAndValidators(t *testing.T) {
 	in.Set("Content-Type", "application/pdf")
 	in.Set("Content-Length", "4096")
 	in.Set("Content-Encoding", "gzip")
+	in.Set("Content-Range", "bytes 0-4095/1048576")
 	in.Set("Etag", `"v3"`)
 	in.Set("Last-Modified", "Wed, 21 Oct 2026 07:28:00 GMT")
 
@@ -107,6 +108,7 @@ func TestCopyRawHeaders_ForwardsFramingAndValidators(t *testing.T) {
 	for name, want := range map[string]string{
 		"Content-Length":   "4096",
 		"Content-Encoding": "gzip",
+		"Content-Range":    "bytes 0-4095/1048576",
 		"Etag":             `"v3"`,
 		"Last-Modified":    "Wed, 21 Oct 2026 07:28:00 GMT",
 	} {
@@ -116,6 +118,9 @@ func TestCopyRawHeaders_ForwardsFramingAndValidators(t *testing.T) {
 	}
 	if got := sink.headers.Values("Content-Type"); len(got) != 1 {
 		t.Errorf("Content-Type written %d times: %q; the derived value must replace the upstream's, not join it", len(got), got)
+	}
+	if got := sink.headers.Get("Accept-Ranges"); got != "" {
+		t.Errorf("Accept-Ranges = %q; the route answers a POST and honors no transport-level Range, so it must not advertise one", got)
 	}
 	if got := sink.headers.Get("Content-Disposition"); got != "inline" {
 		t.Errorf("Content-Disposition = %q; a passive type with no upstream filename stays inline", got)

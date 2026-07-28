@@ -67,9 +67,18 @@ func rawPassthroughFromContext(ctx context.Context) *RawPassthrough {
 // verbatim to the raw client: body framing and cache validators, none of
 // which carries a decision about how the bytes are rendered.
 //
-// Content-Type and Content-Disposition are deliberately absent. They are
-// the two headers that decide whether a browser turns the response into a
-// document on the platform's origin and under what filename, and an
+// Content-Range belongs to framing: a caller reaches a partial body by
+// putting Range in the call's headers, and without the upstream's
+// Content-Range the 206 that comes back names neither which bytes it holds
+// nor how many there are in total, which makes the partial response
+// unusable rather than merely undecorated. Accept-Ranges is deliberately
+// not forwarded with it: this route answers a POST and does not honor a
+// transport-level Range header on its own request, so advertising range
+// support at that level would describe something the route does not do.
+//
+// Content-Type and Content-Disposition are also deliberately absent. They
+// are the two headers that decide whether a browser turns the response into
+// a document on the platform's origin and under what filename, and an
 // upstream names both. copyRawHeaders derives them through
 // blobserve.Headers instead, the same contract every other byte-serving
 // surface in the platform answers under.
@@ -78,6 +87,7 @@ func rawPassthroughFromContext(ctx context.Context) *RawPassthrough {
 var rawForwardedHeaders = map[string]bool{
 	"Content-Length":   true,
 	"Content-Encoding": true,
+	"Content-Range":    true,
 	"Cache-Control":    true,
 	"Etag":             true,
 	"Last-Modified":    true,

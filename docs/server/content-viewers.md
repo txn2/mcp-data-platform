@@ -147,8 +147,10 @@ answers under the same contract: it does not store the bytes it serves, but it
 does reproduce an upstream's bytes on the platform's own origin, so the type,
 disposition, `nosniff` and CSP decisions are made in the same place rather than
 forwarded from the upstream. Byte-range support and the cache default are the
-two items scoped differently there — the passthrough streams rather than seeks,
-and an upstream that states its own `Cache-Control` keeps it.
+two items scoped differently there: the passthrough serves no ranges of its own
+(it relays the upstream's partial response, `Content-Range` included, when the
+caller asks the upstream for one), and an upstream that states its own
+`Cache-Control` keeps it.
 
 - **`Content-Security-Policy: default-src 'none'; sandbox`**, on every response
   regardless of type. `default-src 'none'` denies the document every fetch it
