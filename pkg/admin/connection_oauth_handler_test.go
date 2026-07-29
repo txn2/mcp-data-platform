@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -758,4 +760,261 @@ func TestConnectionsOAuthHealth_ReconnectClearsErrorCode(t *testing.T) {
 	require.Len(t, resp.Connections, 1)
 	assert.Empty(t, resp.Connections[0].IDPErrorCode,
 		"reconnect should clear the badge even when an older refresh failure exists")
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Log-injection containment on the OAuth flow's structured log sites.
+// ────────────────────────────────────────────────────────────────────────
+
+// capturingLogHandler records every attribute of every slog record so a
+// test can assert on the values a log site actually emitted, rather than
+// on the formatting a particular handler happens to apply. A JSON or text
+// handler escapes newlines on its way out, which would hide an unsanitized
+// value; reading the attribute itself does not.
+type capturingLogHandler struct {
+	mu    *sync.Mutex
+	attrs *[]slog.Attr
+	// bound carries the attributes a slog.With / WithGroup chain fixed
+	// ahead of the call site. Discarding them would let a handler that
+	// moved its kind and name onto a logger drop out of the assertions
+	// with no test failing.
+	bound []slog.Attr
+}
+
+func (*capturingLogHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *capturingLogHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	*h.attrs = append(*h.attrs, h.bound...)
+	r.Attrs(func(a slog.Attr) bool {
+		*h.attrs = append(*h.attrs, a)
+		return true
+	})
+	return nil
+}
+
+func (h *capturingLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	next := &capturingLogHandler{mu: h.mu, attrs: h.attrs}
+	next.bound = append(append([]slog.Attr(nil), h.bound...), attrs...)
+	return next
+}
+
+func (h *capturingLogHandler) WithGroup(string) slog.Handler { return h }
+
+// captureLogAttrs installs a default logger that accumulates attributes,
+// restoring the previous default via t.Cleanup. The returned function
+// snapshots what has been captured so far.
+func captureLogAttrs(t *testing.T) func() []slog.Attr {
+	t.Helper()
+	var mu sync.Mutex
+	attrs := make([]slog.Attr, 0, 32)
+	prev := slog.Default()
+	slog.SetDefault(slog.New(&capturingLogHandler{mu: &mu, attrs: &attrs}))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return func() []slog.Attr {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]slog.Attr(nil), attrs...)
+	}
+}
+
+// TestConnectionOAuthFlowLogsCarryNoControlCharacters drives oauth-start
+// and the callback with a connection name and a return URL that both
+// carry CR/LF plus a forged log line, and proves no log site in the flow
+// emitted a value that could break out of its record. Every operator-
+// supplied value on this path arrives from a URL path segment or a
+// request body, survives a round trip through the PKCE row, and is
+// logged again by the callback — so the sanitizing has to hold on both
+// sides of storage, not only where the value is first read.
+func TestConnectionOAuthFlowLogsCarryNoControlCharacters(t *testing.T) {
+	const forged = "\nlevel=ERROR msg=\"forged log line\""
+	// A colon makes safeReturnURL reject the target, which is what drives
+	// the rewrite-warning branch that logs the requested URL.
+	hostileReturnURL := "https://evil.example/x" + forged
+	hostileName := "alpha" + forged
+
+	tokenSrv := fakeIDPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"at","refresh_token":"rt","expires_in":3600,"token_type":"Bearer"}`))
+	})
+	fx := setupOAuthFixture(t, tokenSrv)
+	snapshot := captureLogAttrs(t)
+
+	body, err := json.Marshal(startConnectionOAuthRequest{ReturnURL: hostileReturnURL})
+	require.NoError(t, err)
+	startReq := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/api/v1/admin/connections/mcp/"+url.PathEscape(hostileName)+"/oauth-start",
+		strings.NewReader(string(body)))
+	startReq.Header.Set("Content-Type", "application/json")
+	startW := httptest.NewRecorder()
+	fx.handler.ServeHTTP(startW, startReq)
+	require.Equal(t, http.StatusOK, startW.Code, "start body=%s", startW.Body.String())
+	var startResp startConnectionOAuthResponse
+	require.NoError(t, json.NewDecoder(startW.Body).Decode(&startResp))
+
+	cbReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/oauth/callback?code=test-code&state="+url.QueryEscape(startResp.State), http.NoBody)
+	cbW := httptest.NewRecorder()
+	fx.handler.ServeHTTP(cbW, cbReq)
+	require.Equal(t, http.StatusFound, cbW.Code, "callback body=%s", cbW.Body.String())
+	assert.Equal(t, "/portal/admin/connections", cbW.Header().Get("Location"),
+		"an off-origin return URL must be replaced by the safe fallback")
+
+	attrs := snapshot()
+	var sawName, sawReturnURL bool
+	for _, a := range attrs {
+		v := a.Value.String()
+		assert.NotContainsf(t, v, "\n", "attribute %q reached the log with a newline: %q", a.Key, v)
+		assert.NotContainsf(t, v, "\r", "attribute %q reached the log with a carriage return: %q", a.Key, v)
+		if strings.Contains(v, "forged log line") {
+			// Sanitizing strips the control characters, not the text, so
+			// the payload itself still shows up on one line.
+			switch a.Key {
+			case logKeyName:
+				sawName = true
+			case "return_url", "requested_return_url":
+				sawReturnURL = true
+			}
+		}
+	}
+	assert.True(t, sawName, "the hostile connection name never reached a log site: the test proved nothing")
+	assert.True(t, sawReturnURL, "the hostile return URL never reached a log site: the test proved nothing")
+}
+
+// TestConnectionOAuthCallbackFailureLogsCarryNoControlCharacters covers the
+// two failure branches the success-path test never reaches. Both log a value
+// the platform did not author: the IdP's error parameters, and the exchange
+// error, which wraps up to 256 bytes of the token endpoint's response body.
+// An upstream that answers a connection's token_url therefore gets a say in
+// what lands in the platform's log, which is exactly the value that has to be
+// stripped of line breaks before it is written.
+func TestConnectionOAuthCallbackFailureLogsCarryNoControlCharacters(t *testing.T) {
+	const forged = "\r\nlevel=ERROR msg=\"forged log line\""
+
+	t.Run("idp returns an error parameter", func(t *testing.T) {
+		srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+		fx := setupOAuthFixture(t, srv)
+		state := startOAuthForTest(t, fx.handler, "")
+		snapshot := captureLogAttrs(t)
+
+		cbURL := "/api/v1/admin/oauth/callback?error=access_denied" +
+			"&error_description=" + url.QueryEscape("user canceled"+forged) +
+			"&state=" + url.QueryEscape(state)
+		w := httptest.NewRecorder()
+		fx.handler.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, cbURL, http.NoBody))
+		require.Equal(t, http.StatusBadRequest, w.Code)
+
+		assertLogAttrsSingleLine(t, snapshot(), "idp_error_description")
+	})
+
+	t.Run("token endpoint answers with a hostile body", func(t *testing.T) {
+		srv := fakeIDPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"code already redeemed` + forged + `"}`))
+		})
+		fx := setupOAuthFixture(t, srv)
+		state := startOAuthForTest(t, fx.handler, "")
+		snapshot := captureLogAttrs(t)
+
+		cbURL := "/api/v1/admin/oauth/callback?code=test-code&state=" + url.QueryEscape(state)
+		w := httptest.NewRecorder()
+		fx.handler.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, cbURL, http.NoBody))
+		require.Equal(t, http.StatusBadRequest, w.Code)
+
+		assertLogAttrsSingleLine(t, snapshot(), logKeyError)
+	})
+}
+
+// startOAuthForTest runs oauth-start against connection "alpha" and returns
+// the issued PKCE state. name selects the connection path segment; empty
+// means "alpha".
+func startOAuthForTest(t *testing.T, h *Handler, name string) string {
+	t.Helper()
+	if name == "" {
+		name = "alpha"
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/api/v1/admin/connections/mcp/"+url.PathEscape(name)+"/oauth-start", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "start body=%s", w.Body.String())
+	var resp startConnectionOAuthResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	return resp.State
+}
+
+// assertLogAttrsSingleLine fails when any captured attribute carries a line
+// break, and when the named attribute — the one the case is about — never
+// appeared, which would make the run prove nothing.
+func assertLogAttrsSingleLine(t *testing.T, attrs []slog.Attr, wantKey string) {
+	t.Helper()
+	var saw bool
+	for _, a := range attrs {
+		v := a.Value.String()
+		assert.NotContainsf(t, v, "\n", "attribute %q reached the log with a newline: %q", a.Key, v)
+		assert.NotContainsf(t, v, "\r", "attribute %q reached the log with a carriage return: %q", a.Key, v)
+		if a.Key == wantKey && strings.Contains(v, "forged log line") {
+			saw = true
+		}
+	}
+	assert.Truef(t, saw, "attribute %q never carried the hostile value: the case proved nothing", wantKey)
+}
+
+// failingAuthEventStore fails every List so the auth-events endpoint's
+// error branch — which logs the path-supplied kind and name — can be
+// driven. Insert and Prune succeed: only the read path is under test.
+type failingAuthEventStore struct{ err error }
+
+func (*failingAuthEventStore) Insert(context.Context, authevents.Event) error { return nil }
+
+func (s *failingAuthEventStore) List(context.Context, authevents.Filter) ([]authevents.Event, error) {
+	return nil, s.err
+}
+
+func (*failingAuthEventStore) Prune(context.Context, time.Time) (int64, error) { return 0, nil }
+
+// TestConnectionAuthEventsListFailureLogsSanitizedNames drives the
+// auth-events read failure with a connection name carrying CR/LF. The name
+// arrives from the URL path, so an operator (or anyone who can reach the
+// admin API) chooses it, and the handler logs it on the way to a 500.
+func TestConnectionAuthEventsListFailureLogsSanitizedNames(t *testing.T) {
+	const forged = "\r\nlevel=ERROR msg=\"forged log line\""
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	fx.handler.deps.AuthEventStore = &failingAuthEventStore{err: errors.New("db down")}
+	snapshot := captureLogAttrs(t)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/connections/mcp/"+url.PathEscape("alpha"+forged)+"/auth-events", http.NoBody)
+	w := httptest.NewRecorder()
+	fx.handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+
+	assertLogAttrsSingleLine(t, snapshot(), logKeyName)
+}
+
+// TestConnectionOAuthCallbackAfterConnectFailureLogsSanitizedNames covers
+// the hook-failure branch: the token is already persisted, so the callback
+// logs the failure and still completes. The connection name reaches that log
+// site from the PKCE row, having come from the URL path at oauth-start.
+func TestConnectionOAuthCallbackAfterConnectFailureLogsSanitizedNames(t *testing.T) {
+	const forged = "\r\nlevel=ERROR msg=\"forged log line\""
+	tokenSrv := fakeIDPServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"at","refresh_token":"rt","expires_in":3600,"token_type":"Bearer"}`))
+	})
+	fx := setupOAuthFixture(t, tokenSrv)
+	fx.kind.afterErr = errors.New("toolkit refused to re-register")
+	state := startOAuthForTest(t, fx.handler, "alpha"+forged)
+	snapshot := captureLogAttrs(t)
+
+	cbURL := "/api/v1/admin/oauth/callback?code=test-code&state=" + url.QueryEscape(state)
+	w := httptest.NewRecorder()
+	fx.handler.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, cbURL, http.NoBody))
+	require.Equal(t, http.StatusFound, w.Code,
+		"a failed AfterConnect must not fail the Connect: the token is persisted")
+
+	assertLogAttrsSingleLine(t, snapshot(), logKeyName)
 }

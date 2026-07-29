@@ -265,6 +265,15 @@ Go gates (`complexity <= 10` ≈ `gocyclo <= 10`, `cognitive-complexity <= 15` �
 `gocognit <= 15`) plus an import-cycle rule. See [`ui/README.md`](ui/README.md)
 for the thresholds and the ratchet baseline.
 
+One browser suite also lives outside `make verify`:
+`make frontend-e2e-public-viewer` renders the public share viewer's
+client-rendered content families — HTML, JSX, markdown, SVG and a collection
+item — against a live stack and fails on anything the viewer's
+Content-Security-Policy blocks. It needs `make frontend-build`, a running
+server (`make dev`) and network egress to esm.sh, so it is run on demand
+rather than per commit — see
+[`ui/e2e/public-viewer/README.md`](ui/e2e/public-viewer/README.md).
+
 Two measurement harnesses live outside `make verify` (each is its own Go
 module): [`test/load`](test/load/README.md) measures throughput and resource
 limits ("how much"), and [`bench/`](bench/README.md) measures agent

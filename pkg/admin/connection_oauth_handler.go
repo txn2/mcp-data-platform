@@ -132,7 +132,7 @@ func (h *Handler) startConnectionOAuth(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		slog.Error("oauth-start: failed to persist pkce state",
 			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name),
-			logKeyStartedBy, logsan.SanitizeForLog(startedBy), logKeyError, err)
+			logKeyStartedBy, logsan.SanitizeForLog(startedBy), logKeyError, logsan.SanitizeForLog(err.Error()))
 		writeError(w, http.StatusInternalServerError, "failed to record OAuth state")
 		return
 	}
@@ -439,7 +439,8 @@ func (h *Handler) connectionAuthEvents(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		slog.Warn("auth-events: list failed",
-			logKeyKind, kind, logKeyName, name, logKeyError, err)
+			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name),
+			logKeyError, logsan.SanitizeForLog(err.Error()))
 		writeError(w, http.StatusInternalServerError, "failed to load auth events")
 		return
 	}
@@ -529,7 +530,7 @@ func (h *Handler) connectionOAuthCallback(w http.ResponseWriter, r *http.Request
 	q := r.URL.Query()
 	if errCode := q.Get("error"); errCode != "" {
 		slog.Warn("oauth-callback: IdP returned error",
-			logKeyKind, pending.Kind, logKeyName, pending.Connection,
+			logKeyKind, logsan.SanitizeForLog(pending.Kind), logKeyName, logsan.SanitizeForLog(pending.Connection),
 			"idp_error", logsan.SanitizeForLog(errCode), "idp_error_description", logsan.SanitizeForLog(q.Get("error_description")))
 		writeOAuthError(w, fmt.Sprintf("upstream returned %s: %s", errCode, q.Get("error_description")))
 		return
@@ -541,22 +542,22 @@ func (h *Handler) connectionOAuthCallback(w http.ResponseWriter, r *http.Request
 	}
 	if err := h.completeConnectionOAuthExchange(r.Context(), pending, code); err != nil {
 		slog.Error("oauth-callback: exchange failed",
-			logKeyKind, pending.Kind, logKeyName, pending.Connection,
-			logKeyStartedBy, pending.StartedBy, logKeyDuration, time.Since(start),
-			logKeyError, err)
+			logKeyKind, logsan.SanitizeForLog(pending.Kind), logKeyName, logsan.SanitizeForLog(pending.Connection),
+			logKeyStartedBy, logsan.SanitizeForLog(pending.StartedBy), logKeyDuration, time.Since(start),
+			logKeyError, logsan.SanitizeForLog(err.Error()))
 		writeOAuthError(w, "token exchange failed: "+err.Error())
 		return
 	}
 	dest := safeReturnURL(pending.ReturnURL)
 	if pending.ReturnURL != "" && dest != pending.ReturnURL {
 		slog.Warn("oauth-callback: returnURL rewritten by safeReturnURL guard",
-			logKeyKind, pending.Kind, logKeyName, pending.Connection,
-			"requested_return_url", pending.ReturnURL, "rewritten_to", dest)
+			logKeyKind, logsan.SanitizeForLog(pending.Kind), logKeyName, logsan.SanitizeForLog(pending.Connection),
+			"requested_return_url", logsan.SanitizeForLog(pending.ReturnURL), "rewritten_to", logsan.SanitizeForLog(dest))
 	}
 	slog.Info("oauth-callback: success — tokens persisted",
-		logKeyKind, pending.Kind, logKeyName, pending.Connection,
-		logKeyStartedBy, pending.StartedBy,
-		logKeyDuration, time.Since(start), "dest", dest)
+		logKeyKind, logsan.SanitizeForLog(pending.Kind), logKeyName, logsan.SanitizeForLog(pending.Connection),
+		logKeyStartedBy, logsan.SanitizeForLog(pending.StartedBy),
+		logKeyDuration, time.Since(start), "dest", logsan.SanitizeForLog(dest))
 	// #nosec G710 -- safeReturnURL has already constrained dest to a
 	// same-origin relative path or the constant fallback.
 	http.Redirect(w, r, dest, http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
@@ -650,7 +651,8 @@ func (h *Handler) completeConnectionOAuthExchange(ctx context.Context, pending *
 		// the operator to repeat the browser flow even though the
 		// credential is good.
 		slog.Warn("oauth-callback: AfterConnect hook failed (token persisted, side effect deferred)",
-			logKeyKind, pending.Kind, logKeyName, pending.Connection, logKeyError, err)
+			logKeyKind, logsan.SanitizeForLog(pending.Kind), logKeyName, logsan.SanitizeForLog(pending.Connection),
+			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 	return nil
 }

@@ -202,3 +202,56 @@ content URL instead.
 The public viewer's Content-Security-Policy carries `media-src` and `object-src`
 for the audio, video and PDF sources. Active types keep their existing sandboxed
 iframe and DOMPurify treatment.
+
+### The public viewer's policy
+
+One policy governs two documents, which is what bounds how narrow it can be: the
+viewer page, and the untrusted HTML and JSX assets it renders in `blob:` URL
+iframes, which inherit the creating document's policy. The page is served with:
+
+```
+default-src 'none'; script-src 'unsafe-inline' blob: https:; style-src 'unsafe-inline' https:;
+img-src * data: blob:; media-src 'self' blob: data:; object-src 'self';
+font-src * data:; connect-src 'self' https:;
+```
+
+plus `frame-src blob: data: 'self'` for a single asset, or `frame-src 'self'
+blob: data:` for a collection, whose items open in a same-origin iframe.
+
+- `script-src 'unsafe-inline'` is required by both documents: the page's theme,
+  expiry and modal handlers and the embedded content-viewer bundle are inline,
+  and a stored HTML asset's own `<script>` blocks are the artifact. A
+  per-response nonce would cover the page and blank every HTML asset, since the
+  inherited policy would reject script the server never saw. What isolates an
+  artifact is the frame — `sandbox="allow-scripts"` without
+  `allow-same-origin`, so artifact script runs in an opaque origin.
+- `script-src https:` is required because assets legitimately load third-party
+  script: the JSX renderer resolves react, react-dom, recharts and lucide-react
+  from esm.sh through an import map, and stored HTML artifacts reference CDN
+  libraries directly. Plain `http:` is not permitted — an https page blocks it
+  as mixed content anyway, so allowing it only widened the policy for plaintext
+  deployments.
+- `script-src blob:` stays because `worker-src` falls back through `child-src`
+  to it, so dropping it would refuse an artifact its own web worker. It widens
+  nothing: a blob URL can only be minted by script that is already running,
+  which `'unsafe-inline'` has already permitted.
+- `'unsafe-eval'` is not granted. Sucrase transforms JSX in the parent page and
+  the frame runs the result as a module, so no viewer path evaluates source at
+  runtime. An artifact that calls `eval` or `new Function` is refused.
+- `style-src`, `img-src` and `font-src` stay permissive for artifacts that style
+  themselves inline and pull images and webfonts from arbitrary hosts. All three
+  are passive.
+- `connect-src` is there for artifacts. No viewer path issues a request it
+  governs — content URLs are handed to elements, which answer to `img-src`,
+  `media-src` and `object-src` instead.
+
+The policy is enforced by the browser and by nothing else, so a change to it is
+verified by rendering each family under it rather than by reading the header.
+`make frontend-e2e-public-viewer` drives HTML, JSX, markdown, SVG and a
+collection item against a live stack and fails on any blocked resource. It is
+not part of `make verify`: it needs the content-viewer bundle built
+(`make frontend-build`, which the binary embeds at compile time), a running
+server (`make dev`) and network egress to esm.sh, which the JSX family resolves
+its imports from. The families served from a content URL — image, audio, video,
+PDF, the ones `media-src` and `object-src` exist for — have no public share in
+the dev seed and are covered by the Go tests instead.

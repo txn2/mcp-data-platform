@@ -3,6 +3,7 @@ package logsan
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestSanitizeForLog(t *testing.T) {
@@ -58,5 +59,51 @@ func TestSanitizeForLogPreservesCleanIdentity(t *testing.T) {
 	const clean = "already-clean-value_123"
 	if got := SanitizeForLog(clean); got != clean {
 		t.Fatalf("SanitizeForLog(%q) = %q, want unchanged", clean, got)
+	}
+}
+
+// TestExcerptHoldsItsBound covers the case that makes the bound worth
+// asserting: sanitizing re-encodes each byte that is not valid UTF-8 as
+// U+FFFD, three bytes for one, so capping the input first would hand the
+// caller up to three times the limit it asked for. An upstream chooses the
+// bytes of the response bodies this bounds, so it gets to pick that input.
+func TestExcerptHoldsItsBound(t *testing.T) {
+	const limit = 256
+	cases := map[string]string{
+		"ascii":               strings.Repeat("x", 300),
+		"invalid utf-8":       strings.Repeat("\xff", 300),
+		"truncated multibyte": strings.Repeat("\xc3", 300),
+		"valid multibyte":     strings.Repeat("é", 300),
+	}
+	for name, in := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := Excerpt(in, limit)
+			if len(got) > limit+len("...") {
+				t.Fatalf("Excerpt exceeded its bound: len=%d, want <= %d", len(got), limit+len("..."))
+			}
+			if !strings.HasSuffix(got, "...") {
+				t.Fatalf("Excerpt did not mark the truncation: %q", got[max(0, len(got)-8):])
+			}
+			// A cut that lands mid-rune would leave the excerpt invalid, and
+			// a log pipeline that re-encodes it would mangle the tail.
+			if !utf8.ValidString(strings.TrimSuffix(got, "...")) {
+				t.Fatalf("Excerpt cut mid-rune: %q", got)
+			}
+		})
+	}
+}
+
+// TestExcerptKeepsShortValuesWhole checks the common path: a body under the
+// limit is sanitized and returned without an ellipsis.
+func TestExcerptKeepsShortValuesWhole(t *testing.T) {
+	got := Excerpt("invalid_grant\r\nlevel=ERROR", 256)
+	if strings.ContainsAny(got, "\r\n") {
+		t.Fatalf("Excerpt left a line break: %q", got)
+	}
+	if strings.Contains(got, "...") {
+		t.Fatalf("Excerpt marked a truncation that did not happen: %q", got)
+	}
+	if !strings.Contains(got, "invalid_grant") {
+		t.Fatalf("Excerpt dropped the diagnostic text: %q", got)
 	}
 }

@@ -693,12 +693,11 @@ func writeOAuthError(w http.ResponseWriter, msg string) {
 	_ = oauthErrorPageTemplate.Execute(w, struct{ Msg string }{Msg: msg})
 }
 
-// trimOAuthBody caps response body size in error messages so a noisy
-// upstream can't fill an audit log.
+// trimOAuthBody bounds and sanitizes a token-endpoint response body
+// before it reaches a log field and the error message that carries it
+// upstack. A noisy upstream would otherwise fill an audit log, and one
+// answering with CR/LF would forge records in it.
 func trimOAuthBody(body []byte) string {
 	const maxBytes = 256
-	if len(body) <= maxBytes {
-		return string(body)
-	}
-	return string(body[:maxBytes]) + "..."
+	return logsan.Excerpt(string(body), maxBytes)
 }

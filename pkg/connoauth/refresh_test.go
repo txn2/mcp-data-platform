@@ -3,11 +3,13 @@ package connoauth
 import (
 	"context"
 	"encoding/base64"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 )
 
@@ -186,3 +188,59 @@ func TestRefresh_ValidateInput(t *testing.T) {
 		})
 	}
 }
+
+// TestRefreshTransportErrorIsLoggedSanitized covers the refresh path's
+// transport-failure branch. The error text on that branch is not the
+// platform's: a TLS or DNS failure carries strings the host on the other
+// end of an operator-configured token URL chose, so it reaches the log
+// stripped of control characters like every other value on this path.
+func TestRefreshTransportErrorIsLoggedSanitized(t *testing.T) {
+	var captured []slog.Attr
+	prev := slog.Default()
+	slog.SetDefault(slog.New(&attrCollectingHandler{onAttr: func(a slog.Attr) {
+		captured = append(captured, a)
+	}}))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	// Port 1 is reserved and unbound, so the POST fails in transport
+	// rather than returning any status.
+	_, err := Refresh(context.Background(), RefreshInput{
+		Config: Config{
+			TokenURL:          "http://127.0.0.1:1/never-listens",
+			ClientID:          "id",
+			ClientSecret:      "sec",
+			EndpointAuthStyle: oauth2.AuthStyleInHeader,
+		},
+		RefreshToken: "rt-test",
+	})
+	require.Error(t, err, "a connection refused must surface as an error, not a token")
+
+	var sawError bool
+	for _, a := range captured {
+		v := a.Value.String()
+		require.NotContainsf(t, v, "\n", "attribute %q reached the log with a newline: %q", a.Key, v)
+		require.NotContainsf(t, v, "\r", "attribute %q reached the log with a carriage return: %q", a.Key, v)
+		if a.Key == "error" {
+			sawError = true
+		}
+	}
+	require.True(t, sawError, "the transport failure never reached a log site: the test proved nothing")
+}
+
+// attrCollectingHandler hands every logged attribute to onAttr. Records are
+// otherwise discarded; Enabled is always true so warn-level sites fire.
+type attrCollectingHandler struct{ onAttr func(slog.Attr) }
+
+func (*attrCollectingHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *attrCollectingHandler) Handle(_ context.Context, r slog.Record) error {
+	r.Attrs(func(a slog.Attr) bool {
+		h.onAttr(a)
+		return true
+	})
+	return nil
+}
+
+func (h *attrCollectingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h *attrCollectingHandler) WithGroup(string) slog.Handler { return h }
