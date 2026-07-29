@@ -1100,7 +1100,7 @@ For `tools/call` requests: Auth creates the `PlatformContext` (user identity, pe
 
 For `tools/list` responses: Icons, DescOverrides, and Visibility modify tool metadata and filter the tool list.
 
-Audit delivery is configurable (`audit.delivery`). In the default **async** mode, events are enqueued on a bounded writer drained by a single background goroutine, so store latency never blocks a tool response; under sustained backpressure or a crash, queued events are dropped and counted by the `audit_events_dropped_total` metric. In **sync** mode, the event is written on the request goroutine with a per-write timeout, trading latency for backpressure and zero queue-overflow drops. In either mode, a write that fails is logged via `slog.Error` but the tool call still succeeds.
+Audit delivery is configurable (`audit.delivery`). In the default **async** mode, events are enqueued on a bounded writer drained by a single background goroutine, so store latency never blocks a tool response, and a graceful shutdown drains that queue (bounded by a 10s deadline) before the store and database are closed; under sustained backpressure or a crash, queued events are dropped and counted by the `audit_events_dropped_total` metric. In **sync** mode, the event is written on the request goroutine with a per-write timeout, trading latency for backpressure and zero queue-overflow drops. In either mode, a write that fails is logged via `slog.Error` but the tool call still succeeds.
 
 ### Error contract
 

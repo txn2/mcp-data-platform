@@ -58,7 +58,7 @@ func parseConnectionReloadOp(s string) ConnectionReloadOp {
 // into Platform-owned state (connection store, toolkit registry, persona
 // registry, API-key store) and the Publish* methods are called by admin
 // handlers. The dedicated cross-replica reload BUS (its broadcaster channel and
-// the publish/subscribe machinery) lives in pkg/platform/sessionsync and is
+// the publish/subscribe machinery) lives in internal/platform/sessionsync and is
 // reached through the sessions handle; the handlers are injected into it at
 // construction (issue #843).
 

@@ -4,8 +4,8 @@
   "display_name": "MCP Data Platform Server",
   "icon": "icon.png",
   "version": "0.0.0",
-  "description": "Semantic data platform MCP server with bidirectional cross-injection",
-  "long_description": "A semantic data platform MCP server that composes multiple data tools (Trino, DataHub, S3) with bidirectional cross-injection - tool responses automatically include critical context from other services.",
+  "description": "Semantic data platform MCP server with bidirectional cross-enrichment",
+  "long_description": "A semantic data platform MCP server that composes multiple data tools (Trino, DataHub, S3) with bidirectional cross-enrichment - tool responses automatically include critical context from other services.",
   "author": {
     "name": "Craig Johnston",
     "email": "cj@imti.co",

@@ -16,8 +16,8 @@ knowledge-layer benchmark report published at
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
-pip install -r bench/report/requirements.txt
-jupyter nbconvert --to notebook --execute --inplace bench/report/report.ipynb
+pip install -r bench/reports/knowledge-layer/requirements.txt
+jupyter nbconvert --to notebook --execute --inplace bench/reports/knowledge-layer/report.ipynb
 ```
 
 The notebook reads only the `results.json` files under `bench/results/`, recomputes
@@ -28,7 +28,7 @@ fixed in the report prose, never in the data.
 ## Render the report to PDF and HTML
 
 ```bash
-make bench-report-pdf          # or: bash bench/report/render-report.sh
+make bench-report-pdf          # or: bash bench/reports/knowledge-layer/render-report.sh
 ```
 
 Output lands in `build/report/` (gitignored): `benchmark-report.pdf` (figures
@@ -38,8 +38,10 @@ tool, deliberately not part of `make verify`.
 
 ## Create a Zenodo deposit
 
-The report is archived on Zenodo under DOI
-[10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045). To rebuild the
+The report is archived on Zenodo under the concept DOI
+[10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044), which always
+resolves to the latest published version (the v1.0 snapshot carries version DOI
+[10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045)). To rebuild the
 deposit artifacts (for example for a future report version):
 
 ```bash

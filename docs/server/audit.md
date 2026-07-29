@@ -361,7 +361,7 @@ Auth/Authz -> Audit -> Rules -> Enrichment -> Tool Handler
 
 1. **MCPToolCallMiddleware** (outermost) authenticates the user, resolves the persona, looks up toolkit metadata, and stores everything in a `PlatformContext` on the request context.
 2. **MCPAuditMiddleware** (inner to auth) receives the context with `PlatformContext` already set. It records the start time, calls the next handler, measures duration, then reads all fields from `PlatformContext` to build the audit event.
-3. The audit event is written **asynchronously** in a goroutine to avoid blocking the tool response. If the database write fails, the error is logged via `slog.Error` but the tool call still succeeds.
+3. The audit event is handed to the writer selected by `audit.delivery` (see [Delivery semantics](#delivery-semantics)). In the default `async` mode it is placed on a bounded in-memory queue that a single background goroutine drains, so the tool response is never blocked by store latency; a graceful shutdown drains that queue (bounded by a 10s deadline) before the store and database are closed. In `sync` mode it is written on the request goroutine. In either mode a failed store write is logged via `slog.Error` and counted in `audit_events_dropped_total`, and the tool call still succeeds.
 
 Unauthorized requests are rejected by MCPToolCallMiddleware before reaching the audit middleware, so they are not logged. Only authenticated, authorized tool calls appear in audit logs.
 
