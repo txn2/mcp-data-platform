@@ -5,7 +5,7 @@ Reads the run families under bench/results/knowledge-use/ and prints
 the report's tables with Wilson 95% intervals. No network, no API key: the
 same contract report 1's notebook honors. Run from the repository root:
 
-    python3 bench/report/pk_tables.py
+    python3 bench/reports/knowledge-use/pk_tables.py
 """
 import glob
 import json

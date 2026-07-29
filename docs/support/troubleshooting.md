@@ -17,7 +17,7 @@ Start here to quickly identify your issue category.
 | Server exits immediately | Configuration error | [Server Won't Start](#server-wont-start) |
 | 401 Unauthorized | Invalid credentials | [Authentication Issues](#authentication-issues) |
 | 403 Forbidden | Persona/tool mismatch | [Persona Issues](#persona-issues) |
-| No enrichment data | Injection misconfigured | [Enrichment Issues](#enrichment-issues) |
+| No enrichment data | Enrichment misconfigured | [Enrichment Issues](#enrichment-issues) |
 | Slow responses | Performance bottleneck | [Performance Issues](#performance-issues) |
 | Connection refused | Service unreachable | [Connection Issues](#connection-issues) |
 
