@@ -2551,6 +2551,13 @@ definitions:
     properties:
       comments_enabled:
         type: boolean
+      delivery_available:
+        description: |-
+          DeliveryAvailable reports whether the platform currently has an SMTP
+          path that could deliver these notifications. False means stored
+          preferences describe an intent nothing can act on: triggers keep
+          queueing rows and those rows expire undelivered.
+        type: boolean
       mentions_enabled:
         type: boolean
       mode:

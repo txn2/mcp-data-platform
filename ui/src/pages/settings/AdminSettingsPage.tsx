@@ -306,19 +306,43 @@ function TestEmailSection() {
   );
 }
 
+// hasNoDeliveryPath reports whether the STORED settings leave the platform
+// unable to send: never written, disabled, or missing a host. Unloaded
+// settings report false -- the state is unknown, not known-bad.
+function hasNoDeliveryPath(settings?: SMTPSettings): boolean {
+  if (!settings) return false;
+  return !settings.enabled || !settings.host;
+}
+
 function StatusBanners({
   isReadOnly,
   loadFailed,
   warnings,
+  noDelivery,
   onRetry,
 }: {
   isReadOnly: boolean;
   loadFailed: boolean;
   warnings: string[];
+  noDelivery: boolean;
   onRetry: () => void;
 }) {
   return (
     <>
+      {/* The consequence of leaving this section unset or disabled (#1099):
+          triggers keep queueing, so the effect is silent expiry rather than
+          nothing happening at all. */}
+      {noDelivery && (
+        <div className="flex items-start gap-2 border-b bg-amber-50/50 px-5 py-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-400">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            No delivery path is configured, so no notification email can be sent. Share
+            and comment activity still queues notifications, and those queued rows expire
+            undelivered after 7 days. Users see their notification preferences as inert
+            until this section is enabled with a host.
+          </span>
+        </div>
+      )}
       {/* Hazards in the SAVED configuration (#1072), not validation of the
           current form: the server evaluates them against the stored settings,
           where an unchanged password is still a credential on the wire. */}
@@ -444,6 +468,7 @@ export function AdminSettingsPage() {
         isReadOnly={isReadOnly}
         loadFailed={!!loadError}
         warnings={settings?.warnings ?? []}
+        noDelivery={hasNoDeliveryPath(settings)}
         onRetry={() => void refetch()}
       />
 

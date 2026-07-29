@@ -1,9 +1,11 @@
 package notification
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
-	"strings"
 )
 
 // PrefsAPI serves the self-scoped notification preference REST endpoints.
@@ -13,6 +15,11 @@ import (
 // self-scope: the caller's email is the only key ever read or written.
 type PrefsAPI struct {
 	Store PrefsStore
+	// Settings backs the delivery_available signal. Optional: when unset the
+	// field stays true, so a wiring gap never tells users a working feature
+	// is unavailable. Only the derived boolean is exposed -- no SMTP host,
+	// credential, or sender value reaches this non-admin response.
+	Settings SettingsStore
 	// UserEmail resolves the authenticated user's email from the request,
 	// returning "" when unauthenticated.
 	UserEmail func(*http.Request) string
@@ -24,6 +31,11 @@ type PrefsResponse struct {
 	SharesEnabled   bool   `json:"shares_enabled"`
 	CommentsEnabled bool   `json:"comments_enabled"`
 	MentionsEnabled bool   `json:"mentions_enabled"`
+	// DeliveryAvailable reports whether the platform currently has an SMTP
+	// path that could deliver these notifications. False means stored
+	// preferences describe an intent nothing can act on: triggers keep
+	// queueing rows and those rows expire undelivered.
+	DeliveryAvailable bool `json:"delivery_available"`
 }
 
 // PrefsRequest is the body for updating the caller's preferences. Omitted
@@ -62,7 +74,7 @@ func (a *PrefsAPI) getPrefs(w http.ResponseWriter, r *http.Request) {
 		writePrefsError(w, http.StatusInternalServerError, "reading notification preferences failed")
 		return
 	}
-	writePrefsJSON(w, prefsResponse(prefs))
+	writePrefsJSON(w, prefsResponse(prefs, a.deliveryAvailable(r.Context())))
 }
 
 // putPrefs handles PUT /api/v1/portal/notification-prefs.
@@ -98,14 +110,36 @@ func (a *PrefsAPI) putPrefs(w http.ResponseWriter, r *http.Request) {
 		writePrefsError(w, http.StatusInternalServerError, "storing notification preferences failed")
 		return
 	}
-	writePrefsJSON(w, prefsResponse(prefs))
+	writePrefsJSON(w, prefsResponse(prefs, a.deliveryAvailable(r.Context())))
+}
+
+// deliveryAvailable reports whether a queued notification currently has a
+// path to a mailbox: SMTP configured, enabled, and pointed at a host. A read
+// failure reports available -- a transient store error must not tell users a
+// configured feature is off.
+func (a *PrefsAPI) deliveryAvailable(ctx context.Context) bool {
+	if a.Settings == nil {
+		return true
+	}
+	settings, err := a.Settings.GetSMTP(ctx)
+	if errors.Is(err, ErrNotFound) {
+		return false
+	}
+	if err != nil {
+		slog.Warn("notification: reading smtp settings for delivery signal failed", logKeyError, err)
+		return true
+	}
+	return settings != nil && settings.Enabled && settings.Host != ""
 }
 
 // callerEmail resolves the authenticated caller, writing a 401 when absent.
 func (a *PrefsAPI) callerEmail(w http.ResponseWriter, r *http.Request) string {
 	email := ""
 	if a.UserEmail != nil {
-		email = strings.ToLower(strings.TrimSpace(a.UserEmail(r)))
+		// Same normalization the queue keys rows by, so a caller whose
+		// identity carries a display name reads and writes the row their
+		// notifications are addressed to.
+		email = NormalizeAddress(a.UserEmail(r))
 	}
 	if email == "" {
 		writePrefsError(w, http.StatusUnauthorized, "authentication required")
@@ -114,12 +148,13 @@ func (a *PrefsAPI) callerEmail(w http.ResponseWriter, r *http.Request) string {
 }
 
 // prefsResponse maps store preferences to the API shape.
-func prefsResponse(p Prefs) PrefsResponse {
+func prefsResponse(p Prefs, deliveryAvailable bool) PrefsResponse {
 	return PrefsResponse{
-		Mode:            p.Mode,
-		SharesEnabled:   p.SharesEnabled,
-		CommentsEnabled: p.CommentsEnabled,
-		MentionsEnabled: p.MentionsEnabled,
+		Mode:              p.Mode,
+		SharesEnabled:     p.SharesEnabled,
+		CommentsEnabled:   p.CommentsEnabled,
+		MentionsEnabled:   p.MentionsEnabled,
+		DeliveryAvailable: deliveryAvailable,
 	}
 }
 

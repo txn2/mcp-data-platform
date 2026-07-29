@@ -140,6 +140,10 @@ func wirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 	}
 	prefsAPI := &notification.PrefsAPI{
 		Store: notify.Prefs(),
+		// Backs delivery_available: the settings page states plainly when no
+		// SMTP path exists rather than offering live controls over a
+		// preference nothing can act on (#1099).
+		Settings: notify.Settings(),
 		UserEmail: func(r *http.Request) string {
 			if user := portal.GetUser(r.Context()); user != nil {
 				return user.Email

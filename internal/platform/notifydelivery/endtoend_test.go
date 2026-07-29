@@ -326,3 +326,68 @@ func TestDigestEndToEnd(t *testing.T) {
 		}
 	}
 }
+
+// threadStoreStub accepts a thread create and echoes it back, so the real
+// portal handler runs end to end without a database.
+type threadStoreStub struct{ portal.ThreadStore }
+
+func (threadStoreStub) CreateThread(_ context.Context, t portal.Thread, _ portal.ThreadEvent) (*portal.Thread, error) {
+	return &t, nil
+}
+
+// TestOwnCommentDoesNotSelfNotifyEndToEnd is the #1100 regression at the real
+// seam: an authenticated POST to the real portal thread handler, through the
+// real bridge, Enqueuer, and preference gate, must write no queue row for the
+// author of the comment -- here the asset's owner, whose owner_email is stored
+// in the "Display Name <addr>" shape the platform accepts at rest. Everyone
+// else the asset is shared with still gets their notification.
+func TestOwnCommentDoesNotSelfNotifyEndToEnd(t *testing.T) {
+	queue := &memQueue{}
+	enq := notification.NewEnqueuer(&dailyPrefs{}, queue, 13)
+	defer enq.Close()
+
+	owner := &portal.User{UserID: "u-owner", Email: "owner@example.com"}
+	assets := &fakeAssets{asset: &portal.Asset{
+		ID: "a1", Name: "Quarterly Revenue", OwnerID: owner.UserID,
+		OwnerEmail: "Owner Person <Owner@Example.com>",
+	}}
+	stores := PortalStores{
+		Assets: assets,
+		Grantees: &fakeGrantees{emails: []string{
+			"Owner Person <owner@example.com>", "teammate@example.com",
+		}},
+	}
+	bridge := NewPortalNotifier(enq, stores, "https://data.example.com")
+	h := portal.NewHandler(portal.Deps{
+		AssetStore:    assets,
+		ThreadStore:   threadStoreStub{},
+		PublicBaseURL: "https://data.example.com",
+		Notifier:      bridge,
+	}, userMiddleware(owner))
+
+	body, err := json.Marshal(map[string]any{
+		"kind": portal.ThreadKindComment, "target_type": "asset",
+		"asset_id": "a1", "body": "Numbers look right to me.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost, "/api/v1/portal/threads", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create thread = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	rows := queue.snapshot()
+	for _, row := range rows {
+		if notification.NormalizeAddress(row.Recipient) == notification.NormalizeAddress(owner.Email) {
+			t.Fatalf("the comment's author was queued their own notification: %+v", row)
+		}
+	}
+	if len(rows) != 1 || rows[0].Recipient != "teammate@example.com" {
+		t.Fatalf("expected exactly the other grantee to be notified, got %+v", rows)
+	}
+}

@@ -3,7 +3,6 @@ package notifydelivery
 import (
 	"context"
 	"log/slog"
-	"strings"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
@@ -123,6 +122,17 @@ func (n *PortalNotifier) NotifyThreadEvent(ctx context.Context, thread *portal.T
 	notifiedByName := n.queueMentions(ctx,
 		notification.RecipientsExcluding(actorEmail, mentioned...), mentionPayload)
 
+	// An event whose author has no resolvable address cannot be shown not to
+	// be a self-notification, and the target owner -- the likeliest recipient
+	// of that mistake -- is always in the fan-out set. Drop the fan-out and
+	// say so. Mentions above still went out: the body named those addresses
+	// explicitly, so they are not guesses about who wrote this.
+	if notification.NormalizeAddress(actorEmail) == "" {
+		slog.Warn("notification: thread event has no actor address; skipping comment fan-out", // #nosec G706 -- structured slog call; thread ID is server-generated and sanitized
+			"thread", logsan.SanitizeForLog(thread.ID))
+		return
+	}
+
 	// Conversational kinds read as comments; evaluative kinds (rating,
 	// correction, approval, rejection, suggestion) read as feedback.
 	payload.Kind = notification.KindFeedback
@@ -137,19 +147,20 @@ func (n *PortalNotifier) NotifyThreadEvent(ctx context.Context, thread *portal.T
 	n.enq.NotifyFanout(ctx, general, notification.CategoryComment, payload)
 }
 
-// excluding returns the addresses in list that are not in drop, compared
-// case-insensitively.
+// excluding returns the addresses in list that are not in drop, compared in
+// normalized form so the mention list and the fan-out list agree on a person
+// whose address reached them in different shapes.
 func excluding(list, drop []string) []string {
 	if len(drop) == 0 {
 		return list
 	}
 	dropped := make(map[string]struct{}, len(drop))
 	for _, d := range drop {
-		dropped[strings.ToLower(d)] = struct{}{}
+		dropped[notification.NormalizeAddress(d)] = struct{}{}
 	}
 	out := make([]string, 0, len(list))
 	for _, item := range list {
-		if _, skip := dropped[strings.ToLower(item)]; !skip {
+		if _, skip := dropped[notification.NormalizeAddress(item)]; !skip {
 			out = append(out, item)
 		}
 	}

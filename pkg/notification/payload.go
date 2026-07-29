@@ -28,16 +28,20 @@ func PortalLink(baseURL, route string) string {
 }
 
 // RecipientsExcluding returns the de-duplicated candidate list minus the
-// actor (case-insensitive) and empties. Used to fan a thread event out to
-// the target owner and thread author without self-notification.
+// actor and empties, in NormalizeAddress form. Used to fan a thread event out
+// to the target owner and thread author without self-notification.
+//
+// Both sides are normalized before comparison, so an owner or grantee stored
+// as "Display Name <addr>" is still recognized as the actor, and the same
+// person recorded in two address shapes yields one recipient rather than two.
 func RecipientsExcluding(actor string, candidates ...string) []string {
 	var out []string
-	seen := map[string]bool{strings.ToLower(actor): true, "": true}
+	seen := map[string]bool{NormalizeAddress(actor): true, "": true}
 	for _, c := range candidates {
-		key := strings.ToLower(c)
+		key := NormalizeAddress(c)
 		if !seen[key] {
 			seen[key] = true
-			out = append(out, c)
+			out = append(out, key)
 		}
 	}
 	return out

@@ -713,6 +713,9 @@ const notificationPrefs = {
   shares_enabled: true,
   comments_enabled: true,
   mentions_enabled: true,
+  // Server-computed from the stored SMTP settings; the mock SMTP section is
+  // enabled with a host, so delivery is available here.
+  delivery_available: true,
 };
 
 function parseDuration(s: string): number {

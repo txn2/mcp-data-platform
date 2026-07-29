@@ -48,7 +48,13 @@ graph LR
    mention category instead, so one comment never sends the same person two
    emails, and mentions are queued first: enqueueing is rate-limited per
    author, so on a widely-shared item the people addressed by name are the ones
-   that get through.
+   that get through. The person who wrote the event is never a recipient of
+   it: the actor is excluded at the enqueue seam every trigger passes through,
+   comparing normalized addresses so an owner or grantee recorded as
+   `Display Name <addr>` is still recognized as the author. A thread event
+   whose author cannot be resolved queues no general fan-out at all -- it
+   cannot be shown not to be a self-notification -- though addresses the body
+   named explicitly still get their mention.
 2. A background send worker claims due rows (immediately via Postgres
    LISTEN/NOTIFY, or on a poll interval), renders a branded HTML email with
    a plaintext alternative, and delivers it over SMTP. Failed sends retry
@@ -134,6 +140,17 @@ time; nothing is queued.
 GET /api/v1/portal/notification-prefs
 PUT /api/v1/portal/notification-prefs   {"mode": "daily", "shares_enabled": true, "comments_enabled": false}
 ```
+
+Both responses carry `delivery_available`, a read-only boolean derived from
+the stored SMTP settings: false when SMTP has never been configured, when it
+is disabled, or when its host is empty. It exposes no SMTP detail, so it is
+safe for a non-admin caller, and it is the signal the Settings page uses to
+render the section inert rather than offering live controls over a preference
+nothing can act on. Stored preferences are untouched while delivery is
+unavailable; they take effect as soon as an admin configures SMTP. Admins see
+the same note with a link into **Admin > Settings**, and the SMTP section
+itself states the consequence of leaving delivery off: triggers keep queueing
+rows, and those rows expire undelivered after 7 days.
 
 Preferences are keyed by bare email address, so they also apply to share
 recipients who have no platform account. Because such a recipient cannot
