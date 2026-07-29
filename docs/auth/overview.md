@@ -89,6 +89,17 @@ auth:
     audience: "mcp-data-platform"
 ```
 
+### When the identity provider is unreachable
+
+A token whose validity cannot be determined, because the provider's signing keys
+could not be fetched, is treated differently from one that is definitively
+invalid. The HTTP edge lets it through and the protocol layer refuses each tool
+call with a retryable `feature_unavailable` error rather than a `401`, so
+clients wait out the outage instead of starting a re-authentication flow that
+cannot complete. Access is never granted on an unvalidated credential. The
+decision and its reasoning are recorded in the
+[threat model](../security/threat-model.md#identity-provider-outage).
+
 ## HTTP Authentication Flow
 
 mcp-data-platform supports two authentication flows for HTTP transport:

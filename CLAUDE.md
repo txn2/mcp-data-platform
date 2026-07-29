@@ -81,7 +81,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 1. **Idiomatic Go**: All code must follow idiomatic Go patterns and conventions. Use `gofmt`, follow Effective Go guidelines, and adhere to Go Code Review Comments.
 
-2. **Test Coverage**: Project must maintain >80% unit test coverage. Build mocks where necessary to achieve this. Use table-driven tests where appropriate.
+2. **Test Coverage**: Project must maintain ≥82% total unit test coverage (`COVERAGE_MIN` in the Makefile, matched by `codecov.yml` and the CI workflow). Build mocks where necessary to achieve this. Use table-driven tests where appropriate.
    - **New code must have >80% coverage**: Run `go test -coverprofile=coverage.out ./...` and verify new/modified functions meet the threshold
    - Use `go tool cover -func=coverage.out | grep <function_name>` to check specific functions
    - Framework callbacks (e.g., MCP handlers that require client connections) may be excluded if the actual logic is extracted and tested separately
@@ -90,7 +90,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
    - **Tools-check (parity gate)** — verifies local `golangci-lint` and `gosec` versions equal `GOLANGCI_LINT_VERSION` and `GOSEC_VERSION` in the Makefile (which mirror `.github/workflows/ci.yml`). Drifting local tool versions are the most insidious parity gap: a newer local gosec can silently relax a rule that CI's pinned version still enforces, letting a real bug ship to PR. `make verify` refuses to run until local matches CI. Override with `TOOLS_CHECK_STRICT=0` only with explicit reason.
    - Code formatting (`gofmt -s -w .`)
    - Unit tests with race detection (`go test -race ./...`)
-   - Coverage verification — total must be ≥80% (hard gate)
+   - Coverage verification — total must be ≥82% (hard gate, `COVERAGE_MIN`)
    - Patch coverage — changed lines vs main must be ≥80% (mirrors codecov patch check)
    - Linting (`golangci-lint run ./...` plus `--new-from-rev=$MERGE_BASE` to mirror CI's `only-new-issues: true`) — cyclomatic complexity ≤10, cognitive complexity ≤15
    - Security scanning (`gosec ./...` + `govulncheck`)

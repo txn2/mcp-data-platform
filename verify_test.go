@@ -528,3 +528,52 @@ func TestDocsPagesInNavOrExcluded(t *testing.T) {
 	})
 	require.NoError(t, walkErr)
 }
+
+// workingPaperBannerRe matches the admonition every page under docs/research/
+// must open with, capturing the date the paper reflects.
+var workingPaperBannerRe = regexp.MustCompile(
+	`(?s)!!! warning "Working paper — not product documentation"\n(.{0,1000}?)\n\n`)
+
+// TestResearchPagesCarryWorkingPaperBanner enforces the policy for
+// docs/research/ recorded in CONTRIBUTING.md (issue #1086): these pages are
+// published working papers, so each must announce itself as one, with the date
+// it reflects, before a reader takes it for product documentation. Excluding a
+// page from the nav hides it from browsing but not from search, which is how an
+// outside reader actually arrives.
+func TestResearchPagesCarryWorkingPaperBanner(t *testing.T) {
+	projectRoot, err := filepath.Abs(".")
+	require.NoError(t, err)
+
+	researchDir := filepath.Join(projectRoot, "docs", "research")
+	if _, statErr := os.Stat(researchDir); os.IsNotExist(statErr) {
+		return // the directory may legitimately be removed
+	}
+
+	datedRe := regexp.MustCompile(`\*\*\d{4}-\d{2}-\d{2}\*\*`)
+	found := 0
+	walkErr := filepath.Walk(researchDir, func(p string, info os.FileInfo, fErr error) error {
+		if fErr != nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".md") {
+			return fErr
+		}
+		found++
+		body, readErr := os.ReadFile(p) //nolint:gosec // test reads project docs
+		require.NoError(t, readErr)
+
+		m := workingPaperBannerRe.FindSubmatch(body)
+		if !assert.NotNil(t, m,
+			`docs/research/%s has no working-paper banner. Every page here must open with `+
+				`an admonition titled "Working paper — not product documentation" carrying the `+
+				`date it reflects (see CONTRIBUTING.md).`, info.Name()) {
+			return nil
+		}
+		assert.Regexp(t, datedRe, string(m[1]),
+			"docs/research/%s: the working-paper banner must state the date the paper reflects, "+
+				"in bold YYYY-MM-DD form", info.Name())
+		assert.Contains(t, string(m[1]), "superseded",
+			"docs/research/%s: the working-paper banner must warn that conclusions may have been "+
+				"superseded", info.Name())
+		return nil
+	})
+	require.NoError(t, walkErr)
+	assert.NotZero(t, found, "docs/research/ exists but holds no pages to check")
+}

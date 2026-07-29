@@ -38,7 +38,7 @@ Cross-enrichment works from DataHub (https://datahubproject.io/) as the semantic
 
 - **Icons**: Visual metadata for tools, resources, and prompts. Upstream toolkits provide default icons; deployers can override via configuration. Enabled by default; set `icons.enabled: false` to opt out.
 
-- **Dynamic Prompts**: Three-tier prompt system: auto-registered `platform-overview` built from description and enabled toolkits, operator-configured prompts with `{placeholder}` argument substitution, and conditional workflow prompts (explore-available-data, create-interactive-dashboard, create-a-report, trace-data-lineage) registered when required toolkits are present. Toolkits implement `PromptDescriber` to advertise their own prompts. Operator prompts override auto-registered ones by name. All prompts included in `platform_info` response and the platform-info app Prompts tab.
+- **Dynamic Prompts**: Three-tier prompt system: auto-registered `platform-overview` built from description and enabled toolkits, operator-configured prompts with `{placeholder}` argument substitution, and conditional workflow prompts (explore-available-data, create-interactive-dashboard, create-a-report, trace-data-lineage) registered when required toolkits are present. `server.builtin_prompts` is a per-prompt switch (map of prompt name to bool) suppressing a built-in workflow prompt; a name absent from the map registers as usual. Toolkits implement `PromptDescriber` to advertise their own prompts. Operator prompts override auto-registered ones by name. All prompts included in `platform_info` response and the platform-info app Prompts tab.
 
 ---
 
@@ -418,6 +418,7 @@ enrichment:
   datahub_query_enrichment: true
   unwrap_json: true                # Auto-unwrap single-row VARCHAR-of-JSON (default: true)
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
+  estimate_row_counts: false       # Run COUNT(*) for availability enrichment (default: false)
   semantic_fallback: false         # Fallback to similarity search on URN miss (default: false, issue #444)
   semantic_fallback_top_k: 1       # Suggested matches per miss (default: 1, max: 10)
   memory_limit: 5                     # Max memory records recalled per tool call (default: 5, issue #761)
@@ -603,7 +604,7 @@ Every share carries an `access_mode` deciding who its token opens for: `restrict
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `resources.enabled` | bool | `false` | Enable MCP resource templates |
+| `resources.enabled` | bool | `true` | Serve the MCP resource templates and the DataHub-to-Trino resource links. Read-only, so default on; set `false` to disable |
 
 When enabled, three RFC 6570 URI templates are registered:
 - `schema://{catalog}.{schema_name}/{table}` — Table schema with semantic context
@@ -851,6 +852,7 @@ Explicit session handles (`sessions.handles`, issue #792) adopt the pattern the 
 | `s3_semantic_enrichment` | bool | true | Add DataHub context to S3 results (default on; set false to disable) |
 | `unwrap_json` | bool | true | Auto-unwrap single-row VARCHAR-of-JSON results (e.g. from raw_query) |
 | `column_context_filtering` | bool | true | Limit column enrichment to SQL-referenced columns |
+| `estimate_row_counts` | bool | false | Run `SELECT COUNT(*)` when reporting table availability so enriched DataHub results carry an estimated row count. Off by default: `COUNT(*)` can trigger a full table scan and make search enrichment very slow |
 | `search_schema_preview` | bool | true | Add bounded column-name+type preview to datahub_search query_context |
 | `schema_preview_max_columns` | int | 15 | Max columns per entity in schema preview |
 | `semantic_fallback` | bool | false | When a Trino-table URN lookup misses on the semantic provider, fall back to a similarity search and surface the top-K hits as SUGGESTED matches annotated with `match_kind: semantic`. Default off; operators opt in. Issue #444. |
@@ -1011,6 +1013,8 @@ CSRF protection: cookie-authenticated state-changing requests (POST/PUT/PATCH/DE
 The threat model states the security model as a whole (reviewed at v1.101.x): trust boundaries, the attackers each mechanism is designed to stop, and what is explicitly out of scope. Every mitigation claim carries a package or config citation a reviewer can verify.
 
 Trust boundaries fall into four groups. Inbound surfaces: MCP over stdio (local-process trust, no MCP-layer auth) versus HTTP (streamable + SSE, bearer/API-key gate that returns 401 with `WWW-Authenticate` and fails closed on an invalid token); the OAuth 2.1 endpoints; the admin REST API (admin persona required, CSRF on the cookie path); the portal API and its share-token viewer (rate-limited, access-mode gated, 403 for a caller the mode does not admit, 410 on revoked/expired; refused browser navigations get a branded landing page, and email-share recipients can request single-use guest view links: uniform response, per-share issue cap, hashed 15-minute tokens claimed atomically, view-only guest cookie scoped to one share under a key domain-separated from the browser-session signing key); the no-login notification unsubscribe endpoint (HMAC token bound to the recipient address, can only opt that address out); the gateway REST shim (runs through an in-memory MCP session so persona and audit apply); the observability PromQL proxy (`observability:read` capability, admin-only); unauthenticated health endpoints (liveness/readiness only); and managed resource upload/download (per-request auth plus scope checks). Identity mechanisms: OIDC bearer validation with a self-healing JWKS cache; API keys (constant-time compare for config keys, bcrypt for DB keys); the built-in OAuth 2.1 server (HS256 with a `kid` key ring); browser cookie sessions (HttpOnly, Secure, SameSite, HS256-signed); and persona default-deny authorization. Outbound dependencies: Trino, DataHub, S3 with per-connection operator-authored credentials; upstream MCP servers and HTTP APIs; outbound OAuth (one shared upstream identity per connection, #374); and the embedding provider. At rest: Postgres holding SHA-256-hashed OAuth tokens (single-use via atomic `DELETE ... RETURNING`), bcrypt-hashed client secrets, AES-256-GCM-encrypted connection secrets (single symmetric key from `ENCRYPTION_KEY`, not a DEK/KEK envelope), and audit rows subject to `redact_keys` and the `log_parameters` opt-out.
+
+Identity-provider outage is a recorded decision rather than an emergent property. Validation has three outcomes: valid, definitively invalid, and undetermined (the IdP is unreachable, so signing keys cannot be fetched — the `ErrValidationUnavailable` sentinel, wrapped only on a JWKS fetch failure with an expired cache). On the third, the HTTP edge passes the request through instead of answering 401, because a 401 asserts a bad credential and would drive every valid user into a re-auth flow that cannot complete during the outage; the protocol layer then refuses each tool call with `feature_unavailable` and a retryable hint, so no tool handler runs. Access is never granted on an unvalidated credential; the cost is depth, since an unauthenticated request reaches the protocol layer before refusal. A client sees successful transport, an established MCP session, and in-band retryable errors on every tool call, with nothing signaling re-auth. Both halves are one control, pinned end to end by `TestStreamableHTTP_ValidationUnavailable_EdgePassesThroughProtocolRefuses` (`internal/httpserver/validation_outage_test.go`) with `TestStreamableHTTP_DefinitiveRejection_EdgeFailsClosed` holding the boundary.
 
 Attacker analysis covers six personas: an unauthenticated network attacker (rate-limited OAuth endpoints with a global backstop, trusted-proxy-aware client-IP resolution that ignores spoofed `X-Forwarded-For`, access-mode-gated share viewer, anonymous only for shares explicitly created public); an authenticated low-privilege persona (default-deny on tools, connections, and API routes; admin and observability surfaces gated separately; Trino cost/PII elicitation consent); a malicious or compromised upstream (tool descriptions and responses flow through without content sanitization, mitigated operationally by per-connection encrypted credentials and audit, not by neutralizing adversarial content); malicious data in query results (prompt-injection content reaches the client; the platform reduces blast radius via read-only mode, persona allowlists, the search-first gate, and audit, but does not scrub content); a database reader (hashed tokens and encrypted secrets yield no usable credentials, but audit content and metadata remain readable, and connection secrets are plaintext if `ENCRYPTION_KEY` is unset); and a compromised downstream credential (blast radius bounded by the downstream service account's own privileges, which least-privilege scoping is a deployment responsibility).
 
@@ -1360,9 +1364,14 @@ semantic:
     conflict_resolution: nearest   # "nearest" (closest wins), "all" (merge), "skip"
     prefer_column_lineage: true    # Use column-level lineage when available
 
-    # Column transforms for nested JSON paths
+    # Column transforms for nested JSON paths. target_pattern is a glob matched
+    # against the target dataset name (same syntax as aliases[].targets) and
+    # confines the transform to matching datasets; omitting it applies the
+    # transform to every dataset. A pattern that matches nothing, including a
+    # malformed one, disables that transform rather than widening it.
     column_transforms:
-      - strip_prefix: "rxtxmsg.payload."
+      - target_pattern: "elasticsearch.default.jakes-sale-*"
+        strip_prefix: "rxtxmsg.payload."
       - strip_prefix: "rxtxmsg.header."
       - strip_suffix: "_v2"
 
@@ -2026,6 +2035,10 @@ knowledge:
 | `knowledge.apply.enabled` | bool | `true` (when a database is available) | Enable the `apply_knowledge` tool for admin review and catalog write-back. Set `false` to disable. |
 | `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
 | `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
+| `knowledge.pages.dedup_threshold` | float | `0.85` | Cosine similarity in `[0,1]` at or above which creating a knowledge page is blocked as a near-duplicate. Acts only when a real embedding provider is configured. A non-positive value selects the default |
+| `knowledge.pages.dedup_disabled` | bool | `false` | Turn the duplicate gate off entirely, so "no gate" is never confused with "left at default" |
+| `knowledge.pages.oversize_bytes` | int | `16384` | Body size in bytes at or above which a page write returns a non-blocking split suggestion. Negative disables this arm |
+| `knowledge.pages.oversize_sections` | int | `12` | Markdown heading count at or above which the split suggestion fires. Negative disables this arm |
 | `knowledge.reflexive_capture.enabled` | bool | `true` | Auto-capture a "misconception + fix" correction (source `automation`, reviewed sink-class) when a Trino query errors and a later same-session query over the same table(s) succeeds (#635). Default-on when the memory subsystem is available; set `false` to disable |
 | `knowledge.search_provider_timeout` | duration | `5s` | Per-provider deadline for the `search` fan-out arms, so one slow knowledge source drops out as a collected error rather than stalling the whole search. Set a negative duration to disable the bound. |
 | `knowledge.search_embed_timeout` | duration | `5s` | Deadline for the serial intent-embedding step in `search`, independent of `search_provider_timeout`. A slow or unreachable embedder degrades to lexical ranking rather than stalling the search; this knob lets you give a slow (cold or CPU-only) embedder headroom to preserve `hybrid` ranking without loosening the fan-out bound. Set a negative duration to disable the bound. |
@@ -2628,7 +2641,10 @@ mcpapps:
 | `enabled` | bool | No | Enable MCP Apps infrastructure (default: `true`) |
 | `apps.<name>.assets_path` | string | No* | Absolute path to app directory. *Required for custom apps; optional for `platform-info` |
 | `apps.<name>.tools` | array | Yes | Tools this app enhances |
-| `apps.<name>.csp.resource_domains` | array | No | Allowed CDN origins |
+| `apps.<name>.csp.resource_domains` | array | No | Allowed CDN origins (CSP `script-src`, `img-src`, `style-src`, `font-src`, `media-src`) |
+| `apps.<name>.csp.connect_domains` | array | No | Allowed fetch/XHR endpoints (CSP `connect-src`) |
+| `apps.<name>.csp.frame_domains` | array | No | Allowed origins for iframes nested inside the app (CSP `frame-src`) |
+| `apps.<name>.csp.clipboard_write` | bool | No | Request clipboard write access (default: `false`). Surfaced as the `clipboardWrite` permission in `_meta.ui`; hosts MAY honor it via the iframe `allow` attribute and MAY ignore it |
 | `apps.<name>.config` | object | No | Config injected as `<script id="app-config">` JSON |
 
 ## Example App: query-results

@@ -212,6 +212,19 @@ server:
 | `create-a-report` | DataHub, Trino | Discover data, query it, produce a Markdown report |
 | `trace-data-lineage` | DataHub | Trace upstream/downstream lineage for a dataset |
 
+Each built-in workflow prompt registers automatically when its required toolkits
+are present. Turn one off by name with `server.builtin_prompts`:
+
+```yaml
+server:
+  builtin_prompts:
+    trace-data-lineage: false      # do not register this workflow prompt
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `server.builtin_prompts` | map[string]bool | `{}` | Per-prompt switch for the built-in workflow prompts above, keyed by prompt name. A name absent from the map (or set to `true`) registers as usual; `false` suppresses it. Operator prompts in `server.prompts` override a built-in of the same name regardless of this setting |
+
 All registered prompts (platform + toolkit) are included in the `platform_info` tool response and visible in the platform-info app's Prompts tab.
 
 **Prompt titles and resolution.** Database prompts are served on the native MCP prompts surface under per-viewer scope-prefixed names (`global-<name>`, `<persona>-<name>`, `personal-<name>`, `shared-<name>`), which keeps the surface collision-free by construction; every descriptor carries a `title` from `display_name` so clients show the human name regardless. Users never need to know any machine name: agents resolve a prompt from whatever handle the user says (stored name, display name, `mcp:prompt:<id>`, or free text) with the `manage_prompt` `use` command.
@@ -812,6 +825,9 @@ enrichment:
   datahub_storage_enrichment: true   # Add S3 availability to DataHub results
   unwrap_json: true               # Auto-unwrap single-row VARCHAR-of-JSON (default: true)
   column_context_filtering: true     # Only include SQL-referenced columns (default: true)
+  estimate_row_counts: false         # Run COUNT(*) for availability enrichment (default: false)
+  semantic_fallback: false           # Suggest similar tables on a URN miss (default: false)
+  semantic_fallback_top_k: 1         # Suggestions per miss, 1-10 (default: 1)
 
   # Memory-enrichment payload budget (issue #761): keeps recalled memories a
   # supporting note rather than crowding out the analyzed data.
@@ -835,6 +851,9 @@ enrichment:
 | `datahub_storage_enrichment` | bool | `true` | Add S3 availability to DataHub results. Default on; set `false` to disable. |
 | `unwrap_json` | bool | `true` | Auto-unwrap single-row VARCHAR-of-JSON results |
 | `column_context_filtering` | bool | `true` | Limit column enrichment to SQL-referenced columns |
+| `estimate_row_counts` | bool | `false` | Run `SELECT COUNT(*)` when reporting table availability, so enriched DataHub results carry an estimated row count. Off by default: `COUNT(*)` can trigger a full table scan and make search enrichment very slow |
+| `semantic_fallback` | bool | `false` | When a URN-equality lookup misses, fall back to similarity search and surface the top hit as a **suggested** match, annotated `match_kind=semantic` so the model knows it was inferred rather than resolved. Audit rows record `enrichment_match_kind` so operators can measure the false-positive rate. Requires a semantic provider supporting the `semantic` search mode (DataHub does) |
+| `semantic_fallback_top_k` | int | `1` | Suggestions surfaced per miss when `semantic_fallback` is on. Clamped to 1-10 to keep suggested-match output bounded |
 | `memory_limit` | int | `5` | Max memory records recalled and rendered into `memory_context` per tool call |
 | `memory_context_budget_bytes` | int | `1500` | Byte budget for the rendered memory summaries; records beyond it are listed as compact `id`+`reference` stubs in `memory_context_omitted` (still fetchable, at least one always rendered). `0` disables the budget |
 | `memory_summary_bytes` | int | `280` | Per-record summary-first excerpt cap; the full record is fetchable via its `mcp:memory:<id>` reference. `0` renders full content |
@@ -1025,6 +1044,11 @@ knowledge:
     require_confirmation: true
   reflexive_capture:
     enabled: true
+  pages:
+    dedup_threshold: 0.85
+    dedup_disabled: false
+    oversize_bytes: 16384
+    oversize_sections: 12
   search_provider_timeout: 5s
   search_embed_timeout: 5s
 ```
@@ -1035,6 +1059,10 @@ knowledge:
 | `apply.enabled` | bool | `true` (when a database is available) | Enable the `apply_knowledge` tool for admin review and catalog write-back. Set `false` to disable. Still gated behind database availability. |
 | `apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
 | `apply.require_confirmation` | bool | `false` | Require explicit `confirm: true` on apply actions |
+| `pages.dedup_threshold` | float | `0.85` | Cosine similarity, in `[0,1]`, at or above which creating a knowledge page is blocked as a near-duplicate of an existing one. The gate acts only when a real embedding provider is configured, since cosine similarity is undefined without one. A non-positive value selects the default; disable the gate with `dedup_disabled` rather than by zeroing this |
+| `pages.dedup_disabled` | bool | `false` | Turn the duplicate gate off entirely. Explicit, so "no gate" is never confused with "left at default" |
+| `pages.oversize_bytes` | int | `16384` | Body size, in bytes, at or above which a page write returns a non-blocking suggestion to split it. A negative value disables this arm |
+| `pages.oversize_sections` | int | `12` | Markdown heading count at or above which the same split suggestion fires. A negative value disables this arm |
 | `reflexive_capture.enabled` | bool | `true` | Auto-capture a "misconception + fix" correction when a Trino query errors and a later related same-session query on the same connection succeeds (#635). Source `automation`, reviewed sink-class (enters review, never live), gated by the persona's `memory_capture` grant. Default-on when the memory subsystem is available; set `false` to disable |
 | `search_provider_timeout` | duration | `5s` | Per-provider deadline for the `search` fan-out arms. Each knowledge source (catalog, memory, insights, endpoints, …) is bounded by this, so one slow source drops out as a collected error while the rest still return, instead of stalling the whole search. Set a negative duration to disable the bound (a search then waits for its slowest provider). |
 | `search_embed_timeout` | duration | `5s` | Deadline for the serial intent-embedding step in `search`, independent of `search_provider_timeout`. A slow or unreachable embedder degrades to lexical ranking rather than stalling the search; because that silently loses semantic relevance, this knob lets you give a slow (cold or CPU-only) embedder more headroom to preserve `hybrid` ranking without loosening the fan-out bound. Set a negative duration to disable the bound. |
@@ -1143,7 +1171,7 @@ resources:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable resource templates |
+| `enabled` | bool | `true` | Serve the resource templates below and the DataHub-to-Trino resource links. Read-only, so it is on by default; set `false` to disable |
 
 When enabled, the platform registers these resource templates:
 
@@ -1152,6 +1180,36 @@ When enabled, the platform registers these resource templates:
 - `availability://{catalog}.{schema}/{table}` — Query availability and row counts
 
 Clients that support resource browsing (e.g., Claude Desktop) will show these as navigable resources alongside tools.
+
+### Managed Resources
+
+Managed resources are the human-uploaded files people attach through the portal
+(reference material, specifications, images), stored as rows in PostgreSQL with
+their bytes in S3 and served back over MCP and the REST API. They are a separate
+subsystem from the read-only templates above, configured under
+`resources.managed`. See [Content Model](../concepts/content-model.md) for how
+they relate to knowledge pages and assets.
+
+```yaml
+resources:
+  managed:
+    enabled: true             # auto-enabled when a database is available
+    uri_scheme: "mcp"         # URI prefix for resource URIs
+    s3_connection: "primary"  # name of the S3 toolkit instance holding the blobs
+    s3_bucket: "managed-resources"
+    max_versions: 10          # content revisions kept per resource
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | auto | Enable managed resources. Unset means enabled whenever a database is configured; set `false` to disable the subsystem outright |
+| `uri_scheme` | string | `mcp` | Scheme of the URIs minted for managed resources (`<scheme>://global/<category>/<filename>`, and the persona/user equivalents). Changing it after resources exist changes the URIs the platform serves for them |
+| `s3_connection` | string | first configured S3 instance | Name of the S3 toolkit instance used for blob storage |
+| `s3_bucket` | string | `managed-resources` | Bucket the uploaded bytes are written to |
+| `max_versions` | int | `10` | Content revisions a resource keeps, counting the current one. A revision past the cap prunes the oldest stored file; live content is never pruned. A non-positive value selects the default, and anything below `2` is raised to `2`, since a cap of `1` would keep no history at all |
+
+Managed resources require a database. With none configured the block has no
+effect, and the platform runs the read-only templates alone.
 
 ## Argument Autocompletion
 

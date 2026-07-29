@@ -75,8 +75,10 @@ mcpapps:
 | `apps.<name>.entry_point` | string | No | HTML entry point filename (default: `index.html`) |
 | `apps.<name>.resource_uri` | string | No | MCP resource URI (default: `ui://<app_name>`) |
 | `apps.<name>.tools` | array | Yes | Tools this app enhances |
-| `apps.<name>.csp.resource_domains` | array | No | Allowed CDN origins for scripts/styles |
-| `apps.<name>.csp.connect_domains` | array | No | Allowed fetch/XHR endpoints |
+| `apps.<name>.csp.resource_domains` | array | No | Allowed CDN origins for scripts/styles (CSP `script-src`, `img-src`, `style-src`, `font-src`, `media-src`) |
+| `apps.<name>.csp.connect_domains` | array | No | Allowed fetch/XHR endpoints (CSP `connect-src`) |
+| `apps.<name>.csp.frame_domains` | array | No | Allowed origins for iframes nested inside the app (CSP `frame-src`) |
+| `apps.<name>.csp.clipboard_write` | bool | No | Request clipboard write access for the app (default: `false`). Surfaced as the `clipboardWrite` permission in `_meta.ui`; hosts MAY honor it by setting the corresponding iframe `allow` attribute, and MAY ignore it |
 | `apps.<name>.config` | object | No | App-specific config injected as `<script id="app-config">` JSON |
 
 ## Using the query-results Example App

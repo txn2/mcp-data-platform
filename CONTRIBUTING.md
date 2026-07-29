@@ -35,9 +35,9 @@ By participating in this project, you agree to maintain a respectful and inclusi
    `@latest` will block your build. Install the pinned versions:
 
    ```bash
-   # Versions must equal the pins in the Makefile (currently v2.11.4 / v2.27.1).
+   # Versions must equal the pins in the Makefile (currently v2.11.4 / v2.28.0).
    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
-   go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
+   go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
    go install golang.org/x/vuln/cmd/govulncheck@latest
    ```
 
@@ -134,7 +134,11 @@ test: add tests for persona filtering
 ### Testing
 
 - Write table-driven tests where appropriate
-- Aim for >80% code coverage
+- Total coverage must be at least 82% (`COVERAGE_MIN` in the Makefile, the
+  Codecov project target and the CI threshold are the same figure; the
+  `TestGateFiguresAgree` test fails if they drift apart)
+- Coverage of the lines your change touches must be at least 80% (`make
+  patch-coverage`, mirroring the Codecov patch check)
 - Test both success and failure paths
 - Use descriptive test names: `TestFunctionName_Scenario_ExpectedResult`
 
@@ -161,6 +165,30 @@ func TestPersonaFilter_AllowDeny_WildcardPatterns(t *testing.T) {
 - Function documentation for exported functions
 - Inline comments for complex logic only
 - Keep README.md and CLAUDE.md up to date
+- Every yaml-tagged configuration key must be named by a page under `docs/`
+  (`TestEveryConfigKeyIsDocumented` fails otherwise). `docs/llms.txt` and
+  `docs/llms-full.txt` are generated from the prose pages and do not count as
+  documentation for this purpose
+
+#### Working papers under `docs/research/`
+
+`docs/research/` holds engineering working papers: point-in-time analysis
+written to support a build decision, not guidance for using the product. They
+are published rather than hidden, because keeping an unlisted page out of the
+nav does nothing to keep it out of a search engine, which is how an outside
+reader actually arrives at one.
+
+The rule for the directory:
+
+- Every page under `docs/research/` opens with a working-paper admonition giving
+  the date it reflects and stating that its conclusions may have been superseded.
+  `TestResearchPagesCarryWorkingPaperBanner` fails without one.
+- Pages stay out of the site nav via the `not_in_nav` entry in `mkdocs.yml`, and
+  stay indexed. Do not add a `robots.txt` disallow for a directory whose pages
+  are meant to be readable.
+- A paper is a record of what was believed at its date. Correct it with a new
+  paper or an added note, not by quietly editing the conclusion.
+- Material that must not be published at all does not belong in `docs/`.
 
 ## Project Structure
 

@@ -1,5 +1,14 @@
 # MCP Gateway — OSS Landscape Survey & Delta Report
 
+!!! warning "Working paper — not product documentation"
+    This page is an engineering working paper reflecting what was known on
+    **2026-04-24**. It records internal analysis behind a build decision, and it
+    describes the state of other projects and of this one at that date only. Its
+    conclusions may have been superseded by later work, and it is not guidance
+    for deploying or operating the platform. For that, start at the
+    [Overview](../server/overview.md). Papers in this directory are kept as
+    dated records rather than revised in place.
+
 **Date:** 2026-04-24
 **Author:** survey conducted prior to merge of PR #338 (`feat/gateway-toolkit-338`)
 **Scope:** validate the design choices in #338 against the open-source MCP-gateway landscape; recommend ship-as-is, ship-with-revisions, or pivot.

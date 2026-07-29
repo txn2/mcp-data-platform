@@ -79,4 +79,4 @@ Both layers land in the same `agent_instructions` string the agent receives, ben
 - [User Portal](../server/portal-user.md) covers the resources, assets, and knowledge surfaces a person uses
 - [Knowledge Capture](../knowledge/overview.md) covers the insight-to-page lifecycle
 - [Memory Layer](../memory/overview.md) covers per-user recall
-- [Configuration](../server/configuration.md) covers the `resources.managed` block and `server.agent_instructions`
+- [Configuration](../server/configuration.md#managed-resources) covers the `resources.managed` block, and [Configuration](../server/configuration.md) covers `server.agent_instructions`

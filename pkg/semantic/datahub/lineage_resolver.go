@@ -46,7 +46,50 @@ func (r *lineageResolver) resolveColumnsWithLineage(
 		return columns, nil
 	}
 
-	return r.resolveUndocumentedColumns(ctx, columns, undocumented, urn, tableName)
+	return r.scopedTo(tableName).resolveUndocumentedColumns(ctx, columns, undocumented, urn, tableName)
+}
+
+// scopedTo returns a resolver whose column transforms are the ones that apply to
+// tableName. A transform carrying a target_pattern acts only on datasets matching
+// that glob; one without a pattern acts on every dataset. The target is fixed for
+// the whole resolution, so the selection happens once here rather than at every
+// column, and the transform helpers stay free of table plumbing.
+func (r *lineageResolver) scopedTo(tableName string) *lineageResolver {
+	if !r.hasScopedTransforms() {
+		return r
+	}
+	scoped := *r
+	scoped.cfg.ColumnTransforms = applicableTransforms(r.cfg.ColumnTransforms, tableName)
+	return &scoped
+}
+
+// hasScopedTransforms reports whether any configured transform is scoped by a
+// target pattern, so the common unscoped case copies nothing.
+func (r *lineageResolver) hasScopedTransforms() bool {
+	for _, t := range r.cfg.ColumnTransforms {
+		if t.TargetPattern != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// applicableTransforms keeps the transforms that act on tableName: every
+// unscoped transform, plus those whose target_pattern glob matches. A malformed
+// pattern matches nothing (filepath.Match's error path), so a typo narrows the
+// rule rather than silently widening it to every dataset.
+func applicableTransforms(transforms []ColumnTransformConfig, tableName string) []ColumnTransformConfig {
+	applicable := make([]ColumnTransformConfig, 0, len(transforms))
+	for _, t := range transforms {
+		if t.TargetPattern == "" {
+			applicable = append(applicable, t)
+			continue
+		}
+		if matched, _ := filepath.Match(t.TargetPattern, tableName); matched {
+			applicable = append(applicable, t)
+		}
+	}
+	return applicable
 }
 
 // buildColumnsAndFindUndocumented converts schema fields to column contexts and identifies undocumented ones.

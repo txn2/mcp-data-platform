@@ -161,9 +161,19 @@ func oauthGate(authenticator middleware.Authenticator, resourceMetadataURL, abse
 					// token). Fail OPEN on ErrValidationUnavailable — a transient
 					// dependency failure (e.g. OIDC JWKS unreachable) means validity
 					// is undetermined, so pass through to the protocol layer rather
-					// than drop a possibly-valid client. Access is not granted: during
-					// the same outage the protocol layer cannot validate either, so a
-					// tool call is still rejected in-band.
+					// than drop a possibly-valid client. A 401 here would tell the
+					// client its credential is bad and send every valid user into a
+					// re-auth flow that cannot succeed while the IdP is down.
+					//
+					// The control that makes passing through safe is the protocol
+					// layer: MCPToolCallMiddleware re-validates every tool call and
+					// answers ErrValidationUnavailable with CodeFeatureUnavailable
+					// (pkg/middleware/mcp.go, authenticateAndAuthorize), so no tool runs
+					// during the outage. This is a deliberate, coupled pair — see
+					// docs/security/threat-model.md ("Identity-provider outage").
+					// Both halves are pinned end to end in internal/httpserver by
+					// TestStreamableHTTP_ValidationUnavailable_EdgePassesThroughProtocolRefuses;
+					// do not change either half without changing that test.
 					w.Header().Set("WWW-Authenticate", bearerChallenge(resourceMetadataURL, "invalid_token"))
 					http.Error(w, invalidMsg, http.StatusUnauthorized)
 					return

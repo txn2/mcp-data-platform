@@ -20,6 +20,14 @@ GOLANGCI_LINT_VERSION := v2.11.4
 GOSEC_VERSION := v2.28.0
 GREMLINS_VERSION := v0.6.0
 
+# Total-coverage floor. This is the single source of truth for the project
+# coverage gate: .github/workflows/ci.yml, codecov.yml (project target) and
+# CONTRIBUTING.md must all state this same figure, and TestGateFiguresAgree
+# (pins_test.go) fails when they drift apart. Patch coverage (changed lines)
+# is a separate gate at PATCH_COVERAGE_MIN.
+COVERAGE_MIN := 82
+PATCH_COVERAGE_MIN := 80
+
 # Go commands
 GO := go
 GOTEST := $(GO) test
@@ -303,28 +311,28 @@ mutate:
 	@echo "Running mutation testing..."
 	gremlins unleash --workers 1 --timeout-coefficient 3 --threshold-efficacy 60 ./pkg/...
 
-## coverage-report: Print coverage summary (fails if total <80%)
+## coverage-report: Print coverage summary (fails below COVERAGE_MIN)
 coverage-report: test
 	@echo ""
 	@echo "=== Coverage Summary ==="
 	@$(GO) tool cover -func=coverage.out | tail -1
 	@echo ""
 	@TOTAL=$$($(GO) tool cover -func=coverage.out | tail -1 | awk '{gsub(/%/,"",$$3); print $$3}'); \
-	if [ "$$(echo "$$TOTAL < 80.0" | bc -l)" = "1" ]; then \
-		echo "FAIL: Total coverage $$TOTAL% is below 80% threshold"; \
+	if [ "$$(echo "$$TOTAL < $(COVERAGE_MIN).0" | bc -l)" = "1" ]; then \
+		echo "FAIL: Total coverage $$TOTAL% is below $(COVERAGE_MIN)% threshold"; \
 		exit 1; \
 	fi
 	@echo "Functions with 0% coverage:"
 	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 == 0 && $$1 != "total:") print $$0}' || true
 	@echo ""
-	@echo "Functions below 80% coverage:"
-	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 < 80.0 && $$3+0 > 0 && $$1 != "total:") print $$0}' || true
+	@echo "Functions below $(PATCH_COVERAGE_MIN)% coverage:"
+	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 < $(PATCH_COVERAGE_MIN).0 && $$3+0 > 0 && $$1 != "total:") print $$0}' || true
 	@echo "=== End Coverage ==="
 
-## patch-coverage: Check coverage of changed lines vs main (fails if <80%)
+## patch-coverage: Check coverage of changed lines vs main (fails below PATCH_COVERAGE_MIN)
 patch-coverage:
 	@echo "Checking patch coverage..."
-	@./scripts/patch-coverage.sh
+	@PATCH_COVERAGE_THRESHOLD=$(PATCH_COVERAGE_MIN) ./scripts/patch-coverage.sh
 
 ## doc-check: Fail on orphaned docs or unregistered tool refs; warn on undocumented changes
 doc-check:
