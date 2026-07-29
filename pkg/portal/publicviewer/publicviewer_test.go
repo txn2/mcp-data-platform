@@ -61,12 +61,14 @@ func directives(csp string) map[string][]string {
 }
 
 // TestActiveDirectivesDenyPlaintextAndEval pins the two properties that make
-// this policy worth having. Script and the fetches script makes are the active
-// surface: a source list that admits plain http: lets a network attacker on a
-// plaintext deployment supply code to a page rendering someone else's asset,
-// and 'unsafe-eval' hands every artifact a runtime compiler. Both are asserted
-// on the parsed directive rather than on the whole string so a permissive
-// source in a passive directive (img-src, font-src) cannot satisfy them.
+// this policy worth having. The active surface is script, the fetches script
+// makes, and the frames that get to run script under this policy by
+// inheritance: a source list that admits plain http: lets a network attacker
+// on a plaintext deployment supply code to a page rendering someone else's
+// asset, and 'unsafe-eval' hands every artifact a runtime compiler. Both are
+// asserted on the parsed directive rather than on the whole string so a
+// permissive source in a passive directive (img-src, font-src) cannot
+// satisfy them.
 func TestActiveDirectivesDenyPlaintextAndEval(t *testing.T) {
 	t.Parallel()
 
@@ -78,7 +80,7 @@ func TestActiveDirectivesDenyPlaintextAndEval(t *testing.T) {
 			t.Parallel()
 
 			parsed := directives(csp)
-			for _, directive := range []string{"script-src", "connect-src"} {
+			for _, directive := range []string{"script-src", "connect-src", "frame-src"} {
 				sources := parsed[directive]
 				require.NotEmptyf(t, sources, "%s carries no sources", directive)
 				require.NotContainsf(t, sources, "http:", "%s admits script over plaintext http", directive)

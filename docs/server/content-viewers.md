@@ -249,5 +249,9 @@ The policy is enforced by the browser and by nothing else, so a change to it is
 verified by rendering each family under it rather than by reading the header.
 `make frontend-e2e-public-viewer` drives HTML, JSX, markdown, SVG and a
 collection item against a live stack and fails on any blocked resource. It is
-not part of `make verify`: it needs a running server (`make dev`) and network
-egress to esm.sh, which the JSX family resolves its imports from.
+not part of `make verify`: it needs the content-viewer bundle built
+(`make frontend-build`, which the binary embeds at compile time), a running
+server (`make dev`) and network egress to esm.sh, which the JSX family resolves
+its imports from. The families served from a content URL — image, audio, video,
+PDF, the ones `media-src` and `object-src` exist for — have no public share in
+the dev seed and are covered by the Go tests instead.

@@ -774,6 +774,11 @@ func TestConnectionsOAuthHealth_ReconnectClearsErrorCode(t *testing.T) {
 type capturingLogHandler struct {
 	mu    *sync.Mutex
 	attrs *[]slog.Attr
+	// bound carries the attributes a slog.With / WithGroup chain fixed
+	// ahead of the call site. Discarding them would let a handler that
+	// moved its kind and name onto a logger drop out of the assertions
+	// with no test failing.
+	bound []slog.Attr
 }
 
 func (*capturingLogHandler) Enabled(context.Context, slog.Level) bool { return true }
@@ -781,6 +786,7 @@ func (*capturingLogHandler) Enabled(context.Context, slog.Level) bool { return t
 func (h *capturingLogHandler) Handle(_ context.Context, r slog.Record) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	*h.attrs = append(*h.attrs, h.bound...)
 	r.Attrs(func(a slog.Attr) bool {
 		*h.attrs = append(*h.attrs, a)
 		return true
@@ -788,7 +794,11 @@ func (h *capturingLogHandler) Handle(_ context.Context, r slog.Record) error {
 	return nil
 }
 
-func (h *capturingLogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *capturingLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	next := &capturingLogHandler{mu: h.mu, attrs: h.attrs}
+	next.bound = append(append([]slog.Attr(nil), h.bound...), attrs...)
+	return next
+}
 
 func (h *capturingLogHandler) WithGroup(string) slog.Handler { return h }
 

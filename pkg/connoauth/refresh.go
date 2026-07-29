@@ -150,7 +150,7 @@ func postRefresh(client *http.Client, req *http.Request, tokenURL string) ([]byt
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.Warn("connoauth: refresh: transport error",
-			logKeyTokenURLHost, tokenHost, "error", err)
+			logKeyTokenURLHost, tokenHost, "error", logsan.SanitizeForLog(err.Error()))
 		return nil, fmt.Errorf("connoauth: refresh: token request: %w", err)
 	}
 	defer func() {

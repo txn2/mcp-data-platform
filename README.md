@@ -266,10 +266,12 @@ Go gates (`complexity <= 10` ≈ `gocyclo <= 10`, `cognitive-complexity <= 15` �
 for the thresholds and the ratchet baseline.
 
 One browser suite also lives outside `make verify`:
-`make frontend-e2e-public-viewer` renders every content family of the public
-share viewer against a live stack (`make dev`) and fails on anything the
-viewer's Content-Security-Policy blocks. It needs a running server and network
-egress to esm.sh, so it is run on demand rather than per commit — see
+`make frontend-e2e-public-viewer` renders the public share viewer's
+client-rendered content families — HTML, JSX, markdown, SVG and a collection
+item — against a live stack and fails on anything the viewer's
+Content-Security-Policy blocks. It needs `make frontend-build`, a running
+server (`make dev`) and network egress to esm.sh, so it is run on demand
+rather than per commit — see
 [`ui/e2e/public-viewer/README.md`](ui/e2e/public-viewer/README.md).
 
 Two measurement harnesses live outside `make verify` (each is its own Go

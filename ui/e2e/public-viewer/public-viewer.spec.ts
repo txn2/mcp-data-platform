@@ -15,6 +15,29 @@ const TOKENS = {
   collection: "tok-q3-exec-review-public",
 };
 
+// The content-viewer bundle is a gitignored build artifact embedded into the
+// binary at compile time, and the page renders an empty <script> when the
+// binary was built without it. Every family case would then time out waiting
+// for content that no code is there to render, so the run stops here instead
+// with the reason.
+test.beforeAll(async ({ playwright }) => {
+  const baseURL = test.info().project.use.baseURL;
+  const request = await playwright.request.newContext({ baseURL });
+  const response = await request.get(`/portal/view/${TOKENS.html}`);
+  const html = await response.text();
+  await request.dispose();
+
+  expect(
+    response.status(),
+    `${baseURL} did not serve the share page. Start a stack with \`make dev\` and point PUBLIC_VIEWER_BASE_URL at it.`,
+  ).toBe(200);
+  expect(
+    html.includes("<script></script>"),
+    "the server carries no content-viewer bundle: it was built with internal/contentviewer/dist empty. " +
+      "Run `make frontend-build`, then restart the server so the rebuilt bundle is embedded.",
+  ).toBe(false);
+});
+
 /** Console text a CSP refusal produces, in either the page or a child frame. */
 function isCSPRefusal(text: string): boolean {
   return /Content Security Policy|Refused to/i.test(text);
