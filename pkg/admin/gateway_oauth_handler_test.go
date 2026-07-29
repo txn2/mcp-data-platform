@@ -443,6 +443,13 @@ func TestTrimOAuthBody(t *testing.T) {
 	got := trimOAuthBody(long)
 	assert.Len(t, got, 256+len("..."))
 	assert.True(t, strings.HasSuffix(got, "..."), "expected ellipsis suffix, got %q", got[len(got)-5:])
+
+	// The excerpt reaches a log field and an error that is logged again
+	// upstack, so an upstream body cannot be allowed to carry line breaks.
+	hostile := trimOAuthBody([]byte("invalid_grant\r\nlevel=ERROR msg=\"forged\""))
+	assert.NotContains(t, hostile, "\n")
+	assert.NotContains(t, hostile, "\r")
+	assert.Contains(t, hostile, "invalid_grant", "sanitizing must strip the control characters, not the diagnostic")
 }
 
 // TestClientIP verifies clientIP honors X-Forwarded-For (first hop only)

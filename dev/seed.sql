@@ -605,24 +605,49 @@ INSERT INTO portal_asset_versions (
 ('ver-006', 'asset-006', 1, 'portal/apikey:admin/asset-006/v1/content.html', 'portal-assets', 'text/html',     5420, 'apikey:admin', 'Initial version', NOW() - interval '1 day')
 ON CONFLICT (id) DO NOTHING;
 
--- Shares (2 assets shared: one user share, one public link)
+-- Shares (5 assets shared: one user share, four public links)
+--
+-- The four public links cover one asset per client-rendered content family —
+-- HTML and JSX (blob: iframes), markdown, and SVG. The public viewer's
+-- Content-Security-Policy governs all four, so a share per family is what
+-- makes a policy change testable against a real page rather than a string
+-- assertion.
+-- access_mode is explicit on every row: the column defaults to 'restricted',
+-- which denies an anonymous viewer, so a row that omits it renders the
+-- sign-in denial rather than the asset however public its token name reads.
 INSERT INTO portal_shares (
   id, asset_id, token, created_by, expires_at, created_at,
-  shared_with_user_id, shared_with_email, permission
+  shared_with_user_id, shared_with_email, permission, access_mode
 ) VALUES
 (
   'share-001', 'asset-001', 'tok-revenue-dash-public',
   'apikey:admin', NOW() + interval '30 days', NOW() - interval '5 days',
-  NULL, NULL, 'viewer'
+  NULL, NULL, 'viewer', 'public'
 ),
 (
   'share-002', 'asset-002', 'tok-inventory-marcus',
   'apikey:admin', NULL, NOW() - interval '4 days',
-  'apikey:admin', 'marcus.johnson@example.com', 'viewer'
+  'apikey:admin', 'marcus.johnson@example.com', 'viewer', 'restricted'
+),
+(
+  'share-004', 'asset-003', 'tok-store-compare-public',
+  'apikey:admin', NOW() + interval '30 days', NOW() - interval '4 days',
+  NULL, NULL, 'viewer', 'public'
+),
+(
+  'share-005', 'asset-004', 'tok-pipeline-arch-public',
+  'apikey:admin', NOW() + interval '30 days', NOW() - interval '3 days',
+  NULL, NULL, 'viewer', 'public'
+),
+(
+  'share-006', 'asset-005', 'tok-regional-heatmap-public',
+  'apikey:admin', NOW() + interval '30 days', NOW() - interval '2 days',
+  NULL, NULL, 'viewer', 'public'
 )
 ON CONFLICT (id) DO UPDATE SET
   expires_at = EXCLUDED.expires_at,
-  permission = EXCLUDED.permission;
+  permission = EXCLUDED.permission,
+  access_mode = EXCLUDED.access_mode;
 
 -- ============================================================================
 -- Portal Collections (2 curated collections)
@@ -753,16 +778,17 @@ ON CONFLICT (id) DO UPDATE SET
 -- Share collection 1 with a public link
 INSERT INTO portal_shares (
   id, collection_id, token, created_by, expires_at, created_at,
-  shared_with_user_id, shared_with_email, permission
+  shared_with_user_id, shared_with_email, permission, access_mode
 ) VALUES
 (
   'share-003', 'coll-001', 'tok-q3-exec-review-public',
   'apikey:admin', NOW() + interval '30 days', NOW() - interval '2 days',
-  NULL, NULL, 'viewer'
+  NULL, NULL, 'viewer', 'public'
 )
 ON CONFLICT (id) DO UPDATE SET
   expires_at = EXCLUDED.expires_at,
-  permission = EXCLUDED.permission;
+  permission = EXCLUDED.permission,
+  access_mode = EXCLUDED.access_mode;
 
 -- ============================================================================
 -- Connection Instances (sample toolkit connections for the admin UI)

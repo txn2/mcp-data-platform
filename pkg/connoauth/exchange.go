@@ -248,11 +248,15 @@ func urlHost(u string) string {
 }
 
 // trimBody caps the size of upstream error bodies surfaced in error
-// strings so a misbehaving upstream can't blow up an audit log.
+// strings so a misbehaving upstream can't blow up an audit log, and
+// strips the control characters out of what remains: the excerpt is
+// written to a structured log field and wrapped into an error that is
+// logged again upstack, so a body carrying CR/LF would otherwise let
+// whoever answers a connection's token URL forge log records.
 func trimBody(body []byte) string {
 	const limit = 256
 	if len(body) <= limit {
-		return string(body)
+		return logsan.SanitizeForLog(string(body))
 	}
-	return string(body[:limit]) + "..."
+	return logsan.SanitizeForLog(string(body[:limit])) + "..."
 }

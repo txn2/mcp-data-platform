@@ -694,11 +694,14 @@ func writeOAuthError(w http.ResponseWriter, msg string) {
 }
 
 // trimOAuthBody caps response body size in error messages so a noisy
-// upstream can't fill an audit log.
+// upstream can't fill an audit log, and strips control characters from
+// the excerpt: it is written to a structured log field and carried in
+// an error that is logged again upstack, so CR/LF in an upstream body
+// would otherwise forge log records.
 func trimOAuthBody(body []byte) string {
 	const maxBytes = 256
 	if len(body) <= maxBytes {
-		return string(body)
+		return logsan.SanitizeForLog(string(body))
 	}
-	return string(body[:maxBytes]) + "..."
+	return logsan.SanitizeForLog(string(body[:maxBytes])) + "..."
 }

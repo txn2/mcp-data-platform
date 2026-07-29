@@ -47,6 +47,55 @@ func TestCollectionCSP(t *testing.T) {
 	require.Contains(t, csp, "frame-src 'self' blob: data:")
 }
 
+// directives splits a policy into directive name → source list.
+func directives(csp string) map[string][]string {
+	out := map[string][]string{}
+	for part := range strings.SplitSeq(csp, ";") {
+		fields := strings.Fields(strings.TrimSpace(part))
+		if len(fields) == 0 {
+			continue
+		}
+		out[fields[0]] = fields[1:]
+	}
+	return out
+}
+
+// TestActiveDirectivesDenyPlaintextAndEval pins the two properties that make
+// this policy worth having. Script and the fetches script makes are the active
+// surface: a source list that admits plain http: lets a network attacker on a
+// plaintext deployment supply code to a page rendering someone else's asset,
+// and 'unsafe-eval' hands every artifact a runtime compiler. Both are asserted
+// on the parsed directive rather than on the whole string so a permissive
+// source in a passive directive (img-src, font-src) cannot satisfy them.
+func TestActiveDirectivesDenyPlaintextAndEval(t *testing.T) {
+	t.Parallel()
+
+	for name, csp := range map[string]string{
+		"asset":      publicviewer.AssetCSP(),
+		"collection": publicviewer.CollectionCSP(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			parsed := directives(csp)
+			for _, directive := range []string{"script-src", "connect-src"} {
+				sources := parsed[directive]
+				require.NotEmptyf(t, sources, "%s carries no sources", directive)
+				require.NotContainsf(t, sources, "http:", "%s admits script over plaintext http", directive)
+				require.NotContainsf(t, sources, "*", "%s admits any source at all", directive)
+			}
+			require.NotContains(t, parsed["script-src"], "'unsafe-eval'",
+				"the JSX pipeline transforms in the parent page and runs the result as a module; nothing evaluates source at runtime")
+			require.Contains(t, parsed["script-src"], "'unsafe-inline'",
+				"the viewer page's own scripts are inline, and a stored HTML asset's inline script is the artifact")
+			require.Contains(t, parsed["script-src"], "https:",
+				"the JSX import map resolves from esm.sh and HTML artifacts reference CDN libraries")
+			require.Contains(t, parsed["script-src"], "blob:",
+				"worker-src falls back through child-src to script-src, so dropping blob: refuses an artifact its own worker")
+		})
+	}
+}
+
 func TestCSPsShareOneBase(t *testing.T) {
 	t.Parallel()
 

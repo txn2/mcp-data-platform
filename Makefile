@@ -33,6 +33,7 @@ GOLINT := golangci-lint
 	semgrep codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
+	frontend-e2e-public-viewer \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
 	dev dev-info dev-up dev-down mock-check \
 	preview-apps preview-platform-info
@@ -533,6 +534,15 @@ frontend-lint:
 ## frontend-e2e: Run the interactive Playwright suite against the MSW-mocked dev server (mirrors CI's frontend-e2e job)
 frontend-e2e:
 	cd $(UI_DIR) && npx playwright install chromium && npm run test:e2e
+
+## frontend-e2e-public-viewer: Run the public share viewer suite against a live stack (needs `make dev`; not part of verify)
+frontend-e2e-public-viewer:
+	@echo "Public viewer suite needs a running stack (make dev) — the page, its"
+	@echo "content-viewer bundle and its CSP are served by the Go binary."
+	@if [ -f dev/.dev-ports.env ]; then . ./dev/.dev-ports.env; fi; \
+	cd $(UI_DIR) && npx playwright install chromium && \
+		PUBLIC_VIEWER_BASE_URL=$${PUBLIC_VIEWER_BASE_URL:-http://localhost:$${DEV_API_PORT:-8080}} \
+		npm run test:public-viewer
 
 ## build-with-ui: Build Go binary with embedded UI
 build-with-ui: frontend-build build

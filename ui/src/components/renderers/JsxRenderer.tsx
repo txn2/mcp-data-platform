@@ -1,9 +1,14 @@
 import { useEffect, useMemo } from "react";
 import { transform } from "sucrase";
 
+// The artifact frame's own policy. It carries no 'unsafe-eval': Sucrase
+// transforms the JSX here in the parent and the frame runs the result as a
+// module, so nothing in this pipeline evaluates source at runtime. The public
+// viewer's page policy denies eval too, which is what keeps a shared artifact
+// rendering the same way it renders in this preview.
 const CSP = [
   "default-src 'none'",
-  "script-src 'unsafe-eval' 'unsafe-inline' https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
+  "script-src 'unsafe-inline' https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
   "style-src 'unsafe-inline' https://fonts.googleapis.com",
   "img-src data: blob:",
   "font-src data: https://fonts.gstatic.com",

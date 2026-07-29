@@ -45,21 +45,56 @@ const DefaultLogoSVG = `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w
 
 // baseCSP is the policy both viewers share.
 //
-// The viewer renders every content family client-side. HTML and JSX assets run
-// inside blob: URL iframes, which inherit this policy, so it has to permit the
-// external resources those documents legitimately reference. media-src carries
-// the audio and video families, which stream from the same-origin raw content
-// endpoint rather than being embedded in the page.
+// It governs two documents at once, which is what bounds how far it narrows:
+// the viewer page, and the untrusted HTML and JSX assets it renders in blob:
+// URL iframes, which inherit the creating document's policy. Each remaining
+// permissive source is required by one of them:
+//
+//   - script-src 'unsafe-inline' — both documents carry inline script. The
+//     page's theme, expiry and modal handlers and the embedded content-viewer
+//     bundle are inline (templates/public_viewer.html), and a stored HTML
+//     asset's own <script> blocks are the artifact itself. A per-response
+//     nonce would cover the page and blank every HTML asset, because the
+//     inherited policy would then reject script the server never saw. What
+//     isolates an artifact is the frame, not this directive: the renderers
+//     set sandbox="allow-scripts" without allow-same-origin, so artifact
+//     script runs in an opaque origin with no reach into the viewer's origin
+//     or storage.
+//   - script-src https: — assets legitimately load third-party script. The
+//     JSX renderer resolves react, react-dom, recharts and lucide-react from
+//     esm.sh through an import map, and stored HTML artifacts reference CDN
+//     libraries directly. Plain http: is not permitted: an https page blocks
+//     it as mixed content anyway, so allowing it only widened the policy for
+//     plaintext deployments.
+//   - script-src blob: — worker-src falls back through child-src to this
+//     directive, so dropping blob: would refuse an artifact its own web
+//     worker while buying nothing: a blob URL can only be minted by script
+//     that is already running, which 'unsafe-inline' has already permitted.
+//   - style-src 'unsafe-inline', img-src, font-src — the page and its assets
+//     style themselves inline and reference images and webfonts from
+//     arbitrary hosts. All three are passive.
+//   - media-src and object-src 'self' — audio and video stream from the
+//     same-origin raw content endpoint, and PDFs render through an <object>
+//     pointed at it (ui/src/components/renderers/MediaRenderer.tsx).
+//   - connect-src https: — no viewer path issues a request this directive
+//     governs; the page hands content URLs to elements instead. It is here
+//     for artifacts that call an API. 'self' rides along for the page's own
+//     origin, and resolves to nothing inside an artifact frame, whose origin
+//     is opaque.
+//
+// 'unsafe-eval' is deliberately absent: Sucrase transforms JSX in the parent
+// page and the iframe runs the result as a module, so no viewer path
+// evaluates source at runtime.
 //
 //nolint:lll // CSP directives are necessarily long
 const baseCSP = "default-src 'none'; " +
-	"script-src 'unsafe-eval' 'unsafe-inline' blob: https: http:; " +
+	"script-src 'unsafe-inline' blob: https:; " +
 	"style-src 'unsafe-inline' https:; " +
 	"img-src * data: blob:; " +
 	"media-src 'self' blob: data:; " +
 	"object-src 'self'; " +
 	"font-src * data:; " +
-	"connect-src 'self' https: http:;"
+	"connect-src 'self' https:;"
 
 // AssetCSP returns the Content-Security-Policy for the single-asset viewer.
 func AssetCSP() string {
