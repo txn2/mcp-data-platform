@@ -10,7 +10,15 @@ export interface NotificationPrefs {
   shares_enabled: boolean;
   comments_enabled: boolean;
   mentions_enabled: boolean;
+  // delivery_available is server-computed and read-only: false when the
+  // platform has no SMTP delivery path, so stored preferences describe an
+  // intent nothing can act on (#1099).
+  delivery_available: boolean;
 }
+
+// NotificationPrefsUpdate is the writable subset: delivery_available reports
+// platform state, so it is never sent back.
+export type NotificationPrefsUpdate = Omit<NotificationPrefs, "delivery_available">;
 
 export function useNotificationPrefs() {
   return useQuery({
@@ -25,7 +33,7 @@ export function useNotificationPrefs() {
 export function useSetNotificationPrefs() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: Partial<NotificationPrefs>) =>
+    mutationFn: (input: Partial<NotificationPrefsUpdate>) =>
       apiFetch<NotificationPrefs>("/notification-prefs", {
         method: "PUT",
         body: JSON.stringify(input),

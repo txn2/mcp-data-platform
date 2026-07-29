@@ -354,3 +354,132 @@ func TestSMTPSettingsInput_SettingsMapping(t *testing.T) {
 		t.Errorf("mapping wrong: %+v", s)
 	}
 }
+
+// fakeDeliverySettings serves the SMTP state behind delivery_available. A nil
+// smtp with a nil err models the store contract for "never configured" by
+// returning ErrNotFound.
+type fakeDeliverySettings struct {
+	smtp *SMTPSettings
+	err  error
+}
+
+func (f *fakeDeliverySettings) GetSMTP(context.Context) (*SMTPSettings, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.smtp == nil {
+		return nil, ErrNotFound
+	}
+	return f.smtp, nil
+}
+
+func (*fakeDeliverySettings) SetSMTP(context.Context, SMTPSettings, string) error { return nil }
+
+func deliveryTestMux(settings SettingsStore) *http.ServeMux {
+	api := &PrefsAPI{
+		Store:     &fakePrefsHTTPStore{},
+		Settings:  settings,
+		UserEmail: func(*http.Request) string { return "a@b.io" },
+	}
+	mux := http.NewServeMux()
+	api.Register(mux)
+	return mux
+}
+
+// The preferences page must be able to say that nothing it stores can be
+// delivered, without the caller needing the admin-only SMTP endpoint (#1099).
+func TestPrefsAPI_DeliveryAvailable(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings SettingsStore
+		want     bool
+	}{
+		{
+			name:     "never configured",
+			settings: &fakeDeliverySettings{},
+			want:     false,
+		},
+		{
+			name:     "configured but disabled",
+			settings: &fakeDeliverySettings{smtp: &SMTPSettings{Enabled: false, Host: "smtp.example.com"}},
+			want:     false,
+		},
+		{
+			name:     "enabled with no host",
+			settings: &fakeDeliverySettings{smtp: &SMTPSettings{Enabled: true, Host: ""}},
+			want:     false,
+		},
+		{
+			name:     "enabled with a host",
+			settings: &fakeDeliverySettings{smtp: &SMTPSettings{Enabled: true, Host: "smtp.example.com"}},
+			want:     true,
+		},
+		{
+			name:     "no settings store wired",
+			settings: nil,
+			want:     true,
+		},
+		{
+			name:     "read failure reports available",
+			settings: &fakeDeliverySettings{err: context.DeadlineExceeded},
+			want:     true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := deliveryTestMux(tt.settings)
+			for _, method := range []string{http.MethodGet, http.MethodPut} {
+				var body any
+				if method == http.MethodPut {
+					body = map[string]any{"mode": ModeDaily}
+				}
+				res := doPrefsReq(t, mux, method, body)
+				if res.Code != http.StatusOK {
+					t.Fatalf("%s status = %d (%s)", method, res.Code, res.Body.String())
+				}
+				var got PrefsResponse
+				if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
+					t.Fatal(err)
+				}
+				if got.DeliveryAvailable != tt.want {
+					t.Errorf("%s delivery_available = %v; want %v", method, got.DeliveryAvailable, tt.want)
+				}
+			}
+		})
+	}
+}
+
+// The signal is derived, so the non-admin response must carry no SMTP detail:
+// asserted on the encoded shape rather than on the struct fields, because it
+// is the wire format a non-admin caller sees.
+func TestPrefsAPI_ExposesNoSMTPDetail(t *testing.T) {
+	mux := deliveryTestMux(&fakeDeliverySettings{smtp: &SMTPSettings{
+		Enabled: true, Host: "smtp.internal.example.com", Port: 2525,
+		Username: "mailer@example.com", Password: "s3cret",
+		From: "platform@example.com", FromName: "Platform", TLSMode: TLSModeStartTLS,
+		UpdatedBy: "admin@example.com",
+	}})
+	res := doPrefsReq(t, mux, http.MethodGet, nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d", res.Code)
+	}
+
+	var fields map[string]any
+	if err := json.Unmarshal(res.Body.Bytes(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	allowed := []string{"mode", "shares_enabled", "comments_enabled", "mentions_enabled", "delivery_available"}
+	for key := range fields {
+		if !slices.Contains(allowed, key) {
+			t.Errorf("unexpected field %q in the non-admin preferences response", key)
+		}
+	}
+	for _, secret := range []string{
+		"smtp.internal.example.com", "2525", "mailer@example.com", "s3cret",
+		"platform@example.com", "Platform", TLSModeStartTLS, "admin@example.com",
+	} {
+		if strings.Contains(res.Body.String(), secret) {
+			t.Errorf("SMTP value %q leaked into the non-admin response: %s", secret, res.Body.String())
+		}
+	}
+}

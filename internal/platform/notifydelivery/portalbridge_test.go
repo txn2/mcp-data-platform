@@ -531,3 +531,77 @@ func TestNotifyThreadEvent_FanoutDoesNotExhaustTheActorBudget(t *testing.T) {
 		t.Fatal("the share notification was dropped: the comment fan-out spent the actor's rate limit")
 	}
 }
+
+// Commenting on an item you own must notify you of nothing, whatever address
+// shape the target's owner row happens to hold. Comparing the raw strings let
+// "Display Name <addr>" survive the actor exclusion and mail the author their
+// own comment (#1100).
+func TestNotifyThreadEvent_OwnerInDisplayFormIsStillTheActor(t *testing.T) {
+	stores := PortalStores{
+		Assets: &fakeAssets{asset: &portal.Asset{
+			ID: "a1", Name: "Report", OwnerEmail: "Owner Person <owner@b.io>",
+		}},
+		Grantees: &fakeGrantees{emails: []string{"Owner Person <OWNER@b.io>", "teammate@b.io"}},
+	}
+	n, queue := bridgeUnderTest(t, stores, "https://x.io")
+
+	thread := &portal.Thread{
+		ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1",
+		AuthorEmail: "Owner Person <owner@b.io>",
+	}
+	n.NotifyThreadEvent(context.Background(), thread, "owner@b.io", "note to self", nil)
+
+	rows := queue.snapshot()
+	if len(rows) != 1 {
+		t.Fatalf("expected only the other grantee to be notified, got %+v", rows)
+	}
+	if rows[0].Recipient != "teammate@b.io" {
+		t.Errorf("Recipient = %q; the author must not be notified of their own comment", rows[0].Recipient)
+	}
+}
+
+// Naming yourself in your own comment queues nothing: not the mention, and
+// not the comment notification the fan-out would otherwise owe the owner.
+func TestNotifyThreadEvent_SelfMentionInDisplayFormQueuesNothing(t *testing.T) {
+	stores := PortalStores{
+		Assets: &fakeAssets{asset: &portal.Asset{
+			ID: "a1", Name: "Report", OwnerEmail: "Me Myself <me@b.io>",
+		}},
+		Grantees: &fakeGrantees{emails: []string{"Me Myself <me@b.io>"}},
+	}
+	n, queue := bridgeUnderTest(t, stores, "https://x.io")
+
+	thread := &portal.Thread{
+		ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1", AuthorEmail: "me@b.io",
+	}
+	n.NotifyThreadEvent(context.Background(), thread, "me@b.io", "@me(b.io) remember this",
+		[]string{"Me Myself <me@b.io>"})
+
+	if rows := queue.snapshot(); len(rows) != 0 {
+		t.Fatalf("mentioning yourself on your own item must notify nobody, got %+v", rows)
+	}
+}
+
+// An event whose author cannot be resolved is not provably someone else's, and
+// the owner is always in the fan-out set, so the fan-out is dropped. Mentions
+// still go out: the body named those addresses explicitly.
+func TestNotifyThreadEvent_ActorlessEventSkipsFanoutKeepsMentions(t *testing.T) {
+	stores := PortalStores{
+		Assets:   &fakeAssets{asset: &portal.Asset{ID: "a1", Name: "Report", OwnerEmail: "owner@b.io"}},
+		Grantees: &fakeGrantees{emails: []string{"owner@b.io", "teammate@b.io"}},
+	}
+	n, queue := bridgeUnderTest(t, stores, "https://x.io")
+
+	thread := &portal.Thread{
+		ID: "th1", Kind: portal.ThreadKindComment, AssetID: "a1", AuthorEmail: "author@b.io",
+	}
+	n.NotifyThreadEvent(context.Background(), thread, "  ", "@named(b.io) look", []string{"named@b.io"})
+
+	rows := queue.snapshot()
+	if len(rows) != 1 {
+		t.Fatalf("expected only the explicit mention, got %+v", rows)
+	}
+	if rows[0].Recipient != "named@b.io" || rows[0].Category != notification.CategoryMention {
+		t.Errorf("unexpected row: %+v", rows[0])
+	}
+}

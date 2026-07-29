@@ -329,7 +329,9 @@ export function AppShell() {
             <ResourcesPage onNavigate={navigate} />
           )}
           {!isAdminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
-          {!isAdminRoute && route === "/settings" && <UserSettingsPage />}
+          {!isAdminRoute && route === "/settings" && (
+            <UserSettingsPage onNavigate={navigate} />
+          )}
           {!isAdminRoute &&
             (route === "/knowledge" ||
               knowledgePagesList ||

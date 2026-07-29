@@ -17436,6 +17436,10 @@ const docTemplate = `{
                 "comments_enabled": {
                     "type": "boolean"
                 },
+                "delivery_available": {
+                    "description": "DeliveryAvailable reports whether the platform currently has an SMTP\npath that could deliver these notifications. False means stored\npreferences describe an intent nothing can act on: triggers keep\nqueueing rows and those rows expire undelivered.",
+                    "type": "boolean"
+                },
                 "mentions_enabled": {
                     "type": "boolean"
                 },

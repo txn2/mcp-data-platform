@@ -59,11 +59,15 @@ export function ConfigToggle({
   help,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   help?: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  // disabled renders the switch inert while keeping its stored value visible,
+  // for states where the setting exists but cannot currently take effect.
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-start gap-3">
@@ -71,9 +75,11 @@ export function ConfigToggle({
         type="button"
         role="switch"
         aria-checked={checked}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          "mt-0.5 relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
+          "mt-0.5 relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors",
+          disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
           checked ? "bg-primary" : "bg-muted",
         )}
       >

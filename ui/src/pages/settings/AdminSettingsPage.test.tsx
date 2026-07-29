@@ -333,3 +333,44 @@ describe("AdminSettingsPage: test-send opt-out notice (#1022)", () => {
     expect(screen.queryByText(OPT_OUT_NOTICE)).not.toBeInTheDocument();
   });
 });
+
+// Leaving SMTP unset or disabled is not inert: triggers keep queueing rows
+// that expire undelivered, and users see their preferences go inert. State
+// that consequence next to the section that causes it (#1099).
+describe("AdminSettingsPage: no delivery path", () => {
+  function renderWith(overrides: Partial<SMTPSettings>) {
+    mockUseSMTPSettings.mockReturnValue({
+      data: makeSettings(overrides),
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useSMTPSettings>);
+    render(<AdminSettingsPage />);
+  }
+
+  it("states the queue-expiry consequence when SMTP is disabled", () => {
+    renderWith({ enabled: false });
+    expect(screen.getByText(/expire undelivered after 7 days/)).toBeInTheDocument();
+  });
+
+  it("states it when SMTP is enabled with no host", () => {
+    renderWith({ enabled: true, host: "" });
+    expect(screen.getByText(/expire undelivered after 7 days/)).toBeInTheDocument();
+  });
+
+  it("stays silent once SMTP is enabled with a host", () => {
+    renderWith({ enabled: true, host: "smtp.example.com" });
+    expect(screen.queryByText(/expire undelivered after 7 days/)).not.toBeInTheDocument();
+  });
+
+  it("stays silent while settings are still loading", () => {
+    mockUseSMTPSettings.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      error: null,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useSMTPSettings>);
+    render(<AdminSettingsPage />);
+    expect(screen.queryByText(/expire undelivered after 7 days/)).not.toBeInTheDocument();
+  });
+});
