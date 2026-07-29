@@ -127,6 +127,29 @@ With `strip_prefix: "rxtxmsg.payload."`:
 - Transforms to: `initial_net`
 - Matches upstream: `initial_net`
 
+#### Scoping a transform to specific datasets
+
+A transform with no `target_pattern` rewrites column names on every dataset the
+resolver visits. Add `target_pattern` to confine it to the datasets whose names
+match a glob, so a rule written for one index does not reshape column names
+across the catalog:
+
+```yaml
+column_transforms:
+  # Only the Elasticsearch sale indexes carry this payload prefix.
+  - target_pattern: "elasticsearch.default.jakes-sale-*"
+    strip_prefix: "rxtxmsg.payload."
+
+  # Applies everywhere, since no pattern is given.
+  - strip_suffix: "_v2"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `target_pattern` | string | - | Glob matched against the target dataset name (same syntax as `aliases[].targets`). Empty means the transform applies to every dataset. A pattern that matches nothing, including a malformed one, disables that transform rather than widening it |
+| `strip_prefix` | string | - | Prefix removed from the target column name before matching upstream |
+| `strip_suffix` | string | - | Suffix removed from the target column name before matching upstream |
+
 ### Aliases
 
 When lineage isn't tracked in DataHub, use explicit aliases:

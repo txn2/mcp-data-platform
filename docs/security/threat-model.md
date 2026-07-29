@@ -153,6 +153,53 @@ On the HTTP transports, a missing token yields `401` with a
 (`ErrValidationUnavailable`, e.g. a JWKS fetch failure), never on an invalid
 token.
 
+#### Identity-provider outage
+
+Validation has three outcomes, not two: valid, definitively invalid, and
+undetermined. The third arises when the identity provider cannot be reached, so
+the signing keys needed to check a token are unavailable. The platform
+distinguishes it with the `ErrValidationUnavailable` sentinel
+(`pkg/middleware/auth.go`), which `pkg/auth/oidc.go` wraps only when a JWKS
+fetch fails while the cache is expired — never for a key the issuer does not
+have.
+
+**The decision: the HTTP edge passes an undetermined credential through, and
+the protocol layer refuses the call.** These are one control, not two
+independent behaviors:
+
+- The edge (`oauthGate`) does not answer `401`. A `401` asserts the credential
+  is bad, which during an outage is false, and it would drive every valid user
+  into an OAuth re-authentication flow that cannot complete until the provider
+  returns.
+- The protocol layer re-validates on every tool call and, on the same sentinel,
+  answers `feature_unavailable` with a retryable hint rather than
+  `unauthenticated` (`pkg/middleware/mcp.go`, `authenticateAndAuthorize`). No
+  tool handler runs.
+
+Access is therefore never granted on an unvalidated credential. What the
+fail-open costs is depth: during a provider outage an unauthenticated request
+reaches the protocol layer before it is refused, so the refusal there is
+load-bearing for every request shape that can reach it.
+
+What a client sees during an outage: HTTP requests succeed at the transport
+level, the MCP session establishes, and every tool call returns an in-band error
+result carrying `code: feature_unavailable`, the message `authentication
+temporarily unavailable`, and a hint stating that this is a transient
+server-side condition rather than a credential problem. Nothing signals re-auth,
+so a well-behaved client retries rather than prompting the user to sign in
+again. Once the provider is reachable the next call succeeds with no client
+action.
+
+Both halves are pinned end to end by
+`TestStreamableHTTP_ValidationUnavailable_EdgePassesThroughProtocolRefuses`
+(`internal/httpserver/validation_outage_test.go`), which drives a real HTTP
+handler, gate, middleware chain and MCP client. It fails if the edge starts
+rejecting, if the protocol layer stops refusing, or if the refusal stops being
+categorized as retryable. Its companion,
+`TestStreamableHTTP_DefinitiveRejection_EdgeFailsClosed`, holds the boundary:
+pass-through applies only to an undetermined verdict, never to a credential the
+platform can definitively reject.
+
 ### Identity and authorization
 
 | Mechanism | Package | Notes |

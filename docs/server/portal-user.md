@@ -167,7 +167,7 @@ Opening a resource shows which prompts attach it as reference material. Deleting
 
 Every revision is recorded in **Version history** with its number, who uploaded it, when, and how large it was. Any version can be downloaded, and any prior version can be **restored** — which re-promotes that version's exact bytes as a new head revision rather than rewinding, so the trail stays append-only and the restored content is itself restorable. A restored revision is labeled with the version it came from.
 
-History is bounded: a resource keeps its most recent 10 revisions by default (`resources.managed.max_versions`), and a revision past the cap deletes the oldest version's stored file. The live content is never pruned.
+History is bounded: a resource keeps its most recent 10 revisions by default ([`resources.managed.max_versions`](configuration.md#managed-resources)), and a revision past the cap deletes the oldest version's stored file. The live content is never pruned.
 
 ### Seeing what is actually used
 
