@@ -63,7 +63,7 @@ func TestPeekVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := PeekVersion([]byte(tt.data))
+			got := peekVersion([]byte(tt.data))
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -71,13 +71,13 @@ func TestPeekVersion(t *testing.T) {
 
 func TestVersionStatus_String(t *testing.T) {
 	tests := []struct {
-		status VersionStatus
+		status versionStatus
 		want   string
 	}{
-		{VersionCurrent, "current"},
-		{VersionDeprecated, "deprecated"},
-		{VersionRemoved, "removed"},
-		{VersionStatus(verTestUnknownStatus), verTestUnknownStr},
+		{versionCurrent, "current"},
+		{versionDeprecated, "deprecated"},
+		{versionRemoved, "removed"},
+		{versionStatus(verTestUnknownStatus), verTestUnknownStr},
 	}
 
 	for _, tt := range tests {
@@ -88,43 +88,43 @@ func TestVersionStatus_String(t *testing.T) {
 }
 
 func TestVersionRegistry_Register(t *testing.T) {
-	r := NewVersionRegistry()
-	r.Register(&VersionInfo{
+	r := newVersionRegistry()
+	r.Register(&versionInfo{
 		Version: verTestV1,
-		Status:  VersionCurrent,
+		Status:  versionCurrent,
 	})
 
 	info, ok := r.Get(verTestV1)
 	require.True(t, ok)
 	assert.Equal(t, verTestV1, info.Version)
-	assert.Equal(t, VersionCurrent, info.Status)
+	assert.Equal(t, versionCurrent, info.Status)
 }
 
 func TestVersionRegistry_Get_Unknown(t *testing.T) {
-	r := NewVersionRegistry()
+	r := newVersionRegistry()
 	_, ok := r.Get(verTestV99)
 	assert.False(t, ok)
 }
 
 func TestVersionRegistry_Current(t *testing.T) {
-	r := DefaultRegistry()
+	r := defaultRegistry()
 	assert.Equal(t, verTestV1, r.Current())
 }
 
 func TestVersionRegistry_ListSupported(t *testing.T) {
-	r := NewVersionRegistry()
-	r.Register(&VersionInfo{Version: verTestV1, Status: VersionCurrent})
-	r.Register(&VersionInfo{Version: verTestV0, Status: VersionRemoved})
-	r.Register(&VersionInfo{Version: "v2", Status: VersionDeprecated})
+	r := newVersionRegistry()
+	r.Register(&versionInfo{Version: verTestV1, Status: versionCurrent})
+	r.Register(&versionInfo{Version: verTestV0, Status: versionRemoved})
+	r.Register(&versionInfo{Version: "v2", Status: versionDeprecated})
 
 	supported := r.ListSupported()
 	assert.Equal(t, []string{verTestV1, "v2"}, supported)
 }
 
 func TestVersionRegistry_IsDeprecated(t *testing.T) {
-	r := NewVersionRegistry()
-	r.Register(&VersionInfo{Version: verTestV1, Status: VersionCurrent})
-	r.Register(&VersionInfo{Version: verTestV0, Status: VersionDeprecated})
+	r := newVersionRegistry()
+	r.Register(&versionInfo{Version: verTestV1, Status: versionCurrent})
+	r.Register(&versionInfo{Version: verTestV0, Status: versionDeprecated})
 
 	assert.False(t, r.IsDeprecated(verTestV1), "current should not be deprecated")
 	assert.True(t, r.IsDeprecated(verTestV0), "v0 should be deprecated")
@@ -132,17 +132,17 @@ func TestVersionRegistry_IsDeprecated(t *testing.T) {
 }
 
 func TestDefaultRegistry(t *testing.T) {
-	r := DefaultRegistry()
+	r := defaultRegistry()
 	assert.Equal(t, verTestV1, r.Current())
 
 	info, ok := r.Get(verTestV1)
 	require.True(t, ok)
-	assert.Equal(t, VersionCurrent, info.Status)
+	assert.Equal(t, versionCurrent, info.Status)
 	assert.Nil(t, info.Converter)
 }
 
 func TestResolveVersion_Unknown(t *testing.T) {
-	r := DefaultRegistry()
+	r := defaultRegistry()
 	_, err := resolveVersion(r, verTestV99)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported config apiVersion")
@@ -150,13 +150,13 @@ func TestResolveVersion_Unknown(t *testing.T) {
 }
 
 func TestResolveVersion_Removed(t *testing.T) {
-	r := NewVersionRegistry()
-	r.Register(&VersionInfo{
+	r := newVersionRegistry()
+	r.Register(&versionInfo{
 		Version:        verTestV0,
-		Status:         VersionRemoved,
+		Status:         versionRemoved,
 		MigrationGuide: "run migrate-config --target-version v1",
 	})
-	r.Register(&VersionInfo{Version: verTestV1, Status: VersionCurrent})
+	r.Register(&versionInfo{Version: verTestV1, Status: versionCurrent})
 
 	_, err := resolveVersion(r, verTestV0)
 	require.Error(t, err)
@@ -165,24 +165,24 @@ func TestResolveVersion_Removed(t *testing.T) {
 }
 
 func TestResolveVersion_Current(t *testing.T) {
-	r := DefaultRegistry()
+	r := defaultRegistry()
 	info, err := resolveVersion(r, verTestV1)
 	require.NoError(t, err)
-	assert.Equal(t, VersionCurrent, info.Status)
+	assert.Equal(t, versionCurrent, info.Status)
 }
 
 func TestResolveVersion_Deprecated(t *testing.T) {
-	r := NewVersionRegistry()
-	r.Register(&VersionInfo{
+	r := newVersionRegistry()
+	r.Register(&versionInfo{
 		Version:            verTestV0,
-		Status:             VersionDeprecated,
+		Status:             versionDeprecated,
 		DeprecationMessage: "use v1 instead",
 	})
-	r.Register(&VersionInfo{Version: verTestV1, Status: VersionCurrent})
+	r.Register(&versionInfo{Version: verTestV1, Status: versionCurrent})
 
 	info, err := resolveVersion(r, verTestV0)
 	require.NoError(t, err)
-	assert.Equal(t, VersionDeprecated, info.Status)
+	assert.Equal(t, versionDeprecated, info.Status)
 }
 
 func TestLoadConfigFromBytes_WithVersion(t *testing.T) {
@@ -221,21 +221,21 @@ func TestLoadConfigFromBytes_ExpandsEnvVars(t *testing.T) {
 }
 
 func TestVersionRegistry_Current_FirstRegistered(t *testing.T) {
-	r := NewVersionRegistry()
+	r := newVersionRegistry()
 	// Register deprecated first, then current
-	r.Register(&VersionInfo{Version: verTestV0, Status: VersionDeprecated})
-	r.Register(&VersionInfo{Version: verTestV1, Status: VersionCurrent})
+	r.Register(&versionInfo{Version: verTestV0, Status: versionDeprecated})
+	r.Register(&versionInfo{Version: verTestV1, Status: versionCurrent})
 	assert.Equal(t, verTestV1, r.Current())
 }
 
 func TestVersionRegistry_Current_EmptyRegistry(t *testing.T) {
-	r := NewVersionRegistry()
+	r := newVersionRegistry()
 	assert.Equal(t, "", r.Current())
 }
 
 func TestLoadConfigFromBytes_WithConverter(t *testing.T) {
 	// Test that a converter function works correctly in isolation.
-	// LoadConfigFromBytes uses DefaultRegistry() where v1 has nil converter,
+	// LoadConfigFromBytes uses defaultRegistry() where v1 has nil converter,
 	// so we verify the converter pattern via direct invocation.
 	converter := func(data []byte) (*Config, error) {
 		var cfg Config
@@ -253,12 +253,12 @@ func TestLoadConfigFromBytes_WithConverter(t *testing.T) {
 }
 
 func TestResolveVersion_RemovedWithoutGuide(t *testing.T) {
-	r := NewVersionRegistry()
-	r.Register(&VersionInfo{
+	r := newVersionRegistry()
+	r.Register(&versionInfo{
 		Version: verTestV0,
-		Status:  VersionRemoved,
+		Status:  versionRemoved,
 	})
-	r.Register(&VersionInfo{Version: verTestV1, Status: VersionCurrent})
+	r.Register(&versionInfo{Version: verTestV1, Status: versionCurrent})
 
 	_, err := resolveVersion(r, verTestV0)
 	require.Error(t, err)

@@ -1,5 +1,10 @@
-//nolint:revive // package name matches directory structure
-package http
+// Package httpauth is the HTTP-level authentication gate for the MCP transports:
+// it extracts a bearer token or API key from the request, authenticates it, and
+// refuses an unauthenticated caller with the challenge the transport expects
+// before any MCP framing is parsed. It sits outside the MCP protocol middleware
+// chain because an SSE or streamable-HTTP request must be rejected at the HTTP
+// layer, not after a session is established.
+package httpauth
 
 import (
 	"errors"

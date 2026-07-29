@@ -44,14 +44,23 @@ import (
 )
 
 // maxExportedSurface caps exported top-level identifiers per pkg/ package.
-// Measured with this gate at the time of #1079, the largest are pkg/platform
-// (150), pkg/middleware (149) and pkg/portal (148) — all at or within two of
-// the ceiling. Reproduce with:
+// Measured with this gate at the time of #1077, the largest are pkg/middleware
+// (138), pkg/platform (137) and pkg/portal (129). Reproduce with:
 //
-//	go test -run TestPackageExportedSurfaceBudget -v .
+//	go test -count=1 -run TestPackageExportedSurfaceBudget -v .
 //
-// #1076 and #1077 shrink those three; the ceiling ratchets down, it never goes
-// up (unexport helpers, move detail into internal/ or unexported types).
+// The ceiling stays at 150 rather than ratcheting to just above 138: #1077's
+// point was to buy real headroom, so the next exported identifier lands as
+// design feedback in review rather than as a build failure on an unrelated
+// feature. It ratchets down, never up (unexport helpers, move detail into
+// internal/ or unexported types).
+//
+// #1076 relocated 22 implementation-detail packages out of pkg/ and moved
+// these three counts by zero, which is worth recording: this gate counts
+// package-scope names PER PACKAGE, non-recursively, so moving a subpackage
+// under internal/ does not shrink its parent — the relocated package still
+// needs whatever the parent exports to it. Shrinking a surface means
+// unexporting or deleting names in the package itself.
 const maxExportedSurface = 150
 
 // exportedSurface counts the exported identifiers in p's package scope: the

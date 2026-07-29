@@ -13,8 +13,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
-	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	mcpsess "github.com/txn2/mcp-data-platform/pkg/session"

@@ -12,7 +12,7 @@ import (
 
 // fakeNotificationSettings implements notification.SettingsStore. The full
 // settings-route behavior suite lives with the implementation in
-// pkg/admin/settingsapi; the tests here cover the admin-side wiring only.
+// internal/admin/settingsapi; the tests here cover the admin-side wiring only.
 type fakeNotificationSettings struct {
 	settings *notification.SMTPSettings
 }

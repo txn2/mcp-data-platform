@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/accessgate"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
-	"github.com/txn2/mcp-data-platform/pkg/portal/accessgate"
 )
 
 const (

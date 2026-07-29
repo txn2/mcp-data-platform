@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/txn2/mcp-data-platform/pkg/portal/publicviewer"
+	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
 )
 
 // htmlNoticeText is the HTML-escaped default notice text for template assertions.

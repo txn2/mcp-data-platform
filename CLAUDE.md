@@ -153,16 +153,21 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
-`pkg/` holds 46 top-level packages (all public API). Depth-2 subdirectories are
+`pkg/` holds 41 top-level packages (all public API). Depth-2 subdirectories are
 shown where they represent a distinct implementation (a storage backend, an
-adapter, an indexjobs consumer); helper subpackages are omitted for brevity.
-Regenerate this list with `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and
-diff against the packages below when adding or removing a `pkg/` directory.
+adapter); helper subpackages are omitted for brevity. Regenerate this list with
+`find pkg -mindepth 1 -maxdepth 1 -type d | sort` and diff against the packages
+below when adding or removing a `pkg/` directory.
+
+Before adding a package under `pkg/`, note that `TestPublicSurfacePolicy`
+(#1076) refuses a package that is outside the supported import surface named in
+`docs/library/stability.md` and has a single first-party importer: that shape is
+an implementation seam and belongs under `internal/`.
 
 ```
 mcp-data-platform/
 ├── cmd/mcp-data-platform/          # Entry point (main.go)
-├── pkg/                            # PUBLIC API (45 top-level packages)
+├── pkg/                            # PUBLIC API (41 top-level packages)
 │   ├── admin/                      # REST API endpoints for administrative operations
 │   ├── audit/                      # Audit logging (postgres/ = PostgreSQL implementation)
 │   ├── auth/                       # Authentication: OIDC, API keys, claims, middleware
@@ -170,21 +175,16 @@ mcp-data-platform/
 │   ├── blobserve/                  # Raw-content HTTP writer: sanitized type, nosniff, disposition, byte ranges
 │   ├── browsersession/             # Browser-based OIDC authentication (cookie sessions)
 │   ├── configstore/                # Granular key/value storage for platform config (postgres/)
-│   ├── connbackfill/               # Seeds connection_instances with credential-free rows
 │   ├── connoauth/                  # Shared OAuth-to-upstream-MCP implementation across connection kinds
 │   ├── connreconcile/              # Shared remove/add reconcile of a DB connection onto live toolkits (admin hot-reload + reload bus)
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
 │   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 88 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
-│   ├── gatewayhttp/                # HTTP exposure of the apigateway toolkit's invoke path
-│   ├── health/                     # Readiness state tracking and HTTP health check handlers
-│   ├── http/                       # HTTP-level auth middleware (SSE transport)
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)
-│   ├── mcpapps/                    # MCP Apps support for interactive UI components
 │   ├── mcpcontext/                 # Context helpers for MCP session state
-│   ├── memory/                     # Persistent memory storage for agent/analyst sessions (memoryindex/ = indexjobs consumer)
+│   ├── memory/                     # Persistent memory storage for agent/analyst sessions
 │   ├── middleware/                 # MCP protocol middleware chain (auth, authz, enrichment, audit, rules)
 │   ├── notification/               # Email notifications: SMTP settings, user prefs, queue, send worker, branded templates
 │   ├── oauth/                      # OAuth 2.1 authorization server (postgres/ = storage implementation)
@@ -193,12 +193,12 @@ mcp-data-platform/
 │   ├── persona/                    # Persona-based access control and customization
 │   ├── pkcestore/                  # In-flight PKCE state for outbound OAuth (oauth-start → callback)
 │   ├── platform/                   # Core orchestration: facade, config, options, lifecycle (fieldcrypt/, instructions/, personastore/ = seams shared with pkg/admin; other facade-internal seams live under internal/platform/)
-│   ├── portal/                     # Asset portal data layer (assetindex/, collectionindex/, datahubapi/, knowledgepage/, publicviewer/ = embedded public share templates + CSP, threads/, ...)
-│   ├── prompt/                     # Prompt management: versioned store contract, review gate (versionhttp/ = version-history/approval/usage REST for the admin + portal surfaces)
+│   ├── portal/                     # Asset portal data layer (knowledgepage/, mention/, shareaccess/, shareguest/, threads/, ...)
+│   ├── prompt/                     # Prompt management: versioned store contract, review gate (attachserve/, postgres/)
 │   ├── query/                      # Query execution provider abstraction (trino/ = Trino adapter)
 │   ├── ratelimit/                  # Shared per-IP token-bucket limiter + trusted-proxy client-IP resolver (portal viewer, OAuth endpoints)
 │   ├── registry/                   # Toolkit registration and management
-│   ├── resource/                   # Managed resources: human-uploaded reference files (resourceindex/ = indexjobs consumer)
+│   ├── resource/                   # Managed resources: human-uploaded reference files
 │   ├── searchgate/                 # Per-session discovery signal for the search-first gate (postgres/ = replica-shared backend)
 │   ├── semantic/                   # Semantic layer abstraction (datahub/ = DataHub adapter)
 │   ├── session/                    # Session externalization (postgres/ = multi-replica backend)
@@ -220,8 +220,10 @@ mcp-data-platform/
 │   ├── urnbuild/                   # Constructs DataHub dataset URNs from query-engine table identifiers
 │   └── user/                       # Directory of known people keyed by email
 ├── internal/                       # Non-exported implementation (not part of the supported library surface)
-│   ├── httpserver/                  # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895)
-│   ├── platform/                   # Facade-internal seams composed only by pkg/platform (mwchain, iam, sessionsync, oauthserver, ... — 23 packages moved out of the public surface, #894)
+│   ├── admin/                      # Admin-API seams built only by pkg/admin (settingsapi/ = SMTP settings REST)
+│   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, datahubapi/, gatewayhttp/, health/, httpauth/, mentionhttp/, sources/, versionhttp/ (#1076)
+│   ├── platform/                   # Facade-internal seams composed only by pkg/platform (mwchain, iam, sessionsync, oauthserver, the six indexjobs consumers, mcpapps, connbackfill, ... — moved out of the public surface by #894 and #1076)
+│   ├── portal/                     # Portal seams built only by pkg/portal (publicviewer/ = embedded public share templates + CSP, viewerlimit/, sharecache/)
 │   └── server/                     # Server factory (server.go)
 ├── configs/                        # Example configurations
 │   └── platform.yaml

@@ -17,7 +17,7 @@ import (
 )
 
 // RawSink receives an upstream response streamed by the raw passthrough
-// path. The REST shim (pkg/gatewayhttp) adapts an http.ResponseWriter
+// path. The REST shim (internal/httpserver/gatewayhttp) adapts an http.ResponseWriter
 // to this interface and installs it on the request context; the
 // toolkit stays decoupled from the concrete HTTP writer and can be
 // exercised with an in-memory sink in tests.

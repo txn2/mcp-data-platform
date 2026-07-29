@@ -26,14 +26,14 @@ func (errReader) Read([]byte) (int, error) {
 
 func TestMigrateConfigBytes_Idempotent(t *testing.T) {
 	input := []byte(migTestAPIVersionV1Line + migTestServerNameTest)
-	out, err := MigrateConfigBytes(input, migTestV1)
+	out, err := migrateConfigBytes(input, migTestV1)
 	require.NoError(t, err)
 	assert.Equal(t, input, out, "should be unchanged when already at target version")
 }
 
 func TestMigrateConfigBytes_AddsVersion(t *testing.T) {
 	input := []byte(migTestServerNameTest)
-	out, err := MigrateConfigBytes(input, migTestV1)
+	out, err := migrateConfigBytes(input, migTestV1)
 	require.NoError(t, err)
 	assert.Contains(t, string(out), migTestAPIVersionV1Line)
 	assert.Contains(t, string(out), migTestServerNameTest)
@@ -41,7 +41,7 @@ func TestMigrateConfigBytes_AddsVersion(t *testing.T) {
 
 func TestMigrateConfigBytes_PreservesComments(t *testing.T) {
 	input := []byte("# My config\n# More comments\n" + migTestServerNameTest)
-	out, err := MigrateConfigBytes(input, migTestV1)
+	out, err := migrateConfigBytes(input, migTestV1)
 	require.NoError(t, err)
 	result := string(out)
 	assert.True(t, strings.HasPrefix(result, "# My config\n# More comments\n"),
@@ -52,21 +52,21 @@ func TestMigrateConfigBytes_PreservesComments(t *testing.T) {
 
 func TestMigrateConfigBytes_PreservesEnvVars(t *testing.T) {
 	input := []byte("server:\n  name: ${MY_VAR}\n")
-	out, err := MigrateConfigBytes(input, migTestV1)
+	out, err := migrateConfigBytes(input, migTestV1)
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "${MY_VAR}")
 }
 
 func TestMigrateConfigBytes_PreservesContent(t *testing.T) {
 	input := []byte(migTestAPIVersionV1Line + "server:\n  name: test\nauth:\n  allow_anonymous: true\n")
-	out, err := MigrateConfigBytes(input, migTestV1)
+	out, err := migrateConfigBytes(input, migTestV1)
 	require.NoError(t, err)
 	assert.Equal(t, string(input), string(out))
 }
 
 func TestMigrateConfigBytes_EmptyTarget(t *testing.T) {
 	input := []byte(migTestServerNameTest)
-	out, err := MigrateConfigBytes(input, "")
+	out, err := migrateConfigBytes(input, "")
 	require.NoError(t, err)
 	assert.Contains(t, string(out), migTestAPIVersionV1Line,
 		"empty target should default to current version")
@@ -74,14 +74,14 @@ func TestMigrateConfigBytes_EmptyTarget(t *testing.T) {
 
 func TestMigrateConfigBytes_UnknownSource(t *testing.T) {
 	input := []byte("apiVersion: v99\n" + migTestServerNameTest)
-	_, err := MigrateConfigBytes(input, migTestV1)
+	_, err := migrateConfigBytes(input, migTestV1)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported config apiVersion")
 }
 
 func TestMigrateConfigBytes_UnknownTarget(t *testing.T) {
 	input := []byte(migTestAPIVersionV1Line + migTestServerNameTest)
-	_, err := MigrateConfigBytes(input, "v99")
+	_, err := migrateConfigBytes(input, "v99")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown target version")
 }
@@ -97,14 +97,14 @@ func TestMigrateConfig_ReaderWriter(t *testing.T) {
 }
 
 func TestMigrateConfigBytes_EmptyInput(t *testing.T) {
-	out, err := MigrateConfigBytes([]byte(""), migTestV1)
+	out, err := migrateConfigBytes([]byte(""), migTestV1)
 	require.NoError(t, err)
 	assert.Equal(t, migTestAPIVersionV1Line, string(out))
 }
 
 func TestMigrateConfigBytes_OnlyComments(t *testing.T) {
 	input := []byte("# just a comment\n# another one\n")
-	out, err := MigrateConfigBytes(input, migTestV1)
+	out, err := migrateConfigBytes(input, migTestV1)
 	require.NoError(t, err)
 	result := string(out)
 	assert.Contains(t, result, "# just a comment\n")

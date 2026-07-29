@@ -8,46 +8,46 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// CurrentConfigVersion is the current config API version.
-const CurrentConfigVersion = "v1"
+// currentConfigVersion is the current config API version.
+const currentConfigVersion = "v1"
 
-// VersionStatus represents the lifecycle state of a config version.
-type VersionStatus int
+// versionStatus represents the lifecycle state of a config version.
+type versionStatus int
 
 const (
-	// VersionCurrent is an actively supported version.
-	VersionCurrent VersionStatus = iota
-	// VersionDeprecated is a version that still works but emits warnings.
-	VersionDeprecated
-	// VersionRemoved is a version that is no longer supported.
-	VersionRemoved
+	// versionCurrent is an actively supported version.
+	versionCurrent versionStatus = iota
+	// versionDeprecated is a version that still works but emits warnings.
+	versionDeprecated
+	// versionRemoved is a version that is no longer supported.
+	versionRemoved
 )
 
 // String returns a human-readable representation of the version status.
-func (s VersionStatus) String() string {
+func (s versionStatus) String() string {
 	switch s {
-	case VersionCurrent:
+	case versionCurrent:
 		return "current"
-	case VersionDeprecated:
+	case versionDeprecated:
 		return "deprecated"
-	case VersionRemoved:
+	case versionRemoved:
 		return "removed"
 	default:
 		return fmt.Sprintf("unknown(%d)", int(s))
 	}
 }
 
-// VersionConverter converts raw YAML bytes directly to the latest Config.
+// versionConverter converts raw YAML bytes directly to the latest Config.
 // A nil converter means the version uses standard YAML unmarshalling.
-type VersionConverter func(data []byte) (*Config, error)
+type versionConverter func(data []byte) (*Config, error)
 
-// VersionInfo describes a config API version.
-type VersionInfo struct {
+// versionInfo describes a config API version.
+type versionInfo struct {
 	// Version is the version string (e.g., "v1").
 	Version string
 
 	// Status is the lifecycle state of this version.
-	Status VersionStatus
+	Status versionStatus
 
 	// DeprecationMessage is shown when a deprecated version is loaded.
 	DeprecationMessage string
@@ -58,47 +58,47 @@ type VersionInfo struct {
 	// Converter transforms raw YAML bytes into a Config. Nil means
 	// standard YAML unmarshalling is used (i.e., the version matches
 	// the current schema).
-	Converter VersionConverter
+	Converter versionConverter
 }
 
-// VersionRegistry holds known config API versions.
-type VersionRegistry struct {
-	versions map[string]*VersionInfo
+// versionRegistry holds known config API versions.
+type versionRegistry struct {
+	versions map[string]*versionInfo
 	current  string
 }
 
-// NewVersionRegistry creates an empty version registry.
-func NewVersionRegistry() *VersionRegistry {
-	return &VersionRegistry{
-		versions: make(map[string]*VersionInfo),
+// newVersionRegistry creates an empty version registry.
+func newVersionRegistry() *versionRegistry {
+	return &versionRegistry{
+		versions: make(map[string]*versionInfo),
 	}
 }
 
 // Register adds a version to the registry. If current is empty and this is
-// the first VersionCurrent entry, it becomes the current version.
-func (r *VersionRegistry) Register(info *VersionInfo) {
+// the first versionCurrent entry, it becomes the current version.
+func (r *versionRegistry) Register(info *versionInfo) {
 	r.versions[info.Version] = info
-	if info.Status == VersionCurrent && r.current == "" {
+	if info.Status == versionCurrent && r.current == "" {
 		r.current = info.Version
 	}
 }
 
 // Get returns the version info for the given version string.
-func (r *VersionRegistry) Get(version string) (*VersionInfo, bool) {
+func (r *versionRegistry) Get(version string) (*versionInfo, bool) {
 	info, ok := r.versions[version]
 	return info, ok
 }
 
 // Current returns the current version string.
-func (r *VersionRegistry) Current() string {
+func (r *versionRegistry) Current() string {
 	return r.current
 }
 
 // ListSupported returns all non-removed version strings, sorted.
-func (r *VersionRegistry) ListSupported() []string {
+func (r *versionRegistry) ListSupported() []string {
 	var supported []string
 	for v, info := range r.versions {
-		if info.Status != VersionRemoved {
+		if info.Status != versionRemoved {
 			supported = append(supported, v)
 		}
 	}
@@ -107,36 +107,36 @@ func (r *VersionRegistry) ListSupported() []string {
 }
 
 // IsDeprecated returns true if the version exists and is deprecated.
-func (r *VersionRegistry) IsDeprecated(version string) bool {
+func (r *versionRegistry) IsDeprecated(version string) bool {
 	info, ok := r.versions[version]
-	return ok && info.Status == VersionDeprecated
+	return ok && info.Status == versionDeprecated
 }
 
-// ConfigEnvelope is a minimal struct for peeking at the apiVersion field
+// configEnvelope is a minimal struct for peeking at the apiVersion field
 // without parsing the full config.
-type ConfigEnvelope struct {
+type configEnvelope struct {
 	APIVersion string `yaml:"apiVersion"`
 }
 
-// PeekVersion extracts the apiVersion from raw YAML bytes.
+// peekVersion extracts the apiVersion from raw YAML bytes.
 // Returns "v1" if the field is missing or empty (backward compatibility).
-func PeekVersion(data []byte) string {
-	var envelope ConfigEnvelope
+func peekVersion(data []byte) string {
+	var envelope configEnvelope
 	if err := yaml.Unmarshal(data, &envelope); err != nil {
-		return CurrentConfigVersion
+		return currentConfigVersion
 	}
 	if envelope.APIVersion == "" {
-		return CurrentConfigVersion
+		return currentConfigVersion
 	}
 	return envelope.APIVersion
 }
 
-// DefaultRegistry returns the standard version registry with v1 registered.
-func DefaultRegistry() *VersionRegistry {
-	r := NewVersionRegistry()
-	r.Register(&VersionInfo{
+// defaultRegistry returns the standard version registry with v1 registered.
+func defaultRegistry() *versionRegistry {
+	r := newVersionRegistry()
+	r.Register(&versionInfo{
 		Version:   "v1",
-		Status:    VersionCurrent,
+		Status:    versionCurrent,
 		Converter: nil, // v1 uses standard YAML unmarshalling
 	})
 	return r
@@ -145,7 +145,7 @@ func DefaultRegistry() *VersionRegistry {
 // resolveVersion validates the config version against the registry and returns
 // the version info. It returns an error for unknown or removed versions and
 // logs a warning for deprecated versions.
-func resolveVersion(reg *VersionRegistry, version string) (*VersionInfo, error) {
+func resolveVersion(reg *versionRegistry, version string) (*versionInfo, error) {
 	info, ok := reg.Get(version)
 	if !ok {
 		supported := reg.ListSupported()
@@ -154,7 +154,7 @@ func resolveVersion(reg *VersionRegistry, version string) (*VersionInfo, error) 
 			version, strings.Join(supported, ", "),
 		)
 	}
-	if info.Status == VersionRemoved {
+	if info.Status == versionRemoved {
 		if info.MigrationGuide != "" {
 			return nil, fmt.Errorf(
 				"config apiVersion %q has been removed; %s",

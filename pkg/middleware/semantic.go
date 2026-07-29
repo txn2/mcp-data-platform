@@ -233,7 +233,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 	cache := e.cfg.SessionCache
 	if cache == nil {
 		slog.Debug("dedup: cache is nil, full enrichment")
-		pc.EnrichmentMode = EnrichmentModeFull
+		pc.EnrichmentMode = enrichmentModeFull
 		return e.enrichTrinoResult(ctx, result, request, catalogMapping, pc)
 	}
 
@@ -304,7 +304,7 @@ func (e *semanticEnricher) handleFullEnrichment(
 	cache.AddTokensFull(int64(tokens))
 
 	pc.EnrichmentTokensFull = tokens
-	pc.EnrichmentMode = EnrichmentModeFull
+	pc.EnrichmentMode = enrichmentModeFull
 	return enrichedResult, nil
 }
 
@@ -345,7 +345,7 @@ func (e *semanticEnricher) handleDedupEnrichment(
 func extractTableKeysFromRequest(request mcp.CallToolRequest) []string {
 	// Check for SQL query first (multi-table support)
 	if sql := extractSQLFromRequest(request); sql != "" {
-		tables := ExtractTablesFromSQL(sql)
+		tables := extractTablesFromSQL(sql)
 		if len(tables) > 0 {
 			keys := make([]string, len(tables))
 			for i, t := range tables {
@@ -511,7 +511,7 @@ func applyCatalogMapping(table semantic.TableIdentifier, mapping map[string]stri
 // enrichTrinoResult adds semantic context to Trino tool results.
 // catalogMapping optionally remaps connection catalog names to DataHub catalog names.
 // pc may be nil in test paths; when non-nil, EnrichmentMatchKind is set to
-// EnrichmentMatchURN on exact resolution or EnrichmentMatchSemantic when the
+// enrichmentMatchURN on exact resolution or enrichmentMatchSemantic when the
 // issue #444 similarity fallback fires.
 func (e *semanticEnricher) enrichTrinoResult(
 	ctx context.Context,
@@ -522,7 +522,7 @@ func (e *semanticEnricher) enrichTrinoResult(
 ) (*mcp.CallToolResult, error) {
 	// Check for SQL query first (multi-table support)
 	if sql := extractSQLFromRequest(request); sql != "" {
-		tables := ExtractTablesFromSQL(sql)
+		tables := extractTablesFromSQL(sql)
 		if len(tables) > 0 {
 			slog.Debug("extracted tables from SQL for enrichment",
 				"sql_length", len(sql),
@@ -564,7 +564,7 @@ func (e *semanticEnricher) enrichTrinoResult(
 		// makes it visible that this is heuristic, not asserted.
 		if suggestions := e.trySemanticFallback(ctx, table); len(suggestions) > 0 {
 			if pc != nil {
-				pc.EnrichmentMatchKind = EnrichmentMatchSemantic
+				pc.EnrichmentMatchKind = enrichmentMatchSemantic
 			}
 			return appendSemanticFallbackSuggestions(result, table, suggestions)
 		}
@@ -581,7 +581,7 @@ func (e *semanticEnricher) enrichTrinoResult(
 	}
 
 	if pc != nil {
-		pc.EnrichmentMatchKind = EnrichmentMatchURN
+		pc.EnrichmentMatchKind = enrichmentMatchURN
 	}
 	return appendSemanticContextWithColumns(result, semanticCtx, columnsCtx)
 }
@@ -681,7 +681,7 @@ func appendSemanticFallbackSuggestions(
 	payload := map[string]any{
 		"semantic_fallback": map[string]any{
 			"queried_table":     table.String(),
-			"match_kind":        EnrichmentMatchSemantic,
+			"match_kind":        enrichmentMatchSemantic,
 			fieldNote:           "Exact URN lookup for the queried table missed. The following are SUGGESTED matches from a similarity search; verify before treating as authoritative.",
 			"suggested_matches": items,
 		},
@@ -710,7 +710,7 @@ func extractSQLFromRequest(request mcp.CallToolRequest) string {
 }
 
 // formatTableRefs formats table refs for logging.
-func formatTableRefs(refs []TableRef) []string {
+func formatTableRefs(refs []tableRef) []string {
 	result := make([]string, len(refs))
 	for i, r := range refs {
 		result[i] = r.FullPath
@@ -724,7 +724,7 @@ func formatTableRefs(refs []TableRef) []string {
 func (e *semanticEnricher) enrichTrinoQueryResult(
 	ctx context.Context,
 	result *mcp.CallToolResult,
-	tables []TableRef,
+	tables []tableRef,
 	filterSQL string,
 	catalogMapping map[string]string,
 ) (*mcp.CallToolResult, error) {
@@ -781,7 +781,7 @@ func (e *semanticEnricher) enrichTrinoQueryResult(
 // always included for safety. If no column names match (e.g., SELECT *), all
 // columns are returned as a graceful fallback.
 func filterColumnsBySQL(columnsCtx map[string]*semantic.ColumnContext, sql string) map[string]*semantic.ColumnContext {
-	sqlIDs := ExtractIdentifiers(sql)
+	sqlIDs := extractIdentifiers(sql)
 
 	filtered := make(map[string]*semantic.ColumnContext, len(columnsCtx))
 	for name, col := range columnsCtx {
@@ -815,8 +815,8 @@ func isSafetyRelevant(col *semantic.ColumnContext) bool {
 	return false
 }
 
-// refToTableIdentifier converts TableRef to semantic.TableIdentifier.
-func refToTableIdentifier(ref TableRef) semantic.TableIdentifier {
+// refToTableIdentifier converts tableRef to semantic.TableIdentifier.
+func refToTableIdentifier(ref tableRef) semantic.TableIdentifier {
 	return semantic.TableIdentifier{
 		Catalog: ref.Catalog,
 		Schema:  ref.Schema,
@@ -825,7 +825,7 @@ func refToTableIdentifier(ref TableRef) semantic.TableIdentifier {
 }
 
 // buildAdditionalTableContext creates summary context for additional tables.
-func buildAdditionalTableContext(ref TableRef, ctx *semantic.TableContext) map[string]any {
+func buildAdditionalTableContext(ref tableRef, ctx *semantic.TableContext) map[string]any {
 	summary := map[string]any{
 		keyTable:       ref.FullPath,
 		keyDescription: ctx.Description,
@@ -1132,7 +1132,7 @@ func extractTableFromSQL(args map[string]any) string {
 	if !ok || sql == "" {
 		return ""
 	}
-	tables := ExtractTablesFromSQL(sql)
+	tables := extractTablesFromSQL(sql)
 	if len(tables) > 0 {
 		return tables[0].FullPath
 	}

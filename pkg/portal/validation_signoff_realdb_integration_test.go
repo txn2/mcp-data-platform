@@ -78,10 +78,10 @@ func TestRealDB_ValidationSignoffWorklist(t *testing.T) {
 	got, err = store.GetThread(ctx, "thr_disp")
 	require.NoError(t, err)
 	assert.Equal(t, ValidationStateDisputed, got.ValidationState)
-	assert.Equal(t, ThreadStatusOpen, got.Status, "dispute must re-open the thread")
+	assert.Equal(t, threadStatusOpen, got.Status, "dispute must re-open the thread")
 	events, err := store.ListEvents(ctx, "thr_disp")
 	require.NoError(t, err)
-	assert.True(t, hasEvent(events, EventTypeValidationResult), "expected a validation_result event")
+	assert.True(t, hasEvent(events, eventTypeValidationResult), "expected a validation_result event")
 
 	// 3. responding to a thread that was never submitted for validation is
 	//    rejected (the state machine requires a pending request first).
@@ -100,7 +100,7 @@ func TestRealDB_ValidationSignoffWorklist(t *testing.T) {
 
 	// 4. sign-off: two DISTINCT approvers on the asset's threads -> N = 2.
 	for _, a := range []struct{ id, author string }{{"ap1", "a1"}, {"ap2", "a2"}, {"ap3", "a1"}} {
-		_, err := store.AppendEvent(ctx, ThreadEvent{ID: a.id, ThreadID: "thr_val", EventType: EventTypeApproval, AuthorID: a.author, AuthorEmail: a.author + "@x"})
+		_, err := store.AppendEvent(ctx, ThreadEvent{ID: a.id, ThreadID: "thr_val", EventType: eventTypeApproval, AuthorID: a.author, AuthorEmail: a.author + "@x"})
 		require.NoError(t, err)
 	}
 	n, err := store.CountSignoffs(ctx, targetTypeAsset, "asset_p3")
@@ -119,7 +119,7 @@ func TestRealDB_ValidationSignoffWorklist(t *testing.T) {
 	// 6. practitioner worklist: open + requires_resolution on the owned asset.
 	requires := true
 	pracList, _, err := store.ListThreads(ctx, ThreadFilter{
-		TargetAssetIDs: []string{"asset_p3"}, Status: ThreadStatusOpen, RequiresResolution: &requires,
+		TargetAssetIDs: []string{"asset_p3"}, Status: threadStatusOpen, RequiresResolution: &requires,
 	})
 	require.NoError(t, err)
 	pracIDs := idsOf(pracList)

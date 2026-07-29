@@ -3,7 +3,7 @@ package admin
 import (
 	"net/http"
 
-	"github.com/txn2/mcp-data-platform/pkg/admin/settingsapi"
+	"github.com/txn2/mcp-data-platform/internal/admin/settingsapi"
 )
 
 // requestAuthor resolves the acting admin for audit columns: email, else

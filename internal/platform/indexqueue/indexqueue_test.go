@@ -10,9 +10,9 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"go.uber.org/goleak"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/resourceindex"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
-	"github.com/txn2/mcp-data-platform/pkg/resource/resourceindex"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 )

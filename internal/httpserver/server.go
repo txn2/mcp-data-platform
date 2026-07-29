@@ -19,9 +19,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
+	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/ui"
-	"github.com/txn2/mcp-data-platform/pkg/health"
-	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/session"

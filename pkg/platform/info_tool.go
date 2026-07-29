@@ -270,7 +270,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		agentInstructions = sessionThreadingInstruction(sessionID) + agentInstructions
 	}
 
-	reg := DefaultRegistry()
+	reg := defaultRegistry()
 	info := Info{
 		Name:                p.config.Server.Name,
 		Version:             p.config.Server.Version,

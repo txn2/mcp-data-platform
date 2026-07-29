@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/utilhandler"
+	"github.com/txn2/mcp-data-platform/internal/platform/utilhandler"
 )
 
 func TestParseConfig_Handler(t *testing.T) {

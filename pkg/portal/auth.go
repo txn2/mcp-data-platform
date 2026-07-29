@@ -36,7 +36,7 @@ func GetUser(ctx context.Context) *User {
 
 // ContextWithUser returns a copy of ctx carrying the authenticated user, the
 // value GetUser reads. Exported so handlers split into sibling packages (e.g.
-// pkg/portal/datahubapi) can be exercised with an authenticated principal.
+// internal/httpserver/datahubapi) can be exercised with an authenticated principal.
 func ContextWithUser(ctx context.Context, user *User) context.Context {
 	return context.WithValue(ctx, portalUserKey, user)
 }

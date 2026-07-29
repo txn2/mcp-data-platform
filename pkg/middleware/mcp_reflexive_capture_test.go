@@ -250,14 +250,14 @@ func TestReflexiveEntityURNs(t *testing.T) {
 			return "urn:" + catalog + "." + schema + "." + table
 		},
 	}
-	refs := ExtractTablesFromSQL("SELECT * FROM cat.sch.orders o JOIN cat.sch.customers c ON o.id = c.id")
+	refs := extractTablesFromSQL("SELECT * FROM cat.sch.orders o JOIN cat.sch.customers c ON o.id = c.id")
 	urns := cfg.entityURNs("primary", refs)
 	if len(urns) != 2 {
 		t.Fatalf("expected 2 urns, got %v", urns)
 	}
 
 	// A two-part table (no catalog) yields no URN; a nil builder yields none.
-	partial := ExtractTablesFromSQL("SELECT * FROM sch.orders")
+	partial := extractTablesFromSQL("SELECT * FROM sch.orders")
 	if got := cfg.entityURNs("primary", partial); got != nil {
 		t.Errorf("two-part table should not produce a URN, got %v", got)
 	}

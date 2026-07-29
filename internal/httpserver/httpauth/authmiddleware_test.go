@@ -1,4 +1,4 @@
-package http //nolint:revive // var-naming: intentional package name to match directory
+package httpauth
 
 import (
 	"context"

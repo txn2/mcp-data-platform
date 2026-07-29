@@ -173,7 +173,7 @@ func TestCreateAssetThreadAsOwner(t *testing.T) {
 	require.Equal(t, http.StatusCreated, w.Code)
 	require.NotNil(t, threads.lastCreated)
 	assert.Equal(t, "u1", threads.lastCreated.AuthorID)
-	assert.Equal(t, ThreadStatusOpen, threads.lastCreated.Status)
+	assert.Equal(t, threadStatusOpen, threads.lastCreated.Status)
 	assert.True(t, threads.lastCreated.RequiresResolution)
 	assert.Equal(t, 3, threads.lastCreated.TargetVersion)
 }
@@ -203,7 +203,7 @@ func TestCreateStandaloneThreadAnyUser(t *testing.T) {
 	threads := &mockThreadStore{}
 	// No asset access configured; standalone must still succeed for any authed user.
 	h := newThreadTestHandler(threads, &mockAssetStore{}, &mockShareStore{}, &User{UserID: "u2", Email: "u2@example.com"})
-	w := doThreadReq(t, h, http.MethodPost, "/api/v1/portal/threads", createThreadRequest{Kind: ThreadKindSuggestion, TargetType: targetTypeStandalone, Body: "idea"})
+	w := doThreadReq(t, h, http.MethodPost, "/api/v1/portal/threads", createThreadRequest{Kind: threadKindSuggestion, TargetType: targetTypeStandalone, Body: "idea"})
 	require.Equal(t, http.StatusCreated, w.Code)
 	assert.Equal(t, targetTypeStandalone, threads.lastCreated.TargetType)
 }
@@ -267,7 +267,7 @@ func TestAppendThreadEventDefaultsToComment(t *testing.T) {
 func TestAppendThreadEventInvalidType(t *testing.T) {
 	threads := &mockThreadStore{getResult: &Thread{ID: "thr_1", TargetType: targetTypeStandalone}}
 	h := newThreadTestHandler(threads, &mockAssetStore{}, &mockShareStore{}, &User{UserID: "u1"})
-	w := doThreadReq(t, h, http.MethodPost, "/api/v1/portal/threads/thr_1/events", appendEventRequest{EventType: EventTypeStatusChange, Body: "x"})
+	w := doThreadReq(t, h, http.MethodPost, "/api/v1/portal/threads/thr_1/events", appendEventRequest{EventType: eventTypeStatusChange, Body: "x"})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
@@ -315,7 +315,7 @@ func TestUpdateThreadNonModeratorDenied(t *testing.T) {
 func TestUpdateThreadByAdmin(t *testing.T) {
 	threads := &mockThreadStore{getResult: &Thread{ID: "thr_1", TargetType: targetTypeStandalone, AuthorID: "other"}}
 	h := newThreadTestHandler(threads, &mockAssetStore{}, &mockShareStore{}, &User{UserID: "admin1", Roles: []string{"admin"}})
-	ack := ThreadStatusAcknowledged
+	ack := threadStatusAcknowledged
 	w := doThreadReq(t, h, http.MethodPatch, "/api/v1/portal/threads/thr_1", updateThreadRequest{Status: &ack})
 	assert.Equal(t, http.StatusOK, w.Code)
 }

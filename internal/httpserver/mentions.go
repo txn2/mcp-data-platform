@@ -3,17 +3,17 @@ package httpserver
 import (
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
-	"github.com/txn2/mcp-data-platform/pkg/portal/mentionhttp"
 )
 
 // The mount function lives in dbmounts.go with the other database-only mounts;
 // this file keeps the unit-testable adapters.
 
 // Wiring for @-mention tagging on feedback threads (#627) and the people
-// pickers that feed it. The handlers live in pkg/portal/mentionhttp, outside
+// pickers that feed it. The handlers live in internal/httpserver/mentionhttp, outside
 // pkg/portal (which sits at the package-size budget); this file holds the
 // identity adapter and the audience constructor both the portal REST surface
 // and the notification bridge draw on.

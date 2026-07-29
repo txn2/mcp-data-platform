@@ -165,7 +165,7 @@ func (r *SessionResolver) resolve(ctx context.Context, req mcp.Request, pc *Plat
 	// by construction to them. This is not an agent-reachable bypass: a real MCP
 	// transport call always resolves to Source=mcp (resolveSource's default), and
 	// the shim sources are set only in-process via middleware.WithSource on the
-	// server connection context (pkg/gatewayhttp, pkg/admin), which an external
+	// server connection context (internal/httpserver/gatewayhttp, pkg/admin), which an external
 	// caller cannot inject. An unset/unknown source stays gated (fail closed). The
 	// authenticator, not the handle, remains the security boundary; shim callers
 	// still authenticate and remain subject to persona authorization, route policy,

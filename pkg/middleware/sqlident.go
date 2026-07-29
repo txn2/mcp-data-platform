@@ -2,14 +2,14 @@ package middleware
 
 import "strings"
 
-// ExtractIdentifiers lexes a SQL string and returns all identifiers found,
+// extractIdentifiers lexes a SQL string and returns all identifiers found,
 // lowercased. This is dialect-agnostic because it operates at the lexical
 // level (tokenization), not at the grammar level (parsing). String literals,
 // block comments, and line comments are skipped entirely. Double-quoted
 // identifiers are extracted and lowercased.
 //
 // The function runs in O(n) time with a single pass over the input.
-func ExtractIdentifiers(sql string) map[string]bool {
+func extractIdentifiers(sql string) map[string]bool {
 	ids := make(map[string]bool)
 	n := len(sql)
 	pos := 0
