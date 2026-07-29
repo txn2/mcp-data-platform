@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/sharecache"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
-	"github.com/txn2/mcp-data-platform/pkg/portal/sharecache"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareguest"
 )
 
@@ -49,7 +49,7 @@ func isGuestRequest(r *http.Request) bool {
 // seven routes and several read S3 without going through the page handler, so
 // enforcing per-handler would leave a route open by omission (#999).
 //
-// The gate also owns the response's caching policy (pkg/portal/sharecache),
+// The gate also owns the response's caching policy (internal/portal/sharecache),
 // for the same reason it owns the access decision: a per-handler directive
 // would leave a route publicly cacheable by omission.
 //

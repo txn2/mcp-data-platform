@@ -1,6 +1,6 @@
 // Package utilconn seeds the built-in "util" API-gateway connection
 // (issue #1005): a handler=internal connection whose operations are
-// served in-process (pkg/toolkits/apigateway/utilhandler) and
+// served in-process (internal/platform/utilhandler) and
 // discovered through the same catalog path as any other api
 // connection. Composed only by pkg/platform's runtime wiring; the
 // seam keeps the seed off the Platform struct (the god-object budget
@@ -19,10 +19,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/utilhandler"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/utilhandler"
 )
 
 // Built-in identifiers. The connection name doubles as the catalog ID

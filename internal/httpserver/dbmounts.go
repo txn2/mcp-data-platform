@@ -20,16 +20,16 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
-	"github.com/txn2/mcp-data-platform/pkg/portal/mentionhttp"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
-	"github.com/txn2/mcp-data-platform/pkg/prompt/attachhttp"
-	"github.com/txn2/mcp-data-platform/pkg/prompt/versionhttp"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 

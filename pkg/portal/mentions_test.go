@@ -38,7 +38,7 @@ func mentionTestHandler(t *testing.T, resolver MentionResolver) (*Handler, *mock
 	store := &mockThreadStore{
 		getResult: &Thread{
 			ID: "thr_1", TargetType: targetTypeAsset, AssetID: "asset_1",
-			AuthorID: "u1", AuthorEmail: "author@example.com", Status: ThreadStatusOpen,
+			AuthorID: "u1", AuthorEmail: "author@example.com", Status: threadStatusOpen,
 		},
 	}
 	assets := &mockAssetStore{getAsset: &Asset{ID: "asset_1", OwnerID: "u1", OwnerEmail: "author@example.com"}}

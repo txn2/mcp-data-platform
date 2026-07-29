@@ -53,7 +53,7 @@ func TestPractitionerWorklist(t *testing.T) {
 	// Owned + editor-shared assets are included; viewer-shared is not.
 	assert.ElementsMatch(t, []string{"asset_owned", "asset_edit"}, f.TargetAssetIDs)
 	assert.Equal(t, []string{"col_owned"}, f.TargetCollectionIDs)
-	assert.Equal(t, ThreadStatusOpen, f.Status)
+	assert.Equal(t, threadStatusOpen, f.Status)
 	require.NotNil(t, f.RequiresResolution)
 	assert.True(t, *f.RequiresResolution)
 }

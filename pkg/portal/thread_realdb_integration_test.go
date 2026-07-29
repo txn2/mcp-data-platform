@@ -101,7 +101,7 @@ func TestRealDB_ThreadLifecycle(t *testing.T) {
 	events, err := store.ListEvents(ctx, "thr_life")
 	require.NoError(t, err)
 	require.Len(t, events, 3) // initial comment + reply + resolution
-	assert.Equal(t, EventTypeResolution, events[2].EventType)
+	assert.Equal(t, eventTypeResolution, events[2].EventType)
 }
 
 func TestRealDB_AutoPromoteCreatesAndDoesNotDowngrade(t *testing.T) {

@@ -175,7 +175,7 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if !ValidThreadKind(req.Kind) {
+	if !validThreadKind(req.Kind) {
 		writeError(w, http.StatusBadRequest, "invalid kind")
 		return
 	}
@@ -200,7 +200,7 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		Title:              req.Title,
 		AuthorID:           user.UserID,
 		AuthorEmail:        user.Email,
-		Status:             ThreadStatusOpen,
+		Status:             threadStatusOpen,
 		RequiresResolution: req.RequiresResolution,
 	}
 	first := ThreadEvent{
@@ -421,7 +421,7 @@ func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Status != nil && !ValidThreadStatus(*req.Status) {
+	if req.Status != nil && !validThreadStatus(*req.Status) {
 		writeError(w, http.StatusBadRequest, "invalid status")
 		return
 	}
@@ -874,7 +874,7 @@ func validThreadTarget(targetType, assetID, collectionID, promptID, knowledgePag
 // status/resolution and knowledge-link events are produced by the system.
 func validAppendEventType(eventType string) bool {
 	switch eventType {
-	case EventTypeComment, EventTypeRating, EventTypeApproval, EventTypeRejection:
+	case EventTypeComment, eventTypeRating, eventTypeApproval, eventTypeRejection:
 		return true
 	default:
 		return false

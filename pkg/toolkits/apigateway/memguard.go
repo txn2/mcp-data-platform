@@ -13,7 +13,7 @@ import (
 
 // Structured error codes the gateway emits for memory-protection
 // rejections. They are carried in the "error" field of the tool-error
-// JSON envelope so the REST shim (pkg/gatewayhttp) can map them to the
+// JSON envelope so the REST shim (internal/httpserver/gatewayhttp) can map them to the
 // correct HTTP status with the correct retry semantics:
 //
 //   - ErrCodeBodyTooLarge      -> 413 Payload Too Large  (non-retryable)

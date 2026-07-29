@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"testing"
 	"time"
 
@@ -36,27 +37,72 @@ func notificationRows(t *testing.T, ns ...Notification) *sqlmock.Rows {
 	return rows
 }
 
+// enqueueInsert is the exact statement Enqueue must issue. Matching the full
+// column list rather than the table name alone means a column added, dropped or
+// reordered fails here instead of being rubber-stamped: sqlmock validates
+// against this string, not against a schema, so a loose pattern would accept an
+// insert real Postgres rejects. TestQueueStoreRealDB is the backstop that
+// catches what no mock can.
+var enqueueInsert = regexp.QuoteMeta(
+	`INSERT INTO notifications (recipient, category, payload, digest, scheduled_for)`)
+
 func TestQueueStore_Enqueue(t *testing.T) {
-	store, mock, done := newMockQueueStore(t)
-	defer done()
+	t.Run("unscheduled notification defers to the database clock", func(t *testing.T) {
+		store, mock, done := newMockQueueStore(t)
+		defer done()
 
-	mock.ExpectExec("INSERT INTO notifications").
-		WithArgs("a@b.io", CategoryShare, sqlmock.AnyArg(), false, sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec("SELECT pg_notify").
-		WithArgs(NotifyChannel).
-		WillReturnResult(sqlmock.NewResult(0, 0))
+		payload, err := json.Marshal(Payload{Kind: KindAsset, ItemTitle: "Report"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// scheduled_for is bound as nil, which is what makes COALESCE($5, NOW())
+		// stamp the row with the database clock. Passing a Go-side timestamp
+		// here would reintroduce the host/DB clock skew the nil exists to avoid.
+		mock.ExpectExec(enqueueInsert).
+			WithArgs("a@b.io", CategoryShare, payload, false, nil).
+			WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("SELECT pg_notify").
+			WithArgs(NotifyChannel).
+			WillReturnResult(sqlmock.NewResult(0, 0))
 
-	err := store.Enqueue(context.Background(), Notification{
-		Recipient: "a@b.io", Category: CategoryShare,
-		Payload: Payload{Kind: KindAsset, ItemTitle: "Report"},
+		if err := store.Enqueue(context.Background(), Notification{
+			Recipient: "a@b.io", Category: CategoryShare,
+			Payload: Payload{Kind: KindAsset, ItemTitle: "Report"},
+		}); err != nil {
+			t.Fatalf("Enqueue: %v", err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unmet expectations: %v", err)
+		}
 	})
-	if err != nil {
-		t.Fatalf("Enqueue: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
+
+	t.Run("digest notification passes its schedule through", func(t *testing.T) {
+		store, mock, done := newMockQueueStore(t)
+		defer done()
+
+		when := time.Date(2026, 7, 29, 13, 0, 0, 0, time.UTC)
+		payload, err := json.Marshal(Payload{Kind: KindAsset, ItemTitle: "Digest"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		mock.ExpectExec(enqueueInsert).
+			WithArgs("a@b.io", CategoryShare, payload, true, when).
+			WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectExec("SELECT pg_notify").
+			WithArgs(NotifyChannel).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+
+		if err := store.Enqueue(context.Background(), Notification{
+			Recipient: "a@b.io", Category: CategoryShare, Digest: true,
+			ScheduledFor: when,
+			Payload:      Payload{Kind: KindAsset, ItemTitle: "Digest"},
+		}); err != nil {
+			t.Fatalf("Enqueue: %v", err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unmet expectations: %v", err)
+		}
+	})
 }
 
 func TestQueueStore_Enqueue_NotifyFailureIgnored(t *testing.T) {

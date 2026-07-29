@@ -115,11 +115,11 @@ func TestLoadConfig_Strict_CleanConfigLoads(t *testing.T) {
 // TestLoadConfigFromBytes_DeprecatedVersion exercises the deprecated-version
 // warn branch and confirms the config still loads.
 func TestLoadConfigFromBytes_DeprecatedVersion(t *testing.T) {
-	reg := NewVersionRegistry()
-	reg.Register(&VersionInfo{Version: "v1", Status: VersionCurrent})
-	reg.Register(&VersionInfo{
+	reg := newVersionRegistry()
+	reg.Register(&versionInfo{Version: "v1", Status: versionCurrent})
+	reg.Register(&versionInfo{
 		Version:            "v0",
-		Status:             VersionDeprecated,
+		Status:             versionDeprecated,
 		DeprecationMessage: "upgrade to v1",
 	})
 	cfg, err := loadConfigWithRegistry([]byte("apiVersion: v0\nserver:\n  name: p\n"), reg)
@@ -134,10 +134,10 @@ func TestLoadConfigFromBytes_DeprecatedVersion(t *testing.T) {
 // TestLoadConfigFromBytes_Converter exercises the converter dispatch branch,
 // both success and error.
 func TestLoadConfigFromBytes_Converter(t *testing.T) {
-	reg := NewVersionRegistry()
-	reg.Register(&VersionInfo{
+	reg := newVersionRegistry()
+	reg.Register(&versionInfo{
 		Version: "vx",
-		Status:  VersionCurrent,
+		Status:  versionCurrent,
 		Converter: func([]byte) (*Config, error) {
 			return &Config{Server: ServerConfig{Name: "converted"}}, nil
 		},
@@ -150,10 +150,10 @@ func TestLoadConfigFromBytes_Converter(t *testing.T) {
 		t.Fatalf("expected converter output, got %q", cfg.Server.Name)
 	}
 
-	regErr := NewVersionRegistry()
-	regErr.Register(&VersionInfo{
+	regErr := newVersionRegistry()
+	regErr.Register(&versionInfo{
 		Version: "vy",
-		Status:  VersionCurrent,
+		Status:  versionCurrent,
 		Converter: func([]byte) (*Config, error) {
 			return nil, errAssertConverter
 		},

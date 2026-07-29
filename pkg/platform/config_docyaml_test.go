@@ -116,11 +116,11 @@ func topLevelKeys(block string) []string {
 // different schema and must not be validated against the current Config
 // (LoadConfigFromBytes would reject an unknown apiVersion outright).
 func blockTargetsOtherSchema(block string) bool {
-	version := PeekVersion([]byte(block))
+	version := peekVersion([]byte(block))
 	if version == "" {
 		return false // no apiVersion → current schema
 	}
-	info, err := resolveVersion(DefaultRegistry(), version)
+	info, err := resolveVersion(defaultRegistry(), version)
 	return err != nil || info.Converter != nil
 }
 

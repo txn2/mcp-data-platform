@@ -3,6 +3,7 @@ package notification
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -236,6 +237,12 @@ func TestWorker_Resolve_TerminalError(t *testing.T) {
 	}
 }
 
+// TestWorker_Resolve_StoreErrorsLogged asserts that a failing queue store does
+// not change how a send failure is routed: a non-terminal failure below the
+// attempt ceiling is still scheduled for retry, and a terminal one is still
+// marked failed. Routing either way wrongly costs a dropped notification or an
+// endless retry, so the store error must be logged and swallowed rather than
+// diverting the decision.
 func TestWorker_Resolve_StoreErrorsLogged(t *testing.T) {
 	queue := &fakeQueueStore{opErr: errors.New("store down")}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, &fakeSender{})
@@ -243,7 +250,13 @@ func TestWorker_Resolve_StoreErrorsLogged(t *testing.T) {
 	batch := []Notification{{ID: 9, Recipient: "a@b.io", Attempts: 1}}
 	w.resolve(context.Background(), batch, errors.New("send failed"), false)
 	w.resolve(context.Background(), batch, errors.New("send failed"), true)
-	// Must not panic; errors are logged.
+
+	if want := [][]int64{{9}}; !reflect.DeepEqual(queue.retried, want) {
+		t.Errorf("non-terminal failure: Retry calls = %v, want %v", queue.retried, want)
+	}
+	if want := [][]int64{{9}}; !reflect.DeepEqual(queue.failed, want) {
+		t.Errorf("terminal failure: Fail calls = %v, want %v", queue.failed, want)
+	}
 }
 
 func TestWorker_Deliver_MarkSentError(t *testing.T) {
@@ -300,11 +313,25 @@ func TestWorker_Drain_PurgeRunsAndThrottles(t *testing.T) {
 	}
 }
 
+// TestWorker_ClaimError asserts that a claim failure ends the drain without
+// side effects. A claim error is indistinguishable from an empty queue to
+// everything downstream, so the worker must neither send nor mark rows: doing
+// either on a store it could not read from would act on notifications it never
+// claimed.
 func TestWorker_ClaimError(t *testing.T) {
 	queue := &fakeQueueStore{claimErr: errors.New("claim boom")}
-	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, &fakeSender{})
+	sender := &fakeSender{}
+	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, sender)
 
-	w.drain() // must not panic or loop forever
+	w.drain()
+
+	if got := sender.sentCopy(); len(got) != 0 {
+		t.Errorf("claim failure still sent %d email(s)", len(got))
+	}
+	if len(queue.sent)+len(queue.retried)+len(queue.failed) != 0 {
+		t.Errorf("claim failure still marked rows: sent=%v retried=%v failed=%v",
+			queue.sent, queue.retried, queue.failed)
+	}
 }
 
 func TestComputeBackoff(t *testing.T) {

@@ -12,8 +12,8 @@ const (
 	sqlTestSourceTF      = "TABLE_FUNCTION"
 )
 
-// assertTableRef validates a single TableRef against expected values.
-func assertTableRef(t *testing.T, idx int, got, exp TableRef) {
+// assertTableRef validates a single tableRef against expected values.
+func assertTableRef(t *testing.T, idx int, got, exp tableRef) {
 	t.Helper()
 	if got.Catalog != exp.Catalog {
 		t.Errorf("table[%d] catalog: expected %q, got %q", idx, exp.Catalog, got.Catalog)
@@ -36,33 +36,33 @@ func TestExtractTablesFromSQL(t *testing.T) {
 	tests := []struct {
 		name     string
 		sql      string
-		expected []TableRef
+		expected []tableRef
 	}{
 		{
 			name: "simple SELECT",
 			sql:  "SELECT * FROM users",
-			expected: []TableRef{
+			expected: []tableRef{
 				{Table: "users", FullPath: "users", Source: sqlTestSourceFROM},
 			},
 		},
 		{
 			name: "two-part name (schema.table)",
 			sql:  "SELECT * FROM public.users",
-			expected: []TableRef{
+			expected: []tableRef{
 				{Schema: "public", Table: "users", FullPath: "public.users", Source: sqlTestSourceFROM},
 			},
 		},
 		{
 			name: "three-part name (catalog.schema.table)",
 			sql:  "SELECT * FROM cassandra.prod_fuse.location",
-			expected: []TableRef{
+			expected: []tableRef{
 				{Catalog: "cassandra", Schema: "prod_fuse", Table: "location", FullPath: "cassandra.prod_fuse.location", Source: sqlTestSourceFROM},
 			},
 		},
 		{
 			name: "JOIN query",
 			sql:  "SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id",
-			expected: []TableRef{
+			expected: []tableRef{
 				{Table: "orders", FullPath: "orders", Source: sqlTestSourceFROM},
 				{Table: "customers", FullPath: "customers", Source: sqlTestSourceFROM},
 			},
@@ -70,7 +70,7 @@ func TestExtractTablesFromSQL(t *testing.T) {
 		{
 			name: "multiple JOINs with qualified names",
 			sql:  "SELECT * FROM catalog1.schema1.table1 t1 JOIN catalog2.schema2.table2 t2 ON t1.id = t2.id",
-			expected: []TableRef{
+			expected: []tableRef{
 				{Catalog: "catalog1", Schema: "schema1", Table: "table1", FullPath: "catalog1.schema1.table1", Source: sqlTestSourceFROM},
 				{Catalog: "catalog2", Schema: "schema2", Table: "table2", FullPath: "catalog2.schema2.table2", Source: sqlTestSourceFROM},
 			},
@@ -78,12 +78,12 @@ func TestExtractTablesFromSQL(t *testing.T) {
 		{
 			name:     "ES raw_query single index",
 			sql:      "SELECT * FROM TABLE(elasticsearch.system.raw_query(schema => 'default', index => 'jakes-sale-2025', query => '{}'))",
-			expected: []TableRef{{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "jakes-sale-2025", FullPath: "elasticsearch.default.jakes-sale-2025", Source: sqlTestSourceTF}},
+			expected: []tableRef{{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "jakes-sale-2025", FullPath: "elasticsearch.default.jakes-sale-2025", Source: sqlTestSourceTF}},
 		},
 		{
 			name: "ES raw_query multiple indices",
 			sql:  "SELECT * FROM TABLE(elasticsearch.system.raw_query(schema => 'sales', index => 'idx1,idx2,idx3', query => '{}'))",
-			expected: []TableRef{
+			expected: []tableRef{
 				{Catalog: sqlTestCatalogES, Schema: "sales", Table: "idx1", FullPath: "elasticsearch.sales.idx1", Source: sqlTestSourceTF},
 				{Catalog: sqlTestCatalogES, Schema: "sales", Table: "idx2", FullPath: "elasticsearch.sales.idx2", Source: sqlTestSourceTF},
 				{Catalog: sqlTestCatalogES, Schema: "sales", Table: "idx3", FullPath: "elasticsearch.sales.idx3", Source: sqlTestSourceTF},
@@ -106,7 +106,7 @@ parsed_agg AS (
 )
 SELECT * FROM parsed_agg agg
 INNER JOIN cassandra.prod_fuse.location loc ON agg.location_id = loc.id`,
-			expected: []TableRef{
+			expected: []tableRef{
 				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "jakes-sale-2024", FullPath: "elasticsearch.default.jakes-sale-2024", Source: sqlTestSourceTF},
 				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "jakes-sale-2025", FullPath: "elasticsearch.default.jakes-sale-2025", Source: sqlTestSourceTF},
 				{Catalog: "cassandra", Schema: "prod_fuse", Table: "location", FullPath: "cassandra.prod_fuse.location", Source: sqlTestSourceFROM},
@@ -126,7 +126,7 @@ INNER JOIN cassandra.prod_fuse.location loc ON agg.location_id = loc.id`,
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ExtractTablesFromSQL(tt.sql)
+			result := extractTablesFromSQL(tt.sql)
 
 			if len(result) != len(tt.expected) {
 				t.Errorf("expected %d tables, got %d: %+v", len(tt.expected), len(result), result)
@@ -202,19 +202,19 @@ func TestExtractESRawQuery(t *testing.T) {
 	tests := []struct {
 		name     string
 		sql      string
-		expected []TableRef
+		expected []tableRef
 	}{
 		{
 			name: "basic raw_query",
 			sql:  "SELECT * FROM TABLE(elasticsearch.system.raw_query(schema => 'default', index => 'my-index', query => '{}'))",
-			expected: []TableRef{
+			expected: []tableRef{
 				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "my-index", FullPath: "elasticsearch.default.my-index", Source: sqlTestSourceTF},
 			},
 		},
 		{
 			name: "comma-separated indices",
 			sql:  "SELECT * FROM TABLE(elasticsearch.system.raw_query(index => 'idx1, idx2', query => '{}'))",
-			expected: []TableRef{
+			expected: []tableRef{
 				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "idx1", FullPath: "elasticsearch.default.idx1", Source: sqlTestSourceTF},
 				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "idx2", FullPath: "elasticsearch.default.idx2", Source: sqlTestSourceTF},
 			},
@@ -232,7 +232,7 @@ func TestExtractESRawQuery(t *testing.T) {
 		{
 			name: "indices with empty entries after split",
 			sql:  "SELECT * FROM TABLE(elasticsearch.system.raw_query(index => 'idx1, , idx2', query => '{}'))",
-			expected: []TableRef{
+			expected: []tableRef{
 				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "idx1", FullPath: "elasticsearch.default.idx1", Source: sqlTestSourceTF},
 				{Catalog: sqlTestCatalogES, Schema: sqlTestSchemaDefault, Table: "idx2", FullPath: "elasticsearch.default.idx2", Source: sqlTestSourceTF},
 			},

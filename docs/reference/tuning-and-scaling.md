@@ -388,7 +388,7 @@ Service. The following components are HA-safe:
   at a time (`pkg/connoauth/refresher.go`).
 - **API gateway REST shim**: each REST request builds an ephemeral in-memory
   MCP session for the duration of the call
-  (`pkg/gatewayhttp/handler.go:203`). There is no cross-request session
+  (`internal/httpserver/gatewayhttp/handler.go:203`). There is no cross-request session
   state, so any replica can serve any request.
 - **Outbound HTTP**: the API gateway toolkit maintains a per-connection
   `http.Transport` with `MaxIdleConns` and `IdleConnTimeout`

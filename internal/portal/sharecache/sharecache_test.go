@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/sharecache"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
-	"github.com/txn2/mcp-data-platform/pkg/portal/sharecache"
 )
 
 // TestPubliclyCacheable pins the rule against the whole mode domain: public is

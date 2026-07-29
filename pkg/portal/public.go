@@ -16,10 +16,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
+	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
+	"github.com/txn2/mcp-data-platform/internal/portal/sharecache"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/contenttype"
-	"github.com/txn2/mcp-data-platform/pkg/portal/publicviewer"
-	"github.com/txn2/mcp-data-platform/pkg/portal/sharecache"
 )
 
 // resolvePublicBaseURL returns the absolute URL prefix the public viewer

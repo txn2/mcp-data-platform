@@ -9,18 +9,18 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
+	"github.com/txn2/mcp-data-platform/internal/platform/mcpapps"
 )
 
 // testAppsDir returns the absolute path to the apps/query-results directory.
 func testAppsDir(t *testing.T) string {
 	t.Helper()
-	// Navigate from pkg/mcpapps to project root, then to apps/query-results
+	// Navigate from internal/platform/mcpapps to project root, then to apps/query-results
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	// Go up two directories from pkg/mcpapps to project root
+	// Go up two directories from internal/platform/mcpapps to project root
 	projectRoot := filepath.Join(wd, "..", "..")
 	appsDir := filepath.Join(projectRoot, "apps", "query-results")
 

@@ -103,7 +103,7 @@ func TestSendClientLog_NilTypedSession(_ *testing.T) {
 		Duration:          50 * time.Millisecond,
 	}
 	ctx := WithPlatformContext(context.Background(), pc)
-	// Store a typed nil — GetServerSession should return nil.
+	// Store a typed nil — getServerSession should return nil.
 	ctx = mcpcontext.WithServerSession(ctx, (*mcp.ServerSession)(nil))
 	sendClientLog(ctx, &mcp.CallToolResult{}, nil)
 }

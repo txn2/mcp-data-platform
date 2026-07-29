@@ -44,7 +44,7 @@ func (h *Handler) practitionerWorklist(w http.ResponseWriter, r *http.Request) {
 	filter := ThreadFilter{
 		TargetAssetIDs:      assetIDs,
 		TargetCollectionIDs: collIDs,
-		Status:              ThreadStatusOpen,
+		Status:              threadStatusOpen,
 		RequiresResolution:  &requires,
 		Limit:               intParam(r, paramLimit, defaultThreadLimit),
 		Offset:              intParam(r, paramOffset, 0),

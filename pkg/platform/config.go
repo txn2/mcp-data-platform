@@ -1700,19 +1700,19 @@ func LoadConfig(path string) (*Config, error) {
 // Environment variables are expanded before parsing. The apiVersion field
 // is validated against the default version registry.
 func LoadConfigFromBytes(data []byte) (*Config, error) {
-	return loadConfigWithRegistry(data, DefaultRegistry())
+	return loadConfigWithRegistry(data, defaultRegistry())
 }
 
 // loadConfigWithRegistry is LoadConfigFromBytes with the version registry
 // injected so the version-dispatch branches (deprecated warning, converter
 // path) can be exercised in tests; the default registry ships only the current
 // v1.
-func loadConfigWithRegistry(data []byte, reg *VersionRegistry) (*Config, error) {
+func loadConfigWithRegistry(data []byte, reg *versionRegistry) (*Config, error) {
 	// Expand environment variables
 	expanded := []byte(expandEnvVars(string(data)))
 
 	// Peek at the version before full parse
-	version := PeekVersion(expanded)
+	version := peekVersion(expanded)
 
 	info, err := resolveVersion(reg, version)
 	if err != nil {
@@ -1720,7 +1720,7 @@ func loadConfigWithRegistry(data []byte, reg *VersionRegistry) (*Config, error) 
 	}
 
 	// Warn on deprecated versions
-	if info.Status == VersionDeprecated {
+	if info.Status == versionDeprecated {
 		slog.Warn("config apiVersion is deprecated",
 			"version", version,
 			"message", info.DeprecationMessage,

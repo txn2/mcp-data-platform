@@ -1469,9 +1469,9 @@ func TestMiddlewareChain_EnrichmentAppliedInAudit(t *testing.T) {
 	// PlatformContext set-site inside enrichTrinoResult is reached
 	// through the real assembled middleware chain, not just exercised
 	// in isolation by the unit tests.
-	if trinoEvent.EnrichmentMatchKind != middleware.EnrichmentMatchURN {
+	if trinoEvent.EnrichmentMatchKind != "urn" {
 		t.Errorf("trino_describe_table: EnrichmentMatchKind = %q, want %q",
-			trinoEvent.EnrichmentMatchKind, middleware.EnrichmentMatchURN)
+			trinoEvent.EnrichmentMatchKind, "urn")
 	}
 
 	if infoEvent == nil {

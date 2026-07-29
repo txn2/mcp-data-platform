@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/txn2/mcp-data-platform/pkg/portal/publicviewer"
+	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
 )
 
 // requiredDirectives are the policy fragments the public viewers depend on. A

@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -27,7 +28,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareguest"
-	"github.com/txn2/mcp-data-platform/pkg/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -153,7 +153,7 @@ type Deps struct {
 	SearchRouter SearchRouter
 	// DataHubRegistrar, when set, registers the portal DataHub Catalog and Context
 	// Docs REST routes (#718) onto the portal mux. It is provided by cmd wiring
-	// (pkg/portal/datahubapi.Handler.Register) so the DataHub feature lives in its
+	// (internal/httpserver/datahubapi.Handler.Register) so the DataHub feature lives in its
 	// own package; nil leaves the /api/v1/portal/datahub/* routes unregistered.
 	DataHubRegistrar func(*http.ServeMux)
 	// MentionResolver filters the @-mentions written in a thread comment to
@@ -288,7 +288,7 @@ func (h *Handler) registerRoutes() {
 	h.registerSearchRoutes()
 
 	// DataHub catalog + context-doc browse/search/edit (#718). Registered by cmd
-	// wiring via pkg/portal/datahubapi so the feature stays in its own package.
+	// wiring via internal/httpserver/datahubapi so the feature stays in its own package.
 	if h.deps.DataHubRegistrar != nil {
 		h.deps.DataHubRegistrar(h.mux)
 	}

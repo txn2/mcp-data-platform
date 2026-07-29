@@ -10,23 +10,23 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
-// EnrichmentModeFull is the enrichment mode value for full (non-dedup) enrichment.
-const EnrichmentModeFull = "full"
+// enrichmentModeFull is the enrichment mode value for full (non-dedup) enrichment.
+const enrichmentModeFull = "full"
 
 // Enrichment match-kind values, recorded on PlatformContext and
 // surfaced in audit_logs.enrichment_match_kind so operators can
 // distinguish a confident URN-equality match from a similarity
 // suggestion produced by the semantic fallback path (issue #444).
 const (
-	// EnrichmentMatchURN means the platform resolved the target
+	// enrichmentMatchURN means the platform resolved the target
 	// table or column by exact URN equality. High confidence.
-	EnrichmentMatchURN = "urn"
+	enrichmentMatchURN = "urn"
 
-	// EnrichmentMatchSemantic means the URN-equality lookup missed
+	// enrichmentMatchSemantic means the URN-equality lookup missed
 	// and the platform fell back to a similarity search. The
 	// enrichment payload is a SUGGESTED match, not an asserted one;
 	// operators measure false-positive rate from this value.
-	EnrichmentMatchSemantic = "semantic"
+	enrichmentMatchSemantic = "semantic"
 )
 
 // contextKey is a private type for context keys.
@@ -75,8 +75,8 @@ type PlatformContext struct {
 	EnrichmentMode        string // "full", "summary", "reference", "none", or "" (not enriched)
 
 	// EnrichmentMatchKind distinguishes URN-equality matches from
-	// similarity-fallback matches. Set to EnrichmentMatchURN when
-	// the URN lookup succeeded, EnrichmentMatchSemantic when the
+	// similarity-fallback matches. Set to enrichmentMatchURN when
+	// the URN lookup succeeded, enrichmentMatchSemantic when the
 	// platform fell back to a similarity search. Empty when no
 	// enrichment ran. See pkg/audit.Event.EnrichmentMatchKind.
 	EnrichmentMatchKind string
@@ -217,8 +217,8 @@ func GetPlatformContext(ctx context.Context) *PlatformContext {
 	return nil
 }
 
-// MustGetPlatformContext retrieves platform context or panics.
-func MustGetPlatformContext(ctx context.Context) *PlatformContext {
+// mustGetPlatformContext retrieves platform context or panics.
+func mustGetPlatformContext(ctx context.Context) *PlatformContext {
 	pc := GetPlatformContext(ctx)
 	if pc == nil {
 		panic("platform context not found in context")
@@ -258,7 +258,7 @@ func GetPreAuthenticatedUser(ctx context.Context) *UserInfo {
 
 // WithSource tags the context with an audit source override. The MCP tool
 // call middleware honors this value when populating PlatformContext.Source,
-// so REST shims (e.g. pkg/gatewayhttp) can mark tool calls they initiate as
+// so REST shims (e.g. internal/httpserver/gatewayhttp) can mark tool calls they initiate as
 // originating from the REST API rather than from a real MCP transport.
 // When unset, the middleware defaults to "mcp".
 func WithSource(ctx context.Context, source string) context.Context {
@@ -274,26 +274,26 @@ func GetSource(ctx context.Context) string {
 	return ""
 }
 
-// WithServerSession adds a ServerSession to the context.
+// withServerSession adds a ServerSession to the context.
 // Delegates to mcpcontext to share context keys with toolkit packages.
-func WithServerSession(ctx context.Context, ss *mcp.ServerSession) context.Context {
+func withServerSession(ctx context.Context, ss *mcp.ServerSession) context.Context {
 	return mcpcontext.WithServerSession(ctx, ss)
 }
 
-// GetServerSession retrieves the ServerSession from the context.
+// getServerSession retrieves the ServerSession from the context.
 // Delegates to mcpcontext to share context keys with toolkit packages.
-func GetServerSession(ctx context.Context) *mcp.ServerSession {
+func getServerSession(ctx context.Context) *mcp.ServerSession {
 	return mcpcontext.GetServerSession(ctx)
 }
 
-// WithProgressToken adds a progress token to the context.
+// withProgressToken adds a progress token to the context.
 // Delegates to mcpcontext to share context keys with toolkit packages.
-func WithProgressToken(ctx context.Context, token any) context.Context {
+func withProgressToken(ctx context.Context, token any) context.Context {
 	return mcpcontext.WithProgressToken(ctx, token)
 }
 
-// GetProgressToken retrieves the progress token from the context.
+// getProgressToken retrieves the progress token from the context.
 // Delegates to mcpcontext to share context keys with toolkit packages.
-func GetProgressToken(ctx context.Context) any {
+func getProgressToken(ctx context.Context) any {
 	return mcpcontext.GetProgressToken(ctx)
 }

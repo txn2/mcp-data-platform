@@ -48,6 +48,6 @@ func TestScopeFromFilterAndValidTarget(t *testing.T) {
 // reply may carry), so its test stays in the portal package.
 func TestValidAppendEventType(t *testing.T) {
 	assert.True(t, validAppendEventType(EventTypeComment))
-	assert.True(t, validAppendEventType(EventTypeRating))
-	assert.False(t, validAppendEventType(EventTypeResolution))
+	assert.True(t, validAppendEventType(eventTypeRating))
+	assert.False(t, validAppendEventType(eventTypeResolution))
 }

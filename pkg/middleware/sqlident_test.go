@@ -149,7 +149,7 @@ func TestExtractIdentifiers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ExtractIdentifiers(tt.sql)
+			got := extractIdentifiers(tt.sql)
 
 			for id := range tt.wantSet {
 				assert.True(t, got[id], "expected identifier %q to be present", id)
@@ -162,7 +162,7 @@ func TestExtractIdentifiers(t *testing.T) {
 }
 
 func TestExtractIdentifiers_EmptyResult(t *testing.T) {
-	got := ExtractIdentifiers("42 + 3.14 / (2 - 1)")
+	got := extractIdentifiers("42 + 3.14 / (2 - 1)")
 	// Only operators and numbers — no identifiers
 	assert.Empty(t, got)
 }

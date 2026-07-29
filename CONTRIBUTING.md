@@ -192,10 +192,17 @@ The rule for the directory:
 
 ## Project Structure
 
+An abridged map; `CLAUDE.md` carries the full package listing.
+
 ```
 mcp-data-platform/
 ├── cmd/mcp-data-platform/   # Main application entry point
-├── internal/server/         # Internal server implementation
+├── internal/                # Not part of the supported library surface
+│   ├── httpserver/          # HTTP composition root: mux/route assembly, and the adapters it mounts
+│   ├── platform/            # Facade-internal seams composed only by pkg/platform
+│   ├── portal/              # Portal seams built only by pkg/portal
+│   ├── admin/               # Admin-API seams built only by pkg/admin
+│   └── server/              # Server factory
 ├── pkg/                     # Public API packages
 │   ├── platform/            # Core platform facade
 │   ├── auth/                # Authentication (OIDC, API keys)
@@ -205,11 +212,12 @@ mcp-data-platform/
 │   ├── query/               # Query execution provider
 │   ├── middleware/          # Request/response middleware
 │   ├── registry/            # Toolkit registry
+│   ├── toolkit/             # Shared types every toolkit implements
+│   ├── toolkits/            # Toolkit adapters (trino, datahub, s3, apigateway, ...)
 │   ├── audit/               # Audit logging
-│   ├── tuning/              # Prompts, hints, rules
-│   └── tools/               # Base toolkit
-├── configs/                 # Example configurations
-└── migrations/              # SQL migrations
+│   ├── database/migrate/    # Migration runner + embedded SQL migrations
+│   └── tuning/              # Prompts, hints, rules
+└── configs/                 # Example configurations
 ```
 
 ### Where to Make Changes
@@ -217,17 +225,20 @@ mcp-data-platform/
 - **New semantic providers**: Add to `pkg/semantic/`
 - **New query providers**: Add to `pkg/query/`
 - **New middleware**: Add to `pkg/middleware/`
-- **New toolkits**: Add to `pkg/registry/` and register in `pkg/tools/`
+- **New toolkits**: Add to `pkg/toolkits/` and register through `pkg/registry/`
 - **Authentication methods**: Add to `pkg/auth/`
 - **Configuration options**: Modify `pkg/platform/config.go`
+- **SQL migrations**: Add to `pkg/database/migrate/migrations/` (embedded, not a
+  top-level directory)
 
 ### API stability
 
 Only a defined subset of `pkg/` is a supported integration surface (`pkg/platform`,
 `pkg/toolkit`, `pkg/registry`, `pkg/semantic`, `pkg/query`, `pkg/middleware`, and the
-toolkit adapters' config types). Facade-internal seams live under `internal/platform/`
-and are unimportable from outside the module. Before moving a package into or out of
-the supported surface, read the [API stability policy](docs/library/stability.md) and
+toolkit adapters' config types). Implementation seams live under `internal/` and are
+unimportable from outside the module; `TestPublicSurfacePolicy` (gate 7 below) keeps
+new ones from accumulating under `pkg/`. Before moving a package into or out of the
+supported surface, read the [API stability policy](docs/library/stability.md) and
 update it in the same change.
 
 ## Testing
@@ -473,8 +484,8 @@ files. The only way under the budget is to unexport helpers or move detail into
 funcs, types, vars and consts, one unit per exported name (each name in a grouped
 var/const block counts), regardless of a type's fields or methods — and fails any
 package exporting more than **150**. The largest surfaces today are
-`pkg/platform` (150), `pkg/middleware` (149) and `pkg/portal` (148) — all at or
-within two of the ceiling, which #1076 and #1077 address. Like the LOC budget it
+`pkg/middleware` (138), `pkg/platform` (137) and `pkg/portal` (129), each with at
+least twelve identifiers of headroom after #1077. Like the LOC budget it
 is a **ceiling to ratchet down**: if a package hits it, shrink the public API
 (unexport module-internal helpers, hide detail behind interfaces or in
 `internal/`) rather than raising the constant. Run it with
@@ -490,6 +501,43 @@ identifiers against a ceiling of 150 here, so applying the gate to `internal/`
 would be either decoration at 150 or a constant tripwire at 11. Revisit only if
 an `internal/` package starts exporting a public-API-sized surface, which the
 size budget would flag first.
+
+### 7. Stability policy (`TestPublicSurfacePolicy`)
+
+Gate 6 bounds how much a package exports; this one asks whether the package
+should be under `pkg/` at all. The module is published at major version 1 with no
+`/vN` suffix, so in Go semantics everything importable carries a compatibility
+promise. [docs/library/stability.md](docs/library/stability.md) narrows that
+promise to a named supported surface, and until #1076 nothing enforced the
+narrowing — twenty-two packages had accumulated under `pkg/` that were
+implementation detail with a single composition-root importer.
+
+`TestPublicSurfacePolicy` (in `pkg_stability_policy_test.go`) fails when a
+package under `pkg/` is outside the supported surface **and** has at most one
+distinct first-party importer. One importer means the package exists to serve
+exactly one caller, which is the signature of an implementation seam. Two is the
+threshold rather than one because a package genuinely shared between subsystems
+is doing integration work even before an external consumer appears.
+
+If it fires, in order of preference:
+
+1. **Move it under `internal/`** — `internal/httpserver/...` for HTTP adapters the
+   composition root mounts, `internal/platform/...` for facade seams, following
+   the precedent of #894 and #1076. Go's own `internal/` rule then makes the
+   boundary unforgeable rather than merely documented.
+2. **Promote it** in `docs/library/stability.md`, if a library consumer could
+   reasonably construct it directly, and say why in the pull request.
+3. **Add a `stabilityAllowlist` entry** with a written justification and an exit
+   condition. The existing entries are reference implementations of interfaces
+   the supported surface exposes (the Postgres stores and provider adapters a
+   consumer passes to `platform.WithSessionStore`, `WithQueryProvider` and their
+   siblings), plus `pkg/admin` and `pkg/database/migrate`, which a consumer
+   mounts and runs directly.
+
+A stale entry fails the gate too, so an exemption cannot outlive the condition
+that justified it. The supported-surface list in the test and the table in
+`docs/library/stability.md` must be kept in step: the doc is the promise, the
+test is the gate.
 
 ## Security
 
