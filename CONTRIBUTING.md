@@ -294,11 +294,43 @@ volume metric can express. The current rules, derived from the real import graph
 - **`providers-do-not-depend-up`** — the provider abstractions (`pkg/semantic`,
   `pkg/query`, `pkg/storage`) are depended upon by the layers above them, so they
   must not import `pkg/platform`, `pkg/middleware`, `pkg/admin`, or a toolkit.
+- **`platform-seams-do-not-import-the-facade`** — the `internal/platform` seams
+  were extracted so `pkg/platform` stays thin (#894); a seam may not import
+  `pkg/platform` or `internal/httpserver` back. For a seam the facade already
+  composes, the back edge is an import cycle the compiler rejects on its own;
+  this rule covers the seams outside that closure and every seam added later.
+  `pkg/platform/fieldcrypt` is allowed explicitly — depguard matches by path
+  prefix, and fieldcrypt is a shared leaf that happens to live under the facade's
+  directory rather than part of the facade.
+- **`leaf-utilities-import-nothing-first-party`** — `pkg/contenttype`,
+  `pkg/ratelimit`, `pkg/oidcdiscovery` and `pkg/platform/fieldcrypt` import
+  nothing first-party, which is what makes them safely reusable from any layer.
+  The rule pins that property so it cannot erode through one convenience import.
+- **`low-level-utilities-do-not-depend-up`** — `pkg/blobserve` and `pkg/textpatch`
+  import only `pkg/contenttype`, so they are not leaves, but they must not reach
+  up into `pkg/platform`, `pkg/middleware`, `pkg/admin`, toolkits or `internal/`.
+  `pkg/textpatch/patchmcp` is excluded: it is the MCP error adapter for
+  `pkg/textpatch` and imports `pkg/middleware` by design, which is the pattern to
+  follow — the adapter for a utility belongs in its own subpackage, not in the
+  utility.
+
+**Criterion for the leaf list.** A package with zero first-party imports is a
+leaf and belongs in `leaf-utilities-import-nothing-first-party`. Confirm before
+adding an entry:
+
+```bash
+grep -E '^pkg/<name>(/[^ ]*)? -> ' testdata/allowed_internal_imports.txt
+```
+
+Nothing returned means the package is a leaf.
 
 To tighten: add a rule (or a `deny` entry) for the next boundary you want to
 lock down, confirm `golangci-lint run --enable-only depguard ./...` is still
 green, then commit. To verify the gate bites, temporarily add a denied import
-and run the same command.
+and run the same command. Use a blank import (`import _ "..."`) so the probe
+compiles, and pick a target that does not create an import cycle — a cycle makes
+the package fail type-checking, and depguard then reports nothing, which looks
+identical to a rule that does not fire.
 
 ### 2. Cross-file duplication (`dupl`)
 
@@ -314,18 +346,33 @@ follow-up once existing clones are consolidated. Test files are exempt
 
 Every per-function gate is satisfied by a god-package built from a hundred
 small, low-complexity functions. `TestPackageSizeBudget` (in
-`package_budget_test.go`) caps the size of a package as a whole: no package under
-`pkg/` may exceed **11,800 non-generated LOC** or **35 non-generated files**.
-Generated files (those carrying a `Code generated ... DO NOT EDIT.` marker) are
-excluded so embedded specs do not masquerade as hand-written code.
+`package_budget_test.go`) caps the size of a package as a whole. Generated files
+(those carrying a `Code generated ... DO NOT EDIT.` marker, plus swaggo's
+non-conforming `// Package x Code generated ...` variant) are excluded so
+embedded specs do not masquerade as hand-written code.
 
-The LOC budget sits just above today's largest packages (`pkg/admin` and
-`pkg/platform`, both ~11.5–11.8k LOC). It is a **ceiling to ratchet down**, not a
-number to raise: if a package hits the budget, decompose it into cohesive
-sub-packages rather than bumping the constant. The budget started at 13,000 and
-was ratcheted to 11,800 after `pkg/pkcestore` was extracted from `pkg/admin`
-(#636); further ratchets drive the decomposition of `admin` and `platform`. Run
-it with `go test -run TestPackageSizeBudget .`.
+**Scope: `pkg/` and `internal/`, with a separate ceiling per tree.**
+
+| Tree | LOC ceiling | File ceiling | Set by |
+| --- | --- | --- | --- |
+| `pkg/` | 11,800 | 35 | `pkg/portal` (11,792 LOC), `pkg/middleware` (33 files) |
+| `internal/` | 3,418 | 10 | `internal/platform/promptlayer` (3,418 LOC, 10 files) |
+
+`internal/` was never exempt by design — it fell outside the walk because the
+walk was rooted at `pkg/`, so the roughly 12k lines that #894 and #895 moved into
+`internal/platform` and `internal/httpserver` left budget coverage as a side
+effect of an API-stability change (#1079). A package too large to reason about is
+too large wherever it lives. The `internal/` ceiling is seeded **at** the current
+largest rather than above it, so `internal/` does not inherit the far looser
+`pkg/` allowance it was never measured against; the next line added to
+`internal/platform/promptlayer` fails the gate, and the answer is to decompose it.
+
+Both are **ceilings to ratchet down**, not numbers to raise: if a package hits
+the budget, decompose it into cohesive sub-packages rather than bumping the
+constant. The `pkg/` budget started at 13,000 and was ratcheted to 11,800 after
+`pkg/pkcestore` was extracted from `pkg/admin` (#636); further ratchets drive the
+decomposition of `portal` and `admin`. Run it with
+`go test -run TestPackageSizeBudget .`.
 
 ### 4. Import ratchet (`TestPackageImportRatchet`)
 
@@ -333,19 +380,30 @@ The depguard rules above lock down specific *directions*. The ratchet (in
 `pkg_relationship_test.go`) is the complementary backstop: it freezes the
 **entire** first-party import graph. The allowed edges are stored in
 `testdata/allowed_internal_imports.txt`, seeded from the current graph, and the
-gate fails on **any** new edge — including a same-direction edge the depguard
-rules permit. New coupling between two internal packages is therefore never
-accidental; it is a reviewable diff to the golden file.
+gate asserts that the golden and the graph are **equal in both directions**. New
+coupling between two internal packages is therefore never accidental; it is a
+reviewable diff to the golden file.
 
-When you genuinely need a new internal dependency, regenerate the golden and
-justify the coupling in your PR:
+- A first-party edge in the graph that is **not** in the golden fails — including
+  a same-direction edge the depguard rules permit.
+- An edge in the golden that **no longer exists** fails too (#1081). The golden is
+  an allowlist, so a stale entry silently pre-approves reintroducing coupling that
+  was deliberately removed. Asserting both directions makes the golden an exact
+  mirror of the graph by construction rather than by discipline, which matters
+  most during decomposition work, since removing coupling is precisely what it
+  does.
+
+When you genuinely need a new internal dependency — or you removed one — regenerate
+the golden and justify the change in your PR:
 
 ```bash
 go test -run TestPackageImportRatchet . -args -update-imports
 ```
 
-The golden is a **ceiling to ratchet down**: as coupling is removed, edges drop
-out on the next regeneration and the surface shrinks. It is not a list to pad.
+Regeneration rewrites the file wholesale from the current graph, so it handles
+additions and removals alike. The golden is a **ceiling to ratchet down**: as
+coupling is removed, edges drop out on regeneration and the surface shrinks. It
+is not a list to pad.
 
 ### 5. Package cohesion (`TestPackageCohesion`)
 
@@ -369,6 +427,25 @@ Packages with two or more significant clusters today are seeded into
 in follow-ups. The allowlist is meant to **shrink**, never grow: once a seeded
 package is split, remove its entry (the gate fails if a stale entry no longer
 has multiple clusters). Run it with `go test -run TestPackageCohesion .`.
+
+Every entry carries two required fields, enforced by
+`TestCohesionExemptionsAreJustified`: `why` names the clusters the gate reports
+for that package, and `exit` states the decomposition that retires the entry.
+An allowlist entry with neither is indistinguishable from a permanent exemption —
+the reader cannot tell a package awaiting decomposition from one nobody ever
+intended to split (#1081).
+
+`why` must open with the cluster count in the form `N clusters:`, and the test
+checks that count against the number the gate actually measures. Split one of
+these packages partway and the entry that still claims the old shape fails, so
+the justification cannot decay into decoration. Example:
+
+```go
+"pkg/tuning": {
+    why:  "2 clusters: PromptManager with its file loading (9 decls) and RuleEngine ...",
+    exit: "split into pkg/tuning/prompts and pkg/tuning/rules; ...",
+},
+```
 
 **Known blind spot.** The shared-identifier edge is deliberate — it stops the
 gate from false-flagging independent handlers that legitimately cohere over one
@@ -395,13 +472,24 @@ files. The only way under the budget is to unexport helpers or move detail into
 **top-level exported identifiers** per `pkg/` package — exported package-scope
 funcs, types, vars and consts, one unit per exported name (each name in a grouped
 var/const block counts), regardless of a type's fields or methods — and fails any
-package exporting more than **150**. The
-ceiling sits just above today's largest surfaces (`pkg/middleware` and
-`pkg/portal` at 142, `pkg/platform` at 140). Like the LOC budget it is a
-**ceiling to ratchet down**: if a package hits it, shrink the public API
+package exporting more than **150**. The largest surfaces today are
+`pkg/platform` (150), `pkg/middleware` (149) and `pkg/portal` (148) — all at or
+within two of the ceiling, which #1076 and #1077 address. Like the LOC budget it
+is a **ceiling to ratchet down**: if a package hits it, shrink the public API
 (unexport module-internal helpers, hide detail behind interfaces or in
 `internal/`) rather than raising the constant. Run it with
-`go test -run TestPackageExportedSurfaceBudget .`.
+`go test -run TestPackageExportedSurfaceBudget .`; `-v` logs the five largest
+surfaces so the numbers above are reproducible from the gate itself.
+
+**Scope: `pkg/` only, deliberately** (#1079). Unlike the size budget, this gate
+does not cover `internal/`. It measures *public API*: under `pkg/` an exported
+name is a semver commitment to consumers outside the module, while under
+`internal/` it is merely module-visible and costs a consumer nothing. The
+measurement supports that reading — the largest `internal/` surface is 11
+identifiers against a ceiling of 150 here, so applying the gate to `internal/`
+would be either decoration at 150 or a constant tripwire at 11. Revisit only if
+an `internal/` package starts exporting a public-API-sized surface, which the
+size budget would flag first.
 
 ## Security
 

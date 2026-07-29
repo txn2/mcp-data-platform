@@ -43,6 +43,22 @@ func TestNewEdgesFires(t *testing.T) {
 		"an edge missing from the allowlist must be reported")
 }
 
+// TestStaleEdgesFires proves the ratchet's removal half reports an allowlisted
+// edge that no longer exists in the graph, and stays silent when the golden and
+// the graph agree. Without this, decomposition work would leave dead entries in
+// the golden that silently pre-approve reintroducing the coupling it removed.
+func TestStaleEdgesFires(t *testing.T) {
+	allowed := parseEdgeSet("pkg/a -> pkg/b\npkg/c -> pkg/d\n")
+	assert.Empty(t, staleEdges([]string{"pkg/a -> pkg/b", "pkg/c -> pkg/d"}, allowed))
+	assert.Equal(t,
+		[]string{"pkg/c -> pkg/d"},
+		staleEdges([]string{"pkg/a -> pkg/b"}, allowed),
+		"an allowlisted edge absent from the graph must be reported")
+	// An edge the graph has but the golden does not is the ADDED direction and
+	// must not be reported here, or the two halves would double-report.
+	assert.Empty(t, staleEdges([]string{"pkg/a -> pkg/b", "pkg/c -> pkg/d", "pkg/x -> pkg/y"}, allowed))
+}
+
 // TestFirstPartyEdgesAreFound proves firstPartyEdges actually extracts the
 // internal graph from the real tree: a non-trivial edge count including a known
 // edge. If isFirstParty or firstPartyEdges silently returned nothing, the

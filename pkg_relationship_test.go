@@ -38,6 +38,7 @@ import (
 	"go/types"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -198,18 +199,45 @@ func newEdges(current []string, allowed map[string]bool) []string {
 	return added
 }
 
-// TestPackageImportRatchet fails when a first-party import edge appears that is
-// not in the seeded allowlist. It is the un-gameable backstop to the layering
-// rules: it catches ALL new coupling, including same-direction edges the deny
-// rules permit, so that adding a dependency between two internal packages is a
-// deliberate, reviewed act.
+// staleEdges returns, sorted, the edges in allowed that no longer exist in
+// current. These are entries the golden file still authorizes for couplings
+// that have since been removed: a later change could reintroduce one without
+// the ratchet noticing, because the stale entry pre-approves it.
+func staleEdges(current []string, allowed map[string]bool) []string {
+	present := make(map[string]bool, len(current))
+	for _, edge := range current {
+		present[edge] = true
+	}
+	var removed []string
+	for edge := range allowed {
+		if !present[edge] {
+			removed = append(removed, edge)
+		}
+	}
+	sort.Strings(removed)
+	return removed
+}
+
+// TestPackageImportRatchet fails when the golden file and the first-party
+// import graph disagree in EITHER direction. It is the un-gameable backstop to
+// the layering rules: it catches ALL new coupling, including same-direction
+// edges the deny rules permit, so that adding a dependency between two internal
+// packages is a deliberate, reviewed act.
 //
-// A genuinely intended new edge is admitted by regenerating the golden:
+// The removal half matters as much as the addition half (#1081). The golden is
+// an allowlist, so an entry for an edge that no longer exists silently
+// pre-approves reintroducing a coupling that was deliberately removed. Asserting
+// equality in both directions makes the golden an exact mirror of the graph by
+// construction rather than by discipline — which is what the decomposition work
+// in #1076 through #1080 needs, since removing coupling is precisely what it does.
+//
+// A genuinely intended change on either side is admitted by regenerating the
+// golden, which rewrites it wholesale from the current graph:
 //
 //	go test -run TestPackageImportRatchet . -args -update-imports
 //
 // Do that only with a one-line justification in the PR; the diff of this file
-// is the review surface for new internal coupling.
+// is the review surface for changes to internal coupling.
 func TestPackageImportRatchet(t *testing.T) {
 	pkgs := firstPartyPackages(t)
 	current := firstPartyEdges(pkgs)
@@ -228,11 +256,20 @@ func TestPackageImportRatchet(t *testing.T) {
 	raw, err := os.ReadFile(allowedImportsPath) //nolint:gosec // test reads project testdata
 	require.NoError(t, err, "read import allowlist (regenerate with -args -update-imports)")
 
-	added := newEdges(current, parseEdgeSet(string(raw)))
+	allowed := parseEdgeSet(string(raw))
+
+	added := newEdges(current, allowed)
 	require.Empty(t, added,
 		"new first-party import edge(s) not in the allowlist (%d). If intentional, regenerate with "+
 			"`go test -run TestPackageImportRatchet . -args -update-imports` and justify the new coupling in the PR:\n  %s",
 		len(added), strings.Join(added, "\n  "))
+
+	stale := staleEdges(current, allowed)
+	require.Empty(t, stale,
+		"allowlisted import edge(s) no longer exist in the graph (%d). A stale entry pre-approves "+
+			"reintroducing coupling that was removed; regenerate with "+
+			"`go test -run TestPackageImportRatchet . -args -update-imports`:\n  %s",
+		len(stale), strings.Join(stale, "\n  "))
 }
 
 // ---------------------------------------------------------------------------
@@ -247,21 +284,65 @@ func TestPackageImportRatchet(t *testing.T) {
 // is two packages in one import path.
 const minSignificantCluster = 5
 
+// cohesionExemption records why one package is exempt from the single-cluster
+// rule and what would let the exemption go. An allowlist entry that carries
+// neither is indistinguishable from a permanent exemption (#1081): the reader
+// cannot tell a package awaiting decomposition from one nobody ever intended to
+// split. Both fields are required, and TestCohesionExemptionsAreJustified
+// enforces that.
+// It must open with the cluster count in the form "N clusters:", which
+// TestCohesionExemptionsAreJustified checks against the count the gate actually
+// measures — so a justification cannot quietly go stale as the package changes.
+type cohesionExemption struct {
+	// why opens with "N clusters:" and then names them.
+	why string
+	// exit states the decomposition that removes the entry.
+	exit string
+}
+
+// exemptionClusterCountRe extracts the cluster count an exemption claims.
+var exemptionClusterCountRe = regexp.MustCompile(`^(\d+) clusters:`)
+
 // cohesionAllowlist is the set of packages (module-relative) currently exempt
 // from the single-cluster rule. Every entry has two or more significant clusters
 // today and is seeded so the gate is green; each is a candidate for
 // decomposition into cohesive sub-packages (issue #738 follow-ups). The set is
 // meant to SHRINK as those packages are split, never to grow — TestPackageCohesion
 // fails on a stale entry that no longer has multiple clusters.
-func cohesionAllowlist() map[string]bool {
-	return map[string]bool{
-		"pkg/audit":                       true,
-		"pkg/memory":                      true,
-		"pkg/toolkits/knowledge":          true,
-		"pkg/portal/knowledgepage":        true,
-		"pkg/toolkits/apigateway/catalog": true,
-		"pkg/session/postgres":            true,
-		"pkg/tuning":                      true,
+//
+// The cluster sizes below were measured with the gate itself at the time of
+// #1081; run TestPackageCohesion with the package removed from this map to see
+// the current split.
+func cohesionAllowlist() map[string]cohesionExemption {
+	return map[string]cohesionExemption{
+		"pkg/audit": {
+			why:  "3 clusters: the event/writer core (59 decls), the timeseries query surface (11), and the breakdown query surface (8). The two analytics clusters share nothing with the write path.",
+			exit: "extract the timeseries and breakdown query types into pkg/audit/analytics, leaving the event model and writers behind.",
+		},
+		"pkg/memory": {
+			why:  "5 clusters: the record store (135 decls) plus four self-contained vocabularies — dimension (19), category (10), source (8) and confidence (6) — each a set of constants with its own Normalize/Validate pair.",
+			exit: "move the four vocabularies into pkg/memory/vocab; the store keeps the record model.",
+		},
+		"pkg/toolkits/knowledge": {
+			why:  "4 clusters: the toolkit itself (506 decls) plus unexported copies of the same three vocabularies pkg/memory carries — category (9), confidence (7) and source (7).",
+			exit: "share one vocabulary package with pkg/memory rather than duplicating it here; the toolkit cluster is separately oversized and is covered by the LOC budget.",
+		},
+		"pkg/portal/knowledgepage": {
+			why:  "2 clusters: the page store with its dedup and search surface (117 decls), and PageGuardsConfig with its oversize/dedup threshold resolution (8), which the store never references.",
+			exit: "fold the guard thresholds into the platform config seam that supplies them, or extract pkg/portal/knowledgepage/guards.",
+		},
+		"pkg/toolkits/apigateway/catalog": {
+			why:  "3 clusters: the catalog store (71 decls), remote spec fetching with its SSRF guards (25), and spec parsing/validation (19). Fetch and parse are a pipeline the store only consumes the output of.",
+			exit: "extract catalog/specfetch and catalog/specparse; the store keeps the persistence surface.",
+		},
+		"pkg/session/postgres": {
+			why:  "2 clusters: the LISTEN/NOTIFY broadcaster (18 decls) and the session Store (15). They share the same database handle but no declarations.",
+			exit: "extract the broadcaster into its own package; the Store depends on the notify channel name only.",
+		},
+		"pkg/tuning": {
+			why:  "2 clusters: PromptManager with its file loading (9 decls) and RuleEngine with its operational-rule defaults (8). The package comment already names them as two features.",
+			exit: "split into pkg/tuning/prompts and pkg/tuning/rules; this is the smallest entry here and the cheapest to retire.",
+		},
 	}
 }
 
@@ -317,6 +398,43 @@ func TestPackageCohesion(t *testing.T) {
 	sort.Strings(stale)
 	require.Empty(t, stale,
 		"cohesion allowlist entries are no longer multi-cluster and must be removed: %v", stale)
+}
+
+// TestCohesionExemptionsAreJustified requires every allowlist entry to carry a
+// description of its clusters and the decomposition that retires it, and holds
+// the description to the measurement: the cluster count it opens with must equal
+// the count the gate reports for that package today.
+//
+// The allowlist is meant to shrink, and an entry with no stated exit condition
+// has nothing to shrink towards — that is how a seeded exemption becomes
+// permanent (#1081). Checking the count as well as its presence is what stops
+// the justification from decaying into decoration: split one of these packages
+// partway, and the entry that still claims the old shape fails here.
+func TestCohesionExemptionsAreJustified(t *testing.T) {
+	allow := cohesionAllowlist()
+
+	measured := map[string]int{}
+	for _, p := range firstPartyPackages(t) {
+		if rel := relPath(p.PkgPath); allow[rel].why != "" {
+			measured[rel] = len(significantClusters(p))
+		}
+	}
+
+	for pkg, ex := range allow {
+		require.NotEmpty(t, ex.exit, "%s: cohesion exemption needs an exit condition", pkg)
+
+		m := exemptionClusterCountRe.FindStringSubmatch(ex.why)
+		require.Len(t, m, 2,
+			"%s: cohesion exemption must open with the cluster count, e.g. `3 clusters: ...`; got %q", pkg, ex.why)
+		claimed, err := strconv.Atoi(m[1])
+		require.NoError(t, err)
+
+		got, loaded := measured[pkg]
+		require.True(t, loaded, "%s: allowlisted package was not loaded — is the path still correct?", pkg)
+		require.Equal(t, claimed, got,
+			"%s: exemption claims %d clusters but the gate measures %d; update the justification "+
+				"(or retire the entry if the package is now cohesive)", pkg, claimed, got)
+	}
 }
 
 // significantClusters returns the connected components of p's declaration graph

@@ -16,6 +16,19 @@
 // it lands green, and is a ceiling to ratchet DOWN, not a number to raise when a
 // package bumps against it.
 //
+// Scope: pkg/ only, and deliberately so (#1079). The size budget in
+// package_budget_test.go covers internal/ as well, because a package that is
+// too large to reason about is too large wherever it lives. This one does not,
+// because it measures PUBLIC API: under pkg/ an exported name is a semver
+// commitment to consumers outside the module, while under internal/ it is
+// merely module-visible and costs a consumer nothing. The measurement supports
+// that reading — the largest internal/ surface is 11 identifiers
+// (internal/platform/toolkitcfg and internal/platform/promptlayer), against a
+// ceiling of 150 here, so applying this gate to internal/ would either be
+// decoration at 150 or a constant tripwire at 11. Revisit only if an internal/
+// package starts exporting a public-API-sized surface, which the size budget
+// would flag first.
+//
 // Run: go test -run TestPackageExportedSurfaceBudget .
 package mcp_data_platform_test
 
@@ -30,11 +43,15 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// maxExportedSurface caps exported top-level identifiers per pkg/ package. The
-// largest today are pkg/middleware and pkg/portal (142) and pkg/platform (140);
-// this ceiling sits just above them so the gate is green, and ratchets down as
-// those packages shrink their public API (unexport helpers, move detail into
-// internal/ or unexported types).
+// maxExportedSurface caps exported top-level identifiers per pkg/ package.
+// Measured with this gate at the time of #1079, the largest are pkg/platform
+// (150), pkg/middleware (149) and pkg/portal (148) — all at or within two of
+// the ceiling. Reproduce with:
+//
+//	go test -run TestPackageExportedSurfaceBudget -v .
+//
+// #1076 and #1077 shrink those three; the ceiling ratchets down, it never goes
+// up (unexport helpers, move detail into internal/ or unexported types).
 const maxExportedSurface = 150
 
 // exportedSurface counts the exported identifiers in p's package scope: the
@@ -66,22 +83,40 @@ func TestPackageExportedSurfaceBudget(t *testing.T) {
 	pkgs := firstPartyPackages(t)
 
 	var violations []string
-	counted := 0
+	var measured []string
 	for _, p := range pkgs {
 		rel := relPath(p.PkgPath)
 		if !strings.HasPrefix(rel, "pkg/") {
 			continue
 		}
-		counted++
-		if n := exportedSurface(p); n > maxExportedSurface {
+		n := exportedSurface(p)
+		measured = append(measured, fmt.Sprintf("%4d %s", n, rel))
+		if n > maxExportedSurface {
 			violations = append(violations, fmt.Sprintf(
 				"%s: %d exported identifiers exceeds budget of %d (shrink the public API; do not raise the budget)",
 				rel, n, maxExportedSurface))
 		}
 	}
-	require.NotZero(t, counted, "should find packages under pkg/")
+	require.NotEmpty(t, measured, "should find packages under pkg/")
+	logLargestSurfaces(t, measured)
 	sort.Strings(violations)
 
 	require.Empty(t, violations,
 		"exported-surface budget exceeded:\n  %s", strings.Join(violations, "\n  "))
+}
+
+// logLargestSurfaces reports the packages closest to the ceiling under -v, so
+// the numbers quoted in maxExportedSurface's doc comment are reproducible from
+// the gate itself rather than from a one-off script. Entries are formatted with
+// the count right-aligned in a fixed width, which is what makes a lexicographic
+// sort order them numerically.
+func logLargestSurfaces(t *testing.T, measured []string) {
+	t.Helper()
+	sort.Sort(sort.Reverse(sort.StringSlice(measured)))
+	const show = 5
+	if len(measured) > show {
+		measured = measured[:show]
+	}
+	t.Logf("largest exported surfaces under pkg/ (ceiling %d):\n  %s",
+		maxExportedSurface, strings.Join(measured, "\n  "))
 }
