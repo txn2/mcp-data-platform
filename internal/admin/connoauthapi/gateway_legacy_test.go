@@ -1,4 +1,4 @@
-package admin
+package connoauthapi
 
 import (
 	"bytes"
@@ -18,7 +18,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
-	"github.com/txn2/mcp-data-platform/pkg/registry"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 )
 
@@ -46,7 +45,7 @@ func authCodeConnectionConfig(authURL, tokenURL string) map[string]any {
 // ingestion can be observed via the store. Each call gets its OWN
 // in-memory PKCE store so test functions don't share state through a
 // process global.
-func gatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Handler, connoauth.Store) {
+func gatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionReader) (*seamMux, connoauth.Store) {
 	t.Helper()
 	tk := gatewaykit.New("primary")
 	tokenStore := connoauth.NewMemoryStore()
@@ -55,16 +54,12 @@ func gatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Handl
 
 	pkceStore := pkcestore.NewMemoryStore()
 	t.Cleanup(func() { _ = pkceStore.Close() })
-
-	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: store,
-		ToolkitRegistry: reg,
-		ConfigStore:     &mockConfigStore{mode: "database"},
-		PKCEStore:       pkceStore,
-		ConnOAuthStore:  tokenStore,
-	}, nil)
+	h := testMux(Config{
+		Connections:    store,
+		GatewayToolkit: func() *gatewaykit.Toolkit { return tk },
+		PKCEStore:      pkceStore,
+		Tokens:         tokenStore,
+	})
 	return h, tokenStore
 }
 
@@ -116,15 +111,11 @@ func TestStartGatewayOAuth_NoPKCEStoreReturns503(t *testing.T) {
 	tk := gatewaykit.New("primary")
 	tk.SetConnOAuthStore(connoauth.NewMemoryStore())
 	t.Cleanup(func() { _ = tk.Close() })
-
-	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: store,
-		ToolkitRegistry: reg,
-		ConfigStore:     &mockConfigStore{mode: "database"},
+	h := testMux(Config{
+		Connections:    store,
+		GatewayToolkit: func() *gatewaykit.Toolkit { return tk },
 		// PKCEStore intentionally nil
-	}, nil)
+	})
 	req := httptest.NewRequestWithContext(context.Background(),
 		http.MethodPost, "/api/v1/admin/gateway/connections/vendor/oauth-start", http.NoBody)
 	req.Host = "platform.example.com"
@@ -140,14 +131,11 @@ func TestStartGatewayOAuth_NoPKCEStoreReturns503(t *testing.T) {
 func TestGatewayOAuthCallback_NoPKCEStoreRendersError(t *testing.T) {
 	tk := gatewaykit.New("primary")
 	t.Cleanup(func() { _ = tk.Close() })
-	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: &mockConnectionStore{},
-		ToolkitRegistry: reg,
-		ConfigStore:     &mockConfigStore{mode: "database"},
+	h := testMux(Config{
+		Connections:    &mockConnectionStore{},
+		GatewayToolkit: func() *gatewaykit.Toolkit { return tk },
 		// PKCEStore intentionally nil
-	}, nil)
+	})
 	req := httptest.NewRequestWithContext(context.Background(),
 		http.MethodGet, "/api/v1/admin/oauth/callback?code=abc&state=anything", http.NoBody)
 	w := httptest.NewRecorder()

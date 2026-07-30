@@ -8,12 +8,10 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	httpswagger "github.com/swaggo/http-swagger/v2"
 
-	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -29,29 +27,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
-	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	"github.com/txn2/mcp-data-platform/pkg/user"
 )
-
-// AuditQuerier queries audit events.
-type AuditQuerier interface {
-	Query(ctx context.Context, filter audit.QueryFilter) ([]audit.Event, error)
-	Count(ctx context.Context, filter audit.QueryFilter) (int, error)
-	Distinct(ctx context.Context, column string, startTime, endTime *time.Time) ([]string, error)
-	DistinctPairs(ctx context.Context, col1, col2 string, startTime, endTime *time.Time) (map[string]string, error)
-}
-
-// AuditMetricsQuerier provides aggregate audit metrics.
-type AuditMetricsQuerier interface {
-	Timeseries(ctx context.Context, filter audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error)
-	Breakdown(ctx context.Context, filter audit.BreakdownFilter) ([]audit.BreakdownEntry, error)
-	Overview(ctx context.Context, filter audit.MetricsFilter) (*audit.Overview, error)
-	Performance(ctx context.Context, filter audit.MetricsFilter) (*audit.PerformanceStats, error)
-	Enrichment(ctx context.Context, filter audit.MetricsFilter) (*audit.EnrichmentStats, error)
-	Discovery(ctx context.Context, filter audit.MetricsFilter) (*audit.DiscoveryStats, error)
-}
 
 // PersonaRegistry abstracts persona.Registry for testability.
 type PersonaRegistry interface {
@@ -146,11 +125,12 @@ type Deps struct {
 	FilePersonaNames   map[string]bool
 	EnrichmentStore    EnrichmentStore
 	EnrichmentEngine   EnrichmentEngine
-	// PKCEStore holds in-flight authorization_code+PKCE state. When nil,
-	// the handler falls back to a process-singleton in-memory store
-	// (single-replica only). Set this to a pkcestore.PostgresStore for HA
-	// deployments where oauth-start and the callback may land on
-	// different replicas.
+	// PKCEStore holds in-flight authorization_code+PKCE state between
+	// oauth-start and the callback. Required for the OAuth routes: there is
+	// no fallback, and oauth-start answers 503 when this is nil. Use a
+	// pkcestore.MemoryStore for single-replica deployments and a
+	// pkcestore.PostgresStore for HA, where oauth-start and the callback may
+	// land on different replicas.
 	PKCEStore pkcestore.Store
 	// ConnOAuthStore persists OAuth tokens for every connection kind
 	// in one shared table (migration 000039's connection_oauth_tokens).
@@ -254,28 +234,6 @@ type IndexJobsService interface {
 	Resolve(ctx context.Context, kind, sourceID string) (int, error)
 }
 
-// APICatalogStore is the subset of apigateway/catalog.Store that the
-// admin handler needs. Declared here to avoid pulling the
-// apigateway package into pkg/admin's import surface (the apigateway
-// toolkit's other dependencies — auth-events writer, embedding
-// provider — should not become admin's transitive concern).
-type APICatalogStore interface {
-	CreateCatalog(ctx context.Context, c apicatalog.Catalog) error
-	GetCatalog(ctx context.Context, id string) (*apicatalog.Catalog, error)
-	ListCatalogs(ctx context.Context) ([]apicatalog.Catalog, error)
-	UpdateCatalog(ctx context.Context, id string, u apicatalog.Update) error
-	DeleteCatalog(ctx context.Context, id string) error
-	UpsertSpec(ctx context.Context, catalogID string, spec apicatalog.SpecEntry) error
-	GetSpec(ctx context.Context, catalogID, specName string) (*apicatalog.SpecEntry, error)
-	ListSpecs(ctx context.Context, catalogID string) ([]apicatalog.SpecEntry, error)
-	DeleteSpec(ctx context.Context, catalogID, specName string) error
-	ReferencingConnections(ctx context.Context, catalogID string) ([]apicatalog.ConnectionRef, error)
-	UpsertOperationEmbeddings(ctx context.Context, catalogID, specName string, rows []apicatalog.OperationEmbedding) error
-	ListOperationEmbeddings(ctx context.Context, catalogID, specName string) ([]apicatalog.OperationEmbedding, error)
-	DeleteOperationEmbeddings(ctx context.Context, catalogID, specName string) error
-	SetOperationCount(ctx context.Context, catalogID, specName string, count int) error
-}
-
 // EnrichmentEngine is the admin-facing surface of an enrichment.Engine.
 // Defined as a small interface here so tests don't need to construct a
 // real Engine.
@@ -376,7 +334,6 @@ func (h *Handler) registerRoutes() {
 	h.registerKnowledgeRoutes()
 	h.registerSystemRoutes()
 	h.registerAuditRoutes()
-	h.registerAuditMetricsRoutes()
 	h.registerConfigRoutes()
 	h.registerPersonaRoutes()
 	h.registerAuthKeyRoutes()
@@ -385,18 +342,7 @@ func (h *Handler) registerRoutes() {
 	h.registerConnectionRoutes()
 	h.registerCatalogRoutes()
 	h.registerGatewayRoutes()
-	// The unified connection OAuth handler replaces both prior per-kind
-	// handlers. It activates only when the platform has wired the shared
-	// connoauth store + per-kind handlers; otherwise we fall back to the
-	// legacy per-kind routes so older deployments continue to work
-	// during the rollout. Migration 000039 + platform startup wiring
-	// together flip this to the unified path.
-	if h.deps.ConnOAuthStore != nil && len(h.deps.OAuthKinds) > 0 {
-		h.registerConnectionOAuthRoutes()
-	} else {
-		h.registerGatewayOAuthRoutes()
-		h.registerAPIGatewayOAuthRoutes()
-	}
+	h.registerConnectionOAuthRoutes()
 	h.registerEnrichmentRoutes()
 	h.registerPromptRoutes()
 	h.registerIndexJobsRoutes()
@@ -436,19 +382,6 @@ func (h *Handler) registerSystemRoutes() {
 	h.publicMux.Handle(docsPrefix, httpswagger.Handler(
 		httpswagger.URL(docsPrefix+"doc.json"),
 	))
-}
-
-// registerAuditRoutes registers audit event endpoints or a 409 fallback
-// when audit is enabled in config but no database is available.
-func (h *Handler) registerAuditRoutes() {
-	if h.deps.AuditQuerier != nil {
-		h.mux.HandleFunc("GET /api/v1/admin/audit/events/filters", h.listAuditEventFilters)
-		h.mux.HandleFunc("GET /api/v1/admin/audit/events", h.listAuditEvents)
-		h.mux.HandleFunc("GET /api/v1/admin/audit/events/{id}", h.getAuditEvent)
-		h.mux.HandleFunc("GET /api/v1/admin/audit/stats", h.getAuditStats)
-	} else if h.deps.Config != nil && (h.deps.Config.Audit.Enabled == nil || *h.deps.Config.Audit.Enabled) {
-		h.mux.HandleFunc("/api/v1/admin/audit/", h.featureUnavailable("audit", "database"))
-	}
 }
 
 // registerConfigRoutes registers config read/write endpoints.

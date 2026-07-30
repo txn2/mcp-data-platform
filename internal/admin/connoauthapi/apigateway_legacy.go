@@ -1,4 +1,4 @@
-package admin
+package connoauthapi
 
 import (
 	"context"
@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
+
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
@@ -28,12 +30,9 @@ import (
 // TokenStore. The callback route is on the public mux so the
 // upstream IdP's redirect can hit it without an admin auth header
 // — the state token + PKCE verifier authenticate the callback.
-func (h *Handler) registerAPIGatewayOAuthRoutes() {
-	if !h.isMutable() || h.deps.ConnectionStore == nil {
-		return
-	}
-	h.mux.HandleFunc("POST /api/v1/admin/api-gateway/connections/{name}/oauth-start", h.startAPIGatewayOAuth)
-	h.publicMux.HandleFunc("GET /api/v1/admin/api-gateway/oauth/callback", h.apiGatewayOAuthCallback)
+func (h *handler) registerAPIGatewayOAuthRoutes(mux, publicMux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v1/admin/api-gateway/connections/{name}/oauth-start", h.startAPIGatewayOAuth)
+	publicMux.HandleFunc("GET /api/v1/admin/api-gateway/oauth/callback", h.apiGatewayOAuthCallback)
 }
 
 // startAPIGatewayOAuth handles POST .../api-gateway/connections/{name}/oauth-start.
@@ -46,13 +45,13 @@ func (h *Handler) registerAPIGatewayOAuthRoutes() {
 // @Param        name  path  string                   true  "API gateway connection name"
 // @Param        body  body  startGatewayOAuthRequest  false  "Optional return URL"
 // @Success      200   {object}  startGatewayOAuthResponse
-// @Failure      400   {object}  problemDetail
-// @Failure      404   {object}  problemDetail
-// @Failure      409   {object}  problemDetail
+// @Failure      400   {object}  httpjson.ProblemDetail
+// @Failure      404   {object}  httpjson.ProblemDetail
+// @Failure      409   {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/api-gateway/connections/{name}/oauth-start [post]
-func (h *Handler) startAPIGatewayOAuth(w http.ResponseWriter, r *http.Request) {
+func (h *handler) startAPIGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue(pathKeyName)
 	cfg, ok := h.loadAPIGatewayAuthCodeConfig(w, r, name)
 	if !ok {
@@ -60,8 +59,8 @@ func (h *Handler) startAPIGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body startGatewayOAuthRequest
-	if err := decodeStrictOptional(w, r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if err := h.cfg.DecodeOptional(w, r, &body); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -74,10 +73,10 @@ func (h *Handler) startAPIGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 
 	store := h.pkceStoreFor()
 	if store == nil {
-		writeError(w, http.StatusServiceUnavailable, "OAuth not available: PKCE store not configured")
+		httpjson.WriteError(w, http.StatusServiceUnavailable, "OAuth not available: PKCE store not configured")
 		return
 	}
-	startedBy := authorEmailOrID(r.Context())
+	startedBy := h.cfg.Author(r.Context())
 	if err := store.Put(r.Context(), state, &pkcestore.State{
 		Connection:   name,
 		CodeVerifier: verifier,
@@ -88,10 +87,10 @@ func (h *Handler) startAPIGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		slog.Error("api-gateway oauth-start: failed to persist pkce state",
 			logKeyName, name, logKeyStartedBy, startedBy, logKeyError, err)
-		writeError(w, http.StatusInternalServerError, "failed to register oauth state")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to register oauth state")
 		return
 	}
-	writeJSON(w, http.StatusOK, startGatewayOAuthResponse{
+	httpjson.WriteJSON(w, http.StatusOK, startGatewayOAuthResponse{
 		AuthorizationURL: authURL,
 		State:            state,
 		RedirectURI:      redirectURI,
@@ -109,9 +108,9 @@ func (h *Handler) startAPIGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 // @Param        state  query  string  true   "PKCE state token from oauth-start"
 // @Param        error  query  string  false  "OAuth error code from upstream"
 // @Success      302
-// @Failure      400  {object}  problemDetail
+// @Failure      400  {object}  httpjson.ProblemDetail
 // @Router       /admin/api-gateway/oauth/callback [get]
-func (h *Handler) apiGatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
+func (h *handler) apiGatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	pending := h.takeAPIGatewayCallbackState(w, r)
 	if pending == nil {
 		return
@@ -147,7 +146,7 @@ func (h *Handler) apiGatewayOAuthCallback(w http.ResponseWriter, r *http.Request
 // takeAPIGatewayCallbackState validates state, looks up the PKCE
 // store, and consumes the pending entry. Returns nil and writes the
 // HTML error page on any failure (so the caller can return early).
-func (h *Handler) takeAPIGatewayCallbackState(w http.ResponseWriter, r *http.Request) *pkcestore.State {
+func (h *handler) takeAPIGatewayCallbackState(w http.ResponseWriter, r *http.Request) *pkcestore.State {
 	state := r.URL.Query().Get("state")
 	if state == "" {
 		writeOAuthError(w, "missing state parameter")
@@ -199,8 +198,8 @@ func validateAPIGatewayCallbackQuery(w http.ResponseWriter, q url.Values, pendin
 // exchange → token-persist sequence. Returns false (and writes the
 // HTML error page) on any sub-step failure; the caller should not
 // proceed to the redirect when this returns false.
-func (h *Handler) completeAPIGatewayCallback(w http.ResponseWriter, r *http.Request, code string, pending *pkcestore.State) bool {
-	inst, err := h.deps.ConnectionStore.Get(r.Context(), apigatewaykit.Kind, pending.Connection)
+func (h *handler) completeAPIGatewayCallback(w http.ResponseWriter, r *http.Request, code string, pending *pkcestore.State) bool {
+	inst, err := h.cfg.Connections.Get(r.Context(), apigatewaykit.Kind, pending.Connection)
 	if err != nil {
 		writeOAuthError(w, "connection not found")
 		return false
@@ -217,7 +216,7 @@ func (h *Handler) completeAPIGatewayCallback(w http.ResponseWriter, r *http.Requ
 		writeOAuthError(w, "token exchange failed")
 		return false
 	}
-	if h.deps.ConnOAuthStore == nil {
+	if h.cfg.Tokens == nil {
 		writeOAuthError(w, "api gateway toolkit not configured for OAuth")
 		return false
 	}
@@ -231,7 +230,7 @@ func (h *Handler) completeAPIGatewayCallback(w http.ResponseWriter, r *http.Requ
 		AuthenticatedBy:  pending.StartedBy,
 		AuthenticatedAt:  time.Now(),
 	}
-	if err := h.deps.ConnOAuthStore.Set(r.Context(), persisted); err != nil {
+	if err := h.cfg.Tokens.Set(r.Context(), persisted); err != nil {
 		slog.Error("api-gateway oauth-callback: persist token failed",
 			logKeyName, pending.Connection, logKeyError, err)
 		writeOAuthError(w, "failed to persist token")
@@ -245,23 +244,23 @@ func (h *Handler) completeAPIGatewayCallback(w http.ResponseWriter, r *http.Requ
 // connection exists, parses its config, and confirms it's set up
 // for the authorization_code grant before any PKCE state is
 // generated.
-func (h *Handler) loadAPIGatewayAuthCodeConfig(w http.ResponseWriter, r *http.Request, name string) (apigatewaykit.Config, bool) {
-	inst, err := h.deps.ConnectionStore.Get(r.Context(), apigatewaykit.Kind, name)
+func (h *handler) loadAPIGatewayAuthCodeConfig(w http.ResponseWriter, r *http.Request, name string) (apigatewaykit.Config, bool) {
+	inst, err := h.cfg.Connections.Get(r.Context(), apigatewaykit.Kind, name)
 	if err != nil {
 		if errors.Is(err, platform.ErrConnectionNotFound) {
-			writeError(w, http.StatusNotFound, "api gateway connection not found")
+			httpjson.WriteError(w, http.StatusNotFound, "api gateway connection not found")
 		} else {
-			writeError(w, http.StatusInternalServerError, "failed to load connection")
+			httpjson.WriteError(w, http.StatusInternalServerError, "failed to load connection")
 		}
 		return apigatewaykit.Config{}, false
 	}
 	cfg, err := apigatewaykit.ParseConfig(inst.Config)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return apigatewaykit.Config{}, false
 	}
 	if !cfg.IsOAuthAuthorizationCode() {
-		writeError(w, http.StatusConflict, "connection is not configured for authorization_code OAuth")
+		httpjson.WriteError(w, http.StatusConflict, "connection is not configured for authorization_code OAuth")
 		return apigatewaykit.Config{}, false
 	}
 	return cfg, true

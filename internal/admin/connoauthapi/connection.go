@@ -1,0 +1,742 @@
+package connoauthapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
+
+	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/pkg/authevents"
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
+	"github.com/txn2/mcp-data-platform/pkg/platform"
+)
+
+// pathKeyKind is the URL path parameter that selects which
+// OAuthKindHandler handles the request. Matches the routes registered
+// under /api/v1/admin/connections/{kind}/{name}/...
+const pathKeyKind = "kind"
+
+// logKeyKind is already defined in connection_handler.go for the
+// connection-kind structured-log field; reused here so oauth-start /
+// oauth-callback / oauth-status log lines align on the same key.
+
+// registerConnectionOAuthRoutes installs the unified OAuth flow
+// endpoints. Replaces the two prior per-kind route blocks
+// (registerGatewayOAuthRoutes + registerAPIGatewayOAuthRoutes) with
+// one shared set parameterized on {kind}. The callback URL is
+// intentionally unchanged from the prior MCP path
+// (/api/v1/admin/oauth/callback) — operators have already registered
+// it with their upstream IdPs (Keycloak / Auth0 / Okta / Microsoft
+// App Registrations); breaking the URL would force every customer to
+// reconfigure their IdP client.
+func (h *handler) registerConnectionOAuthRoutes(mux, publicMux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v1/admin/connections/{kind}/{name}/oauth-start", h.startConnectionOAuth)
+	mux.HandleFunc("GET /api/v1/admin/connections/{kind}/{name}/oauth-status", h.connectionOAuthStatus)
+	mux.HandleFunc("GET /api/v1/admin/connections/{kind}/{name}/auth-events", h.connectionAuthEvents)
+	mux.HandleFunc("POST /api/v1/admin/connections/{kind}/{name}/reacquire-oauth", h.reacquireConnectionOAuth)
+	mux.HandleFunc("GET /api/v1/admin/connections/oauth-health", h.connectionsOAuthHealth)
+	publicMux.HandleFunc("GET /api/v1/admin/oauth/callback", h.connectionOAuthCallback)
+	// Legacy API-gateway callback URL. Existing deployments may have
+	// this URL registered in customer IdP client configurations; keep
+	// it as an alias for the unified callback so the IdP redirect
+	// continues to resolve. Removed in a follow-up after one release.
+	publicMux.HandleFunc("GET /api/v1/admin/api-gateway/oauth/callback", h.connectionOAuthCallback)
+}
+
+// startConnectionOAuthRequest is the optional POST body. The
+// operator-supplied returnURL is run through safeReturnURL on the
+// callback side to defeat open-redirect probes.
+type startConnectionOAuthRequest struct {
+	ReturnURL string `json:"return_url,omitempty"`
+}
+
+// startConnectionOAuthResponse hands the portal the URL it should
+// open in a new browser tab to begin the upstream's OAuth flow.
+type startConnectionOAuthResponse struct {
+	AuthorizationURL string `json:"authorization_url"`
+	State            string `json:"state"`
+	RedirectURI      string `json:"redirect_uri"`
+	ExpiresAt        string `json:"expires_at"`
+}
+
+// startConnectionOAuth handles POST /connections/{kind}/{name}/oauth-start.
+// Replaces both startGatewayOAuth and startAPIGatewayOAuth.
+//
+// @Summary      Begin OAuth authorization-code flow for any connection
+// @Description  Validates the connection is configured for authorization_code OAuth, generates a PKCE verifier, registers a state token (with kind), and returns the authorization URL the operator should open in their browser. Works for any connection kind registered in OAuthKinds.
+// @Tags         Connections
+// @Accept       json
+// @Produce      json
+// @Param        kind  path  string                          true  "Connection kind (mcp, api)"
+// @Param        name  path  string                          true  "Connection name"
+// @Param        body  body  startConnectionOAuthRequest     false "Optional return URL"
+// @Success      200   {object}  startConnectionOAuthResponse
+// @Failure      400   {object}  httpjson.ProblemDetail
+// @Failure      404   {object}  httpjson.ProblemDetail
+// @Failure      409   {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/connections/{kind}/{name}/oauth-start [post]
+func (h *handler) startConnectionOAuth(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue(pathKeyKind)
+	name := r.PathValue(pathKeyName)
+	handler, ok := h.lookupOAuthKindHandler(w, kind)
+	if !ok {
+		return
+	}
+	inst, ok := h.loadConnectionForOAuth(w, r, kind, name)
+	if !ok {
+		return
+	}
+	cfg, ok := h.parseConnectionOAuthConfig(w, handler, inst.Config)
+	if !ok {
+		return
+	}
+
+	var body startConnectionOAuthRequest
+	if err := h.cfg.DecodeOptional(w, r, &body); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	verifier, state, ok := generatePKCEPair(w)
+	if !ok {
+		return
+	}
+	redirectURI := buildOAuthCallbackURL(r)
+	authURL := buildConnectionAuthorizationURL(cfg, state, verifier, redirectURI)
+
+	store := h.pkceStoreFor()
+	if store == nil {
+		httpjson.WriteError(w, http.StatusServiceUnavailable, "OAuth not available: PKCE store not configured")
+		return
+	}
+	startedBy := h.cfg.Author(r.Context())
+	if err := store.Put(r.Context(), state, &pkcestore.State{
+		Kind:         kind,
+		Connection:   name,
+		CodeVerifier: verifier,
+		StartedBy:    startedBy,
+		CreatedAt:    time.Now(),
+		ReturnURL:    body.ReturnURL,
+		RedirectURI:  redirectURI,
+	}); err != nil {
+		slog.Error("oauth-start: failed to persist pkce state",
+			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name),
+			logKeyStartedBy, logsan.SanitizeForLog(startedBy), logKeyError, logsan.SanitizeForLog(err.Error()))
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to record OAuth state")
+		return
+	}
+
+	slog.Info("oauth-start: PKCE state issued",
+		logKeyKind, logsan.SanitizeForLog(kind),
+		logKeyName, logsan.SanitizeForLog(name),
+		logKeyStartedBy, logsan.SanitizeForLog(startedBy),
+		logKeyStatePrefix, truncateForLog(state),
+		logKeyRedirectURI, logsan.SanitizeForLog(redirectURI),
+		"authorization_url_host", logsan.SanitizeForLog(urlHostForLog(cfg.AuthorizationURL)),
+		"return_url", logsan.SanitizeForLog(body.ReturnURL),
+		"ttl", pkcestore.TTL)
+	h.cfg.AuthEvents.ConnectStarted(r.Context(), kind, name, startedBy, cfg.TokenURL, body.ReturnURL)
+
+	httpjson.WriteJSON(w, http.StatusOK, startConnectionOAuthResponse{
+		AuthorizationURL: authURL,
+		State:            state,
+		RedirectURI:      redirectURI,
+		ExpiresAt:        time.Now().Add(pkcestore.TTL).UTC().Format(time.RFC3339),
+	})
+}
+
+// connectionOAuthStatus handles GET /connections/{kind}/{name}/oauth-status.
+// Returns the connoauth.OAuthStatus snapshot the portal renders in
+// OAuthStatusCard. Works for any registered kind.
+//
+// @Summary      OAuth status for a connection
+// @Tags         Connections
+// @Produce      json
+// @Param        kind  path  string  true  "Connection kind"
+// @Param        name  path  string  true  "Connection name"
+// @Success      200   {object}  connoauth.OAuthStatus
+// @Failure      404   {object}  httpjson.ProblemDetail
+// @Failure      409   {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/connections/{kind}/{name}/oauth-status [get]
+func (h *handler) connectionOAuthStatus(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue(pathKeyKind)
+	name := r.PathValue(pathKeyName)
+	handler, ok := h.lookupOAuthKindHandler(w, kind)
+	if !ok {
+		return
+	}
+	inst, ok := h.loadConnectionForOAuth(w, r, kind, name)
+	if !ok {
+		return
+	}
+	cfg, ok := h.parseConnectionOAuthConfig(w, handler, inst.Config)
+	if !ok {
+		return
+	}
+	src := connoauth.NewSource(h.cfg.Tokens, connoauth.Key{Kind: kind, Name: name}, cfg).
+		WithEvents(h.cfg.AuthEvents).
+		WithActor(h.cfg.Author(r.Context()))
+	status := src.Status(r.Context())
+	status.LastRevocation = h.lastRevocationFor(r.Context(), kind, name)
+	httpjson.WriteJSON(w, http.StatusOK, status)
+}
+
+// connectionOAuthHealthSummary is the per-connection shape returned
+// by the bulk oauth-health endpoint. Sized to power the connection-
+// list badge: needs_reauth drives the red dot, idp_error_code feeds
+// the hover tooltip so the operator sees "invalid_client" without
+// clicking into the connection.
+type connectionOAuthHealthSummary struct {
+	Kind          string `json:"kind"`
+	Name          string `json:"name"`
+	HasOAuth      bool   `json:"has_oauth"`
+	NeedsReauth   bool   `json:"needs_reauth"`
+	TokenAcquired bool   `json:"token_acquired"`
+	IDPErrorCode  string `json:"idp_error_code,omitempty"`
+}
+
+type connectionsOAuthHealthResponse struct {
+	Connections []connectionOAuthHealthSummary `json:"connections"`
+}
+
+// connectionsOAuthHealth handles GET /api/v1/admin/connections/oauth-health.
+// Returns one summary per registered connection, including non-OAuth
+// connections (with has_oauth=false) so the UI can render the list in
+// one pass without a second "is this OAuth?" round-trip.
+//
+// @Summary      Bulk OAuth health for all connections
+// @Description  Single-shot per-connection OAuth health used by the connection-list view to render a per-row health badge. Returns has_oauth=false for non-OAuth connections so the UI doesn't have to filter client-side.
+// @Tags         Connections
+// @Produce      json
+// @Success      200  {object}  connectionsOAuthHealthResponse
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/connections/oauth-health [get]
+func (h *handler) connectionsOAuthHealth(w http.ResponseWriter, r *http.Request) {
+	if h.cfg.Connections == nil {
+		httpjson.WriteJSON(w, http.StatusOK, connectionsOAuthHealthResponse{Connections: []connectionOAuthHealthSummary{}})
+		return
+	}
+	insts, err := h.cfg.Connections.List(r.Context())
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list connections")
+		return
+	}
+	out := make([]connectionOAuthHealthSummary, 0, len(insts))
+	for _, inst := range insts {
+		out = append(out, h.connectionOAuthHealth(r.Context(), inst))
+	}
+	httpjson.WriteJSON(w, http.StatusOK, connectionsOAuthHealthResponse{Connections: out})
+}
+
+// connectionOAuthHealth derives one summary row. Connections without
+// an OAuth handler registered for their kind, or whose config does
+// not parse into an OAuth config (auth_mode != oauth2_*), get
+// has_oauth=false. The UI hides the badge for those.
+//
+// For OAuth connections, we read the latest refresh-failed event to
+// surface the IdP error code on the row tooltip. This is more
+// useful than scraping connoauth.Source.Status() alone because the
+// "needs_reauth=true, no clue why" case is exactly what the operator
+// is triaging.
+func (h *handler) connectionOAuthHealth(ctx context.Context, inst platform.ConnectionInstance) connectionOAuthHealthSummary {
+	row := connectionOAuthHealthSummary{Kind: inst.Kind, Name: inst.Name}
+	if h.cfg.Kinds == nil {
+		return row
+	}
+	handler, ok := h.cfg.Kinds[inst.Kind]
+	if !ok {
+		return row
+	}
+	cfg, err := handler.ParseOAuthConfig(inst.Config)
+	if err != nil {
+		// Connection exists but is not configured for OAuth (e.g.,
+		// auth_mode=bearer on an api connection). has_oauth stays false.
+		return row
+	}
+	row.HasOAuth = true
+	if h.cfg.Tokens == nil {
+		return row
+	}
+	src := connoauth.NewSource(h.cfg.Tokens, connoauth.Key{Kind: inst.Kind, Name: inst.Name}, cfg)
+	status := src.Status(ctx)
+	row.NeedsReauth = status.NeedsReauth
+	row.TokenAcquired = status.TokenAcquired
+	row.IDPErrorCode = h.latestRefreshErrorCode(ctx, inst.Kind, inst.Name)
+	return row
+}
+
+// latestRefreshErrorCode reads the connection's most recent event
+// and, if it is a refresh-failed type, returns its idp_error_code.
+// Returns empty in every other case: events store unavailable, no
+// events at all, OR the most recent event is anything other than a
+// refresh-failed type (operator just reconnected, token was deleted
+// by admin, fresh connect_started, etc.).
+//
+// The "look at the single newest event" rule is load-bearing: an
+// older refresh failure followed by a newer success-shaped event
+// (connect_completed, refresh_succeeded, token_deleted_admin) is
+// NOT a current error and must not surface on the badge.
+func (h *handler) latestRefreshErrorCode(ctx context.Context, kind, name string) string {
+	if h.cfg.AuthEventStore == nil {
+		return ""
+	}
+	events, err := h.cfg.AuthEventStore.List(ctx, authevents.Filter{Kind: kind, Name: name, Limit: 1})
+	if err != nil || len(events) == 0 {
+		return ""
+	}
+	switch events[0].Type {
+	case authevents.TypeRefreshFailedRevoked, authevents.TypeRefreshFailedTransient:
+		return refreshErrorCodeFromDetail(events[0].Detail)
+	}
+	return ""
+}
+
+// refreshErrorCodeFromDetail extracts idp_error_code from an
+// auth-event Detail blob. Returns empty on any parse failure so
+// callers can ignore the row safely.
+func refreshErrorCodeFromDetail(detail json.RawMessage) string {
+	if len(detail) == 0 {
+		return ""
+	}
+	var d authevents.RefreshDetail
+	if err := json.Unmarshal(detail, &d); err != nil {
+		return ""
+	}
+	return d.IDPErrorCode
+}
+
+// lastRevocationFor reads the most recent revocation event for the
+// connection from the auth-events table, if any. Returns nil when the
+// store is unavailable, the lookup fails, or no revocation event
+// exists. Powering this from the events table (not transient
+// in-memory state) means the answer survives process restarts —
+// operators see "your previous session was killed at 10:42" even
+// after a redeploy clears the in-memory view.
+func (h *handler) lastRevocationFor(ctx context.Context, kind, name string) *connoauth.RevocationEvent {
+	if h.cfg.AuthEventStore == nil {
+		return nil
+	}
+	events, err := h.cfg.AuthEventStore.List(ctx, authevents.Filter{Kind: kind, Name: name, Limit: 10})
+	if err != nil {
+		return nil
+	}
+	for _, ev := range events {
+		if !isRevocationLeadEvent(ev.Type) {
+			continue
+		}
+		return &connoauth.RevocationEvent{
+			OccurredAt: ev.OccurredAt,
+			Reason:     reasonForRevocationLead(ev),
+			IDPHost:    ev.IDPHost,
+		}
+	}
+	return nil
+}
+
+// isRevocationLeadEvent reports whether an event type ends a
+// connection's credential lifecycle in a way the operator should see
+// on the status card. The lead types are:
+//
+//   - TypeTokenDeletedRevoked: trailing event of every revocation pair.
+//   - TypeRefreshFailedRevoked: IdP returned invalid_grant.
+//   - TypeRefreshSkippedExpired: IdP-disclosed deadline reached
+//     locally (no IdP call).
+//   - TypeRefreshSkippedNoToken: no refresh token was stored (no IdP
+//     call).
+//
+// All four are paired with a subsequent TypeTokenDeletedRevoked, so a
+// list query that returns multiple events in order will most commonly
+// match TypeTokenDeletedRevoked first.
+func isRevocationLeadEvent(t authevents.Type) bool {
+	switch t {
+	case authevents.TypeTokenDeletedRevoked,
+		authevents.TypeRefreshFailedRevoked,
+		authevents.TypeRefreshSkippedExpired,
+		authevents.TypeRefreshSkippedNoToken:
+		return true
+	}
+	return false
+}
+
+// reasonForRevocationLead derives a short reason string for the
+// revocation event. The TypeRefreshSkipped* events carry no detail
+// payload — their type alone names the cause, so we synthesize the
+// short string. TypeTokenDeletedRevoked and TypeRefreshFailedRevoked
+// have a payload and we extract it.
+func reasonForRevocationLead(ev authevents.Event) string {
+	switch ev.Type {
+	case authevents.TypeRefreshSkippedExpired:
+		return "refresh_expired"
+	case authevents.TypeRefreshSkippedNoToken:
+		return "no_refresh_token"
+	}
+	return extractRevocationReason(ev)
+}
+
+// extractRevocationReason pulls the reason field from a revocation
+// event's detail payload. The two relevant Types use different
+// detail shapes: TypeTokenDeletedRevoked is {"reason": "..."} while
+// TypeRefreshFailedRevoked is {... "idp_error_code": "..."} (the
+// RefreshDetail shape). Either way, we want a single short string
+// to surface in the UI.
+func extractRevocationReason(ev authevents.Event) string {
+	if len(ev.Detail) == 0 {
+		return ""
+	}
+	// Try the deletion event's shape first.
+	var byReason struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(ev.Detail, &byReason); err == nil && byReason.Reason != "" {
+		return byReason.Reason
+	}
+	// Fall back to RefreshDetail.IDPErrorCode.
+	var rd authevents.RefreshDetail
+	if err := json.Unmarshal(ev.Detail, &rd); err == nil && rd.IDPErrorCode != "" {
+		return rd.IDPErrorCode
+	}
+	return ""
+}
+
+// connectionAuthEvents handles GET /connections/{kind}/{name}/auth-events.
+// Returns the most recent 30 events for the connection so the portal
+// can render the History panel. Admin-only (the handler's auth
+// middleware enforces this).
+//
+// @Summary      OAuth lifecycle history for a connection
+// @Tags         Connections
+// @Produce      json
+// @Param        kind  path  string  true  "Connection kind"
+// @Param        name  path  string  true  "Connection name"
+// @Success      200   {array}   authevents.Event
+// @Failure      404   {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/connections/{kind}/{name}/auth-events [get]
+func (h *handler) connectionAuthEvents(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue(pathKeyKind)
+	name := r.PathValue(pathKeyName)
+	if h.cfg.AuthEventStore == nil {
+		httpjson.WriteJSON(w, http.StatusOK, []authevents.Event{})
+		return
+	}
+	events, err := h.cfg.AuthEventStore.List(r.Context(), authevents.Filter{
+		Kind: kind, Name: name, Limit: 30,
+	})
+	if err != nil {
+		slog.Warn("auth-events: list failed",
+			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name),
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to load auth events")
+		return
+	}
+	if events == nil {
+		events = []authevents.Event{}
+	}
+	httpjson.WriteJSON(w, http.StatusOK, events)
+}
+
+// reacquireConnectionOAuth handles POST /connections/{kind}/{name}/reacquire-oauth.
+// Forces a refresh-token exchange against the upstream IdP. Useful
+// for testing whether the persisted refresh token still works without
+// waiting for the access token to expire naturally. Returns 200 on
+// success; 409 with a NeedsReauth body when the IdP rejected the
+// refresh (operator must complete a fresh Connect).
+//
+// @Summary      Force a refresh-token exchange for a connection
+// @Tags         Connections
+// @Produce      json
+// @Param        kind  path  string  true  "Connection kind"
+// @Param        name  path  string  true  "Connection name"
+// @Success      200
+// @Failure      404   {object}  httpjson.ProblemDetail
+// @Failure      409   {object}  httpjson.ProblemDetail
+// @Failure      502   {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/connections/{kind}/{name}/reacquire-oauth [post]
+func (h *handler) reacquireConnectionOAuth(w http.ResponseWriter, r *http.Request) {
+	kind := r.PathValue(pathKeyKind)
+	name := r.PathValue(pathKeyName)
+	handler, ok := h.lookupOAuthKindHandler(w, kind)
+	if !ok {
+		return
+	}
+	inst, ok := h.loadConnectionForOAuth(w, r, kind, name)
+	if !ok {
+		return
+	}
+	cfg, ok := h.parseConnectionOAuthConfig(w, handler, inst.Config)
+	if !ok {
+		return
+	}
+	src := connoauth.NewSource(h.cfg.Tokens, connoauth.Key{Kind: kind, Name: name}, cfg).
+		WithEvents(h.cfg.AuthEvents).
+		WithActor(h.cfg.Author(r.Context()))
+	if err := src.Reacquire(r.Context()); err != nil {
+		if errors.Is(err, connoauth.ErrNeedsReauth) {
+			httpjson.WriteError(w, http.StatusConflict, "connection needs admin reconnect")
+			return
+		}
+		httpjson.WriteError(w, http.StatusBadGateway, "refresh failed: "+err.Error())
+		return
+	}
+	// Return the post-refresh status so the portal's status card updates
+	// immediately without a follow-up GET. Empty 200 broke the portal's
+	// apiFetch which assumes a JSON body on success.
+	httpjson.WriteJSON(w, http.StatusOK, src.Status(r.Context()))
+}
+
+// connectionOAuthCallback handles GET /api/v1/admin/oauth/callback —
+// the public endpoint the IdP redirects to after the operator
+// authenticates. Replaces both prior callbacks (MCP and API);
+// dispatches by reading connection_kind from the PKCE state row.
+//
+// URL is intentionally unchanged from the prior MCP callback — it is
+// already registered in customer IdP configurations (Keycloak / Auth0
+// / Okta / Microsoft App Registrations). Changing it would force a
+// reconfigure on every customer.
+//
+// @Summary      OAuth authorization-code callback (unified)
+// @Description  Public endpoint hit by the upstream IdP after operator authentication. The PKCE state row carries the connection_kind so this single endpoint handles every kind.
+// @Tags         Connections
+// @Produce      html
+// @Param        code   query  string  false  "OAuth authorization code"
+// @Param        state  query  string  true   "PKCE state token"
+// @Param        error  query  string  false  "OAuth error code from upstream"
+// @Success      302
+// @Failure      400   {object}  httpjson.ProblemDetail
+// @Router       /admin/oauth/callback [get]
+func (h *handler) connectionOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	pending := h.takeConnectionPKCEState(w, r)
+	if pending == nil {
+		return
+	}
+	q := r.URL.Query()
+	if errCode := q.Get("error"); errCode != "" {
+		slog.Warn("oauth-callback: IdP returned error",
+			logKeyKind, logsan.SanitizeForLog(pending.Kind), logKeyName, logsan.SanitizeForLog(pending.Connection),
+			"idp_error", logsan.SanitizeForLog(errCode), "idp_error_description", logsan.SanitizeForLog(q.Get("error_description")))
+		writeOAuthError(w, fmt.Sprintf("upstream returned %s: %s", errCode, q.Get("error_description")))
+		return
+	}
+	code := q.Get("code")
+	if code == "" {
+		writeOAuthError(w, "missing code parameter")
+		return
+	}
+	if err := h.completeConnectionOAuthExchange(r.Context(), pending, code); err != nil {
+		slog.Error("oauth-callback: exchange failed",
+			logKeyKind, logsan.SanitizeForLog(pending.Kind), logKeyName, logsan.SanitizeForLog(pending.Connection),
+			logKeyStartedBy, logsan.SanitizeForLog(pending.StartedBy), logKeyDuration, time.Since(start),
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+		writeOAuthError(w, "token exchange failed: "+err.Error())
+		return
+	}
+	dest := safeReturnURL(pending.ReturnURL)
+	if pending.ReturnURL != "" && dest != pending.ReturnURL {
+		slog.Warn("oauth-callback: returnURL rewritten by safeReturnURL guard",
+			logKeyKind, logsan.SanitizeForLog(pending.Kind), logKeyName, logsan.SanitizeForLog(pending.Connection),
+			"requested_return_url", logsan.SanitizeForLog(pending.ReturnURL), "rewritten_to", logsan.SanitizeForLog(dest))
+	}
+	slog.Info("oauth-callback: success — tokens persisted",
+		logKeyKind, logsan.SanitizeForLog(pending.Kind), logKeyName, logsan.SanitizeForLog(pending.Connection),
+		logKeyStartedBy, logsan.SanitizeForLog(pending.StartedBy),
+		logKeyDuration, time.Since(start), "dest", logsan.SanitizeForLog(dest))
+	// #nosec G710 -- safeReturnURL has already constrained dest to a
+	// same-origin relative path or the constant fallback.
+	http.Redirect(w, r, dest, http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
+}
+
+// takeConnectionPKCEState consumes the pending PKCE row. Returns nil
+// and writes the HTML error page on any failure path so callers can
+// return early. Falls back to "mcp" for legacy rows that pre-date
+// migration 000039's connection_kind column (those rows belong to
+// the MCP gateway by construction — only kind that used this table
+// before 000039).
+func (h *handler) takeConnectionPKCEState(w http.ResponseWriter, r *http.Request) *pkcestore.State {
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		writeOAuthError(w, "missing state parameter")
+		return nil
+	}
+	store := h.pkceStoreFor()
+	if store == nil {
+		writeOAuthError(w, "OAuth not available: PKCE store not configured")
+		return nil
+	}
+	pending, err := store.Take(r.Context(), state)
+	if err != nil {
+		writeOAuthError(w, "OAuth state expired or unknown — please retry from the admin UI")
+		return nil
+	}
+	if pending.Kind == "" {
+		// Pre-migration-000039 row (legacy MCP-only flow). Set the
+		// default so downstream dispatch has a known kind.
+		pending.Kind = connectionKindMCP
+	}
+	return pending
+}
+
+// completeConnectionOAuthExchange runs the token exchange, persists
+// the result via connoauth.Store, and invokes the per-kind
+// AfterConnect hook so the connection becomes immediately usable.
+func (h *handler) completeConnectionOAuthExchange(ctx context.Context, pending *pkcestore.State, code string) error {
+	handler, ok := h.cfg.Kinds[pending.Kind]
+	if !ok {
+		return fmt.Errorf("unsupported connection kind: %s", pending.Kind)
+	}
+	inst, err := h.cfg.Connections.Get(ctx, pending.Kind, pending.Connection)
+	if err != nil {
+		return fmt.Errorf("load connection: %w", err)
+	}
+	cfg, err := handler.ParseOAuthConfig(inst.Config)
+	if err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+	result, err := connoauth.Exchange(ctx, connoauth.ExchangeInput{
+		Config:       cfg,
+		Code:         code,
+		CodeVerifier: pending.CodeVerifier,
+		RedirectURI:  pending.RedirectURI,
+	})
+	if err != nil {
+		return fmt.Errorf("connoauth exchange: %w", err)
+	}
+	now := time.Now()
+	persistErr := h.cfg.Tokens.Set(ctx, connoauth.PersistedToken{
+		Key:              connoauth.Key{Kind: pending.Kind, Name: pending.Connection},
+		AccessToken:      result.AccessToken,
+		RefreshToken:     result.RefreshToken,
+		ExpiresAt:        result.ExpiresAt,
+		RefreshExpiresAt: result.RefreshExpiresAt,
+		Scope:            result.Scope,
+		AuthenticatedBy:  pending.StartedBy,
+		AuthenticatedAt:  now,
+	})
+	if persistErr != nil {
+		// Persistence failure on Connect MUST surface — the in-memory
+		// view from this turn would silently vanish on the next
+		// process restart, leaving the operator perpetually clicking
+		// Connect with no idea why it doesn't stick.
+		return fmt.Errorf("persist token: %w", persistErr)
+	}
+	h.cfg.AuthEvents.ConnectCompleted(ctx, pending.Kind, pending.Connection, pending.StartedBy,
+		cfg.TokenURL, authevents.ConnectCompletedDetail{
+			Scope:            result.Scope,
+			ExpiresAt:        result.ExpiresAt,
+			RefreshExpiresAt: result.RefreshExpiresAt,
+			HasRefreshToken:  result.RefreshToken != "",
+		})
+	if err := handler.AfterConnect(ctx, pending.Connection, inst.Config); err != nil {
+		// Log but do not fail the Connect — the token IS persisted;
+		// the post-auth side effect (e.g., MCP gateway tool
+		// registration) can be retried by the toolkit's normal
+		// reconciliation paths. Failing the Connect here would force
+		// the operator to repeat the browser flow even though the
+		// credential is good.
+		slog.Warn("oauth-callback: AfterConnect hook failed (token persisted, side effect deferred)",
+			logKeyKind, logsan.SanitizeForLog(pending.Kind), logKeyName, logsan.SanitizeForLog(pending.Connection),
+			logKeyError, logsan.SanitizeForLog(err.Error()))
+	}
+	return nil
+}
+
+// lookupOAuthKindHandler resolves the kind path parameter to a
+// registered OAuthKindHandler. Writes 400 and returns ok=false when
+// the kind is missing or unsupported.
+func (h *handler) lookupOAuthKindHandler(w http.ResponseWriter, kind string) (OAuthKindHandler, bool) {
+	if kind == "" {
+		httpjson.WriteError(w, http.StatusBadRequest, "missing connection kind")
+		return nil, false
+	}
+	if h.cfg.Kinds == nil {
+		httpjson.WriteError(w, http.StatusServiceUnavailable, "OAuth not available: no kind handlers registered")
+		return nil, false
+	}
+	handler, ok := h.cfg.Kinds[kind]
+	if !ok {
+		httpjson.WriteError(w, http.StatusBadRequest, "unsupported connection kind: "+kind)
+		return nil, false
+	}
+	return handler, true
+}
+
+// loadConnectionForOAuth fetches the connection row, writing 404/500
+// on the standard error paths. Centralized so every {kind,name}
+// endpoint maps not-found and load failures identically.
+func (h *handler) loadConnectionForOAuth(w http.ResponseWriter, r *http.Request, kind, name string) (*platform.ConnectionInstance, bool) {
+	inst, err := h.cfg.Connections.Get(r.Context(), kind, name)
+	if err != nil {
+		if errors.Is(err, platform.ErrConnectionNotFound) {
+			httpjson.WriteError(w, http.StatusNotFound, "connection not found")
+		} else {
+			httpjson.WriteError(w, http.StatusInternalServerError, "failed to load connection")
+		}
+		return nil, false
+	}
+	return inst, true
+}
+
+// parseConnectionOAuthConfig invokes the kind-specific extractor and
+// maps the configuration error to HTTP 409 ("not configured for
+// authorization_code OAuth") matching the prior per-kind handlers'
+// response code.
+func (*handler) parseConnectionOAuthConfig(w http.ResponseWriter, handler OAuthKindHandler, raw map[string]any) (connoauth.Config, bool) {
+	cfg, err := handler.ParseOAuthConfig(raw)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusConflict, err.Error())
+		return connoauth.Config{}, false
+	}
+	return cfg, true
+}
+
+// buildConnectionAuthorizationURL composes the IdP's authorize URL
+// with PKCE attached. SHA-256 challenge per RFC 7636 §4.2 — the
+// only method OAuth 2.1 mandates.
+func buildConnectionAuthorizationURL(cfg connoauth.Config, state, verifier, redirectURI string) string {
+	v := url.Values{}
+	v.Set("response_type", "code")
+	v.Set("client_id", cfg.ClientID)
+	v.Set("redirect_uri", redirectURI)
+	v.Set("state", state)
+	v.Set("code_challenge", pkceChallenge(verifier))
+	v.Set("code_challenge_method", "S256")
+	if len(cfg.Scopes) > 0 {
+		v.Set("scope", strings.Join(cfg.Scopes, " "))
+	}
+	if cfg.Prompt != "" {
+		v.Set("prompt", cfg.Prompt)
+	}
+	sep := "?"
+	if u, err := url.Parse(cfg.AuthorizationURL); err == nil && u.RawQuery != "" {
+		sep = "&"
+	}
+	return cfg.AuthorizationURL + sep + v.Encode()
+}
+
+// urlHostForLog returns the host portion of u for log fields, falling
+// back to the raw value when parsing fails. Local to admin so the
+// connoauth package's identically-named helper doesn't need to be
+// exported.
+func urlHostForLog(u string) string {
+	parsed, err := url.Parse(u)
+	if err != nil || parsed.Host == "" {
+		return u
+	}
+	return parsed.Host
+}

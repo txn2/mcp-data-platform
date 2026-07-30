@@ -42,9 +42,18 @@ import (
 
 const (
 	// maxPackageLOC caps non-generated, non-test lines per package under
-	// pkg/. Measured with this gate at the time of #1079, the largest are
-	// pkg/portal (11,792 LOC) and pkg/admin (11,743). Both sit within tens of
-	// lines of the ceiling; #1078 decomposes them and ratchets this down.
+	// pkg/. Measured with this gate after the #1078 admin decomposition, the
+	// largest are pkg/portal (11,796 LOC) and pkg/platform (9,551); pkg/admin
+	// has come down to 7,881 by moving its catalog, connection-OAuth and audit
+	// surfaces to internal/admin/.
+	//
+	// This stays at 11,800 only because pkg/portal has not been decomposed
+	// yet: it is 4 lines under the ceiling and cannot take another change.
+	// Portal needs its domain types (User, Asset, Collection, the store
+	// interfaces) moved into a package its handler seams can import before it
+	// can be split at all, which is tracked separately. The ratchet target
+	// once that lands is 9,600 — just above pkg/platform, which then becomes
+	// the largest and the next package this gate pushes on.
 	maxPackageLOC = 11800
 
 	// maxPackageFiles caps non-generated, non-test .go files per package

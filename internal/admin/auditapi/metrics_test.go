@@ -1,4 +1,4 @@
-package admin
+package auditapi
 
 import (
 	"context"
@@ -15,9 +15,9 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 )
 
-// --- Mock AuditMetricsQuerier ---
+// --- Mock MetricsQuerier ---
 
-type mockAuditMetricsQuerier struct {
+type mockMetricsQuerier struct {
 	timeseriesResult  []audit.TimeseriesBucket
 	timeseriesErr     error
 	breakdownResult   []audit.BreakdownEntry
@@ -32,44 +32,44 @@ type mockAuditMetricsQuerier struct {
 	discoveryErr      error
 }
 
-func (m *mockAuditMetricsQuerier) Timeseries(_ context.Context, _ audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error) {
+func (m *mockMetricsQuerier) Timeseries(_ context.Context, _ audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error) {
 	return m.timeseriesResult, m.timeseriesErr
 }
 
-func (m *mockAuditMetricsQuerier) Breakdown(_ context.Context, _ audit.BreakdownFilter) ([]audit.BreakdownEntry, error) {
+func (m *mockMetricsQuerier) Breakdown(_ context.Context, _ audit.BreakdownFilter) ([]audit.BreakdownEntry, error) {
 	return m.breakdownResult, m.breakdownErr
 }
 
-func (m *mockAuditMetricsQuerier) Overview(_ context.Context, _ audit.MetricsFilter) (*audit.Overview, error) {
+func (m *mockMetricsQuerier) Overview(_ context.Context, _ audit.MetricsFilter) (*audit.Overview, error) {
 	return m.overviewResult, m.overviewErr
 }
 
-func (m *mockAuditMetricsQuerier) Performance(_ context.Context, _ audit.MetricsFilter) (*audit.PerformanceStats, error) {
+func (m *mockMetricsQuerier) Performance(_ context.Context, _ audit.MetricsFilter) (*audit.PerformanceStats, error) {
 	return m.performanceResult, m.performanceErr
 }
 
-func (m *mockAuditMetricsQuerier) Enrichment(_ context.Context, _ audit.MetricsFilter) (*audit.EnrichmentStats, error) {
+func (m *mockMetricsQuerier) Enrichment(_ context.Context, _ audit.MetricsFilter) (*audit.EnrichmentStats, error) {
 	return m.enrichmentResult, m.enrichmentErr
 }
 
-func (m *mockAuditMetricsQuerier) Discovery(_ context.Context, _ audit.MetricsFilter) (*audit.DiscoveryStats, error) {
+func (m *mockMetricsQuerier) Discovery(_ context.Context, _ audit.MetricsFilter) (*audit.DiscoveryStats, error) {
 	return m.discoveryResult, m.discoveryErr
 }
 
 // Verify interface compliance.
-var _ AuditMetricsQuerier = (*mockAuditMetricsQuerier)(nil)
+var _ MetricsQuerier = (*mockMetricsQuerier)(nil)
 
 // --- Timeseries handler tests ---
 
 func TestGetAuditTimeseries_Success(t *testing.T) {
 	now := time.Now().Truncate(time.Hour)
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		timeseriesResult: []audit.TimeseriesBucket{
 			{Bucket: now, Count: 10, SuccessCount: 8, ErrorCount: 2, AvgDurationMS: 42.5},
 		},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/timeseries?resolution=hour", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -83,11 +83,11 @@ func TestGetAuditTimeseries_Success(t *testing.T) {
 }
 
 func TestGetAuditTimeseries_DefaultResolution(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		timeseriesResult: []audit.TimeseriesBucket{},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/timeseries", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -96,8 +96,8 @@ func TestGetAuditTimeseries_DefaultResolution(t *testing.T) {
 }
 
 func TestGetAuditTimeseries_InvalidResolution(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{}
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	mock := &mockMetricsQuerier{}
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/timeseries?resolution=invalid", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -109,11 +109,11 @@ func TestGetAuditTimeseries_InvalidResolution(t *testing.T) {
 }
 
 func TestGetAuditTimeseries_QueryError(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		timeseriesErr: fmt.Errorf("db error"),
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/timeseries", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -122,11 +122,11 @@ func TestGetAuditTimeseries_QueryError(t *testing.T) {
 }
 
 func TestGetAuditTimeseries_WithTimeParams(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		timeseriesResult: []audit.TimeseriesBucket{},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/audit/metrics/timeseries?resolution=day&start_time=2025-01-01T00:00:00Z&end_time=2025-01-02T00:00:00Z", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -138,13 +138,13 @@ func TestGetAuditTimeseries_WithTimeParams(t *testing.T) {
 // --- Breakdown handler tests ---
 
 func TestGetAuditBreakdown_Success(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		breakdownResult: []audit.BreakdownEntry{
 			{Dimension: "trino_query", Count: 50, SuccessRate: 0.96, AvgDurationMS: 45.2},
 		},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/audit/metrics/breakdown?group_by=tool_name", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -159,8 +159,8 @@ func TestGetAuditBreakdown_Success(t *testing.T) {
 }
 
 func TestGetAuditBreakdown_InvalidGroupBy(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{}
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	mock := &mockMetricsQuerier{}
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/audit/metrics/breakdown?group_by=invalid", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -173,8 +173,8 @@ func TestGetAuditBreakdown_InvalidGroupBy(t *testing.T) {
 }
 
 func TestGetAuditBreakdown_MissingGroupBy(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{}
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	mock := &mockMetricsQuerier{}
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/audit/metrics/breakdown", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -184,11 +184,11 @@ func TestGetAuditBreakdown_MissingGroupBy(t *testing.T) {
 }
 
 func TestGetAuditBreakdown_WithLimit(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		breakdownResult: []audit.BreakdownEntry{},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/audit/metrics/breakdown?group_by=user_id&limit=5", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -198,11 +198,11 @@ func TestGetAuditBreakdown_WithLimit(t *testing.T) {
 }
 
 func TestGetAuditBreakdown_QueryError(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		breakdownErr: fmt.Errorf("db error"),
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/audit/metrics/breakdown?group_by=tool_name", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -214,7 +214,7 @@ func TestGetAuditBreakdown_QueryError(t *testing.T) {
 // --- Overview handler tests ---
 
 func TestGetAuditOverview_Success(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		overviewResult: &audit.Overview{
 			TotalCalls:     100,
 			SuccessRate:    0.95,
@@ -226,7 +226,7 @@ func TestGetAuditOverview_Success(t *testing.T) {
 		},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/overview", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -240,11 +240,11 @@ func TestGetAuditOverview_Success(t *testing.T) {
 }
 
 func TestGetAuditOverview_QueryError(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		overviewErr: fmt.Errorf("db error"),
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/overview", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -253,11 +253,11 @@ func TestGetAuditOverview_QueryError(t *testing.T) {
 }
 
 func TestGetAuditOverview_WithTimeParams(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		overviewResult: &audit.Overview{},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/audit/metrics/overview?start_time=2025-01-01T00:00:00Z&end_time=2025-01-02T00:00:00Z", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -269,7 +269,7 @@ func TestGetAuditOverview_WithTimeParams(t *testing.T) {
 // --- Performance handler tests ---
 
 func TestGetAuditPerformance_Success(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		performanceResult: &audit.PerformanceStats{
 			P50MS:            25.0,
 			P95MS:            100.0,
@@ -281,7 +281,7 @@ func TestGetAuditPerformance_Success(t *testing.T) {
 		},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/performance", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -295,11 +295,11 @@ func TestGetAuditPerformance_Success(t *testing.T) {
 }
 
 func TestGetAuditPerformance_QueryError(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		performanceErr: fmt.Errorf("db error"),
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/performance", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -308,11 +308,11 @@ func TestGetAuditPerformance_QueryError(t *testing.T) {
 }
 
 func TestGetAuditPerformance_WithTimeParams(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		performanceResult: &audit.PerformanceStats{},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/audit/metrics/performance?start_time=2025-01-01T00:00:00Z&end_time=2025-01-02T00:00:00Z", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -324,7 +324,7 @@ func TestGetAuditPerformance_WithTimeParams(t *testing.T) {
 // --- Enrichment handler tests ---
 
 func TestGetAuditEnrichment_Success(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		enrichmentResult: &audit.EnrichmentStats{
 			TotalCalls:       200,
 			EnrichedCalls:    150,
@@ -342,7 +342,7 @@ func TestGetAuditEnrichment_Success(t *testing.T) {
 		},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/enrichment", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -359,11 +359,11 @@ func TestGetAuditEnrichment_Success(t *testing.T) {
 }
 
 func TestGetAuditEnrichment_QueryError(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		enrichmentErr: fmt.Errorf("db error"),
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/enrichment", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -372,11 +372,11 @@ func TestGetAuditEnrichment_QueryError(t *testing.T) {
 }
 
 func TestGetAuditEnrichment_WithTimeParams(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		enrichmentResult: &audit.EnrichmentStats{},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/audit/metrics/enrichment?start_time=2025-01-01T00:00:00Z&end_time=2025-01-02T00:00:00Z", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -388,7 +388,7 @@ func TestGetAuditEnrichment_WithTimeParams(t *testing.T) {
 // --- Discovery handler tests ---
 
 func TestGetAuditDiscovery_Success(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		discoveryResult: &audit.DiscoveryStats{
 			TotalSessions:         100,
 			DiscoverySessions:     60,
@@ -402,7 +402,7 @@ func TestGetAuditDiscovery_Success(t *testing.T) {
 		},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/discovery", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -419,11 +419,11 @@ func TestGetAuditDiscovery_Success(t *testing.T) {
 }
 
 func TestGetAuditDiscovery_QueryError(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		discoveryErr: fmt.Errorf("db error"),
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/metrics/discovery", http.NoBody)
 	rec := httptest.NewRecorder()
 
@@ -432,13 +432,13 @@ func TestGetAuditDiscovery_QueryError(t *testing.T) {
 }
 
 func TestGetAuditDiscovery_WithTimeParams(t *testing.T) {
-	mock := &mockAuditMetricsQuerier{
+	mock := &mockMetricsQuerier{
 		discoveryResult: &audit.DiscoveryStats{
 			TopDiscoveryTools: []audit.BreakdownEntry{},
 		},
 	}
 
-	h := NewHandler(Deps{AuditMetricsQuerier: mock}, nil)
+	h := testMux(Config{Metrics: mock})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/audit/metrics/discovery?start_time=2025-01-01T00:00:00Z&end_time=2025-01-02T00:00:00Z", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -450,7 +450,7 @@ func TestGetAuditDiscovery_WithTimeParams(t *testing.T) {
 // --- Route registration tests ---
 
 func TestAuditMetricsRoutes_NotRegisteredWhenNil(t *testing.T) {
-	h := NewHandler(Deps{}, nil)
+	h := testMux(Config{})
 
 	endpoints := []string{
 		"/api/v1/admin/audit/metrics/timeseries",
@@ -465,7 +465,7 @@ func TestAuditMetricsRoutes_NotRegisteredWhenNil(t *testing.T) {
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, ep, http.NoBody)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
-		// Should return 404 when AuditMetricsQuerier is nil
+		// Should return 404 when MetricsQuerier is nil
 		assert.NotEqual(t, http.StatusOK, rec.Code, "endpoint %s should not be available", ep)
 	}
 }

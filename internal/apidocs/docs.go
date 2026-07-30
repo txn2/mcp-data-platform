@@ -39,14 +39,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/admin.catalogResponse"
+                                "$ref": "#/definitions/catalogapi.catalogResponse"
                             }
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -78,7 +78,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/admin.createCatalogRequest"
+                            "$ref": "#/definitions/catalogapi.createCatalogRequest"
                         }
                     }
                 ],
@@ -86,25 +86,25 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/admin.catalogResponse"
+                            "$ref": "#/definitions/catalogapi.catalogResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -141,19 +141,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.catalogResponse"
+                            "$ref": "#/definitions/catalogapi.catalogResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -192,7 +192,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/admin.updateCatalogRequest"
+                            "$ref": "#/definitions/catalogapi.updateCatalogRequest"
                         }
                     }
                 ],
@@ -200,31 +200,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.catalogResponse"
+                            "$ref": "#/definitions/catalogapi.catalogResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -259,25 +259,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.statusResponse"
+                            "$ref": "#/definitions/httpjson.StatusResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -318,7 +318,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/admin.cloneCatalogRequest"
+                            "$ref": "#/definitions/catalogapi.cloneCatalogRequest"
                         }
                     }
                 ],
@@ -326,31 +326,31 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/admin.catalogResponse"
+                            "$ref": "#/definitions/catalogapi.catalogResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -387,13 +387,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.embeddingHealthResponse"
+                            "$ref": "#/definitions/catalogapi.embeddingHealthResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -449,7 +449,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -493,7 +493,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -530,13 +530,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.specListResponse"
+                            "$ref": "#/definitions/catalogapi.specListResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -580,19 +580,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.specResponse"
+                            "$ref": "#/definitions/catalogapi.specResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -638,7 +638,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/admin.upsertCatalogSpecRequest"
+                            "$ref": "#/definitions/catalogapi.upsertCatalogSpecRequest"
                         }
                     }
                 ],
@@ -646,37 +646,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.specResponse"
+                            "$ref": "#/definitions/catalogapi.specResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "413": {
                         "description": "Request Entity Too Large",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -718,19 +718,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.statusResponse"
+                            "$ref": "#/definitions/httpjson.StatusResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -781,13 +781,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -831,37 +831,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.specResponse"
+                            "$ref": "#/definitions/catalogapi.specResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "413": {
                         "description": "Request Entity Too Large",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -933,31 +933,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.specResponse"
+                            "$ref": "#/definitions/catalogapi.specResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "413": {
                         "description": "Request Entity Too Large",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "415": {
                         "description": "Unsupported Media Type",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -997,7 +997,7 @@ const docTemplate = `{
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/admin.startGatewayOAuthRequest"
+                            "$ref": "#/definitions/connoauthapi.startGatewayOAuthRequest"
                         }
                     }
                 ],
@@ -1005,25 +1005,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.startGatewayOAuthResponse"
+                            "$ref": "#/definitions/connoauthapi.startGatewayOAuthResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -1067,7 +1067,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -1864,13 +1864,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.auditEventResponse"
+                            "$ref": "#/definitions/auditapi.auditEventResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -1912,13 +1912,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.auditFiltersResponse"
+                            "$ref": "#/definitions/auditapi.auditFiltersResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -1961,13 +1961,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2037,13 +2037,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2097,7 +2097,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2151,7 +2151,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2205,7 +2205,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2259,7 +2259,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2322,13 +2322,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2400,13 +2400,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.auditStatsResponse"
+                            "$ref": "#/definitions/auditapi.auditStatsResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -3242,7 +3242,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.connectionsOAuthHealthResponse"
+                            "$ref": "#/definitions/connoauthapi.connectionsOAuthHealthResponse"
                         }
                     }
                 }
@@ -3294,7 +3294,7 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -3341,7 +3341,7 @@ const docTemplate = `{
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/admin.startConnectionOAuthRequest"
+                            "$ref": "#/definitions/connoauthapi.startConnectionOAuthRequest"
                         }
                     }
                 ],
@@ -3349,25 +3349,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.startConnectionOAuthResponse"
+                            "$ref": "#/definitions/connoauthapi.startConnectionOAuthResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -3416,13 +3416,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -3468,19 +3468,19 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -3874,7 +3874,7 @@ const docTemplate = `{
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/admin.startGatewayOAuthRequest"
+                            "$ref": "#/definitions/connoauthapi.startGatewayOAuthRequest"
                         }
                     }
                 ],
@@ -3882,25 +3882,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.startGatewayOAuthResponse"
+                            "$ref": "#/definitions/connoauthapi.startGatewayOAuthResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -4965,7 +4965,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -14353,112 +14353,6 @@ const docTemplate = `{
                 }
             }
         },
-        "admin.auditEventResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/audit.Event"
-                    }
-                },
-                "page": {
-                    "type": "integer",
-                    "example": 1
-                },
-                "per_page": {
-                    "type": "integer",
-                    "example": 50
-                },
-                "total": {
-                    "type": "integer",
-                    "example": 196
-                }
-            }
-        },
-        "admin.auditFiltersResponse": {
-            "type": "object",
-            "properties": {
-                "event_kinds": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "mcp_tool_call",
-                        "apigateway_invoke"
-                    ]
-                },
-                "sources": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "mcp",
-                        "rest",
-                        "admin"
-                    ]
-                },
-                "toolkit_kinds": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "api",
-                        "datahub",
-                        "trino",
-                        "s3",
-                        "memory"
-                    ]
-                },
-                "tools": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "trino_query",
-                        "datahub_search",
-                        "s3_list_objects"
-                    ]
-                },
-                "user_labels": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "users": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "marcus.johnson@example.com",
-                        "lisa.chang@example.com"
-                    ]
-                }
-            }
-        },
-        "admin.auditStatsResponse": {
-            "type": "object",
-            "properties": {
-                "failures": {
-                    "type": "integer",
-                    "example": 77
-                },
-                "success": {
-                    "type": "integer",
-                    "example": 1423
-                },
-                "total": {
-                    "type": "integer",
-                    "example": 1500
-                }
-            }
-        },
         "admin.authKeyCreateRequest": {
             "type": "object",
             "properties": {
@@ -14542,41 +14436,6 @@ const docTemplate = `{
                 }
             }
         },
-        "admin.catalogResponse": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "created_by": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "display_name": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "ref_count": {
-                    "type": "integer"
-                },
-                "spec_count": {
-                    "type": "integer"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
-                }
-            }
-        },
         "admin.changelogListResponse": {
             "type": "object",
             "properties": {
@@ -14611,23 +14470,6 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 8
-                }
-            }
-        },
-        "admin.cloneCatalogRequest": {
-            "type": "object",
-            "properties": {
-                "display_name": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },
@@ -14693,60 +14535,6 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 5
-                }
-            }
-        },
-        "admin.connectionOAuthHealthSummary": {
-            "type": "object",
-            "properties": {
-                "has_oauth": {
-                    "type": "boolean"
-                },
-                "idp_error_code": {
-                    "type": "string"
-                },
-                "kind": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "needs_reauth": {
-                    "type": "boolean"
-                },
-                "token_acquired": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "admin.connectionsOAuthHealthResponse": {
-            "type": "object",
-            "properties": {
-                "connections": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/admin.connectionOAuthHealthSummary"
-                    }
-                }
-            }
-        },
-        "admin.createCatalogRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "display_name": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },
@@ -14876,29 +14664,6 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
-                }
-            }
-        },
-        "admin.embeddingHealthResponse": {
-            "type": "object",
-            "properties": {
-                "catalog_id": {
-                    "type": "string"
-                },
-                "specs_failed": {
-                    "type": "integer"
-                },
-                "specs_indexed": {
-                    "type": "integer"
-                },
-                "specs_pending": {
-                    "type": "integer"
-                },
-                "specs_running": {
-                    "type": "integer"
-                },
-                "specs_total": {
-                    "type": "integer"
                 }
             }
         },
@@ -15437,126 +15202,6 @@ const docTemplate = `{
                 }
             }
         },
-        "admin.specListResponse": {
-            "type": "object",
-            "properties": {
-                "specs": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/admin.specResponse"
-                    }
-                }
-            }
-        },
-        "admin.specResponse": {
-            "type": "object",
-            "properties": {
-                "base_path": {
-                    "type": "string"
-                },
-                "content": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "embedding_attempts": {
-                    "description": "EmbeddingAttempts is the most recent job's attempt count.\nRendered as \"running (attempt N)\" while in flight, useful\nfor operators trying to gauge whether a slow provider is\njust slow or stuck retrying.",
-                    "type": "integer"
-                },
-                "embedding_count": {
-                    "description": "EmbeddingCount is the count of persisted operation embedding\nrows for this (catalog, spec). Equal to OperationCount when\nthe queue has fully drained for the spec; less while a job\nis in flight or after a partial failure.",
-                    "type": "integer"
-                },
-                "embedding_last_error": {
-                    "description": "EmbeddingLastError is the most recent job's last_error\ncolumn. Non-empty only when the most recent job failed or\nis on a retry; rendered in a tooltip / detail row so the\noperator can see \"provider returned 502\" without grepping\npod logs.",
-                    "type": "string"
-                },
-                "embedding_status": {
-                    "description": "EmbeddingStatus reflects the most recent embedding job's\nterminal or in-flight state: \"\" when no job has ever run\nfor the spec, \"pending\" while queued, \"running\" while a\nworker is processing it, \"succeeded\" when current, \"failed\"\nwhen retries are exhausted. The portal uses this for the\nper-spec badge text and color.",
-                    "type": "string"
-                },
-                "etag": {
-                    "type": "string"
-                },
-                "last_fetched_at": {
-                    "type": "string"
-                },
-                "operation_count": {
-                    "description": "OperationCount is the number of operations the spec content\nparses to. Stored alongside the spec on every write so the\nportal can render \"N/M indexed\" without re-parsing the\ncontent on the client.",
-                    "type": "integer"
-                },
-                "source_kind": {
-                    "type": "string"
-                },
-                "source_url": {
-                    "type": "string"
-                },
-                "spec_name": {
-                    "type": "string"
-                },
-                "title": {
-                    "description": "Title and Description are the operator-set per-spec summary\noverrides. Empty means \"derive from the spec's info.title /\ninfo.description\". See catalog.NormalizeSpecTitle /\nNormalizeSpecDescription for the validation rules.",
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "admin.startConnectionOAuthRequest": {
-            "type": "object",
-            "properties": {
-                "return_url": {
-                    "type": "string"
-                }
-            }
-        },
-        "admin.startConnectionOAuthResponse": {
-            "type": "object",
-            "properties": {
-                "authorization_url": {
-                    "type": "string"
-                },
-                "expires_at": {
-                    "type": "string"
-                },
-                "redirect_uri": {
-                    "type": "string"
-                },
-                "state": {
-                    "type": "string"
-                }
-            }
-        },
-        "admin.startGatewayOAuthRequest": {
-            "type": "object",
-            "properties": {
-                "return_url": {
-                    "type": "string"
-                }
-            }
-        },
-        "admin.startGatewayOAuthResponse": {
-            "type": "object",
-            "properties": {
-                "authorization_url": {
-                    "type": "string"
-                },
-                "expires_at": {
-                    "type": "string"
-                },
-                "redirect_uri": {
-                    "type": "string"
-                },
-                "state": {
-                    "type": "string"
-                }
-            }
-        },
         "admin.statusResponse": {
             "type": "object",
             "properties": {
@@ -15873,46 +15518,6 @@ const docTemplate = `{
                 "tool_name": {
                     "type": "string",
                     "example": "trino_admin_kill"
-                }
-            }
-        },
-        "admin.updateCatalogRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "display_name": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
-                }
-            }
-        },
-        "admin.upsertCatalogSpecRequest": {
-            "type": "object",
-            "properties": {
-                "base_path": {
-                    "type": "string"
-                },
-                "content": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "source_kind": {
-                    "type": "string"
-                },
-                "source_url": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
                 }
             }
         },
@@ -16421,6 +16026,112 @@ const docTemplate = `{
                 }
             }
         },
+        "auditapi.auditEventResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/audit.Event"
+                    }
+                },
+                "page": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "per_page": {
+                    "type": "integer",
+                    "example": 50
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 196
+                }
+            }
+        },
+        "auditapi.auditFiltersResponse": {
+            "type": "object",
+            "properties": {
+                "event_kinds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "mcp_tool_call",
+                        "apigateway_invoke"
+                    ]
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "mcp",
+                        "rest",
+                        "admin"
+                    ]
+                },
+                "toolkit_kinds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "api",
+                        "datahub",
+                        "trino",
+                        "s3",
+                        "memory"
+                    ]
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "trino_query",
+                        "datahub_search",
+                        "s3_list_objects"
+                    ]
+                },
+                "user_labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "marcus.johnson@example.com",
+                        "lisa.chang@example.com"
+                    ]
+                }
+            }
+        },
+        "auditapi.auditStatsResponse": {
+            "type": "object",
+            "properties": {
+                "failures": {
+                    "type": "integer",
+                    "example": 77
+                },
+                "success": {
+                    "type": "integer",
+                    "example": 1423
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 1500
+                }
+            }
+        },
         "auth.APIKeySummary": {
             "type": "object",
             "properties": {
@@ -16526,6 +16237,211 @@ const docTemplate = `{
                 "TypeTokenDeletedRevoked",
                 "TypeTokenDeletedAdmin"
             ]
+        },
+        "catalogapi.catalogResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "ref_count": {
+                    "type": "integer"
+                },
+                "spec_count": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "catalogapi.cloneCatalogRequest": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "catalogapi.createCatalogRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "catalogapi.embeddingHealthResponse": {
+            "type": "object",
+            "properties": {
+                "catalog_id": {
+                    "type": "string"
+                },
+                "specs_failed": {
+                    "type": "integer"
+                },
+                "specs_indexed": {
+                    "type": "integer"
+                },
+                "specs_pending": {
+                    "type": "integer"
+                },
+                "specs_running": {
+                    "type": "integer"
+                },
+                "specs_total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "catalogapi.specListResponse": {
+            "type": "object",
+            "properties": {
+                "specs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/catalogapi.specResponse"
+                    }
+                }
+            }
+        },
+        "catalogapi.specResponse": {
+            "type": "object",
+            "properties": {
+                "base_path": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "embedding_attempts": {
+                    "description": "EmbeddingAttempts is the most recent job's attempt count.\nRendered as \"running (attempt N)\" while in flight, useful\nfor operators trying to gauge whether a slow provider is\njust slow or stuck retrying.",
+                    "type": "integer"
+                },
+                "embedding_count": {
+                    "description": "EmbeddingCount is the count of persisted operation embedding\nrows for this (catalog, spec). Equal to OperationCount when\nthe queue has fully drained for the spec; less while a job\nis in flight or after a partial failure.",
+                    "type": "integer"
+                },
+                "embedding_last_error": {
+                    "description": "EmbeddingLastError is the most recent job's last_error\ncolumn. Non-empty only when the most recent job failed or\nis on a retry; rendered in a tooltip / detail row so the\noperator can see \"provider returned 502\" without grepping\npod logs.",
+                    "type": "string"
+                },
+                "embedding_status": {
+                    "description": "EmbeddingStatus reflects the most recent embedding job's\nterminal or in-flight state: \"\" when no job has ever run\nfor the spec, \"pending\" while queued, \"running\" while a\nworker is processing it, \"succeeded\" when current, \"failed\"\nwhen retries are exhausted. The portal uses this for the\nper-spec badge text and color.",
+                    "type": "string"
+                },
+                "etag": {
+                    "type": "string"
+                },
+                "last_fetched_at": {
+                    "type": "string"
+                },
+                "operation_count": {
+                    "description": "OperationCount is the number of operations the spec content\nparses to. Stored alongside the spec on every write so the\nportal can render \"N/M indexed\" without re-parsing the\ncontent on the client.",
+                    "type": "integer"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "source_url": {
+                    "type": "string"
+                },
+                "spec_name": {
+                    "type": "string"
+                },
+                "title": {
+                    "description": "Title and Description are the operator-set per-spec summary\noverrides. Empty means \"derive from the spec's info.title /\ninfo.description\". See catalog.NormalizeSpecTitle /\nNormalizeSpecDescription for the validation rules.",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "catalogapi.updateCatalogRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "catalogapi.upsertCatalogSpecRequest": {
+            "type": "object",
+            "properties": {
+                "base_path": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "source_url": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
         },
         "configstore.ChangelogEntry": {
             "type": "object",
@@ -16654,6 +16570,90 @@ const docTemplate = `{
                 },
                 "reason": {
                     "description": "Reason is the machine-readable revocation reason from the\nevent detail (` + "`" + `invalid_grant` + "`" + `, ` + "`" + `no_refresh_token` + "`" + `,\n` + "`" + `refresh_expired` + "`" + `, or the generic ` + "`" + `revoked` + "`" + ` fallback).",
+                    "type": "string"
+                }
+            }
+        },
+        "connoauthapi.connectionOAuthHealthSummary": {
+            "type": "object",
+            "properties": {
+                "has_oauth": {
+                    "type": "boolean"
+                },
+                "idp_error_code": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "needs_reauth": {
+                    "type": "boolean"
+                },
+                "token_acquired": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "connoauthapi.connectionsOAuthHealthResponse": {
+            "type": "object",
+            "properties": {
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/connoauthapi.connectionOAuthHealthSummary"
+                    }
+                }
+            }
+        },
+        "connoauthapi.startConnectionOAuthRequest": {
+            "type": "object",
+            "properties": {
+                "return_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "connoauthapi.startConnectionOAuthResponse": {
+            "type": "object",
+            "properties": {
+                "authorization_url": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "redirect_uri": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "connoauthapi.startGatewayOAuthRequest": {
+            "type": "object",
+            "properties": {
+                "return_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "connoauthapi.startGatewayOAuthResponse": {
+            "type": "object",
+            "properties": {
+                "authorization_url": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "redirect_uri": {
+                    "type": "string"
+                },
+                "state": {
                     "type": "string"
                 }
             }
@@ -16907,6 +16907,36 @@ const docTemplate = `{
                             "$ref": "#/definitions/resource.Usage"
                         }
                     ]
+                }
+            }
+        },
+        "httpjson.ProblemDetail": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string",
+                    "example": "resource not found"
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 404
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Not Found"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "about:blank"
+                }
+            }
+        },
+        "httpjson.StatusResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "ok"
                 }
             }
         },

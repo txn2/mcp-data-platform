@@ -3,9 +3,9 @@ package admin
 import (
 	"errors"
 	"net/http"
-	"net/url"
 	"strconv"
-	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -390,39 +390,6 @@ func writeRollbackError(w http.ResponseWriter, err error) {
 	}
 }
 
-// parseTimeParam parses an RFC3339 time from a query parameter.
-func parseTimeParam(q url.Values, key string) *time.Time {
-	v := q.Get(key)
-	if v == "" {
-		return nil
-	}
-	t, err := time.Parse(time.RFC3339, v)
-	if err != nil {
-		return nil
-	}
-	return &t
-}
-
-// parsePageOffset parses the page query parameter and computes offset using the given effective limit.
-func parsePageOffset(q url.Values, effectiveLimit int) int {
-	if v := q.Get("page"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return (n - 1) * effectiveLimit
-		}
-	}
-	return 0
-}
-
-// parseLimit parses the per_page query parameter into a limit value.
-func parseLimit(q url.Values) int {
-	if v := q.Get("per_page"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-	}
-	return 0
-}
-
 // parseInsightFilter parses query parameters into an InsightFilter.
 func parseInsightFilter(r *http.Request) knowledge.InsightFilter {
 	q := r.URL.Query()
@@ -432,14 +399,14 @@ func parseInsightFilter(r *http.Request) knowledge.InsightFilter {
 		EntityURN:  q.Get("entity_urn"),
 		CapturedBy: q.Get("captured_by"),
 		Confidence: q.Get("confidence"),
-		Since:      parseTimeParam(q, "since"),
-		Until:      parseTimeParam(q, "until"),
-		Limit:      parseLimit(q),
+		Since:      httpjson.ParseTimeParam(q, "since"),
+		Until:      httpjson.ParseTimeParam(q, "until"),
+		Limit:      httpjson.ParseLimit(q),
 		// order=oldest sorts the review queue oldest-first so reviewers can work
 		// the stalest debt first (#764); any other value keeps newest-first.
 		OrderCreatedAsc: q.Get("order") == "oldest",
 	}
-	filter.Offset = parsePageOffset(q, filter.EffectiveLimit())
+	filter.Offset = httpjson.ParsePageOffset(q, filter.EffectiveLimit())
 
 	return filter
 }
@@ -450,9 +417,9 @@ func parseChangesetFilter(r *http.Request) knowledge.ChangesetFilter {
 	filter := knowledge.ChangesetFilter{
 		EntityURN: q.Get("entity_urn"),
 		AppliedBy: q.Get("applied_by"),
-		Since:     parseTimeParam(q, "since"),
-		Until:     parseTimeParam(q, "until"),
-		Limit:     parseLimit(q),
+		Since:     httpjson.ParseTimeParam(q, "since"),
+		Until:     httpjson.ParseTimeParam(q, "until"),
+		Limit:     httpjson.ParseLimit(q),
 	}
 
 	if v := q.Get("rolled_back"); v != "" {
@@ -460,7 +427,7 @@ func parseChangesetFilter(r *http.Request) knowledge.ChangesetFilter {
 			filter.RolledBack = &b
 		}
 	}
-	filter.Offset = parsePageOffset(q, filter.EffectiveLimit())
+	filter.Offset = httpjson.ParsePageOffset(q, filter.EffectiveLimit())
 
 	return filter
 }

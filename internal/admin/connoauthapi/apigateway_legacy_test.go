@@ -1,4 +1,4 @@
-package admin
+package connoauthapi
 
 import (
 	"bytes"
@@ -17,7 +17,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
-	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
 
@@ -44,7 +43,7 @@ func apiAuthCodeConfig(authURL, tokenURL string) map[string]any {
 // shared connoauth.Store so callback ingestion can be observed by
 // reading the store. Each call gets its OWN PKCE store — there is no
 // process global to share.
-func apiGatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Handler, connoauth.Store) {
+func apiGatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionReader) (*seamMux, connoauth.Store) {
 	t.Helper()
 	tk := apigatewaykit.New("primary")
 	tokenStore := connoauth.NewMemoryStore()
@@ -53,16 +52,11 @@ func apiGatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Ha
 
 	pkceStore := pkcestore.NewMemoryStore()
 	t.Cleanup(func() { _ = pkceStore.Close() })
-
-	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: store,
-		ToolkitRegistry: reg,
-		ConfigStore:     &mockConfigStore{mode: "database"},
-		PKCEStore:       pkceStore,
-		ConnOAuthStore:  tokenStore,
-	}, nil)
+	h := testMux(Config{
+		Connections: store,
+		PKCEStore:   pkceStore,
+		Tokens:      tokenStore,
+	})
 	return h, tokenStore
 }
 
@@ -115,15 +109,10 @@ func TestStartAPIGatewayOAuth_NoPKCEStoreReturns503(t *testing.T) {
 	tk := apigatewaykit.New("primary")
 	tk.SetConnOAuthStore(connoauth.NewMemoryStore())
 	t.Cleanup(func() { _ = tk.Close() })
-
-	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: store,
-		ToolkitRegistry: reg,
-		ConfigStore:     &mockConfigStore{mode: "database"},
+	h := testMux(Config{
+		Connections: store,
 		// PKCEStore intentionally nil
-	}, nil)
+	})
 	req := httptest.NewRequestWithContext(context.Background(),
 		http.MethodPost, "/api/v1/admin/api-gateway/connections/vendor/oauth-start", http.NoBody)
 	req.Host = "platform.example.com"

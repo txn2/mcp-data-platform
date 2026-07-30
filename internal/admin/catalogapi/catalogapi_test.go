@@ -1,9 +1,10 @@
-package admin
+package catalogapi
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -14,21 +15,47 @@ import (
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
-// newCatalogTestHandler wires an in-memory catalog store and turns
-// the admin handler into mutable mode (the routes are gated by
-// isMutable). Returns the store so tests can seed data directly.
-func newCatalogTestHandler(t *testing.T) (*Handler, *apicatalog.MemoryStore) {
-	t.Helper()
-	store := apicatalog.NewMemoryStore()
-	h := NewHandler(Deps{
-		APICatalogStore:   store,
-		ConfigStore:       &mockConfigStore{mode: "database"},
-		DatabaseAvailable: true,
-	}, nil)
-	return h, store
+// strictDecode stands in for the parent's injected strict decoder. The
+// parent's own decode_test.go covers the real decoder's unknown-field and
+// over-size behavior; these tests only need a decoder that rejects malformed
+// bodies the way the mounted routes will see.
+func strictDecode(_ http.ResponseWriter, r *http.Request, dst any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return errors.New("invalid request body")
+	}
+	return nil
 }
 
-func doJSON(t *testing.T, h *Handler, method, path string, body any) *httptest.ResponseRecorder {
+// testMux mounts the routes with test defaults over cfg's stores and mode.
+func testMux(cfg Config) *http.ServeMux {
+	if cfg.Author == nil {
+		cfg.Author = func(*http.Request) string { return "admin@example.com" }
+	}
+	if cfg.Decode == nil {
+		cfg.Decode = strictDecode
+	}
+	if cfg.DecodeLimit == nil {
+		cfg.DecodeLimit = func(w http.ResponseWriter, r *http.Request, dst any, _ int64) error {
+			return strictDecode(w, r, dst)
+		}
+	}
+	mux := http.NewServeMux()
+	Register(mux, cfg)
+	return mux
+}
+
+// newCatalogTestHandler wires an in-memory catalog store in mutable mode (the
+// write routes are gated on it). Returns the store so tests can seed data
+// directly.
+func newCatalogTestHandler(t *testing.T) (*http.ServeMux, *apicatalog.MemoryStore) {
+	t.Helper()
+	store := apicatalog.NewMemoryStore()
+	return testMux(Config{Catalogs: store, Mutable: true}), store
+}
+
+func doJSON(t *testing.T, mux *http.ServeMux, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var rc io.Reader
 	if body != nil {
@@ -43,7 +70,7 @@ func doJSON(t *testing.T, h *Handler, method, path string, body any) *httptest.R
 		req.Header.Set("Content-Type", "application/json")
 	}
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
+	mux.ServeHTTP(w, req)
 	return w
 }
 
@@ -371,7 +398,7 @@ func TestCatalog_UploadMissingFile(t *testing.T) {
 
 func TestCatalog_RoutesDisabledWithoutStore(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(Deps{DatabaseAvailable: true}, nil)
+	h := testMux(Config{})
 	res := doJSON(t, h, http.MethodGet, "/api/v1/admin/api-catalogs", nil)
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 without store: %d", res.Code)
@@ -395,62 +422,6 @@ func TestCatalogResponse_HasRefAndSpecCounts(t *testing.T) {
 	_ = json.Unmarshal(res.Body.Bytes(), &list)
 	if len(list) != 1 || list[0].SpecCount != 1 {
 		t.Errorf("spec_count missing: %+v", list)
-	}
-}
-
-func TestValidateConnectionCatalog_NonAPIKind(t *testing.T) {
-	t.Parallel()
-	h, _ := newCatalogTestHandler(t)
-	msg, ok := h.validateConnectionCatalog(context.Background(), "trino",
-		map[string]any{"catalog_id": "missing"})
-	if !ok || msg != "" {
-		t.Errorf("non-api kind should bypass: ok=%v msg=%q", ok, msg)
-	}
-}
-
-func TestValidateConnectionCatalog_NoStore(t *testing.T) {
-	t.Parallel()
-	h := NewHandler(Deps{}, nil)
-	msg, ok := h.validateConnectionCatalog(context.Background(), "api",
-		map[string]any{"catalog_id": "anything"})
-	if !ok || msg != "" {
-		t.Errorf("missing store should bypass: ok=%v msg=%q", ok, msg)
-	}
-}
-
-func TestValidateConnectionCatalog_MissingCatalog(t *testing.T) {
-	t.Parallel()
-	h, _ := newCatalogTestHandler(t)
-	msg, ok := h.validateConnectionCatalog(context.Background(), "api",
-		map[string]any{"catalog_id": "ghost"})
-	if ok {
-		t.Fatal("expected validation failure")
-	}
-	if !strings.Contains(msg, "ghost") {
-		t.Errorf("error should mention the missing id: %s", msg)
-	}
-}
-
-func TestValidateConnectionCatalog_NoCatalogID(t *testing.T) {
-	t.Parallel()
-	h, _ := newCatalogTestHandler(t)
-	msg, ok := h.validateConnectionCatalog(context.Background(), "api",
-		map[string]any{})
-	if !ok || msg != "" {
-		t.Errorf("missing catalog_id should be fine: ok=%v msg=%q", ok, msg)
-	}
-}
-
-func TestValidateConnectionCatalog_HappyPath(t *testing.T) {
-	t.Parallel()
-	h, store := newCatalogTestHandler(t)
-	_ = store.CreateCatalog(context.Background(), apicatalog.Catalog{
-		ID: "p", Name: "p", DisplayName: "P",
-	})
-	msg, ok := h.validateConnectionCatalog(context.Background(), "api",
-		map[string]any{"catalog_id": "p"})
-	if !ok || msg != "" {
-		t.Errorf("happy path: ok=%v msg=%q", ok, msg)
 	}
 }
 
