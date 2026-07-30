@@ -529,6 +529,88 @@ func TestDocsPagesInNavOrExcluded(t *testing.T) {
 	require.NoError(t, walkErr)
 }
 
+// harnessCitationRe matches the citation form the published benchmark reports
+// use to point at the harness protocol documents: a backticked repo-relative
+// path followed by a quoted section name, e.g.
+//
+//	(`bench/docs/knowledge-layer-protocol.md`, "Arms")
+var harnessCitationRe = regexp.MustCompile("`(bench/docs/[a-z0-9-]+\\.md)`, \"([^\"]+)\"")
+
+// markdownHeadingRe captures the text of an ATX heading at any level.
+var markdownHeadingRe = regexp.MustCompile(`(?m)^#{1,6}\s+(.+?)\s*$`)
+
+// TestHarnessCitationsResolve verifies that every harness citation in a
+// published docs/reference/ page names a file that exists and a section that
+// file actually has.
+//
+// The published reports cite the benchmark harness as their evidence trail, and
+// those citations used to be line numbers into bench/README.md. Line numbers do
+// not survive an edit to the file they point into: a reorganization of that
+// README silently invalidated all 24 of them, leaving a DOI-registered report
+// citing blank lines and unrelated table rows (issue #1119). Section names are
+// stable across edits and, unlike line numbers, can be checked mechanically —
+// which is what this test does, so the next drift fails the build instead of
+// reaching a reader.
+func TestHarnessCitationsResolve(t *testing.T) {
+	projectRoot, err := filepath.Abs(".")
+	require.NoError(t, err)
+
+	refDir := filepath.Join(projectRoot, "docs", "reference")
+	headings := map[string]map[string]bool{} // citation path -> heading text -> present
+	cited := 0
+
+	walkErr := filepath.Walk(refDir, func(p string, info os.FileInfo, fErr error) error {
+		if fErr != nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".md") {
+			return fErr
+		}
+		body, readErr := os.ReadFile(p) //nolint:gosec // test reads project docs
+		require.NoError(t, readErr)
+
+		for _, m := range harnessCitationRe.FindAllStringSubmatch(string(body), -1) {
+			target, section := m[1], m[2]
+			cited++
+			if _, loaded := headings[target]; !loaded {
+				headings[target] = loadMarkdownHeadings(t, filepath.Join(projectRoot, target))
+			}
+			if headings[target] == nil {
+				assert.Fail(t, "citation target missing",
+					"docs/reference/%s cites %q, which does not exist. A published report's "+
+						"evidence trail must resolve; move the section rather than deleting it, "+
+						"or update the citation in the same commit.", info.Name(), target)
+				continue
+			}
+			assert.True(t, headings[target][section],
+				"docs/reference/%s cites section %q of %s, which has no such heading. "+
+					"Renaming a cited section breaks a published report's evidence trail: "+
+					"update every citation in the same commit as the rename.",
+				info.Name(), section, target)
+		}
+		return nil
+	})
+	require.NoError(t, walkErr)
+	assert.NotZero(t, cited,
+		"no harness citations found under docs/reference/; the published reports cite the "+
+			"harness protocol documents, so either the citation form changed (update "+
+			"harnessCitationRe) or the evidence trail was dropped")
+}
+
+// loadMarkdownHeadings returns the set of heading texts in a Markdown file, or
+// nil when the file does not exist.
+func loadMarkdownHeadings(t *testing.T, path string) map[string]bool {
+	t.Helper()
+	body, err := os.ReadFile(path) //nolint:gosec // test reads project docs
+	if os.IsNotExist(err) {
+		return nil
+	}
+	require.NoError(t, err)
+
+	out := map[string]bool{}
+	for _, m := range markdownHeadingRe.FindAllStringSubmatch(string(body), -1) {
+		out[m[1]] = true
+	}
+	return out
+}
+
 // workingPaperBannerRe matches the admonition every page under docs/research/
 // must open with, capturing the date the paper reflects.
 var workingPaperBannerRe = regexp.MustCompile(

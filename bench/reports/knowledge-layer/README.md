@@ -2,7 +2,7 @@
 
 This directory holds the reproducible supplement and the render toolchain for the
 knowledge-layer benchmark report published at
-[`docs/reference/benchmark-report.md`](../../docs/reference/benchmark-report.md).
+[`docs/reference/benchmark-report.md`](../../../docs/reference/benchmark-report.md).
 
 | Path | What it is |
 | --- | --- |
@@ -28,7 +28,7 @@ fixed in the report prose, never in the data.
 ## Render the report to PDF and HTML
 
 ```bash
-make bench-report-pdf          # or: bash bench/reports/knowledge-layer/render-report.sh
+make bench-report-knowledge-layer-pdf   # or: bash bench/reports/knowledge-layer/render-report.sh
 ```
 
 Output lands in `build/report/` (gitignored): `benchmark-report.pdf` (figures
@@ -45,7 +45,7 @@ resolves to the latest published version (the v1.0 snapshot carries version DOI
 deposit artifacts (for example for a future report version):
 
 ```bash
-make bench-report-pdf
+make bench-report-knowledge-layer-pdf
 # snapshot the raw data the report recomputes from:
 ( cd bench && zip -rqX ../build/report/bench-results.zip results -x '*.DS_Store' )
 ```

@@ -1312,11 +1312,11 @@ bench-compare:
 	if [ -z "$$files" ]; then echo "ERROR: no build/bench-results/results-*.json to compare"; exit 1; fi; \
 	$(BUILD_DIR)/benchrun -compare "$$files" -compare-out $(BENCH_COMPARE_OUT)
 
-## bench-report-pdf: Render the benchmark report to PDF + HTML in build/report/ (needs pandoc + tectonic; not part of verify)
-bench-report-pdf:
+## bench-report-knowledge-layer-pdf: Render the knowledge-layer benchmark report to PDF + HTML in build/report/ (needs pandoc + tectonic; not part of verify)
+bench-report-knowledge-layer-pdf:
 	@bash bench/reports/knowledge-layer/render-report.sh
 
-## bench-report-knowledge-use-pdf: Render benchmark report 2 (knowledge use) to PDF + HTML in build/report-knowledge-use/ (needs pandoc + tectonic; not part of verify)
+## bench-report-knowledge-use-pdf: Render the knowledge-use benchmark report to PDF + HTML in build/report-knowledge-use/ (needs pandoc + tectonic; not part of verify)
 bench-report-knowledge-use-pdf:
 	@bash bench/reports/knowledge-use/render-report.sh
 
