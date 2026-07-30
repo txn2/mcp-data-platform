@@ -79,9 +79,17 @@ benchmarks are two ends of the same pipe.
   scorecard, threats to validity, reproducibility, and the data-availability
   table. Every number is recomputed from committed raw data by
   `bench/reports/knowledge-layer/report.ipynb`.
-- **[`bench/README.md`](https://github.com/txn2/mcp-data-platform/tree/main/bench)**
-  is the operator manual: how to run every suite, arm definitions, the identity
-  pool, grading, and the regression gate.
+- **[`bench/`](https://github.com/txn2/mcp-data-platform/tree/main/bench)** is
+  the harness and the index to the whole report series: each study's published
+  page, DOI, protocol, recompute toolchain, and archived run data. The
+  method behind the numbers on this page — arm definitions, seeded ground truth
+  and the trap classes, the audit measurement instrument, the identity pool,
+  grading, and the lifecycle and cold-start suites — is
+  [`bench/docs/knowledge-layer-protocol.md`](https://github.com/txn2/mcp-data-platform/blob/main/bench/docs/knowledge-layer-protocol.md).
+- **[Benchmark Report: Knowledge Use](benchmark-report-knowledge-use.md)** is
+  the series' second report, asking the question that follows this one: when an
+  agent has been handed stored knowledge, does it use it? Its method is
+  [`bench/docs/knowledge-use-protocol.md`](https://github.com/txn2/mcp-data-platform/blob/main/bench/docs/knowledge-use-protocol.md).
 
 The load harness's throughput and latency numbers are a separate concern; see
 [Tuning and Scaling](tuning-and-scaling.md).

@@ -4,7 +4,7 @@
 # given print-legible column widths.
 #
 # Run from anywhere in the repo:  bash bench/reports/knowledge-layer/render-report.sh
-#   or:  make bench-report-pdf
+#   or:  make bench-report-knowledge-layer-pdf
 #
 # Output goes to build/report/ (gitignored). The committed markdown is never
 # modified; all print-only formatting lives in bench/reports/knowledge-layer/pandoc/.

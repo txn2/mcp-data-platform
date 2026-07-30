@@ -1,59 +1,124 @@
-# Agent-effectiveness benchmark harness
+# mcp-data-platform benchmark report series
 
-The benchmark for issue #930 (phase 1 pilot #942; phase 2 suites and graders
-#943; phase 3 S5 memory-insight-knowledge lifecycle protocols #944). It measures
-whether an
-agent connected to this platform answers real data questions more correctly
-and more efficiently than the same agent connected to bare data tools — by
-ablating the PLATFORM, not the model: every run holds the model, prompt
+`bench/` is the harness behind the platform's published benchmark reports. It
+measures how *well* an agent connected to this platform works — accuracy,
+efficiency, and what an agent does with knowledge it has been given — by
+ablating the PLATFORM rather than the model: a run holds the model, prompt
 scaffold, seed data, and task set constant and varies only the platform
-configuration (arms).
+configuration.
 
-This is distinct from the load harness (`test/load`): that suite answers "how
-much" (throughput, latency, memory); this one answers "how well" (accuracy,
-tool-call efficiency, knowledge-trap resistance).
+This is distinct from the load harness ([`test/load`](../test/load)), which
+answers "how much" (throughput, latency, memory). This one answers "how well".
 
-## Reports: what belongs to what
+## The studies
 
-Two published reports, one closed study. Every artifact belongs to exactly
-one row; run-family directories under `results/` are never shared between
-reports.
+Every artifact belongs to exactly one study. Run-family directories under
+[`results/`](results/) are never shared between them.
 
-| | Report 1: knowledge-layer effectiveness | Report 2: knowledge use | API-connection study (closed) |
+| | Knowledge-layer effectiveness | Knowledge use | API-connection architecture |
 | --- | --- | --- | --- |
-| **Published page** | `docs/reference/benchmark-report.md` (URL frozen by its Zenodo DOI) | `docs/reference/benchmark-report-knowledge-use.md` | none (closed not planned; postmortem on #1027) |
-| **Protocol / design docs** | issues #930/#942-#945 | `docs/perishable-knowledge-study-design.md`, `-fixture.md`, `-estimator-audit.md` | `docs/api-connection-study-design.md` |
-| **Recompute + render toolchain** | `reports/knowledge-layer/` (`report.ipynb`, figures, `render-report.sh`, `make bench-report-pdf`) | `reports/knowledge-use/` (`report.ipynb`, `pk_tables.py`, `render-report.sh`, `make bench-report-knowledge-use-pdf`) | none |
-| **Run families under `results/`** | top-level families (`phase2-anthropic-k3/`, `claude-cli-949/`, cold-start and lifecycle runs) — paths frozen by the deposited report-1 PDF | everything under `results/knowledge-use/` | `api-study-pilot/` |
-| **Status** | published, DOI 10.5281/zenodo.21438044 | version 1.0, pinned to v1.116.0, DOI pending | closed |
+| **Question** | Does a semantic knowledge layer make an agent measurably more correct? | When an agent is handed stored knowledge, does it use it? | Does connection architecture change an agent's accuracy over a large API? |
+| **Published report** | [`benchmark-report.md`](../docs/reference/benchmark-report.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report/)) | [`benchmark-report-knowledge-use.md`](../docs/reference/benchmark-report-knowledge-use.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-use/)) | none |
+| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept) | [10.5281/zenodo.21614059](https://doi.org/10.5281/zenodo.21614059) | none |
+| **Protocol** | [`docs/knowledge-layer-protocol.md`](docs/knowledge-layer-protocol.md) | [`docs/knowledge-use-protocol.md`](docs/knowledge-use-protocol.md) | [`docs/api-connection-study-design.md`](docs/api-connection-study-design.md) |
+| **Pre-registration** | issues #930, #942-#945 | [`docs/perishable-knowledge-study-design.md`](docs/perishable-knowledge-study-design.md), [fixture](docs/perishable-knowledge-fixture.md), [estimator audit](docs/perishable-knowledge-estimator-audit.md) | the protocol above |
+| **Toolchain** | [`reports/knowledge-layer/`](reports/knowledge-layer/) — `make bench-report-knowledge-layer-pdf` | [`reports/knowledge-use/`](reports/knowledge-use/) — `make bench-report-knowledge-use-pdf` | none |
+| **Run data** | top-level families under [`results/`](results/) | [`results/knowledge-use/`](results/knowledge-use/) | [`results/api-study-pilot/`](results/api-study-pilot/) |
+| **Status** | published, report version 1.1 | published, report version 1.0, pinned to v1.116.0 | closed not planned; postmortem on #1027 |
 
 Negative results and evidence-backed platform decisions are indexed in
-`docs/findings-register.md` — a retired study candidate gets a register
-row, not silence, so concluded research is never repeated unknowingly.
+[`docs/findings-register.md`](docs/findings-register.md) — a retired study
+candidate gets a register row, not silence, so concluded research is never
+repeated unknowingly.
 
-### The convention for every future report
+Each directory under [`results/`](results/) carries a README stating what that
+run family does and does not establish; [`results/README.md`](results/README.md)
+maps every family to its study.
 
-One slug per report, used in exactly four places, so the next report is
-organized before its first run exists. Ordinals ("report 2") never appear
-in anything a reader sees — not titles, subtitles, version strings, nav
-labels, or citations. A report's version is its own (starting at 1.0),
-series membership is a prose line with a link to the sibling reports, and
-the series name ("mcp-data-platform benchmark report series") is what a
-citation carries. Ordinals live only in this internal map:
+## Reading the reports
 
-1. Published page: `docs/reference/benchmark-report-<slug>.md` (plus a nav
-   entry, the llms files, and the doc-check tool-token gate list).
+Both reports are neutral evaluations, not marketing pages: every statistic is
+recomputed from raw run data committed under `results/` by a notebook that needs
+no network access and no API key, and every claim cites the run directory it
+comes from. Both carry a threats-to-validity section.
+
+What each report holds fixed differs, and reading a number without that framing
+will mislead:
+
+- **Knowledge layer: arm versus arm, on a pinned model.** The subject is the
+  difference a platform configuration makes, holding the model and tasks fixed.
+  Model identity is disclosed and is never the subject. It also evaluates one
+  feature — cross-enrichment, `search`, and the memory/`apply_knowledge`
+  lifecycle — and says nothing about OAuth 2.1 auth, personas, audit, the
+  gateways, the portal, or the raw toolkits.
+- **Knowledge use: condition versus control, with capability as a declared
+  axis.** The platform configuration is fixed and the manipulated variables are
+  the delivered belief and the world; every cell has a no-knowledge control.
+  Model capability is a deliberate second axis there, and the result inverts
+  between the two tiers tested, so a number from that report is meaningless
+  without its model.
+
+[`docs/reference/benchmarks.md`](../docs/reference/benchmarks.md) is the
+product-framed introduction for readers who want the result before the method.
+
+## The convention for every study
+
+One slug per study, used in exactly four places, so the next one is organized
+before its first run exists. Ordinals ("report 2") never appear in anything a
+reader sees — not titles, subtitles, version strings, nav labels, or citations.
+A report's version is its own (starting at 1.0), series membership is a prose
+line linking the siblings, and the series name is what a citation carries.
+
+1. Published page: `docs/reference/benchmark-report-<slug>.md`, plus a nav
+   entry, the llms files, and the doc-check tool-token gate list.
 2. Toolchain: `bench/reports/<slug>/` — recompute (`report.ipynb` and/or a
    script), `render-report.sh`, `pandoc/`, and a
    `make bench-report-<slug>-pdf` target.
 3. Run data: `bench/results/<slug>/<family>/<run-dir>/`, each family with a
    README stating what it does and does not establish.
-4. Protocol and design docs: `bench/docs/<slug or study>-*.md`, each with a
-   status banner at the top.
+4. Protocol and design docs: `bench/docs/<slug>-*.md`, each with a status
+   banner at the top.
 
-Report 1 predates the convention and its `results/` families stay at the
-top level because the deposited PDF cites those paths; that exception is
-permanent and this table is its record.
+The knowledge-layer study predates the convention in two respects, both
+permanent and both recorded here rather than fixed: its published page is
+`benchmark-report.md` with no slug, and its `results/` families sit at the top
+level instead of under a slug directory. The deposited PDF cites those paths.
+
+## Running
+
+Each study has its own stack and its own protocol document; the recipes below
+are the entry points, and the full procedure for each is in its protocol.
+
+**Knowledge layer** ([protocol](docs/knowledge-layer-protocol.md)) — compose
+stack, seeded Trino warehouse, DataHub quickstart for the `a1`/`a2`/`a3` arms:
+
+```bash
+make bench-up BENCH_ARM=a0        # compose stack + seeded warehouse + platform
+make bench-smoke                  # scripted no-API-key end-to-end validation
+make bench-run BENCH_ARM=a0 K=3   # real run (needs ANTHROPIC_API_KEY)
+make bench-compare                # cross-arm tables + bootstrap CIs -> markdown
+make bench-down
+```
+
+Its S5 lifecycle, supersede, and cold-start suites (`make bench-lifecycle`,
+`bench-supersede`, `bench-cold-start`) boot the same stack on the `a3` arm; the
+cold-start suite additionally requires a fresh DataHub quickstart and an empty
+enrichment layer. See the protocol.
+
+**Knowledge use** ([protocol](docs/knowledge-use-protocol.md)) — one arm, the
+perishable fixture surface, its own database. No DataHub or Trino, but it does
+need `ollama serve` with `nomic-embed-text`:
+
+```bash
+make bench-pk-up                                  # Postgres + fixture + platform
+make bench-pk-corpus REPLICATES=3 MODEL=sonnet    # capture-corpus episodes
+make bench-pk-run CELLS=prerun K=8 MODEL=sonnet   # a cell set
+make bench-pk-down
+```
+
+Every run writes into its own timestamped directory under
+`build/bench-results/`, and the runners refuse an output path that already
+exists, so a re-run can never overwrite paid-for results.
 
 ## Why a separate module
 
@@ -80,635 +145,47 @@ Like mutation and load testing, benchmark **runs** are deliberately not part of
 `make verify` — they stand up Docker services, a real server binary, and (for
 real runs) a model API. Do not add the stack-dependent `bench-*` run targets
 (`bench-up`, `bench-run`, `bench-smoke`, the lifecycle/supersede/cold-start
-runs) to the `verify` target; `bench-test` and `bench-lint` are the only
-exceptions because they touch nothing outside the module.
-
-## Arms
-
-Arms are platform config profiles (`config/`), not code forks — the config
-surface is the ablation mechanism. All four ablate one layer at a time:
-
-| Arm | Profile | What the agent gets |
-| --- | --- | --- |
-| `a0` | `platform.bench.a0.yaml` | Raw toolkit tools only (`trino_*`, `s3_*`); no semantic provider, no search, all cross-enrichment off, search-first gate off. Equivalent to wiring the standalone toolkit libraries. |
-| `a1` | `platform.bench.a1.yaml` | A0 plus semantic cross-enrichment: `trino_*`/`s3_*` results carry DataHub context automatically, but the agent still has no `search` and no `datahub_*` tools (the persona withholds them; the datahub instance exists only to feed enrichment). Isolates enrichment from discovery. |
-| `a2` | `platform.bench.a2.yaml` | The shipped semantic-first platform: A1 plus the `search` tool, the search-first gate, and seeded knowledge pages. |
-| `a3` | `platform.bench.a3.yaml` | A2 plus the lifecycle surface: `memory_*` and `apply_knowledge`. On the single-episode S1–S4 suites A3 has nothing seeded to recall, so it tracks A2; the lifecycle's effect is measured by the S5 protocols (#944, below). |
-
-The search-first gate is not persona-aware, so the arms without a discovery
-tool (`a0`, `a1`) disable `workflow.require_search`; the profiles document this.
-The DataHub arms (`a1`, `a2`, `a3`) require a DataHub quickstart seeded via
-`make bench-seed-datahub`.
-
-## Seeded ground truth
-
-`seedgen` generates everything from one fixed-seed dataset model
-(`internal/gen`, seed 930): Trino DDL/DML (memory catalog), DataHub metadata
-proposals (descriptions, column units, deprecation), knowledge-page SQL, and
-the task YAML whose ground truths are computed from the generated rows —
-derived, never hand-typed. `TestCommittedArtifactsMatch` fails if the
-committed artifacts drift from regeneration (`make bench-gen` refreshes them).
-
-The phase-2 task set (87 tasks) spans three suites, all applicable to every
-arm:
-
-- **S1 discovery** (17): "which table answers X", graded by entity alias
-  match. Several are knowledge-dependent (deprecation of `legacy_orders`, the
-  gross-only/stale nature of the pre-aggregated index).
-- **S2 analytical accuracy** (45): exact numeric questions at BIRD-style tiers
-  (single-table, join, temporal, cross-tab, top-N). Graded numerically or by
-  entity; four are SQL-producing tasks graded by execution-result comparison
-  (see below). S2 states monetary units explicitly (cents) so it measures
-  query formulation, not the units trap.
-- **S3 knowledge traps** (25): answerable plausibly-but-wrongly without the
-  knowledge layer, across six seeded trap classes, each mirroring a fixture
-  the generator plants:
-  - `units_cents` — monetary columns are integer cents; the fact lives in
-    column and dataset descriptions (enrichment-visible).
-  - `net_revenue` — revenue = amount − discount over completed orders only;
-    lives in the dataset description and the revenue-policy page. The gross
-    leader and the net leader differ by construction.
-  - `fiscal_calendar` — the fiscal year runs Feb 1 – Jan 31; lives ONLY in the
-    fiscal-calendar page, so it separates the knowledge arm from enrichment.
-  - `freshness_cutoff` — the daily index stops at 2025-11-30, so post-cutoff
-    questions must use raw orders; lives in the index description and page.
-  - `tier_boundary` — a "key account" is any plus- or enterprise-tier
-    customer; lives only in the tier-definitions page.
-  - `deprecated_table` — `legacy_orders` is a partial, deprecated extract;
-    the deprecation lives in metadata and the warehouse page.
-
-  Each S3 task carries a rubric note (the required caveat) scored by the phase-2
-  LLM judge (`judge/`).
-
-## Measurement
-
-The platform's audit log is the measurement instrument. The harness calls
-`platform_info` to mint the `dps_` session handle, strips the injected
-`session_id` property from every tool schema shown to the model, and threads
-the handle itself — measurement plumbing invisible to the agent, uniform
-across arms. Efficiency metrics are read back from
-`GET /api/v1/admin/audit/events?session_id=...`; arm profiles run audit with
-`delivery: sync`, and a run **fails loudly** when a session's audit rows fall
-outside the bounds of the harness's client-side accounting: confirmed calls
-must all have rows, platform refusals (authz, the gates, the per-user
-limiter) short-circuit outer to the audit middleware and have none, and
-transport-level failures are counted as indeterminate (the platform may have
-audited before the error surfaced).
-
-Two independence guarantees keep attempts comparable:
-
-- **Identity pool.** The search-first gate keys discovery on the
-  authenticated USER, not the MCP session, so every attempt authenticates as
-  its own pool identity (`<key>-001`..`-264`, defined in the arm configs;
-  `-identity-keys` must match, and a run refuses to start when tasks x k
-  exceeds the pool). The pool is sized to the full phase-2 task set at k=3 (87
-  tasks x 3 = 261 attempts); to resize it, run this from `bench/` (and set the
-  matching `-identity-keys`):
-
-  ```python
-  import re, glob
-  N = 264  # >= tasks x k for the largest single run
-  entries = "\n".join(
-      f'      - {{key: "${{API_KEY_ADMIN}}-{i:03d}", name: "bench-agent-{i:03d}", roles: ["admin"]}}'
-      for i in range(1, N + 1)) + "\n"
-  # Replace the existing flow-style pool (every "- {key: ...-NNN...}" line) in place.
-  pool_re = re.compile(r'(?:      - \{key: "\$\{API_KEY_ADMIN\}-\d+".*\n)+')
-  for p in glob.glob("config/platform.bench.a*.yaml"):
-      src = open(p).read()                       # read before opening for write
-      open(p, "w").write(pool_re.sub(entries, src, count=1))
-  ```
-
-  `make bench-run` additionally resets the persisted discovery state
-  (`search_gate_discovery`) so repeated runs start clean.
-- **Harness failures never grade.** Attempts that fail at the harness level
-  (connect, adapter, audit read-back) are excluded from accuracy and reported
-  separately; pass^k requires all k attempts graded and correct.
-
-Grading is deterministic and scores only the first line after the mandated
-"FINAL ANSWER:" marker: numeric answers prefer the first decimal-bearing
-number (a restated year is a bare integer and is skipped when a decimal
-candidate exists); entity answers must name a correct alias and must not name
-any of the task's known trap answers (`wrong_aliases`, generated with the
-task).
-
-**Execution-result grading (BIRD-style).** SQL-producing S2 tasks put a query
-on the FINAL ANSWER line; the grader extracts it, executes the candidate and
-the task's reference query, and compares result sets as multisets of rows by
-cell value (column aliasing and row order do not matter), so two
-different-but-equivalent queries both pass. The grader runs its queries through
-a dedicated admin-credentialed MCP session, separate from every attempt handle,
-so its own tool calls never perturb an attempt's audit accounting.
-
-**The LLM judge** scores only the judgment-call rubric items the deterministic
-graders cannot — whether an S3 answer carried the required caveat. The judge
-model is pinned and the rubric versioned (`judge/rubric.yaml`); the judge's
-agreement with human labels is measured over a committed calibration set
-(`judge/calibration.yaml`, 30 items) and published with any judged scores.
-`make bench-calibrate` runs the calibration.
-
-## S5 memory-insight-knowledge lifecycle (#944)
-
-The S5 suite is not single-episode questions but multi-episode **protocols**
-(`protocols/`, generated), each a sequence of fresh sessions that exercises the
-teach-once-answer-forever lifecycle and verifies every state transition through
-the platform's own admin APIs — the insights and changesets endpoints — never
-inferred from a transcript. It runs only on the `a3` arm (the lifecycle tools
-`memory_capture` and `apply_knowledge` exist there).
-
-Every protocol runs **teach**, **recall**, and **abstain**; each additionally
-runs EITHER promote+transfer OR supersede, never both (see below). The stages:
-
-1. **Teach** — an identity states a fact conversationally and saves it. The
-   harness verifies via `GET /api/v1/admin/knowledge/insights?captured_by=...`
-   that a pending insight was captured and linked to the entity.
-2. **Recall** — the same identity, a fresh session, answers a question needing
-   the fact. Graded deterministically; the run also records whether `search`
-   surfaced the memory unprompted.
-3. **Promote** — the harness plays the reviewer: it approves the insight and
-   applies it via `apply_knowledge` to one of two sinks (an entity description
-   or a knowledge page), then confirms through the changesets API that the
-   insight is `applied` and a live changeset lists it.
-4. **Transfer** — a DIFFERENT identity, a fresh session, answers the same
-   question. It can only succeed because the promotion pushed the fact into
-   shared knowledge (cross-enrichment for the entity sink, `search` for the
-   page sink): the teach-once-answer-forever claim.
-5. **Update** — the teacher corrects the fact; a later recall must flip to the
-   new value, and the taught insight must show `superseded` (not left live
-   alongside the correction, which the run flags as a duplicate).
-6. **Abstain** — a question about a fact never taught must be answered "I do
-   not know", not fabricated.
-
-**Promote and update are mutually exclusive per protocol** (enforced by the
-protocol validator). The platform deliberately never supersedes an
-already-applied insight — a newer capture must not clobber a reviewed one — so a
-fact that has been promoted (and is therefore `applied`) can no longer be cleanly
-superseded. The twenty promote protocols therefore exercise stages 1–4 + 6; the
-ten supersede protocols exercise stages 1, 2, 5, 6 on a fact that stays pending.
-Both mechanics are measured, on different facts.
-
-Each protocol teaches a **novel** definition — one deliberately absent from the
-seeded knowledge pages and catalog metadata — so recall and transfer are clean:
-the only way to answer is the taught memory (recall) or the promoted knowledge
-(transfer), never the pre-seeded fixtures. The ten supersede protocols redefine
-a computable quantity so the corrected recall is a different, generator-computed
-value than the original (e.g. the "primary region" flips from the gross-revenue
-leader to the net-revenue leader). Ground truth is computed from the dataset,
-never hand-typed, exactly as the S1–S3 truths.
-
-The protocol set was doubled from fifteen to thirty for issue #965 (twenty
-promote + ten supersede), which roughly doubles every metric's denominator — the
-supersede metrics most of all, whose applicable denominators the phase-4 data
-exposed as small as 7–10 — so the lifecycle rates can be reported with tighter
-confidence intervals rather than the noisy ranges the small set produced.
-
-Each protocol attempt consumes two identities from the pool (a teacher and a
-learner) so the search-first gate's per-user discovery scope never leaks between
-attempts; the lifecycle requires a pool (there is no single-identity mode, since
-teacher and learner must differ), and a run refuses to start when
-`protocols x k x 2` exceeds it. Capture and duplicate verification are scoped to
-the specific taught insight, so re-running against a persistent knowledge store
-that reuses pool identities does not cross-contaminate the metrics.
-
-Metrics (each a numerator/denominator over the applicable, non-harness-failed
-runs): **capture rate**, **personal recall**, **unprompted surface**, **transfer
-rate**, **update correctness**, **update capture rate**, **duplicate rate**
-(lower is better), and **abstention rate**, plus **pass^k** over protocols (all
-k attempts pass the full applicable lifecycle). The duplicate rate counts only
-attempts whose correction capture actually executed: an update episode that
-never called capture left one live insight and the supersede gate never ran, so
-it is an update-capture miss (measured on its own rate, and a pass^k failure),
-not a duplicate. Harness-level failures (connect, adapter, API read-back)
-are excluded from the metrics and reported separately, mirroring the S1–S3
-pipeline.
-
-Every rate carries a **95% percentile-bootstrap confidence interval** (issue
-#965), resampled from its numerator/denominator with a fixed seed (the shared
-`internal/stats` machinery the S1–S3 report uses), so the interval is
-reproducible and a reader sees the uncertainty directly instead of inferring it
-from a range across replicates. The bootstrap treats each applicable outcome as
-an independent draw and does not model protocol-level correlation across the k
-replicates, so a narrow interval over a small, few-protocol denominator still
-warrants caution — the point of growing the set is to enlarge that denominator.
-
-### Per-stage diagnosis instrumentation (#964)
-
-Three metrics decompose the S5 gaps the phase-4 data exposed, so a weak headline
-number can be attributed rather than guessed:
-
-- **transfer surfaced** and **used given surfaced** split the transfer rate. A
-  transfer attempt records whether the promoted fact actually appeared in a tool
-  result the learner saw (`transfer_surfaced`), and among those, whether the
-  answer was correct (`transfer_used_given_surfaced`). A low surfaced rate points
-  at delivery (cross-enrichment or search did not carry the fact to the second
-  identity); a low used-given-surfaced rate points at reasoning (the agent had
-  the fact and ignored it). Surfacing is a normalized-substring match of the
-  promoted content against the episode's tool results, so it is a conservative
-  "the fact was present", not a paraphrase match.
-- **capture budget-starved** is, among capture misses, the fraction where the
-  teach episode exhausted its tool-call budget without executing a capture call —
-  the discovery-budget-exhaustion failure mode. A capture request the budget
-  refused (emitted only after the budget was spent) counts as starved, not as an
-  attempted capture. The rate is measured on the in-process loop path, which owns
-  the tool-call budget; claude-cli runs manage their own turn budget, so their
-  capture misses are excluded from this rate (`teach_budget_exhausted` is left
-  unset) rather than miscounted as not-starved.
-
-The **capture-budget lever** `-teach-budget N` overrides the per-episode tool-call
-budget for the capture-bearing stages (teach and update), so the capture-rate
-lift from a larger teach budget can be measured directly against the same
-protocol set.
-
-### Harness hardening (#966)
-
-- **Regression gate.** `-baseline <committed.json>` with `-lifecycle` gates the run against a committed S5 baseline and exits nonzero when a headline lifecycle metric regresses, so CI catches a lifecycle capability loss the same way it already catches an S1-S3 one. It applies to both a single-process run and a `-merge`d k=N scorecard (the canonical multi-pass artifact CI gates). The gated metrics are capture rate, personal recall, transfer rate, update correctness, abstention rate, duplicate rate (an increase past tolerance is the regression), and pass^k; a metric that either run did not exercise (zero denominator) is skipped as a coverage gap, not scored as a drop. The #964 diagnostic decompositions are deliberately not gated — their small denominators would trip the gate on noise; they exist to explain a regression, not define one. The gate refuses a cross-arm comparison, and a cross-client-path one (anthropic vs claude-cli), rather than producing a meaningless verdict; it compares the client path, not the exact CLI version, so a benign `claude` bump does not disable it. Default tolerances are loose (5 points) to absorb run-to-run variance.
-- **Output isolation.** The transcript directory is keyed on the full `-out` filename (`results.json` -> `results.json.transcripts/`), so several passes written into the same directory under different output names — even ones sharing a stem but differing by extension — never overwrite one another's raw transcripts. The `-merge` step refuses an `-out` that is the same on-disk file as one of its input passes (compared by device+inode, so a case-variant or symlinked alias is caught too), so a merged scorecard never clobbers the raw per-pass evidence it was built from. Together these mean multi-pass orchestration cannot silently discard paid-for data.
-- **claude-cli cache tokens.** A cached `claude -p` run's `cache_read_input_tokens` / `cache_creation_input_tokens` flow through the stream parser into each lifecycle `EpisodeRecord` and are summed into the run's `total_cache_read_tokens` / `total_cache_creation_tokens`, so a cached run self-reports its true cost basis (cache reads bill far below fresh input). The full parser -> `EpisodeRecord` -> aggregate path is covered by a test that drives the real parser on a canned cached stream; confirming that a real `claude` process emits those fields end to end is pending the first real claude-cli run on this parser (every kept claude-cli results file predates it), and the runner warns loudly when an episode with tool calls reports zero usage so a silent field move cannot go unnoticed.
-
-### Statistical power and identity-pool sizing (#965)
-
-The lifecycle rates are reported with confidence intervals (above), but a CI only
-describes the run you did — it does not tell you how large a run you *need* to
-resolve a real change. This section sizes both the protocol set and the identity
-pool against a target effect.
-
-**Applicable denominators.** Not every metric spans all thirty protocols. The
-transfer stage runs only on the twenty promote protocols; the supersede,
-duplicate, and update-correctness stages run only on the ten supersede protocols;
-capture, personal recall, and abstention span all thirty. At k replicates the
-applicable count per metric group is:
-
-| metric group | protocols | applicable n at k=3 | at k=5 |
-| --- | --- | --- | --- |
-| capture / personal recall / abstention | 30 | 90 | 150 |
-| transfer (+ its surfaced/used split) | 20 | 60 | 100 |
-| supersede / duplicate / update correctness | 10 | 30 | 50 |
-
-**Detectable effect.** For a two-sided test at α = 0.05 and 80% power, the
-normal-approximation sample size for a proportion is n ≈ (z_{α/2} + z_β)² ·
-p(1−p) / Δ² = 7.84 · p(1−p) / Δ². Taking the worst-case p = 0.5 (variance 0.25),
-the smallest shift Δ a given applicable n can resolve is Δ ≈ √(1.96 / n):
-
-| applicable n | smallest resolvable Δ (pts) |
-| --- | --- |
-| 30 | ~26 |
-| 50 | ~20 |
-| 60 | ~18 |
-| 90 | ~15 |
-| 100 | ~14 |
-| 150 | ~11 |
-
-Reading the two tables together: at k = 3 the headline rates resolve a ~15-point
-change, transfer a ~18-point one, and supersede/duplicate only a ~26-point one —
-which is why the phase-4 supersede numbers (denominator 7–10 before this ticket)
-read as noise. At k = 5 the supersede denominator reaches 50 (~20-point
-resolution) and transfer reaches 100 (~14 points). To resolve a 15-point transfer
-change — the size of the observed transfer ceiling — plan for k = 5 over the
-twenty promote protocols (n = 100 ≥ the 87 the formula requires at Δ = 0.15).
-These are lower bounds: the normal approximation is optimistic at small n and
-extreme p, and the bootstrap CIs treat replicates as independent draws (they do
-not model protocol-level correlation across the k attempts of one protocol), so
-treat the k = 5 column as the floor for a headline claim, not a guarantee.
-
-**Identity-pool sizing.** Each attempt consumes two pool identities (teacher +
-learner), so a run needs `2 × protocols × k` keys and refuses to start otherwise.
-For the thirty-protocol set:
-
-| k | identities needed (2 × 30 × k) | fits the 264-key pool? |
-| --- | --- | --- |
-| 3 | 180 | yes |
-| 4 | 240 | yes |
-| 5 | 300 | no — grow the pool |
-
-The committed pool in `bench/config/platform.bench.a*.yaml` is 264 keys (sized for
-the S1–S3 task set, 87 × 3 = 261). It covers the thirty-protocol lifecycle through
-k = 4. A k = 5 run — the size the power analysis recommends for a firm transfer
-claim — needs the pool grown to ≥ 300 (round to 320 for headroom) across the four
-arm configs; `-identity-keys` must be raised to match. That pool growth is the one
-prerequisite for the budget-gated k = 5 evaluation run and is intentionally left
-to that run rather than pre-committed here.
-
-## Supersede sub-benchmark (#964)
-
-`-supersede` runs the recall-first supersede gate **in isolation**: it drives
-only the supersede protocols (those with an `update` stage) through teach →
-capture-verify → correct → supersede-status check, skipping the promote,
-transfer, personal-recall, and abstain stages that otherwise dilute the signal.
-The isolated harness exists because the S5 duplicate rate was the noisiest S5
-metric (0% vs 42.9% between identical runs); measuring supersede on its own, with
-a per-protocol stability breakdown, makes that instability visible per protocol
-instead of hidden in one blended range.
-
-Metrics: **capture rate**, **update capture rate** (the correction capture
-executed; a miss is excluded from the supersede/duplicate denominator — with no
-correction on the platform the gate never ran), **supersede rate** (original
-superseded, higher is better), **duplicate rate** (its complement, lower is
-better), **update correctness**, **pass^k**, and a per-protocol
-`superseded`/`duplicated`/`update_capture_missed` count across the k attempts. Because the supersede gate is embedding-similarity based
-(nomic-embed-text), the threshold / embedding-model / deterministic-fallback
-evaluation is done by re-running this sub-benchmark against platforms configured
-differently and comparing the supersede rate — the sub-benchmark is the measuring
-instrument; the platform config is the independent variable.
-
-```bash
-make bench-up BENCH_ARM=a3
-make bench-supersede-smoke               # scripted no-API-key validation
-make bench-supersede K=3                 # real run (needs ANTHROPIC_API_KEY)
-make bench-supersede K=3 TEACH_BUDGET=20 # same, with the larger teach budget lever
-make bench-supersede-report RESULTS=build/bench-results/supersede-a3-<stamp>/supersede-a3.json
-```
-
-## Cold-start knowledge growth (#963)
-
-The S1-S3 and S5 suites ablate the platform with a **pre-seeded** knowledge base.
-The cold-start suite (`curriculum/`, generated) instead starts from an **empty
-enrichment layer** and measures the platform getting smarter as knowledge
-accumulates — a learning curve whose independent variable is the amount of
-**promoted (shared)** knowledge, holding the model, prompt, task set, and dataset
-constant.
-
-It runs on the `a3` arm against an **empty baseline**: an undocumented DataHub
-(`seed/datahub/bench_mces_empty.json` — entities present, but no descriptions,
-column docs, tags, or glossary) and **no knowledge pages** (`bench-up` with
-`BENCH_SEED_PAGES=0`). Over an ordered **curriculum** of six lessons — one per S3
-trap class — the harness:
-
-1. **Teaches** each fact (a teacher identity states it and captures it via
-   `memory_capture`), then **promotes** it to its sink through `apply_knowledge`:
-   a DataHub entity description (units, freshness, deprecation) or a portal
-   knowledge page (net-revenue policy, fiscal calendar, tier definitions). Each
-   lesson teaches the same S3 trap fact the A2 seed pre-loads, so the trap
-   suite reaches its A2 accuracy ceiling once all six are promoted (the
-   fact-bearing description and page channels are restored; A2's auxiliary
-   aspects — tags, the structured deprecation flag, column docs — are not, but
-   the S3 traps read the fact text, not those). Capture and promotion are verified through
-   the admin insights and changesets APIs, reusing the same reviewer-promotion
-   path (`internal/promote`) the S5 lifecycle uses; after the API verify, the
-   reviewer also reads the promoted content back from its sink (the entity's
-   effective description via `datahub_get_entity`, the page's summary via the
-   portal list) and fails the run when an API-confirmed apply is not readable
-   there — a silent sink-write loss must abort before episodes are spent, not
-   surface later as an unexplained flat curve.
-2. **Evaluates** at every checkpoint (the empty baseline and after each lesson)
-   by re-running the fixed S3 trap suite with a **fresh, never-taught evaluator
-   identity**. Its only knowledge source is what the platform surfaces —
-   cross-enrichment for the DataHub-sink facts, `search` for the page-sink facts
-   — so accuracy climbs only because promotion pushed the fact into shared
-   knowledge. This isolates the delivery of *promoted* knowledge (the coupling
-   between the lifecycle and the enrichment layer), not an evaluator's own memory.
-
-The report is a **learning curve**: per checkpoint, the eval set's accuracy, a
-per-trap-class breakdown (which lesson unlocked which class), and the
-delivery-side **enrichment coverage** (the fraction of tool calls whose response
-carried cross-enrichment, from the audit trail). Lesson order is the x-axis, run
-foundational-first (units before net-revenue, then the calendar/freshness/tier/
-deprecation facts) so a multi-fact trap flips to correct only once every fact it
-needs has landed.
-
-Grading is the deterministic S3 grading (numeric tolerance, entity alias); the
-suite reuses one identity pool (a distinct teacher per lesson, fresh evaluators
-per checkpoint), and a run refuses to start when the lessons plus per-checkpoint
-evaluators exceed the pool.
-
-**A cold-start run requires a FRESH DataHub quickstart**, not just re-ingesting
-the empty seed. `apply_knowledge` description promotions write the
-`editableDatasetProperties` aspect, and a prior a2 seed leaves
-`editableSchemaMetadata` column docs, tags, and deprecation; the empty seed
-(`bench_mces_empty.json`) upserts only `datasetProperties`, so re-ingesting it
-cannot clear any of that, and the read path prefers the editable description
-when non-empty. A **baseline-integrity preflight** enforces this: before any
-episode is spent, the run reads every lesson entity through the platform,
-lists insights for every (teacher, lesson URN) pair, and scans knowledge pages
-for the curriculum slugs, refusing to start if anything is already there.
-Postgres state (search gate, memory records, changesets, knowledge pages) is
-reset by the `bench-cold-start` target's TRUNCATE; DataHub state requires
-`datahub docker nuke`, a re-quickstart, then `make bench-seed-datahub-empty`.
-
-Between a successful datahub-sink promote and the next eval checkpoint the
-runner pauses for the `-settle` window (default `5m`, matching the a3 semantic
-cache TTL, `SETTLE=` on the make target) so a table-context cache entry
-populated by the previous checkpoint's evaluators can never serve the stale
-pre-promotion description to the next ones. Page-sink promotes skip the pause
-(page hits are served live from the portal store, nothing is cached), as do
-lessons that did not promote. The window is recorded on the results manifest,
-and the scripted smoke runs with `SETTLE=0s`.
-
-**Pass criteria.** A zero exit code is NOT a pass signal: capture misses and
-promote refusals are measured outcomes by design, so a run can exit 0 with a
-flat curve. A valid full run's summary must read `lessons 6 (captured 6,
-promoted 6)` with `harness failures 0`, enrichment coverage climbing from the
-baseline, no evaluator memory-write warning (evaluators are forbidden from
-saving memories; the summary warns if the audit-side count is non-zero), and no
-audit-read-back warning (a lost audit read contributes zero to coverage through
-signal loss, recorded per attempt as `audit_read_error` and totaled on the
-summary).
-
-## Running
-
-From the repository root:
-
-```bash
-make bench-up BENCH_ARM=a0        # compose stack + seeded warehouse + platform
-make bench-smoke                  # scripted no-API-key end-to-end validation
-make bench-run BENCH_ARM=a0 K=3   # real run (needs ANTHROPIC_API_KEY)
-make bench-report BENCH_ARM=a0    # single-arm human summary
-make bench-compare                # cross-arm tables + bootstrap CIs -> markdown
-make bench-calibrate              # judge-vs-human agreement rate
-make bench-down
-```
-
-The perishable-knowledge study (#1054) has its own stack: one arm, the
-perishable fixture surface, and its own database. It needs no DataHub or
-Trino, but it does need `ollama serve` with `nomic-embed-text` for the
-supersede mechanic.
-
-```bash
-make bench-pk-up                  # Postgres + perishable fixture + platform, fixture registered
-make bench-pk-up BENCH_PK_WORLD=monitors-3   # start in a different world
-make bench-pk-corpus REPLICATES=3 MODEL=sonnet   # capture-corpus episodes (claude-cli, no metered cost)
-make bench-pk-down
-```
-
-Study cells run against the same stack. A cell is a question, the belief
-planted before it, the delivery arm, and the world it is asked in; the
-runner puts the account in the world the belief describes, plants it as the
-identity that will be asked, moves the world, then asks.
-
-```bash
-make bench-pk-run CELLS=prerun K=8 MODEL=sonnet   # the internal power pre-run (exploratory)
-```
-
-`bench-pk-run` refuses to start against pool identities that already hold
-notes, for the same reason `bench-pk-corpus` does: the agent would find an
-earlier run's knowledge alongside this cell's belief and the results would
-not say which it acted on. Clear the store first.
-
-`bench-pk-up` starts `apisvc -surface perishable`, whose world the harness
-changes between sessions through the fixture control plane rather than by
-restarting. Clear the knowledge store between corpus runs: `bench-pk-corpus`
-refuses to start against pool identities that already hold insights, because
-an agent that finds its own earlier note declines to record it again and the
-run would archive empty episodes as if capture had written nothing. The
-fixture, its worlds, and the frozen seed set are documented in
-`docs/perishable-knowledge-fixture.md`.
-
-The S5 lifecycle protocols run against a booted `a3` arm (which needs the same
-DataHub quickstart as `a2`, plus the memory/knowledge Postgres tables that
-auto-enable):
-
-```bash
-make bench-up BENCH_ARM=a3        # boot the lifecycle arm
-make bench-lifecycle-smoke        # scripted no-API-key lifecycle validation
-make bench-lifecycle K=3          # real run (needs ANTHROPIC_API_KEY)
-make bench-lifecycle-report RESULTS=build/bench-results/lifecycle-a3-<stamp>/lifecycle-a3.json
-```
-
-The **scripted lifecycle smoke** (`-llm scripted`) plays
-`protocols/scripted-lifecycle-smoke.json` (generated): it captures via
-`memory_capture`, recalls by answering with each stage's computed ground truth,
-drives the reviewer-side promotion, and abstains — validating handle threading,
-the insight/changeset APIs, supersede, grading, and the metrics against the live
-platform with no API key and no model variance.
-
-The cold-start suite (#963) boots the same `a3` arm but with the empty baseline
-(no knowledge pages, undocumented DataHub, on a FRESH quickstart; the preflight
-refuses leftovers from a prior run or an a2 seed, see the cold-start section
-above), then teaches the curriculum:
-
-```bash
-# Fresh DataHub quickstart first (datahub docker nuke + re-quickstart if reused),
-# then boot a3 with an empty enrichment layer: no knowledge pages, empty DataHub.
-make bench-up BENCH_ARM=a3 BENCH_SEED_PAGES=0
-make bench-seed-datahub-empty            # entities present, undocumented
-
-make bench-cold-start-smoke              # scripted no-API-key loop validation (SETTLE=0s)
-make bench-cold-start K=1                # real learning-curve run (needs a model)
-make bench-cold-start LLM=claude-cli MODEL=sonnet K=1   # subscription run
-make bench-cold-start-report RESULTS=build/bench-results/cold-start-a3-<stamp>/results.json
-```
-
-Every `bench-cold-start` invocation writes into its own timestamped directory
-(`build/bench-results/cold-start-a3-<stamp>/results.json` plus a
-`results.json.transcripts/` directory beside it) and `benchrun` refuses an
-`-out` that already exists, so a re-run can never overwrite a prior run's
-paid-for results; `bench-cold-start-report` therefore takes the run to
-summarize via `RESULTS=` (it lists the available run dirs when unset).
-
-Two model paths, two cost profiles. `LLM=claude-cli` runs each episode through
-a real `claude -p` client and is subscription-funded (the runner strips
-`ANTHROPIC_API_KEY` from the child environment): a k=1 full run is 181 episodes
-(6 teaches + 7 checkpoints x 25 eval tasks) at roughly 50s each, so plan for
-2.5-3 hours of wall clock. The `anthropic` adapter bills the API: k=1 is
-estimated around USD 20 at claude-sonnet-5 pricing, extrapolated from the
-phase-2 per-attempt token data. Either way a full run exceeds an interactive
-session: launch it in the background and read the summary from the run dir.
-
-The **scripted cold-start smoke** (`-llm scripted`) plays
-`curriculum/scripted-cold-start-smoke.json` (generated): each lesson captures its
-fact and the harness drives the real promotion; each eval task answers with its
-computed ground truth. One run validates the whole teach → capture → promote →
-eval loop, the insight/changeset APIs, deterministic grading, and the
-learning-curve metrics against the live platform with no model. Its eval answers
-are always correct (the smoke measures plumbing, not model behavior), so its
-curve is flat-high; the climbing curve is a property of a real model run against
-the empty baseline.
-
-For the DataHub arms (`a1`, `a2`, `a3`), start a DataHub quickstart first (same
-external convention as e2e and load), then `make bench-seed-datahub` and
-`make bench-up BENCH_ARM=a2` (or `a1`/`a3`). Run each arm, then
-`make bench-compare` renders the arm-by-suite comparison (accuracy with 95%
-bootstrap CIs, pass^k, median tool calls, the S3 trap-class breakdown, and the
-headline deltas vs the baseline) from all `results-*.json` files.
-
-The **scripted adapter** (`-llm scripted`) plays a deterministic script
-(`tasks/scripted-smoke.json`, generated) instead of a model: SQL-backed tasks
-run their reference SQL through the live `trino_query` and answer with the
-live result. One smoke run therefore validates the seed data, the stored
-ground truths, handle threading, audit read-back, and both graders against the
-real platform — with no API key and no model variance. Real runs use the
-Anthropic adapter (`-llm anthropic`, model pinned in the manifest, no sampling
-parameters; run-to-run variance is handled by k-repeats and pass^k).
-
-### claude-cli adapter (subscription, no API key)
-
-`-llm claude-cli` runs each attempt through a real Claude Code client
-(`claude -p`) instead of the harness's in-process agent loop, so a
-subscription (Pro/Max) user can run real episodes with **no metered
-`ANTHROPIC_API_KEY`**. It works for both the S1-S3 task pipeline and the S5
-lifecycle protocols.
-
-```bash
-make bench-run BENCH_ARM=a2 LLM=claude-cli MODEL=sonnet K=3        # subscription task run
-make bench-lifecycle LLM=claude-cli MODEL=sonnet K=1               # subscription lifecycle run
-```
-
-How it differs from the in-process adapters:
-
-- Each attempt gets a generated `--mcp-config` pointing Claude Code at the
-  platform's streamable endpoint, authenticated with the attempt's identity-pool
-  key (the same per-attempt Bearer rotation the loop path uses). Claude Code
-  connects directly, calls `platform_info`, and threads the minted `dps_` handle
-  itself — exercising the real handle-threading and search-first steering a
-  production agent does, rather than the harness's synthetic loop.
-- The child `claude` always runs in subscription mode: the runner strips
-  `ANTHROPIC_API_KEY` from its environment, so a key sourced for `-llm anthropic`
-  never silently bills a claude-cli run. It runs in an isolated temp working
-  directory with `--strict-mcp-config` and the built-in file/shell/web tools
-  disallowed, so only the platform's MCP tools are in play.
-- Audit-derived efficiency metrics are correlated by the `dps_` handle Claude
-  Code threads onto every data call — exactly the anchor the in-process loop
-  uses, read from the stream's `platform_info` result. This reuses the same
-  min/max read-back contract: confirmed successful calls are the lower bound
-  (each must have an audit row, or the run fails loudly), errored and unresolved
-  calls raise the upper bound, and `platform_info`'s own row is not under the
-  handle so it is naturally excluded, matching the other adapters.
-- The manifest records the client path (`llm_provider: claude-cli`), the
-  `claude --version` string (`client_version`), and the model.
-
-**Comparability caveat.** The raw `anthropic` adapter stays canonical for
-published and regression numbers. `claude -p` reinserts Claude Code's own system
-prompt, tool-use policy, context management, and retries, all of which change
-across Claude Code releases. Within one run the arm-vs-arm delta is internally
-valid (both arms see the same client), but across runs a Claude Code upgrade
-could move the numbers with no platform change, which would break the
-regression-baseline contract. `client_version` in the manifest exists so a
-claude-cli run is never silently compared against a raw Messages API run.
-
-## Output
-
-`benchrun` writes a results JSON (manifest: git commit, platform version,
-model, dataset seed, task-set hash, arm, k, and — on the claude-cli path — the
-client version; per-attempt records with their trap classes; per-task and
-per-suite aggregates) plus per-attempt transcripts, and
-prints a human summary. `benchrun -compare a0.json,a1.json,...` builds the
-cross-arm comparison and `-compare-out page.md` writes the markdown page
-(`make bench-compare`); bootstrap CIs use a fixed resampling seed so identical
-inputs produce identical intervals. The published `docs/reference/benchmarks.md`
-page and the regression gate land in phase 4 (#945).
+runs, the `bench-pk-*` targets) to the `verify` target; `bench-test` and
+`bench-lint` are the only exceptions because they touch nothing outside the
+module.
 
 ## Layout
 
 ```
 bench/
+├── docs/                study protocols, pre-registrations, findings register
+│   ├── knowledge-layer-protocol.md
+│   ├── knowledge-use-protocol.md
+│   ├── perishable-knowledge-study-design.md    pre-registration (#1054)
+│   ├── perishable-knowledge-fixture.md         fixture reference
+│   ├── perishable-knowledge-estimator-audit.md treatment-string audit
+│   ├── api-connection-study-design.md          closed study (#1027)
+│   └── findings-register.md
+├── reports/             per-study recompute + render toolchains
+├── results/             archived run data, one directory per family
 ├── benchrun/            CLI entry point (run, summarize, compare, calibrate)
 ├── seedgen/             deterministic artifact/task generator CLI
-├── config/              arm profiles (a0/a1/a2/a3 platform configs)
+├── apigen/              fixture catalog + spec + task + seed generator CLI
+├── apisvc/              fixture HTTP service CLI (#1027 catalog, or -surface perishable)
+├── apisetup/            registers a fixture spec as a platform connection
+├── epmcp/               per-endpoint MCP server used by the #1027 b0 arm
+├── pkcorpus/            capture-corpus runner CLI (knowledge use, stage 1)
+├── pkrun/               cell runner CLI (knowledge use)
+├── config/              arm profiles (a0/a1/a2/a3 and the pk profile)
 ├── seed/                generated seed artifacts (committed; bench-gen)
 ├── specs/               generated fixture OpenAPI specs + world/fixture data (committed; bench-api-gen)
-├── apisvc/              fixture HTTP service CLI (#1027 catalog, or -surface perishable for #1054)
-├── apigen/              fixture catalog + spec + task + seed generator CLI
-├── pkcorpus/            perishable-knowledge capture-corpus runner CLI (#1054 stage 1)
-├── pkrun/               perishable-knowledge cell runner CLI (#1054)
-├── docs/                study protocols and design docs (status banner at the top of each)
 ├── tasks/               generated task YAML + smoke script (committed)
+├── tasks-api/           generated API-study task YAML (committed)
 ├── protocols/           generated S5 lifecycle protocol YAML + smoke (committed)
 ├── curriculum/          generated cold-start curriculum YAML + smoke (committed)
 ├── judge/               versioned rubric + human-labeled calibration set
-├── reports/             per-report recompute + render toolchains (see the map above)
 └── internal/
     ├── gen/             dataset model, emitters, ground-truth computation, protocols, curriculum
     ├── apigen/          fixture catalog model, spec emitter, seeded state, perishable world registry
     ├── apisvc/          fixture HTTP service: catalog handlers, insights surface, /_bench/ control plane
+    ├── apisetup/        registers fixture connections against a running platform
     ├── apistudy/        per-attempt retrieval, write detection, failure taxonomy
+    ├── epmcp/           per-endpoint MCP server built from a spec fixture
     ├── fixturectl/      control-plane client: reset, world change, phase, state dumps, state grading
     ├── pkcorpus/        capture-corpus scenarios, episode runner, archive
     ├── pkseed/          frozen belief set, the RQ2 phrasing factorial, and delivery metadata
@@ -724,12 +201,14 @@ bench/
     ├── mcpc/            MCP session, handle mint, session_id threading
     ├── auditapi/        admin audit API read-back + metrics (+ enrichment coverage)
     ├── lifecycleapi/    admin insights + changesets read-back, approve + apply drivers
-    ├── promote/         shared reviewer-promotion path (approve + apply_knowledge + verify), used by S5 and cold-start
+    ├── promote/         shared reviewer-promotion path (approve + apply_knowledge + verify)
     ├── grade/           deterministic graders (numeric, entity, execution-result)
     ├── judge/           LLM judge + calibration harness
     ├── pipeline/        task x k orchestration
-    ├── lifecycle/       S5 protocol runner, stage graders, metrics, results model, per-stage diagnosis instrumentation + isolated supersede sub-benchmark (#964), S5 regression gate (#966)
+    ├── lifecycle/       S5 protocol runner, stage graders, metrics, results model
     ├── coldstart/       cold-start curriculum runner, learning-curve metrics, results model
+    ├── pool/            identity-pool allocation
     ├── report/          results model, aggregates, cross-arm comparison
+    ├── stats/           bootstrap confidence intervals
     └── target/          endpoint + Bearer auth
 ```

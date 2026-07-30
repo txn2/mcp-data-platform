@@ -36,9 +36,10 @@ const claudeCachedStream = `{"type":"system","subtype":"init","mcp_servers":[{"n
 // claude-cli run's cache tokens flow through the real parser into the lifecycle
 // EpisodeRecord, so a cached run self-reports its true cost basis (cache reads
 // bill far below fresh input) rather than being estimated from input/output
-// totals. The one remaining gap — that a real `claude` process actually emits
-// these fields — awaits the first real claude-cli run on this parser (see
-// bench/README.md); the runner warns loudly on zero usage in the meantime.
+// totals. That a real `claude` process emits these fields is confirmed by the
+// cold-start runs, which are claude-cli and record non-zero cache tokens; what
+// remains covered only here is the lifecycle record's own field mapping, and
+// the runner warns loudly on zero usage so a silent field move cannot pass.
 func TestClaudeCLIEpisodeRecordsCacheTokens(t *testing.T) {
 	fp := newFakePlatform(t)
 	runner, err := claudecli.New(claudecli.Options{
