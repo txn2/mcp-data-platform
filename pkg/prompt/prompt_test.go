@@ -159,6 +159,42 @@ func TestApplyPromotionRequest(t *testing.T) {
 	})
 }
 
+func TestApproveOnAdminCreate(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+
+	t.Run("global lands approved with the creator stamped", func(t *testing.T) {
+		p := &Prompt{Scope: ScopeGlobal, Source: SourceOperator}
+		p.ApproveOnAdminCreate("admin@x", now)
+		if p.Status != StatusApproved || p.ApprovedBy != "admin@x" || p.ApprovedAt == nil || !p.ApprovedAt.Equal(now) {
+			t.Errorf("global create not approved: %+v", p)
+		}
+	})
+
+	t.Run("persona lands approved", func(t *testing.T) {
+		p := &Prompt{Scope: ScopePersona, Source: SourceOperator}
+		p.ApproveOnAdminCreate("admin@x", now)
+		if p.Status != StatusApproved {
+			t.Errorf("persona create not approved: %+v", p)
+		}
+	})
+
+	t.Run("personal is untouched", func(t *testing.T) {
+		p := &Prompt{Scope: ScopePersonal, Source: SourceOperator}
+		p.ApproveOnAdminCreate("admin@x", now)
+		if p.Status != "" || p.ApprovedBy != "" || p.ApprovedAt != nil {
+			t.Errorf("personal create must stay on the promotion flow: %+v", p)
+		}
+	})
+
+	t.Run("system rows are untouched", func(t *testing.T) {
+		p := &Prompt{Scope: ScopeGlobal, Source: SourceSystem}
+		p.ApproveOnAdminCreate("admin@x", now)
+		if p.Status != "" || p.ApprovedBy != "" {
+			t.Errorf("system row lifecycle is not admin-managed: %+v", p)
+		}
+	})
+}
+
 func TestApprovePromotion(t *testing.T) {
 	now := time.Unix(1700000000, 0).UTC()
 

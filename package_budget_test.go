@@ -60,11 +60,14 @@ const (
 	maxPackageFiles = 35
 
 	// maxInternalPackageLOC caps non-generated, non-test lines per package
-	// under internal/. Seeded at the current largest — internal/platform/
-	// promptlayer, 3,418 LOC — rather than padded, so internal/ does not
-	// inherit the far looser pkg/ allowance it was never measured against.
-	// The next line added to promptlayer fails this gate: that is the
-	// pressure to decompose it, not a reason to raise the number.
+	// under internal/. Seeded at what was then the largest — internal/
+	// platform/promptlayer at 3,418 LOC — rather than padded, so internal/
+	// does not inherit the far looser pkg/ allowance it was never measured
+	// against. The #1124 additions tripped the gate as designed and paid for
+	// themselves by extracting the notifying store decorator into
+	// promptlayer/notifystore, bringing promptlayer to 3,280 (still the
+	// largest, with 138 lines of headroom). The ceiling stays where it was
+	// seeded: growth is paid for by decomposition, not by raising the number.
 	maxInternalPackageLOC = 3418
 
 	// maxInternalPackageFiles caps non-generated, non-test .go files per

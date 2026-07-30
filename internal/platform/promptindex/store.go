@@ -27,19 +27,22 @@ type Store struct {
 func NewStore(db *sql.DB) *Store { return &Store{db: db} }
 
 // errNotIndexable is returned by GetIndexText when the prompt is missing or no
-// longer approved+enabled, so the Source treats the unit as nothing to index.
-var errNotIndexable = errors.New("promptindex: prompt missing or not approved")
+// longer enabled, so the Source treats the unit as nothing to index.
+var errNotIndexable = errors.New("promptindex: prompt missing or disabled")
 
-// GetIndexText returns the composed embed text for an approved, enabled prompt.
-// A prompt that was deprecated, disabled, or deleted between enqueue and claim
-// yields errNotIndexable so the Source returns an empty item set (a clean
-// "nothing to index" completion). The composition is prompt.IndexText, the same
-// one the request-path search ranks against.
+// GetIndexText returns the composed embed text for an enabled prompt. Every
+// enabled prompt is embedded regardless of status (#1124): search visibility
+// is decided at query time (a caller's own drafts and an admin's whole library
+// rank), so the index must cover what any caller can rank, not just the
+// approved set. A prompt disabled or deleted between enqueue and claim yields
+// errNotIndexable so the Source returns an empty item set (a clean "nothing to
+// index" completion). The composition is prompt.IndexText, the same one the
+// request-path search ranks against.
 func (s *Store) GetIndexText(ctx context.Context, id string) (string, error) {
 	const q = `
 		SELECT display_name, name, description, content, tags
 		  FROM prompts
-		 WHERE id = $1 AND status = 'approved' AND enabled = true`
+		 WHERE id = $1 AND enabled = true`
 	var p prompt.Prompt
 	err := s.db.QueryRowContext(ctx, q, id).Scan(
 		&p.DisplayName, &p.Name, &p.Description, &p.Content, pq.Array(&p.Tags))
@@ -106,9 +109,9 @@ func (s *Store) UpsertVectors(ctx context.Context, id string, rows []indexjobs.V
 	return nil
 }
 
-// FindGaps returns the ids of approved, enabled prompts whose embedding is
-// missing or was produced by a model other than the current provider's. Missing
-// embeddings cover a freshly approved prompt (and a content edit, which the
+// FindGaps returns the ids of enabled prompts whose embedding is missing or
+// was produced by a model other than the current provider's. Missing
+// embeddings cover a freshly created prompt (and a content edit, which the
 // request-path Update clears the embedding for); the model mismatch covers a
 // provider model swap. Both converge off the request path when the reconciler
 // enqueues them.
@@ -116,7 +119,7 @@ func (s *Store) FindGaps(ctx context.Context, currentModel string) ([]string, er
 	const q = `
 		SELECT id
 		  FROM prompts
-		 WHERE status = 'approved' AND enabled = true
+		 WHERE enabled = true
 		   AND (embedding IS NULL OR embedding_model IS DISTINCT FROM $1)`
 	rows, err := s.db.QueryContext(ctx, q, currentModel)
 	if err != nil {
@@ -137,16 +140,16 @@ func (s *Store) FindGaps(ctx context.Context, currentModel string) ([]string, er
 	return ids, nil
 }
 
-// Coverage returns the number of approved+enabled prompts with an embedding
-// (indexed) and the total number of approved+enabled prompts (expected). Every
-// approved prompt is expected to carry a vector once converged.
+// Coverage returns the number of enabled prompts with an embedding (indexed)
+// and the total number of enabled prompts (expected). Every enabled prompt is
+// expected to carry a vector once converged.
 func (s *Store) Coverage(ctx context.Context) (indexed, expected int, err error) {
 	const q = `
 		SELECT
 			COUNT(*) FILTER (WHERE embedding IS NOT NULL) AS indexed,
 			COUNT(*)                                      AS expected
 		  FROM prompts
-		 WHERE status = 'approved' AND enabled = true`
+		 WHERE enabled = true`
 	if err := s.db.QueryRowContext(ctx, q).Scan(&indexed, &expected); err != nil {
 		return 0, 0, fmt.Errorf("promptindex: coverage: %w", err)
 	}

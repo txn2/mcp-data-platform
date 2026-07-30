@@ -145,6 +145,7 @@ internal/platform/portalstore -> pkg/portal/knowledgepage
 internal/platform/portalstore -> pkg/toolkits/portal
 internal/platform/promptindex -> pkg/indexjobs
 internal/platform/promptindex -> pkg/prompt
+internal/platform/promptlayer -> internal/platform/promptlayer/notifystore
 internal/platform/promptlayer -> pkg/audit
 internal/platform/promptlayer -> pkg/embedding
 internal/platform/promptlayer -> pkg/middleware
@@ -157,6 +158,7 @@ internal/platform/promptlayer -> pkg/resource
 internal/platform/promptlayer -> pkg/textpatch
 internal/platform/promptlayer -> pkg/textpatch/patchmcp
 internal/platform/promptlayer -> pkg/tuning
+internal/platform/promptlayer/notifystore -> pkg/prompt
 internal/platform/reflexivecapture -> pkg/memory
 internal/platform/reflexivecapture -> pkg/middleware
 internal/platform/reflexivecapture -> pkg/toolkits/memory

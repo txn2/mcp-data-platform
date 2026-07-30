@@ -156,6 +156,27 @@ func (p *Prompt) ApplyStatusTransition(newStatus, supersededBy, actorEmail strin
 	return nil
 }
 
+// ApproveOnAdminCreate marks a newly created shared (global or persona) prompt
+// as approved, stamping the creating admin as its approver. An admin creating a
+// shared prompt is the approver: landing it as draft would make it browseable
+// but unsearchable, with no approve affordance on the surface the creator is
+// standing on (#1124). A no-op for personal prompts (they publish through the
+// promotion flow) and system rows (read-only config mirrors whose lifecycle is
+// not admin-managed). Callers must only invoke it for admin actors; it is
+// shared by the manage_prompt tool and the admin REST API so both land the same
+// lifecycle state.
+func (p *Prompt) ApproveOnAdminCreate(actorEmail string, now time.Time) {
+	if p.Scope != ScopeGlobal && p.Scope != ScopePersona {
+		return
+	}
+	if p.Source == SourceSystem {
+		return
+	}
+	p.Status = StatusApproved
+	p.ApprovedBy = actorEmail
+	p.ApprovedAt = &now
+}
+
 // ApplyPromotionRequest records an owner's request to promote a personal prompt
 // into a shared scope. The prompt must be personal; the target must be persona
 // (with at least one persona) or global. It only sets the request signal; the
@@ -296,6 +317,7 @@ type ListFilter struct {
 	Personas        []string // filter by persona membership (OR match)
 	OwnerEmail      string   // filter by owner
 	Enabled         *bool    // filter by enabled state
+	Status          string   // filter by lifecycle status (draft, approved, ...); "" for all
 	Search          string   // free-text search on name, display_name, description
 	ReviewRequested *bool    // filter by pending promotion request (admin queue)
 	Source          string   // include only this origin (operator, agent, system); "" for all

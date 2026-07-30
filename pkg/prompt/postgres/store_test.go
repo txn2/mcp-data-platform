@@ -445,6 +445,20 @@ func TestBuildWhere_SourceFilters(t *testing.T) {
 	assert.Equal(t, []any{prompt.SourceOperator, prompt.SourceSystem, "%x%"}, args)
 }
 
+func TestBuildWhere_StatusFilter(t *testing.T) {
+	clause, args := buildWhere(prompt.ListFilter{Status: prompt.StatusApproved})
+	assert.Contains(t, clause, "status = $1")
+	assert.Equal(t, []any{prompt.StatusApproved}, args)
+
+	// Status keeps placeholder numbering correct among its neighbors.
+	enabled := true
+	clause, args = buildWhere(prompt.ListFilter{Enabled: &enabled, Status: prompt.StatusApproved, Search: "x"})
+	assert.Contains(t, clause, "enabled = $1")
+	assert.Contains(t, clause, "status = $2")
+	assert.Contains(t, clause, "$3")
+	assert.Equal(t, []any{true, prompt.StatusApproved, "%x%"}, args)
+}
+
 func TestList_WithScopeFilter(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

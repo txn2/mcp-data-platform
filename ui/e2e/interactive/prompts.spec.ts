@@ -57,10 +57,12 @@ test.describe("Prompt library buckets", () => {
 
   test("dead prompts are visually identifiable", async ({ page }) => {
     await openLibraryTab(page);
-    // prompt-008 (Stock Level Alert) has no usage entry: never run.
+    // prompt-008 (Stock Level Alert) has no usage entry and is 25 days old:
+    // flagged with the exact condition it is in (#1124), not a
+    // lifecycle-sounding "inactive".
     const row = page.getByRole("row", { name: /Stock Level Alert/ });
-    await expect(row.getByText("inactive")).toBeVisible();
-    await expect(row.getByText("Never")).toBeVisible();
+    await expect(row.getByText("never run")).toBeVisible();
+    await expect(row.getByText("Never", { exact: true })).toBeVisible();
   });
 });
 

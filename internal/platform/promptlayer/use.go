@@ -121,7 +121,12 @@ func (h *Handle) useExactName(ctx context.Context, name string) *prompt.Prompt {
 		return pr
 	}
 	if pr, err := h.store.Get(ctx, name); err == nil && pr != nil && pr.Enabled {
-		return pr
+		// Exact-name resolution honors the same visibility rule as browse and
+		// search (#1124): another owner's shared prompt resolves once approved;
+		// admins and the owner reach it at any status.
+		if h.isAdminPersona(ctx) || pr.Status == prompt.StatusApproved || pr.OwnerEmail == email {
+			return pr
+		}
 	}
 	return nil
 }

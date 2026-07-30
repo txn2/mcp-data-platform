@@ -390,6 +390,11 @@ func buildWhere(f prompt.ListFilter) (clause string, params []any) {
 		args = append(args, *f.Enabled)
 		idx++
 	}
+	if f.Status != "" {
+		conds = append(conds, fmt.Sprintf("status = $%d", idx))
+		args = append(args, f.Status)
+		idx++
+	}
 	if len(f.Personas) > 0 {
 		conds = append(conds, fmt.Sprintf("personas && $%d", idx))
 		args = append(args, pq.Array(f.Personas))

@@ -110,20 +110,25 @@ func TestStore_CompleteOwnership(t *testing.T) {
 	t.Parallel()
 	s, mock, done := newMockStore(t)
 	defer done()
-	// Happy path: one row affected, then the best-effort sweep that
-	// resolves any open failure superseded by this success.
+	// Happy path: the success flip and the resolution of any open failure the
+	// success supersedes commit in ONE transaction, so no observer can see the
+	// job succeeded while its superseded failure still looks open.
+	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE index_jobs").
 		WithArgs(int64(7), "w1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE index_jobs f").
 		WithArgs(int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
 	if err := s.Complete(context.Background(), 7, "w1"); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	// Rotated lease: zero rows -> ErrNotFound, and the resolve sweep
-	// must NOT run (no superseding success happened).
+	// Rotated lease: zero rows -> ErrNotFound, rollback, and the resolve
+	// statement must NOT run (no superseding success happened).
+	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE index_jobs").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
 	if err := s.Complete(context.Background(), 7, "stale"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("rotated Complete err = %v; want ErrNotFound", err)
 	}
@@ -300,20 +305,60 @@ func TestLeaseSeconds_FloorsAtOne(t *testing.T) {
 	}
 }
 
-func TestStore_CompleteResolveSweepErrorIsBestEffort(t *testing.T) {
+func TestStore_CompleteResolveErrorRollsBack(t *testing.T) {
 	t.Parallel()
 	s, mock, done := newMockStore(t)
 	defer done()
-	// Success flip affects one row; the resolve sweep then errors. The
-	// success is already durable, so Complete must still return nil.
+	// The failure resolution errors: the whole Complete rolls back — nothing
+	// is durable, the error surfaces, and the still-leased job retries. This
+	// replaced the old best-effort sweep, whose separate commit let an
+	// observer read a succeeded job whose superseded failure was still open.
+	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE index_jobs").
 		WithArgs(int64(9), "w1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE index_jobs f").
 		WithArgs(int64(9)).
 		WillReturnError(errors.New("sweep failed"))
-	if err := s.Complete(context.Background(), 9, "w1"); err != nil {
-		t.Fatalf("Complete with failing resolve sweep should be nil; got %v", err)
+	mock.ExpectRollback()
+	if err := s.Complete(context.Background(), 9, "w1"); err == nil {
+		t.Fatal("Complete with a failing resolve must roll back and error")
+	}
+}
+
+func TestStore_CompleteTransactionErrors(t *testing.T) {
+	t.Parallel()
+	s, mock, done := newMockStore(t)
+	defer done()
+
+	// Begin fails: the error surfaces, nothing ran.
+	mock.ExpectBegin().WillReturnError(errors.New("no conn"))
+	if err := s.Complete(context.Background(), 7, "w1"); err == nil {
+		t.Fatal("Complete with failing begin must error")
+	}
+
+	// The success flip itself fails: rollback, error surfaces.
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE index_jobs").
+		WithArgs(int64(7), "w1").
+		WillReturnError(errors.New("boom"))
+	mock.ExpectRollback()
+	if err := s.Complete(context.Background(), 7, "w1"); err == nil {
+		t.Fatal("Complete with failing success flip must error")
+	}
+
+	// Commit fails: neither write is durable and the error surfaces so the
+	// still-leased job retries.
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE index_jobs").
+		WithArgs(int64(7), "w1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE index_jobs f").
+		WithArgs(int64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
+	if err := s.Complete(context.Background(), 7, "w1"); err == nil {
+		t.Fatal("Complete with failing commit must error")
 	}
 }
 
