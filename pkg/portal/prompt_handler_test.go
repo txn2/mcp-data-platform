@@ -134,7 +134,7 @@ func (m *mockPromptRegistrar) UnregisterRuntimePrompt(name string) {
 var _ PromptRegistrar = (*mockPromptRegistrar)(nil)
 
 func withUser(r *http.Request, email string, roles ...string) *http.Request {
-	ctx := context.WithValue(r.Context(), portalUserKey, &User{
+	ctx := ContextWithUser(r.Context(), &User{
 		UserID: "user-123",
 		Email:  email,
 		Roles:  roles,
@@ -149,7 +149,7 @@ func newTestPortalPromptHandler() (*Handler, *mockPromptStore, *mockPromptRegist
 		PromptStore:     store,
 		PromptRegistrar: registrar,
 		AdminRoles:      []string{"admin"},
-		AssetStore:      &noopAssetStore{},
+		AssetStore:      NewNoopAssetStore(),
 	}, nil)
 	return h, store, registrar
 }
@@ -392,7 +392,7 @@ func newTestPortalPromptShareHandler() (*Handler, *mockPromptStore, *mockShareSt
 		PromptStore: pstore,
 		ShareStore:  sstore,
 		AdminRoles:  []string{"admin"},
-		AssetStore:  &noopAssetStore{},
+		AssetStore:  NewNoopAssetStore(),
 	}, nil)
 	return h, pstore, sstore
 }
@@ -645,7 +645,7 @@ func TestRevokePromptShare_NoPromptStore(t *testing.T) {
 	sstore := &mockShareStore{getByIDShare: &Share{ID: "s1", PromptID: "p1", CreatedBy: "alice@example.com"}}
 	h := NewHandler(Deps{
 		ShareStore: sstore,
-		AssetStore: &noopAssetStore{},
+		AssetStore: NewNoopAssetStore(),
 		AdminRoles: []string{"admin"},
 	}, nil)
 	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/portal/shares/s1", http.NoBody), "alice@example.com")
@@ -709,7 +709,7 @@ func newVersionedPortalPromptHandler() (*Handler, *mockVersionPromptStore, *mock
 		PromptStore:     store,
 		PromptRegistrar: registrar,
 		AdminRoles:      []string{"admin"},
-		AssetStore:      &noopAssetStore{},
+		AssetStore:      NewNoopAssetStore(),
 	}, nil)
 	return h, store, registrar
 }

@@ -34,7 +34,7 @@ func newSearchablePortalHandler(result []prompt.ScoredPrompt) (*Handler, *search
 	h := NewHandler(Deps{
 		PromptStore: store,
 		AdminRoles:  []string{"admin"},
-		AssetStore:  &noopAssetStore{},
+		AssetStore:  NewNoopAssetStore(),
 	}, nil)
 	return h, store
 }

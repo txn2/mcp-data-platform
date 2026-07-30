@@ -29,10 +29,3 @@ func (h *Handler) notifyShare(ctx context.Context, share *Share, kind, itemID, i
 		h.deps.Notifier.NotifyShare(ctx, share, kind, itemID, itemTitle)
 	}
 }
-
-// notifyThreadEvent fires the thread trigger when a notifier is wired.
-func (h *Handler) notifyThreadEvent(ctx context.Context, thread *Thread, actorEmail, body string, mentioned []string) {
-	if h.deps.Notifier != nil {
-		h.deps.Notifier.NotifyThreadEvent(ctx, thread, actorEmail, body, mentioned)
-	}
-}

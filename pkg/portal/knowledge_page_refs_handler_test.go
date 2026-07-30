@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -488,4 +489,16 @@ func TestUpdateKnowledgePage_InlineReconcilePreservesPromoted(t *testing.T) {
 	assert.Contains(t, urns, "urn:li:dataset:x", "promoted ref preserved")
 	assert.Contains(t, urns, "mcp:collection:coll-1", "new inline ref from body")
 	assert.NotContains(t, urns, "mcp:asset:stale-inline", "old inline ref replaced")
+}
+
+// mockChangesetReader is a controllable ChangesetReader for the lineage tests.
+type mockChangesetReader struct {
+	changesets []knowledge.Changeset
+	err        error
+	gotFilter  knowledge.ChangesetFilter
+}
+
+func (m *mockChangesetReader) ListChangesets(_ context.Context, f knowledge.ChangesetFilter) ([]knowledge.Changeset, int, error) {
+	m.gotFilter = f
+	return m.changesets, len(m.changesets), m.err
 }

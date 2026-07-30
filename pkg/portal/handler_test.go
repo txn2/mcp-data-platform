@@ -19,6 +19,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
+
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
 // --- Mock stores for handler tests ---
@@ -295,7 +297,7 @@ func testAuthMiddleware(user *User) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if user != nil {
-				ctx := context.WithValue(r.Context(), portalUserKey, user)
+				ctx := ContextWithUser(r.Context(), user)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -679,7 +681,7 @@ func TestResolveAssetPermission(t *testing.T) {
 			listByAsset:   []Share{{ID: "s1", SharedWithUserID: "u1", Permission: PermissionViewer}},
 			collAssetPerm: PermissionEditor,
 		}, &mockS3Client{}, user)
-		perm, err := h.resolveAssetPermission(req, "a1", user)
+		perm, err := h.access.ResolveAssetPermission(req.Context(), "a1", user)
 		require.NoError(t, err)
 		assert.Equal(t, PermissionEditor, perm)
 	})
@@ -689,7 +691,7 @@ func TestResolveAssetPermission(t *testing.T) {
 			listByAsset: []Share{{ID: "s1", SharedWithUserID: "u1", Permission: PermissionEditor}},
 		}
 		h := newTestHandler(&mockAssetStore{}, shares, &mockS3Client{}, user)
-		perm, err := h.resolveAssetPermission(req, "a1", user)
+		perm, err := h.access.ResolveAssetPermission(req.Context(), "a1", user)
 		require.NoError(t, err)
 		assert.Equal(t, PermissionEditor, perm)
 		// A direct editor is the ceiling: the collection cascade must not be queried.
@@ -698,7 +700,7 @@ func TestResolveAssetPermission(t *testing.T) {
 
 	t.Run("direct-share error surfaces when neither path grants", func(t *testing.T) {
 		h := newTestHandler(&mockAssetStore{}, &mockShareStore{listByAssetE: fmt.Errorf("boom")}, &mockS3Client{}, user)
-		perm, err := h.resolveAssetPermission(req, "a1", user)
+		perm, err := h.access.ResolveAssetPermission(req.Context(), "a1", user)
 		require.Error(t, err)
 		assert.Equal(t, SharePermission(""), perm)
 	})
@@ -711,7 +713,7 @@ func TestResolveAssetPermission(t *testing.T) {
 			listByAssetE:  fmt.Errorf("boom"),
 			collAssetPerm: PermissionViewer,
 		}, &mockS3Client{}, user)
-		perm, err := h.resolveAssetPermission(req, "a1", user)
+		perm, err := h.access.ResolveAssetPermission(req.Context(), "a1", user)
 		require.Error(t, err) // direct error still surfaces for HTTP callers (500)
 		assert.Equal(t, PermissionViewer, perm)
 
@@ -1161,7 +1163,7 @@ func TestUpdateAssetInvalidDescription(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	longDesc := strings.Repeat("x", maxDescriptionLength+1)
+	longDesc := strings.Repeat("x", portaldomain.MaxDescriptionLength+1)
 	body := fmt.Sprintf(`{"description":%q}`, longDesc)
 	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
 	w := httptest.NewRecorder()
@@ -1179,7 +1181,7 @@ func TestUpdateAssetInvalidTags(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	tags := make([]string, maxTags+1)
+	tags := make([]string, portaldomain.MaxTags+1)
 	for i := range tags {
 		tags[i] = "t"
 	}
@@ -1609,7 +1611,7 @@ func TestCreateShareNoticeTextTooLong(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	longText := strings.Repeat("a", maxNoticeTextLength+1)
+	longText := strings.Repeat("a", portaldomain.MaxNoticeTextLength+1)
 	body := fmt.Sprintf(`{"notice_text":%q}`, longText)
 	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
@@ -1883,28 +1885,6 @@ func TestListSharedWithMeNoUser(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-// --- hasAnyRole ---
-
-func TestHasAnyRole(t *testing.T) {
-	tests := []struct {
-		name        string
-		userRoles   []string
-		targetRoles []string
-		expected    bool
-	}{
-		{"match", []string{"dp_admin", "dp_analyst"}, []string{"dp_admin"}, true},
-		{"no match", []string{"dp_analyst"}, []string{"dp_admin"}, false},
-		{"empty user roles", nil, []string{"dp_admin"}, false},
-		{"empty target roles", []string{"dp_admin"}, nil, false},
-		{"both empty", nil, nil, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, hasAnyRole(tt.userRoles, tt.targetRoles))
-		})
-	}
-}
-
 // --- intParam ---
 
 func TestIntParam(t *testing.T) {
@@ -1939,18 +1919,6 @@ func TestGenerateShareToken(t *testing.T) {
 	tok2, err := GenerateShareToken()
 	require.NoError(t, err)
 	assert.NotEqual(t, tok1, tok2) // two tokens should be unique
-}
-
-// --- isSharedWithUser ---
-
-func TestIsShareActive(t *testing.T) {
-	past := time.Now().Add(-time.Hour)
-	future := time.Now().Add(time.Hour)
-
-	assert.True(t, isShareActive(Share{Revoked: false}))
-	assert.False(t, isShareActive(Share{Revoked: true}))
-	assert.False(t, isShareActive(Share{Revoked: false, ExpiresAt: &past}))
-	assert.True(t, isShareActive(Share{Revoked: false, ExpiresAt: &future}))
 }
 
 func TestCanViewAssetOwner(t *testing.T) {
@@ -3314,7 +3282,7 @@ func TestUpdateAssetContentViewerDenied(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
-// --- sharePermissionForUser ---
+// --- the share-permission check, reached through the handler's checker ---
 
 func TestSharePermissionForUserEditor(t *testing.T) {
 	h := newTestHandler(
@@ -3326,7 +3294,7 @@ func TestSharePermissionForUserEditor(t *testing.T) {
 		&mockS3Client{}, nil,
 	)
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	perm, err := h.sharePermissionForUser(req, "a1", &User{UserID: "u1"})
+	perm, err := h.access.AssetSharePermission(req.Context(), "a1", &User{UserID: "u1"})
 	assert.NoError(t, err)
 	assert.Equal(t, PermissionEditor, perm)
 }
@@ -3338,7 +3306,7 @@ func TestSharePermissionForUserNotShared(t *testing.T) {
 		&mockS3Client{}, nil,
 	)
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	perm, err := h.sharePermissionForUser(req, "a1", &User{UserID: "u1"})
+	perm, err := h.access.AssetSharePermission(req.Context(), "a1", &User{UserID: "u1"})
 	assert.NoError(t, err)
 	assert.Equal(t, SharePermission(""), perm)
 }
@@ -3352,7 +3320,7 @@ func TestSharePermissionForUserByEmail(t *testing.T) {
 		&mockS3Client{}, nil,
 	)
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	perm, err := h.sharePermissionForUser(req, "a1", &User{UserID: "other", Email: "u1@example.com"})
+	perm, err := h.access.AssetSharePermission(req.Context(), "a1", &User{UserID: "other", Email: "u1@example.com"})
 	assert.NoError(t, err)
 	assert.Equal(t, PermissionViewer, perm)
 }
@@ -3366,7 +3334,7 @@ func TestSharePermissionForUserEditorByEmail(t *testing.T) {
 		&mockS3Client{}, nil,
 	)
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	perm, err := h.sharePermissionForUser(req, "a1", &User{UserID: "other", Email: "u1@example.com"})
+	perm, err := h.access.AssetSharePermission(req.Context(), "a1", &User{UserID: "other", Email: "u1@example.com"})
 	assert.NoError(t, err)
 	assert.Equal(t, PermissionEditor, perm)
 }
@@ -3380,7 +3348,7 @@ func TestSharePermissionForUserEmailCaseInsensitive(t *testing.T) {
 		&mockS3Client{}, nil,
 	)
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	perm, err := h.sharePermissionForUser(req, "a1", &User{UserID: "other", Email: "user@example.com"})
+	perm, err := h.access.AssetSharePermission(req.Context(), "a1", &User{UserID: "other", Email: "user@example.com"})
 	assert.NoError(t, err)
 	assert.Equal(t, PermissionViewer, perm)
 }
@@ -3394,7 +3362,7 @@ func TestSharePermissionForUserEmptyEmailNoMatch(t *testing.T) {
 		&mockS3Client{}, nil,
 	)
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	perm, err := h.sharePermissionForUser(req, "a1", &User{UserID: "other", Email: ""})
+	perm, err := h.access.AssetSharePermission(req.Context(), "a1", &User{UserID: "other", Email: ""})
 	assert.NoError(t, err)
 	assert.Equal(t, SharePermission(""), perm)
 }
@@ -3406,7 +3374,7 @@ func TestSharePermissionForUserError(t *testing.T) {
 		&mockS3Client{}, nil,
 	)
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	perm, err := h.sharePermissionForUser(req, "a1", &User{UserID: "u1"})
+	perm, err := h.access.AssetSharePermission(req.Context(), "a1", &User{UserID: "u1"})
 	assert.Error(t, err)
 	assert.Equal(t, SharePermission(""), perm)
 }
@@ -3421,7 +3389,7 @@ func TestSharePermissionForUserSkipsRevoked(t *testing.T) {
 		&mockS3Client{}, nil,
 	)
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	perm, err := h.sharePermissionForUser(req, "a1", &User{UserID: "u1"})
+	perm, err := h.access.AssetSharePermission(req.Context(), "a1", &User{UserID: "u1"})
 	assert.NoError(t, err)
 	assert.Equal(t, PermissionViewer, perm)
 }
@@ -3436,7 +3404,7 @@ func TestSharePermissionForUserSkipsExpired(t *testing.T) {
 		&mockS3Client{}, nil,
 	)
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	perm, err := h.sharePermissionForUser(req, "a1", &User{UserID: "u1"})
+	perm, err := h.access.AssetSharePermission(req.Context(), "a1", &User{UserID: "u1"})
 	assert.NoError(t, err)
 	assert.Equal(t, SharePermission(""), perm)
 }
@@ -3450,7 +3418,7 @@ func TestSharePermissionForUserSkipsWrongUser(t *testing.T) {
 		&mockS3Client{}, nil,
 	)
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
-	perm, err := h.sharePermissionForUser(req, "a1", &User{UserID: "u1"})
+	perm, err := h.access.AssetSharePermission(req.Context(), "a1", &User{UserID: "u1"})
 	assert.NoError(t, err)
 	assert.Equal(t, SharePermission(""), perm)
 }

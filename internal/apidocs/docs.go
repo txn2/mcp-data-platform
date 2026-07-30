@@ -7983,25 +7983,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.signoffSummary"
+                            "$ref": "#/definitions/feedbackapi.signoffSummary"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -8538,7 +8538,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/portal.Collection"
+                            "$ref": "#/definitions/portaldomain.Collection"
                         }
                     },
                     "400": {
@@ -8737,7 +8737,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Collection"
+                            "$ref": "#/definitions/portaldomain.Collection"
                         }
                     },
                     "400": {
@@ -8861,7 +8861,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/portal.CollectionConfig"
+                            "$ref": "#/definitions/portaldomain.CollectionConfig"
                         }
                     }
                 ],
@@ -8869,7 +8869,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Collection"
+                            "$ref": "#/definitions/portaldomain.Collection"
                         }
                     },
                     "400": {
@@ -8948,7 +8948,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Collection"
+                            "$ref": "#/definitions/portaldomain.Collection"
                         }
                     },
                     "400": {
@@ -9156,25 +9156,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.signoffSummary"
+                            "$ref": "#/definitions/feedbackapi.signoffSummary"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -9360,19 +9360,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.paginatedResponse"
+                            "$ref": "#/definitions/feedbackapi.pagedResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12397,25 +12397,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.paginatedResponse"
+                            "$ref": "#/definitions/feedbackapi.pagedResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12447,7 +12447,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/portal.createThreadRequest"
+                            "$ref": "#/definitions/feedbackapi.createThreadRequest"
                         }
                     }
                 ],
@@ -12455,31 +12455,31 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/portal.Thread"
+                            "$ref": "#/definitions/threads.Thread"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12532,19 +12532,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12580,25 +12580,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Thread"
+                            "$ref": "#/definitions/threads.Thread"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12642,25 +12642,25 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12699,7 +12699,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/portal.updateThreadRequest"
+                            "$ref": "#/definitions/feedbackapi.updateThreadRequest"
                         }
                     }
                 ],
@@ -12707,37 +12707,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Thread"
+                            "$ref": "#/definitions/threads.Thread"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12774,25 +12774,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.threadChainResponse"
+                            "$ref": "#/definitions/feedbackapi.threadChainResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12833,7 +12833,7 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "array",
                                 "items": {
-                                    "$ref": "#/definitions/portal.ThreadEvent"
+                                    "$ref": "#/definitions/threads.ThreadEvent"
                                 }
                             }
                         }
@@ -12841,19 +12841,19 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12892,7 +12892,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/portal.appendEventRequest"
+                            "$ref": "#/definitions/feedbackapi.appendEventRequest"
                         }
                     }
                 ],
@@ -12900,37 +12900,37 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/portal.ThreadEvent"
+                            "$ref": "#/definitions/threads.ThreadEvent"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12970,7 +12970,7 @@ const docTemplate = `{
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/portal.captureInsightRequest"
+                            "$ref": "#/definitions/feedbackapi.captureInsightRequest"
                         }
                     }
                 ],
@@ -12978,37 +12978,37 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/portal.captureInsightResponse"
+                            "$ref": "#/definitions/feedbackapi.captureInsightResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -13049,7 +13049,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/portal.respondValidationRequest"
+                            "$ref": "#/definitions/feedbackapi.respondValidationRequest"
                         }
                     }
                 ],
@@ -13057,37 +13057,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Thread"
+                            "$ref": "#/definitions/threads.Thread"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -13229,19 +13229,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.paginatedResponse"
+                            "$ref": "#/definitions/feedbackapi.pagedResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -13269,19 +13269,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.paginatedResponse"
+                            "$ref": "#/definitions/feedbackapi.pagedResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -16759,6 +16759,193 @@ const docTemplate = `{
                 }
             }
         },
+        "feedbackapi.appendEventRequest": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "parent_event_id": {
+                    "type": "string"
+                },
+                "rating": {
+                    "type": "integer"
+                }
+            }
+        },
+        "feedbackapi.captureInsightRequest": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "confidence": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "entity_urns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sink_class": {
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.captureInsightResponse": {
+            "type": "object",
+            "properties": {
+                "insight_id": {
+                    "type": "string"
+                },
+                "linked": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.createThreadRequest": {
+            "type": "object",
+            "properties": {
+                "anchor": {
+                    "type": "object"
+                },
+                "asset_id": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "collection_id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "knowledge_page_id": {
+                    "type": "string"
+                },
+                "prompt_id": {
+                    "type": "string"
+                },
+                "rating": {
+                    "type": "integer"
+                },
+                "requires_resolution": {
+                    "type": "boolean"
+                },
+                "target_type": {
+                    "type": "string"
+                },
+                "target_version": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.pagedResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 42
+                }
+            }
+        },
+        "feedbackapi.respondValidationRequest": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "result": {
+                    "description": "validated | disputed",
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.signoffSummary": {
+            "type": "object",
+            "properties": {
+                "signed_off": {
+                    "type": "integer"
+                },
+                "stakeholders": {
+                    "type": "integer"
+                }
+            }
+        },
+        "feedbackapi.threadChainChangeset": {
+            "type": "object",
+            "properties": {
+                "change_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "rolled_back": {
+                    "type": "boolean"
+                },
+                "target_urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.threadChainResponse": {
+            "type": "object",
+            "properties": {
+                "changesets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/feedbackapi.threadChainChangeset"
+                    }
+                },
+                "insight_id": {
+                    "type": "string"
+                },
+                "thread_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.updateThreadRequest": {
+            "type": "object",
+            "properties": {
+                "requires_resolution": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "validation_state": {
+                    "type": "string"
+                }
+            }
+        },
         "gateway.ConnectionStatus": {
             "type": "object",
             "properties": {
@@ -17626,7 +17813,7 @@ const docTemplate = `{
                 "collections": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/portal.AssetCollectionRef"
+                        "$ref": "#/definitions/portaldomain.AssetCollectionRef"
                     }
                 },
                 "content_type": {
@@ -17668,7 +17855,7 @@ const docTemplate = `{
                     "example": "550e8400-e29b-41d4-a716-446655440000"
                 },
                 "provenance": {
-                    "$ref": "#/definitions/portal.Provenance"
+                    "$ref": "#/definitions/portaldomain.Provenance"
                 },
                 "s3_bucket": {
                     "type": "string",
@@ -17703,19 +17890,6 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
-                }
-            }
-        },
-        "portal.AssetCollectionRef": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "example": "col_01HK7R8Z"
-                },
-                "name": {
-                    "type": "string",
-                    "example": "Q4 Performance Review"
                 }
             }
         },
@@ -17760,182 +17934,6 @@ const docTemplate = `{
                 "version": {
                     "type": "integer",
                     "example": 2
-                }
-            }
-        },
-        "portal.Collection": {
-            "type": "object",
-            "properties": {
-                "asset_tags": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "config": {
-                    "$ref": "#/definitions/portal.CollectionConfig"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "deleted_at": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string",
-                    "example": "Executive collection with revenue dashboards"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "col_01HK7R8Z"
-                },
-                "name": {
-                    "type": "string",
-                    "example": "Q4 Performance Review"
-                },
-                "owner_email": {
-                    "type": "string",
-                    "example": "alice@example.com"
-                },
-                "owner_id": {
-                    "type": "string",
-                    "example": "550e8400-e29b-41d4-a716-446655440000"
-                },
-                "sections": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/portal.CollectionSection"
-                    }
-                },
-                "thumbnail_s3_key": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "portal.CollectionConfig": {
-            "type": "object",
-            "properties": {
-                "thumbnail_size": {
-                    "description": "\"large\", \"medium\", \"small\", \"none\"",
-                    "type": "string",
-                    "example": "medium"
-                }
-            }
-        },
-        "portal.CollectionItem": {
-            "type": "object",
-            "properties": {
-                "asset_content_type": {
-                    "type": "string",
-                    "example": "text/html"
-                },
-                "asset_description": {
-                    "type": "string",
-                    "example": "Interactive revenue breakdown"
-                },
-                "asset_id": {
-                    "type": "string",
-                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
-                },
-                "asset_name": {
-                    "type": "string",
-                    "example": "Q4 Revenue Dashboard"
-                },
-                "asset_thumbnail_s3_key": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "item_01HK7R9D"
-                },
-                "position": {
-                    "type": "integer",
-                    "example": 0
-                },
-                "section_id": {
-                    "type": "string",
-                    "example": "sec_01HK7R9C"
-                }
-            }
-        },
-        "portal.CollectionSection": {
-            "type": "object",
-            "properties": {
-                "collection_id": {
-                    "type": "string",
-                    "example": "col_01HK7R8Z"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string",
-                    "example": "High-level revenue and KPI snapshots"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "sec_01HK7R9C"
-                },
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/portal.CollectionItem"
-                    }
-                },
-                "position": {
-                    "type": "integer",
-                    "example": 0
-                },
-                "title": {
-                    "type": "string",
-                    "example": "Overview"
-                }
-            }
-        },
-        "portal.Provenance": {
-            "type": "object",
-            "properties": {
-                "declared_content_type": {
-                    "description": "DeclaredContentType is the media type the writer declared, recorded only\nwhen detection replaced it. It is the audit trail for a reclassified\nasset: it answers \"what did the upstream actually say\" without which a\nstored type that disagrees with the source is unexplainable.",
-                    "type": "string",
-                    "example": "text/plain"
-                },
-                "session_id": {
-                    "type": "string",
-                    "example": "sess_abc123"
-                },
-                "tool_calls": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/portal.ProvenanceToolCall"
-                    }
-                },
-                "user_id": {
-                    "type": "string",
-                    "example": "550e8400-e29b-41d4-a716-446655440000"
-                }
-            }
-        },
-        "portal.ProvenanceToolCall": {
-            "type": "object",
-            "properties": {
-                "parameters": {
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "timestamp": {
-                    "type": "string",
-                    "example": "2026-04-15T14:30:00Z"
-                },
-                "tool_name": {
-                    "type": "string",
-                    "example": "trino_query"
                 }
             }
         },
@@ -18009,7 +18007,7 @@ const docTemplate = `{
                 "access_mode": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.ShareAccessMode"
+                            "$ref": "#/definitions/portaldomain.ShareAccessMode"
                         }
                     ],
                     "example": "restricted"
@@ -18049,7 +18047,7 @@ const docTemplate = `{
                 "origin": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.ShareOrigin"
+                            "$ref": "#/definitions/portaldomain.ShareOrigin"
                         }
                     ],
                     "example": "explicit"
@@ -18057,7 +18055,7 @@ const docTemplate = `{
                 "permission": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.SharePermission"
+                            "$ref": "#/definitions/portaldomain.SharePermission"
                         }
                     ],
                     "example": "viewer"
@@ -18082,41 +18080,6 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.ShareAccessMode": {
-            "type": "string",
-            "enum": [
-                "restricted",
-                "authenticated",
-                "public"
-            ],
-            "x-enum-varnames": [
-                "ModeRestricted",
-                "ModeAuthenticated",
-                "ModePublic"
-            ]
-        },
-        "portal.ShareOrigin": {
-            "type": "string",
-            "enum": [
-                "explicit",
-                "public_link_login"
-            ],
-            "x-enum-varnames": [
-                "OriginExplicit",
-                "OriginPublicLinkLogin"
-            ]
-        },
-        "portal.SharePermission": {
-            "type": "string",
-            "enum": [
-                "viewer",
-                "editor"
-            ],
-            "x-enum-varnames": [
-                "PermissionViewer",
-                "PermissionEditor"
-            ]
-        },
         "portal.ShareSummary": {
             "type": "object",
             "properties": {
@@ -18134,12 +18097,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "collection": {
-                    "$ref": "#/definitions/portal.Collection"
+                    "$ref": "#/definitions/portaldomain.Collection"
                 },
                 "permission": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.SharePermission"
+                            "$ref": "#/definitions/portaldomain.SharePermission"
                         }
                     ],
                     "example": "viewer"
@@ -18161,7 +18124,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "permission": {
-                    "$ref": "#/definitions/portal.SharePermission"
+                    "$ref": "#/definitions/portaldomain.SharePermission"
                 },
                 "prompt": {
                     "$ref": "#/definitions/prompt.Prompt"
@@ -18177,135 +18140,13 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.Thread": {
-            "type": "object",
-            "properties": {
-                "anchor": {
-                    "type": "object"
-                },
-                "asset_id": {
-                    "type": "string"
-                },
-                "author_email": {
-                    "type": "string",
-                    "example": "sme@example.com"
-                },
-                "author_id": {
-                    "type": "string"
-                },
-                "collection_id": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "deleted_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "thr_01HK7R8Z"
-                },
-                "insight_id": {
-                    "type": "string"
-                },
-                "kind": {
-                    "type": "string",
-                    "example": "correction"
-                },
-                "knowledge_page_id": {
-                    "type": "string"
-                },
-                "prompt_id": {
-                    "type": "string"
-                },
-                "requires_resolution": {
-                    "type": "boolean"
-                },
-                "status": {
-                    "type": "string",
-                    "example": "open"
-                },
-                "target_type": {
-                    "type": "string",
-                    "example": "asset"
-                },
-                "target_version": {
-                    "type": "integer"
-                },
-                "title": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "validation_state": {
-                    "type": "string",
-                    "example": "none"
-                }
-            }
-        },
-        "portal.ThreadEvent": {
-            "type": "object",
-            "properties": {
-                "author_email": {
-                    "type": "string"
-                },
-                "author_id": {
-                    "type": "string"
-                },
-                "body": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "event_type": {
-                    "type": "string",
-                    "example": "comment"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "evt_01HK7R8Z"
-                },
-                "metadata": {
-                    "type": "object"
-                },
-                "parent_event_id": {
-                    "type": "string"
-                },
-                "rating": {
-                    "type": "integer"
-                },
-                "thread_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "portal.appendEventRequest": {
-            "type": "object",
-            "properties": {
-                "body": {
-                    "type": "string"
-                },
-                "event_type": {
-                    "type": "string"
-                },
-                "parent_event_id": {
-                    "type": "string"
-                },
-                "rating": {
-                    "type": "integer"
-                }
-            }
-        },
         "portal.assetResponse": {
             "type": "object",
             "properties": {
                 "collections": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/portal.AssetCollectionRef"
+                        "$ref": "#/definitions/portaldomain.AssetCollectionRef"
                     }
                 },
                 "content_type": {
@@ -18351,7 +18192,7 @@ const docTemplate = `{
                     "example": "550e8400-e29b-41d4-a716-446655440000"
                 },
                 "provenance": {
-                    "$ref": "#/definitions/portal.Provenance"
+                    "$ref": "#/definitions/portaldomain.Provenance"
                 },
                 "s3_bucket": {
                     "type": "string",
@@ -18368,7 +18209,7 @@ const docTemplate = `{
                 "share_permission": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.SharePermission"
+                            "$ref": "#/definitions/portaldomain.SharePermission"
                         }
                     ],
                     "example": "viewer"
@@ -18405,43 +18246,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/knowledgepage.PageRef"
                     }
-                }
-            }
-        },
-        "portal.captureInsightRequest": {
-            "type": "object",
-            "properties": {
-                "category": {
-                    "type": "string"
-                },
-                "confidence": {
-                    "type": "string"
-                },
-                "content": {
-                    "type": "string"
-                },
-                "entity_urns": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "sink_class": {
-                    "type": "string"
-                }
-            }
-        },
-        "portal.captureInsightResponse": {
-            "type": "object",
-            "properties": {
-                "insight_id": {
-                    "type": "string"
-                },
-                "linked": {
-                    "type": "boolean"
-                },
-                "status": {
-                    "type": "string"
                 }
             }
         },
@@ -18522,47 +18326,6 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.createThreadRequest": {
-            "type": "object",
-            "properties": {
-                "anchor": {
-                    "type": "object"
-                },
-                "asset_id": {
-                    "type": "string"
-                },
-                "body": {
-                    "type": "string"
-                },
-                "collection_id": {
-                    "type": "string"
-                },
-                "kind": {
-                    "type": "string"
-                },
-                "knowledge_page_id": {
-                    "type": "string"
-                },
-                "prompt_id": {
-                    "type": "string"
-                },
-                "rating": {
-                    "type": "integer"
-                },
-                "requires_resolution": {
-                    "type": "boolean"
-                },
-                "target_type": {
-                    "type": "string"
-                },
-                "target_version": {
-                    "type": "integer"
-                },
-                "title": {
-                    "type": "string"
-                }
-            }
-        },
         "portal.getCollectionResponse": {
             "type": "object",
             "properties": {
@@ -18573,7 +18336,7 @@ const docTemplate = `{
                     }
                 },
                 "config": {
-                    "$ref": "#/definitions/portal.CollectionConfig"
+                    "$ref": "#/definitions/portaldomain.CollectionConfig"
                 },
                 "created_at": {
                     "type": "string"
@@ -18608,13 +18371,13 @@ const docTemplate = `{
                 "sections": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/portal.CollectionSection"
+                        "$ref": "#/definitions/portaldomain.CollectionSection"
                     }
                 },
                 "share_permission": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.SharePermission"
+                            "$ref": "#/definitions/portaldomain.SharePermission"
                         }
                     ],
                     "example": "viewer"
@@ -18765,7 +18528,7 @@ const docTemplate = `{
                 "data": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/portal.Collection"
+                        "$ref": "#/definitions/portaldomain.Collection"
                     }
                 },
                 "limit": {
@@ -19059,18 +18822,6 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.respondValidationRequest": {
-            "type": "object",
-            "properties": {
-                "reason": {
-                    "type": "string"
-                },
-                "result": {
-                    "description": "validated | disputed",
-                    "type": "string"
-                }
-            }
-        },
         "portal.searchResponse": {
             "type": "object",
             "properties": {
@@ -19137,60 +18888,12 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.signoffSummary": {
-            "type": "object",
-            "properties": {
-                "signed_off": {
-                    "type": "integer"
-                },
-                "stakeholders": {
-                    "type": "integer"
-                }
-            }
-        },
         "portal.statusResponse": {
             "type": "object",
             "properties": {
                 "status": {
                     "type": "string",
                     "example": "updated"
-                }
-            }
-        },
-        "portal.threadChainChangeset": {
-            "type": "object",
-            "properties": {
-                "change_type": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "rolled_back": {
-                    "type": "boolean"
-                },
-                "target_urn": {
-                    "type": "string"
-                }
-            }
-        },
-        "portal.threadChainResponse": {
-            "type": "object",
-            "properties": {
-                "changesets": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/portal.threadChainChangeset"
-                    }
-                },
-                "insight_id": {
-                    "type": "string"
-                },
-                "thread_id": {
-                    "type": "string"
                 }
             }
         },
@@ -19230,19 +18933,229 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.updateThreadRequest": {
+        "portaldomain.AssetCollectionRef": {
             "type": "object",
             "properties": {
-                "requires_resolution": {
-                    "type": "boolean"
+                "id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
                 },
-                "status": {
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Performance Review"
+                }
+            }
+        },
+        "portaldomain.Collection": {
+            "type": "object",
+            "properties": {
+                "asset_tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "config": {
+                    "$ref": "#/definitions/portaldomain.CollectionConfig"
+                },
+                "created_at": {
                     "type": "string"
                 },
-                "validation_state": {
+                "deleted_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Executive collection with revenue dashboards"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Performance Review"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "owner_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.CollectionSection"
+                    }
+                },
+                "thumbnail_s3_key": {
+                    "type": "string"
+                },
+                "updated_at": {
                     "type": "string"
                 }
             }
+        },
+        "portaldomain.CollectionConfig": {
+            "type": "object",
+            "properties": {
+                "thumbnail_size": {
+                    "description": "\"large\", \"medium\", \"small\", \"none\"",
+                    "type": "string",
+                    "example": "medium"
+                }
+            }
+        },
+        "portaldomain.CollectionItem": {
+            "type": "object",
+            "properties": {
+                "asset_content_type": {
+                    "type": "string",
+                    "example": "text/html"
+                },
+                "asset_description": {
+                    "type": "string",
+                    "example": "Interactive revenue breakdown"
+                },
+                "asset_id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "asset_name": {
+                    "type": "string",
+                    "example": "Q4 Revenue Dashboard"
+                },
+                "asset_thumbnail_s3_key": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "item_01HK7R9D"
+                },
+                "position": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "section_id": {
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                }
+            }
+        },
+        "portaldomain.CollectionSection": {
+            "type": "object",
+            "properties": {
+                "collection_id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "High-level revenue and KPI snapshots"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.CollectionItem"
+                    }
+                },
+                "position": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Overview"
+                }
+            }
+        },
+        "portaldomain.Provenance": {
+            "type": "object",
+            "properties": {
+                "declared_content_type": {
+                    "description": "DeclaredContentType is the media type the writer declared, recorded only\nwhen detection replaced it. It is the audit trail for a reclassified\nasset: it answers \"what did the upstream actually say\" without which a\nstored type that disagrees with the source is unexplainable.",
+                    "type": "string",
+                    "example": "text/plain"
+                },
+                "session_id": {
+                    "type": "string",
+                    "example": "sess_abc123"
+                },
+                "tool_calls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.ProvenanceToolCall"
+                    }
+                },
+                "user_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "portaldomain.ProvenanceToolCall": {
+            "type": "object",
+            "properties": {
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2026-04-15T14:30:00Z"
+                },
+                "tool_name": {
+                    "type": "string",
+                    "example": "trino_query"
+                }
+            }
+        },
+        "portaldomain.ShareAccessMode": {
+            "type": "string",
+            "enum": [
+                "restricted",
+                "authenticated",
+                "public"
+            ],
+            "x-enum-varnames": [
+                "ModeRestricted",
+                "ModeAuthenticated",
+                "ModePublic"
+            ]
+        },
+        "portaldomain.ShareOrigin": {
+            "type": "string",
+            "enum": [
+                "explicit",
+                "public_link_login"
+            ],
+            "x-enum-varnames": [
+                "OriginExplicit",
+                "OriginPublicLinkLogin"
+            ]
+        },
+        "portaldomain.SharePermission": {
+            "type": "string",
+            "enum": [
+                "viewer",
+                "editor"
+            ],
+            "x-enum-varnames": [
+                "PermissionViewer",
+                "PermissionEditor"
+            ]
         },
         "prompt.Argument": {
             "type": "object",
@@ -19677,6 +19590,111 @@ const docTemplate = `{
                 "type": {
                     "type": "string",
                     "example": "about:blank"
+                }
+            }
+        },
+        "threads.Thread": {
+            "type": "object",
+            "properties": {
+                "anchor": {
+                    "type": "object"
+                },
+                "asset_id": {
+                    "type": "string"
+                },
+                "author_email": {
+                    "type": "string",
+                    "example": "sme@example.com"
+                },
+                "author_id": {
+                    "type": "string"
+                },
+                "collection_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "thr_01HK7R8Z"
+                },
+                "insight_id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "correction"
+                },
+                "knowledge_page_id": {
+                    "type": "string"
+                },
+                "prompt_id": {
+                    "type": "string"
+                },
+                "requires_resolution": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "open"
+                },
+                "target_type": {
+                    "type": "string",
+                    "example": "asset"
+                },
+                "target_version": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "validation_state": {
+                    "type": "string",
+                    "example": "none"
+                }
+            }
+        },
+        "threads.ThreadEvent": {
+            "type": "object",
+            "properties": {
+                "author_email": {
+                    "type": "string"
+                },
+                "author_id": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string",
+                    "example": "comment"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "evt_01HK7R8Z"
+                },
+                "metadata": {
+                    "type": "object"
+                },
+                "parent_event_id": {
+                    "type": "string"
+                },
+                "rating": {
+                    "type": "integer"
+                },
+                "thread_id": {
+                    "type": "string"
                 }
             }
         },

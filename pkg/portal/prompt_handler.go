@@ -8,18 +8,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+
+	"github.com/txn2/mcp-data-platform/internal/portal/access"
 )
 
 // SharedPrompt is a prompt shared with the current user, with share metadata,
 // for the "Shared With Me" listing.
 type SharedPrompt struct {
-	Prompt     prompt.Prompt   `json:"prompt"`
-	ShareID    string          `json:"share_id"`
-	SharedBy   string          `json:"shared_by"`
-	SharedAt   time.Time       `json:"shared_at"`
-	Permission SharePermission `json:"permission"`
+	Prompt     prompt.Prompt                `json:"prompt"`
+	ShareID    string                       `json:"share_id"`
+	SharedBy   string                       `json:"shared_by"`
+	SharedAt   time.Time                    `json:"shared_at"`
+	Permission portaldomain.SharePermission `json:"permission"`
 }
 
 // PromptStore provides prompt persistence for the portal: exactly the prompt
@@ -188,7 +191,7 @@ func (h *Handler) searchMyPrompts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAdmin := hasAnyRole(user.Roles, h.deps.AdminRoles)
+	isAdmin := h.access.IsAdmin(user)
 	persona := ""
 	if pi := h.resolveUserPersona(user); pi != nil {
 		persona = pi.Name
@@ -385,7 +388,7 @@ func checkPortalPromptPermission(user *User, existing *prompt.Prompt, adminRoles
 	if existing.Source == prompt.SourceSystem {
 		return "this prompt is defined in server configuration and is read-only"
 	}
-	if hasAnyRole(user.Roles, adminRoles) {
+	if access.HasAnyRole(user.Roles, adminRoles) {
 		return ""
 	}
 	if existing.Scope != prompt.ScopePersonal {

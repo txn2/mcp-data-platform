@@ -466,7 +466,7 @@ func (h *Handler) resolvePromptRef(r *http.Request, user *User, id string, out *
 		return
 	}
 	p, err := h.deps.PromptStore.GetByID(r.Context(), id)
-	if err != nil || p == nil || !h.userCanViewPrompt(r, user, p) {
+	if err != nil || p == nil || !h.access.CanViewPrompt(r.Context(), user, p) {
 		out.Accessible = false
 		return
 	}
