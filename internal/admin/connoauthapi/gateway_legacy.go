@@ -1,4 +1,4 @@
-package admin
+package connoauthapi
 
 import (
 	"context"
@@ -15,6 +15,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
@@ -43,20 +45,17 @@ const schemeHTTP = "http"
 // required: oauth-start fails 503 with "OAuth not available" when nil
 // (e.g. when a Handler is built without wiring a store). main.go and
 // the test helpers always inject one — this guard catches misuse.
-func (h *Handler) pkceStoreFor() pkcestore.Store {
-	return h.deps.PKCEStore
+func (h *handler) pkceStoreFor() pkcestore.Store {
+	return h.cfg.PKCEStore
 }
 
 // registerGatewayOAuthRoutes adds the OAuth-flow endpoints. The callback
 // is registered on the public mux so the OAuth provider's redirect can
 // hit it without an admin auth header — the state token + PKCE verifier
 // authenticate the callback instead.
-func (h *Handler) registerGatewayOAuthRoutes() {
-	if !h.isMutable() || h.deps.ConnectionStore == nil {
-		return
-	}
-	h.mux.HandleFunc("POST /api/v1/admin/gateway/connections/{name}/oauth-start", h.startGatewayOAuth)
-	h.publicMux.HandleFunc("GET /api/v1/admin/oauth/callback", h.gatewayOAuthCallback)
+func (h *handler) registerGatewayOAuthRoutes(mux, publicMux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v1/admin/gateway/connections/{name}/oauth-start", h.startGatewayOAuth)
+	publicMux.HandleFunc("GET /api/v1/admin/oauth/callback", h.gatewayOAuthCallback)
 }
 
 // startGatewayOAuthRequest is the optional body for the start endpoint.
@@ -83,13 +82,13 @@ type startGatewayOAuthResponse struct {
 // @Param        name  path  string                       true  "Gateway connection name"
 // @Param        body  body  startGatewayOAuthRequest     false  "Optional return URL"
 // @Success      200   {object}  startGatewayOAuthResponse
-// @Failure      400   {object}  problemDetail
-// @Failure      404   {object}  problemDetail
-// @Failure      409   {object}  problemDetail
+// @Failure      400   {object}  httpjson.ProblemDetail
+// @Failure      404   {object}  httpjson.ProblemDetail
+// @Failure      409   {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/gateway/connections/{name}/oauth-start [post]
-func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
+func (h *handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue(pathKeyName)
 	cfg, ok := h.loadAuthCodeOAuthConfig(w, r, name)
 	if !ok {
@@ -97,8 +96,8 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body startGatewayOAuthRequest
-	if err := decodeStrictOptional(w, r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if err := h.cfg.DecodeOptional(w, r, &body); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -111,10 +110,10 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 
 	store := h.pkceStoreFor()
 	if store == nil {
-		writeError(w, http.StatusServiceUnavailable, "OAuth not available: PKCE store not configured")
+		httpjson.WriteError(w, http.StatusServiceUnavailable, "OAuth not available: PKCE store not configured")
 		return
 	}
-	startedBy := authorEmailOrID(r.Context())
+	startedBy := h.cfg.Author(r.Context())
 	if err := store.Put(r.Context(), state, &pkcestore.State{
 		Connection:   name,
 		CodeVerifier: verifier,
@@ -127,7 +126,7 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 			logKeyName, logsan.SanitizeForLog(name),
 			logKeyStartedBy, logsan.SanitizeForLog(startedBy),
 			logKeyError, err)
-		writeError(w, http.StatusInternalServerError, "failed to record OAuth state")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to record OAuth state")
 		return
 	}
 
@@ -144,7 +143,7 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 		"return_url", logsan.SanitizeForLog(body.ReturnURL),
 		"ttl", pkcestore.TTL)
 
-	writeJSON(w, http.StatusOK, startGatewayOAuthResponse{
+	httpjson.WriteJSON(w, http.StatusOK, startGatewayOAuthResponse{
 		AuthorizationURL: authURL,
 		State:            state,
 		RedirectURI:      redirectURI,
@@ -207,24 +206,24 @@ func clientIP(r *http.Request) string {
 // config, and verifies it's configured for authorization_code OAuth.
 // Writes the appropriate HTTP error and returns ok=false on any
 // failure path.
-func (h *Handler) loadAuthCodeOAuthConfig(w http.ResponseWriter, r *http.Request, name string) (gatewaykit.Config, bool) {
-	inst, err := h.deps.ConnectionStore.Get(r.Context(), gatewaykit.Kind, name)
+func (h *handler) loadAuthCodeOAuthConfig(w http.ResponseWriter, r *http.Request, name string) (gatewaykit.Config, bool) {
+	inst, err := h.cfg.Connections.Get(r.Context(), gatewaykit.Kind, name)
 	if err != nil {
 		if errors.Is(err, platform.ErrConnectionNotFound) {
-			writeError(w, http.StatusNotFound, "gateway connection not found")
+			httpjson.WriteError(w, http.StatusNotFound, "gateway connection not found")
 		} else {
-			writeError(w, http.StatusInternalServerError, "failed to load connection")
+			httpjson.WriteError(w, http.StatusInternalServerError, "failed to load connection")
 		}
 		return gatewaykit.Config{}, false
 	}
 	cfg, err := gatewaykit.ParseConfig(inst.Config)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 		return gatewaykit.Config{}, false
 	}
 	if cfg.AuthMode != gatewaykit.AuthModeOAuth ||
 		cfg.OAuth.Grant != gatewaykit.OAuthGrantAuthorizationCode {
-		writeError(w, http.StatusConflict, "connection is not configured for authorization_code OAuth")
+		httpjson.WriteError(w, http.StatusConflict, "connection is not configured for authorization_code OAuth")
 		return gatewaykit.Config{}, false
 	}
 	return cfg, true
@@ -235,12 +234,12 @@ func (h *Handler) loadAuthCodeOAuthConfig(w http.ResponseWriter, r *http.Request
 func generatePKCEPair(w http.ResponseWriter) (verifier, state string, ok bool) {
 	verifier, err := generatePKCEVerifier()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate PKCE verifier")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to generate PKCE verifier")
 		return "", "", false
 	}
 	state, err = generatePKCEState()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate state")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to generate state")
 		return "", "", false
 	}
 	return verifier, state, true
@@ -264,9 +263,9 @@ func generatePKCEPair(w http.ResponseWriter) (verifier, state string, ok bool) {
 // @Param        error  query  string  false  "OAuth error code from upstream"
 // @Param        error_description  query  string  false  "Human-readable error from upstream"
 // @Success      302
-// @Failure      400  {object}  problemDetail
+// @Failure      400  {object}  httpjson.ProblemDetail
 // @Router       /admin/oauth/callback [get]
-func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
+func (h *handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	q := r.URL.Query()
 	state := q.Get("state")
@@ -404,8 +403,8 @@ func safeReturnURL(raw string) string {
 // hands them to the gateway toolkit. The toolkit re-adds the connection
 // so the previously "needs reauth" entry becomes live with its
 // discovered tools registered on the MCP server.
-func (h *Handler) completeOAuthExchange(ctx context.Context, pending *pkcestore.State, code string) error {
-	inst, err := h.deps.ConnectionStore.Get(ctx, gatewaykit.Kind, pending.Connection)
+func (h *handler) completeOAuthExchange(ctx context.Context, pending *pkcestore.State, code string) error {
+	inst, err := h.cfg.Connections.Get(ctx, gatewaykit.Kind, pending.Connection)
 	if err != nil {
 		return fmt.Errorf("load connection: %w", err)
 	}
@@ -578,10 +577,10 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 // persistOAuthTokens hands the freshly-exchanged tokens to the live
 // gateway toolkit. Re-creates the connection placeholder when missing
 // (e.g. after a platform restart between oauth-start and callback).
-func (h *Handler) persistOAuthTokens(ctx context.Context, pending *pkcestore.State,
+func (h *handler) persistOAuthTokens(ctx context.Context, pending *pkcestore.State,
 	connConfig map[string]any, tr *authCodeTokenResponse,
 ) error {
-	tk := h.findGatewayToolkit()
+	tk := h.cfg.GatewayToolkit()
 	if tk == nil {
 		return errors.New("gateway toolkit is not registered")
 	}

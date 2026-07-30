@@ -17,6 +17,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
+	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
 // ConnectionStore abstracts platform.ConnectionStore for testability.
@@ -47,6 +48,44 @@ const (
 // provisioned by the platform itself (YAML config or a built-in
 // registration) rather than authored by a portal user.
 const connectionCreatorSystem = "system"
+
+// validateConnectionCatalog rejects an api-kind connection whose
+// config.catalog_id names a catalog that doesn't exist. Called from
+// setConnectionInstance before the connection is persisted so the
+// operator gets a clean 400 instead of a connection that registers
+// with zero ops and confuses the model. When no catalog store is
+// wired the check is skipped — the toolkit's runtime path already
+// warns and proceeds, which is the right behavior for catalog-less
+// deployments.
+//
+// The catalog routes themselves live in internal/admin/catalogapi; this
+// stayed behind because its only caller is the connection write path.
+func (h *Handler) validateConnectionCatalog(ctx context.Context, kind string, config map[string]any) (string, bool) {
+	if kind != connectionKindAPI {
+		return "", true
+	}
+	if h.deps.APICatalogStore == nil {
+		return "", true
+	}
+	raw, ok := config["catalog_id"]
+	if !ok {
+		return "", true
+	}
+	id, ok := raw.(string)
+	if !ok || id == "" {
+		return "", true
+	}
+	_, err := h.deps.APICatalogStore.GetCatalog(ctx, id)
+	if errors.Is(err, apicatalog.ErrNotFound) {
+		return "catalog_id references a catalog that does not exist: " + id, false
+	}
+	if err != nil {
+		slog.Warn("validateConnectionCatalog: lookup failed",
+			"catalog_id", logsan.SanitizeForLog(id), logKeyError, err)
+		return "failed to validate catalog_id", false
+	}
+	return "", true
+}
 
 // knownConnectionKinds lists the toolkit kinds that support multiple configurable
 // connection instances. DataHub is excluded because the platform connects to a

@@ -1,4 +1,4 @@
-package admin
+package catalogapi
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
@@ -156,12 +157,11 @@ func (*errorCatalogStore) DeleteOperationEmbeddings(_ context.Context, _, _ stri
 	return nil
 }
 
-func handlerWithStore(store APICatalogStore) *Handler {
-	return NewHandler(Deps{
-		APICatalogStore:   store,
-		ConfigStore:       &mockConfigStore{mode: "database"},
-		DatabaseAvailable: true,
-	}, nil)
+func handlerWithStore(store CatalogStore) *http.ServeMux {
+	return testMux(Config{
+		Catalogs: store,
+		Mutable:  true,
+	})
 }
 
 func TestCatalog_ListInternalError(t *testing.T) {
@@ -441,36 +441,6 @@ func TestCatalog_CloneEmbeddingsCopyWarns(t *testing.T) {
 	}
 }
 
-// TestSetConnectionInstance_CatalogLookupError drives
-// validateConnectionCatalog into its non-ErrNotFound error branch
-// (catalog_handler.go:1397): the catalog store returns a transient
-// error (not ErrNotFound) while validating an api-kind connection's
-// catalog_id. The handler must reject the write with 400 and the
-// "failed to validate" detail rather than silently proceeding.
-func TestSetConnectionInstance_CatalogLookupError(t *testing.T) {
-	t.Parallel()
-	catStore := newErrorStore()
-	catStore.getErr = errors.New("db timeout")
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: &mockConnectionStore{},
-		ConfigStore:     &mockConfigStore{mode: "database"},
-		APICatalogStore: catStore,
-	}, nil)
-	body := `{"config":{"base_url":"https://x","catalog_id":"c1"},"description":""}`
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
-		"/api/v1/admin/connection-instances/api/c", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 on catalog lookup error: %d %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "failed to validate catalog_id") {
-		t.Errorf("expected validate-failure detail, got: %s", w.Body.String())
-	}
-}
-
 func TestCatalog_ListSpecsRouteHappy(t *testing.T) {
 	t.Parallel()
 	store := newErrorStore()
@@ -604,7 +574,7 @@ func TestCatalog_UploadInvalidMultipart(t *testing.T) {
 
 func TestSpecErrorStatus_AllBranches(t *testing.T) {
 	t.Parallel()
-	h := &Handler{}
+	h := &handler{}
 	cases := []struct {
 		err  error
 		want int
@@ -626,7 +596,7 @@ func TestSpecErrorStatus_AllBranches(t *testing.T) {
 
 func TestMaterializeSpec_URLRequiresURL(t *testing.T) {
 	t.Parallel()
-	h := &Handler{}
+	h := &handler{}
 	_, err := h.materializeSpec(context.Background(), "default", upsertCatalogSpecRequest{
 		SourceKind: "url",
 	})
@@ -637,7 +607,7 @@ func TestMaterializeSpec_URLRequiresURL(t *testing.T) {
 
 func TestMaterializeSpec_InvalidKind(t *testing.T) {
 	t.Parallel()
-	h := &Handler{}
+	h := &handler{}
 	_, err := h.materializeSpec(context.Background(), "default", upsertCatalogSpecRequest{
 		SourceKind: "bogus",
 	})
@@ -647,24 +617,41 @@ func TestMaterializeSpec_InvalidKind(t *testing.T) {
 }
 
 func TestReloadConnectionsForCatalog_NoRegistry(_ *testing.T) {
-	h := &Handler{}
+	h := &handler{}
 	h.reloadConnectionsForCatalog("anything") // must not panic
 }
 
-func TestUserIDForAudit_NoUser(t *testing.T) {
-	t.Parallel()
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	if got := userIDForAudit(req); got != "" {
-		t.Errorf("got=%q want empty", got)
-	}
+// fakeCatalogReloader records the cross-replica broadcasts the catalog routes
+// emit after a local mutation.
+type fakeCatalogReloader struct{ catalogs []string }
+
+func (f *fakeCatalogReloader) PublishCatalogReload(id string) {
+	f.catalogs = append(f.catalogs, id)
 }
 
-func TestUserIDForAudit_UserIDFallback(t *testing.T) {
+// emptyToolkits is a live registry holding no api-gateway toolkits: the local
+// reload loop finds nothing to do, which is the state a test cares about when
+// asserting the peer broadcast.
+type emptyToolkits struct{}
+
+func (emptyToolkits) All() []registry.Toolkit { return nil }
+
+// TestReloadConnectionsForCatalog_Broadcasts proves a catalog mutation is
+// announced to peer replicas (issue #501). The in-process toolkit reload only
+// covers this replica, so without the broadcast a peer keeps serving the old
+// operation set until it restarts.
+//
+// Toolkits is supplied because the broadcast sits behind the local reload
+// loop's nil-registry guard. Production always wires a registry
+// (platform.toolkitRegistry falls back to registry.NewRegistry()), so that
+// guard is unreachable there; asserting against a nil registry here would be
+// asserting a state the platform cannot produce.
+func TestReloadConnectionsForCatalog_Broadcasts(t *testing.T) {
 	t.Parallel()
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
-	ctx := context.WithValue(req.Context(), adminUserKey, &User{UserID: "u1"})
-	req = req.WithContext(ctx)
-	if got := userIDForAudit(req); got != "u1" {
-		t.Errorf("got=%q want u1", got)
+	notifier := &fakeCatalogReloader{}
+	h := &handler{cfg: Config{Toolkits: emptyToolkits{}, Reload: notifier}}
+	h.reloadConnectionsForCatalog("things")
+	if len(notifier.catalogs) != 1 || notifier.catalogs[0] != "things" {
+		t.Errorf("catalog reload should broadcast once for the mutated catalog, got %v", notifier.catalogs)
 	}
 }

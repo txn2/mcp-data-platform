@@ -223,81 +223,6 @@ definitions:
       baseline:
         type: string
     type: object
-  admin.auditEventResponse:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/audit.Event'
-        type: array
-      page:
-        example: 1
-        type: integer
-      per_page:
-        example: 50
-        type: integer
-      total:
-        example: 196
-        type: integer
-    type: object
-  admin.auditFiltersResponse:
-    properties:
-      event_kinds:
-        example:
-        - mcp_tool_call
-        - apigateway_invoke
-        items:
-          type: string
-        type: array
-      sources:
-        example:
-        - mcp
-        - rest
-        - admin
-        items:
-          type: string
-        type: array
-      toolkit_kinds:
-        example:
-        - api
-        - datahub
-        - trino
-        - s3
-        - memory
-        items:
-          type: string
-        type: array
-      tools:
-        example:
-        - trino_query
-        - datahub_search
-        - s3_list_objects
-        items:
-          type: string
-        type: array
-      user_labels:
-        additionalProperties:
-          type: string
-        type: object
-      users:
-        example:
-        - marcus.johnson@example.com
-        - lisa.chang@example.com
-        items:
-          type: string
-        type: array
-    type: object
-  admin.auditStatsResponse:
-    properties:
-      failures:
-        example: 77
-        type: integer
-      success:
-        example: 1423
-        type: integer
-      total:
-        example: 1500
-        type: integer
-    type: object
   admin.authKeyCreateRequest:
     properties:
       description:
@@ -356,29 +281,6 @@ definitions:
         example: 3
         type: integer
     type: object
-  admin.catalogResponse:
-    properties:
-      created_at:
-        type: string
-      created_by:
-        type: string
-      description:
-        type: string
-      display_name:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      ref_count:
-        type: integer
-      spec_count:
-        type: integer
-      updated_at:
-        type: string
-      version:
-        type: string
-    type: object
   admin.changelogListResponse:
     properties:
       entries:
@@ -403,17 +305,6 @@ definitions:
       total:
         example: 8
         type: integer
-    type: object
-  admin.cloneCatalogRequest:
-    properties:
-      display_name:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      version:
-        type: string
     type: object
   admin.configModeResponse:
     properties:
@@ -459,41 +350,6 @@ definitions:
       total:
         example: 5
         type: integer
-    type: object
-  admin.connectionOAuthHealthSummary:
-    properties:
-      has_oauth:
-        type: boolean
-      idp_error_code:
-        type: string
-      kind:
-        type: string
-      name:
-        type: string
-      needs_reauth:
-        type: boolean
-      token_acquired:
-        type: boolean
-    type: object
-  admin.connectionsOAuthHealthResponse:
-    properties:
-      connections:
-        items:
-          $ref: '#/definitions/admin.connectionOAuthHealthSummary'
-        type: array
-    type: object
-  admin.createCatalogRequest:
-    properties:
-      description:
-        type: string
-      display_name:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      version:
-        type: string
     type: object
   admin.dismissRequest:
     properties:
@@ -584,21 +440,6 @@ definitions:
         type: array
       updated_at:
         type: string
-    type: object
-  admin.embeddingHealthResponse:
-    properties:
-      catalog_id:
-        type: string
-      specs_failed:
-        type: integer
-      specs_indexed:
-        type: integer
-      specs_pending:
-        type: integer
-      specs_running:
-        type: integer
-      specs_total:
-        type: integer
     type: object
   admin.embeddingProviderStatusResponse:
     properties:
@@ -1009,113 +850,6 @@ definitions:
         example: Production data warehouse
         type: string
     type: object
-  admin.specListResponse:
-    properties:
-      specs:
-        items:
-          $ref: '#/definitions/admin.specResponse'
-        type: array
-    type: object
-  admin.specResponse:
-    properties:
-      base_path:
-        type: string
-      content:
-        type: string
-      created_at:
-        type: string
-      description:
-        type: string
-      embedding_attempts:
-        description: |-
-          EmbeddingAttempts is the most recent job's attempt count.
-          Rendered as "running (attempt N)" while in flight, useful
-          for operators trying to gauge whether a slow provider is
-          just slow or stuck retrying.
-        type: integer
-      embedding_count:
-        description: |-
-          EmbeddingCount is the count of persisted operation embedding
-          rows for this (catalog, spec). Equal to OperationCount when
-          the queue has fully drained for the spec; less while a job
-          is in flight or after a partial failure.
-        type: integer
-      embedding_last_error:
-        description: |-
-          EmbeddingLastError is the most recent job's last_error
-          column. Non-empty only when the most recent job failed or
-          is on a retry; rendered in a tooltip / detail row so the
-          operator can see "provider returned 502" without grepping
-          pod logs.
-        type: string
-      embedding_status:
-        description: |-
-          EmbeddingStatus reflects the most recent embedding job's
-          terminal or in-flight state: "" when no job has ever run
-          for the spec, "pending" while queued, "running" while a
-          worker is processing it, "succeeded" when current, "failed"
-          when retries are exhausted. The portal uses this for the
-          per-spec badge text and color.
-        type: string
-      etag:
-        type: string
-      last_fetched_at:
-        type: string
-      operation_count:
-        description: |-
-          OperationCount is the number of operations the spec content
-          parses to. Stored alongside the spec on every write so the
-          portal can render "N/M indexed" without re-parsing the
-          content on the client.
-        type: integer
-      source_kind:
-        type: string
-      source_url:
-        type: string
-      spec_name:
-        type: string
-      title:
-        description: |-
-          Title and Description are the operator-set per-spec summary
-          overrides. Empty means "derive from the spec's info.title /
-          info.description". See catalog.NormalizeSpecTitle /
-          NormalizeSpecDescription for the validation rules.
-        type: string
-      updated_at:
-        type: string
-    type: object
-  admin.startConnectionOAuthRequest:
-    properties:
-      return_url:
-        type: string
-    type: object
-  admin.startConnectionOAuthResponse:
-    properties:
-      authorization_url:
-        type: string
-      expires_at:
-        type: string
-      redirect_uri:
-        type: string
-      state:
-        type: string
-    type: object
-  admin.startGatewayOAuthRequest:
-    properties:
-      return_url:
-        type: string
-    type: object
-  admin.startGatewayOAuthResponse:
-    properties:
-      authorization_url:
-        type: string
-      expires_at:
-        type: string
-      redirect_uri:
-        type: string
-      state:
-        type: string
-    type: object
   admin.statusResponse:
     properties:
       status:
@@ -1343,32 +1077,6 @@ definitions:
         type: boolean
       tool_name:
         example: trino_admin_kill
-        type: string
-    type: object
-  admin.updateCatalogRequest:
-    properties:
-      description:
-        type: string
-      display_name:
-        type: string
-      name:
-        type: string
-      version:
-        type: string
-    type: object
-  admin.upsertCatalogSpecRequest:
-    properties:
-      base_path:
-        type: string
-      content:
-        type: string
-      description:
-        type: string
-      source_kind:
-        type: string
-      source_url:
-        type: string
-      title:
         type: string
     type: object
   admin.userCreateRequest:
@@ -1754,6 +1462,81 @@ definitions:
         example: 11
         type: integer
     type: object
+  auditapi.auditEventResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/audit.Event'
+        type: array
+      page:
+        example: 1
+        type: integer
+      per_page:
+        example: 50
+        type: integer
+      total:
+        example: 196
+        type: integer
+    type: object
+  auditapi.auditFiltersResponse:
+    properties:
+      event_kinds:
+        example:
+        - mcp_tool_call
+        - apigateway_invoke
+        items:
+          type: string
+        type: array
+      sources:
+        example:
+        - mcp
+        - rest
+        - admin
+        items:
+          type: string
+        type: array
+      toolkit_kinds:
+        example:
+        - api
+        - datahub
+        - trino
+        - s3
+        - memory
+        items:
+          type: string
+        type: array
+      tools:
+        example:
+        - trino_query
+        - datahub_search
+        - s3_list_objects
+        items:
+          type: string
+        type: array
+      user_labels:
+        additionalProperties:
+          type: string
+        type: object
+      users:
+        example:
+        - marcus.johnson@example.com
+        - lisa.chang@example.com
+        items:
+          type: string
+        type: array
+    type: object
+  auditapi.auditStatsResponse:
+    properties:
+      failures:
+        example: 77
+        type: integer
+      success:
+        example: 1423
+        type: integer
+      total:
+        example: 1500
+        type: integer
+    type: object
   auth.APIKeySummary:
     properties:
       description:
@@ -1848,6 +1631,169 @@ definitions:
     - TypeRefreshRotationPersistenceFailed
     - TypeTokenDeletedRevoked
     - TypeTokenDeletedAdmin
+  catalogapi.catalogResponse:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      ref_count:
+        type: integer
+      spec_count:
+        type: integer
+      updated_at:
+        type: string
+      version:
+        type: string
+    type: object
+  catalogapi.cloneCatalogRequest:
+    properties:
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  catalogapi.createCatalogRequest:
+    properties:
+      description:
+        type: string
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  catalogapi.embeddingHealthResponse:
+    properties:
+      catalog_id:
+        type: string
+      specs_failed:
+        type: integer
+      specs_indexed:
+        type: integer
+      specs_pending:
+        type: integer
+      specs_running:
+        type: integer
+      specs_total:
+        type: integer
+    type: object
+  catalogapi.specListResponse:
+    properties:
+      specs:
+        items:
+          $ref: '#/definitions/catalogapi.specResponse'
+        type: array
+    type: object
+  catalogapi.specResponse:
+    properties:
+      base_path:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      embedding_attempts:
+        description: |-
+          EmbeddingAttempts is the most recent job's attempt count.
+          Rendered as "running (attempt N)" while in flight, useful
+          for operators trying to gauge whether a slow provider is
+          just slow or stuck retrying.
+        type: integer
+      embedding_count:
+        description: |-
+          EmbeddingCount is the count of persisted operation embedding
+          rows for this (catalog, spec). Equal to OperationCount when
+          the queue has fully drained for the spec; less while a job
+          is in flight or after a partial failure.
+        type: integer
+      embedding_last_error:
+        description: |-
+          EmbeddingLastError is the most recent job's last_error
+          column. Non-empty only when the most recent job failed or
+          is on a retry; rendered in a tooltip / detail row so the
+          operator can see "provider returned 502" without grepping
+          pod logs.
+        type: string
+      embedding_status:
+        description: |-
+          EmbeddingStatus reflects the most recent embedding job's
+          terminal or in-flight state: "" when no job has ever run
+          for the spec, "pending" while queued, "running" while a
+          worker is processing it, "succeeded" when current, "failed"
+          when retries are exhausted. The portal uses this for the
+          per-spec badge text and color.
+        type: string
+      etag:
+        type: string
+      last_fetched_at:
+        type: string
+      operation_count:
+        description: |-
+          OperationCount is the number of operations the spec content
+          parses to. Stored alongside the spec on every write so the
+          portal can render "N/M indexed" without re-parsing the
+          content on the client.
+        type: integer
+      source_kind:
+        type: string
+      source_url:
+        type: string
+      spec_name:
+        type: string
+      title:
+        description: |-
+          Title and Description are the operator-set per-spec summary
+          overrides. Empty means "derive from the spec's info.title /
+          info.description". See catalog.NormalizeSpecTitle /
+          NormalizeSpecDescription for the validation rules.
+        type: string
+      updated_at:
+        type: string
+    type: object
+  catalogapi.updateCatalogRequest:
+    properties:
+      description:
+        type: string
+      display_name:
+        type: string
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  catalogapi.upsertCatalogSpecRequest:
+    properties:
+      base_path:
+        type: string
+      content:
+        type: string
+      description:
+        type: string
+      source_kind:
+        type: string
+      source_url:
+        type: string
+      title:
+        type: string
+    type: object
   configstore.ChangelogEntry:
     properties:
       action:
@@ -1995,6 +1941,60 @@ definitions:
           Reason is the machine-readable revocation reason from the
           event detail (`invalid_grant`, `no_refresh_token`,
           `refresh_expired`, or the generic `revoked` fallback).
+        type: string
+    type: object
+  connoauthapi.connectionOAuthHealthSummary:
+    properties:
+      has_oauth:
+        type: boolean
+      idp_error_code:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      needs_reauth:
+        type: boolean
+      token_acquired:
+        type: boolean
+    type: object
+  connoauthapi.connectionsOAuthHealthResponse:
+    properties:
+      connections:
+        items:
+          $ref: '#/definitions/connoauthapi.connectionOAuthHealthSummary'
+        type: array
+    type: object
+  connoauthapi.startConnectionOAuthRequest:
+    properties:
+      return_url:
+        type: string
+    type: object
+  connoauthapi.startConnectionOAuthResponse:
+    properties:
+      authorization_url:
+        type: string
+      expires_at:
+        type: string
+      redirect_uri:
+        type: string
+      state:
+        type: string
+    type: object
+  connoauthapi.startGatewayOAuthRequest:
+    properties:
+      return_url:
+        type: string
+    type: object
+  connoauthapi.startGatewayOAuthResponse:
+    properties:
+      authorization_url:
+        type: string
+      expires_at:
+        type: string
+      redirect_uri:
+        type: string
+      state:
         type: string
     type: object
   enrichment.Action:
@@ -2171,6 +2171,27 @@ definitions:
           Usage is the audit-derived read activity of this resource. It is not a
           stored column: the detail read fills it from the audit rollup, and it is
           absent everywhere the rollup was not consulted.
+    type: object
+  httpjson.ProblemDetail:
+    properties:
+      detail:
+        example: resource not found
+        type: string
+      status:
+        example: 404
+        type: integer
+      title:
+        example: Not Found
+        type: string
+      type:
+        example: about:blank
+        type: string
+    type: object
+  httpjson.StatusResponse:
+    properties:
+      status:
+        example: ok
+        type: string
     type: object
   knowledge.Changeset:
     properties:
@@ -4203,12 +4224,12 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/admin.catalogResponse'
+              $ref: '#/definitions/catalogapi.catalogResponse'
             type: array
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4225,26 +4246,26 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/admin.createCatalogRequest'
+          $ref: '#/definitions/catalogapi.createCatalogRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/admin.catalogResponse'
+            $ref: '#/definitions/catalogapi.catalogResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4267,19 +4288,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.statusResponse'
+            $ref: '#/definitions/httpjson.StatusResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4301,15 +4322,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.catalogResponse'
+            $ref: '#/definitions/catalogapi.catalogResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4332,30 +4353,30 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/admin.updateCatalogRequest'
+          $ref: '#/definitions/catalogapi.updateCatalogRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.catalogResponse'
+            $ref: '#/definitions/catalogapi.catalogResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4379,30 +4400,30 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/admin.cloneCatalogRequest'
+          $ref: '#/definitions/catalogapi.cloneCatalogRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/admin.catalogResponse'
+            $ref: '#/definitions/catalogapi.catalogResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4424,11 +4445,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.embeddingHealthResponse'
+            $ref: '#/definitions/catalogapi.embeddingHealthResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4464,7 +4485,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4492,7 +4513,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4515,11 +4536,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.specListResponse'
+            $ref: '#/definitions/catalogapi.specListResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4547,15 +4568,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.statusResponse'
+            $ref: '#/definitions/httpjson.StatusResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4582,15 +4603,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.specResponse'
+            $ref: '#/definitions/catalogapi.specResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4618,34 +4639,34 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/admin.upsertCatalogSpecRequest'
+          $ref: '#/definitions/catalogapi.upsertCatalogSpecRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.specResponse'
+            $ref: '#/definitions/catalogapi.specResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "413":
           description: Request Entity Too Large
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "502":
           description: Bad Gateway
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4678,11 +4699,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4710,27 +4731,27 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.specResponse'
+            $ref: '#/definitions/catalogapi.specResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "413":
           description: Request Entity Too Large
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "502":
           description: Bad Gateway
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4777,23 +4798,23 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.specResponse'
+            $ref: '#/definitions/catalogapi.specResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "413":
           description: Request Entity Too Large
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "415":
           description: Unsupported Media Type
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4818,26 +4839,26 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/admin.startGatewayOAuthRequest'
+          $ref: '#/definitions/connoauthapi.startGatewayOAuthRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.startGatewayOAuthResponse'
+            $ref: '#/definitions/connoauthapi.startGatewayOAuthResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4872,7 +4893,7 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       summary: OAuth authorization-code callback for API gateway connections
       tags:
       - Connections
@@ -5374,11 +5395,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.auditEventResponse'
+            $ref: '#/definitions/auditapi.auditEventResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5404,11 +5425,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5434,11 +5455,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.auditFiltersResponse'
+            $ref: '#/definitions/auditapi.auditFiltersResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5482,11 +5503,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5519,7 +5540,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5553,7 +5574,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5586,7 +5607,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5619,7 +5640,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5658,11 +5679,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5708,11 +5729,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.auditStatsResponse'
+            $ref: '#/definitions/auditapi.auditStatsResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -6248,7 +6269,7 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -6278,26 +6299,26 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/admin.startConnectionOAuthRequest'
+          $ref: '#/definitions/connoauthapi.startConnectionOAuthRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.startConnectionOAuthResponse'
+            $ref: '#/definitions/connoauthapi.startConnectionOAuthResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -6327,11 +6348,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -6359,15 +6380,15 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "502":
           description: Bad Gateway
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -6385,7 +6406,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.connectionsOAuthHealthResponse'
+            $ref: '#/definitions/connoauthapi.connectionsOAuthHealthResponse'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -6633,26 +6654,26 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/admin.startGatewayOAuthRequest'
+          $ref: '#/definitions/connoauthapi.startGatewayOAuthRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.startGatewayOAuthResponse'
+            $ref: '#/definitions/connoauthapi.startGatewayOAuthResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -7355,7 +7376,7 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       summary: OAuth authorization-code callback
       tags:
       - Connections

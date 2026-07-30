@@ -1,4 +1,4 @@
-package admin
+package connoauthapi
 
 import (
 	"context"
@@ -64,19 +64,20 @@ func (f *fakeOAuthKindHandler) AfterConnect(_ context.Context, name string, _ ma
 // the connoauth store is in-memory; ConnectionStore is the same
 // mock as the rest of the admin tests. The kinds map is populated
 // per test.
-func newOAuthTestHandler(t *testing.T, connStore *mockConnectionStore, kinds OAuthKindHandlers) (*Handler, connoauth.Store) {
+func newOAuthTestHandler(t *testing.T, connStore *mockConnectionStore, kinds OAuthKindHandlers,
+	events authevents.Store,
+) (*seamMux, connoauth.Store) {
 	t.Helper()
 	pkce := pkcestore.NewMemoryStore()
 	t.Cleanup(func() { _ = pkce.Close() })
 	store := connoauth.NewMemoryStore()
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: connStore,
-		ConfigStore:     &mockConfigStore{mode: "database"},
-		PKCEStore:       pkce,
-		ConnOAuthStore:  store,
-		OAuthKinds:      kinds,
-	}, nil)
+	h := testMux(Config{
+		Connections:    connStore,
+		PKCEStore:      pkce,
+		Tokens:         store,
+		Kinds:          kinds,
+		AuthEventStore: events,
+	})
 	return h, store
 }
 
@@ -84,13 +85,21 @@ func newOAuthTestHandler(t *testing.T, connStore *mockConnectionStore, kinds OAu
 // reach into specific components without exceeding revive's three-
 // return-value limit on the constructor.
 type oauthFixture struct {
-	handler   *Handler
+	handler   *seamMux
 	store     connoauth.Store
 	kind      *fakeOAuthKindHandler
 	connStore *mockConnectionStore
 }
 
 func setupOAuthFixture(t *testing.T, tokenSrv *httptest.Server) *oauthFixture {
+	t.Helper()
+	return setupOAuthFixtureWithEvents(t, tokenSrv, nil)
+}
+
+// setupOAuthFixtureWithEvents is setupOAuthFixture with a caller-supplied
+// auth-event store. Config is captured when Register runs, so a test that
+// needs a failing store has to inject it before the routes are mounted.
+func setupOAuthFixtureWithEvents(t *testing.T, tokenSrv *httptest.Server, events authevents.Store) *oauthFixture {
 	t.Helper()
 	fake := &fakeOAuthKindHandler{
 		parseCfg: connoauth.Config{
@@ -118,7 +127,7 @@ func setupOAuthFixture(t *testing.T, tokenSrv *httptest.Server) *oauthFixture {
 		},
 	}
 	kinds := OAuthKindHandlers{connoauth.KindMCP: fake}
-	h, store := newOAuthTestHandler(t, connStore, kinds)
+	h, store := newOAuthTestHandler(t, connStore, kinds, events)
 	return &oauthFixture{handler: h, store: store, kind: fake, connStore: connStore}
 }
 
@@ -576,16 +585,14 @@ func TestConnectionsOAuthHealth_PopulatesIDPErrorCode(t *testing.T) {
 			EndpointAuthStyle: oauth2.AuthStyleInHeader,
 		},
 	}
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: connStore,
-		ConfigStore:     &mockConfigStore{mode: "database"},
-		PKCEStore:       pkcestore.NewMemoryStore(),
-		ConnOAuthStore:  tokenStore,
-		AuthEvents:      writer,
-		AuthEventStore:  eventStore,
-		OAuthKinds:      OAuthKindHandlers{connoauth.KindMCP: fakeKind},
-	}, nil)
+	h := testMux(Config{
+		Connections:    connStore,
+		PKCEStore:      pkcestore.NewMemoryStore(),
+		Tokens:         tokenStore,
+		AuthEvents:     writer,
+		AuthEventStore: eventStore,
+		Kinds:          OAuthKindHandlers{connoauth.KindMCP: fakeKind},
+	})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/connections/oauth-health", http.NoBody)
@@ -643,16 +650,14 @@ func TestConnectionsOAuthHealth_RecentSuccessClearsErrorCode(t *testing.T) {
 			EndpointAuthStyle: oauth2.AuthStyleInHeader,
 		},
 	}
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: connStore,
-		ConfigStore:     &mockConfigStore{mode: "database"},
-		PKCEStore:       pkcestore.NewMemoryStore(),
-		ConnOAuthStore:  tokenStore,
-		AuthEvents:      writer,
-		AuthEventStore:  eventStore,
-		OAuthKinds:      OAuthKindHandlers{connoauth.KindMCP: fakeKind},
-	}, nil)
+	h := testMux(Config{
+		Connections:    connStore,
+		PKCEStore:      pkcestore.NewMemoryStore(),
+		Tokens:         tokenStore,
+		AuthEvents:     writer,
+		AuthEventStore: eventStore,
+		Kinds:          OAuthKindHandlers{connoauth.KindMCP: fakeKind},
+	})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/connections/oauth-health", http.NoBody)
@@ -739,16 +744,14 @@ func TestConnectionsOAuthHealth_ReconnectClearsErrorCode(t *testing.T) {
 			EndpointAuthStyle: oauth2.AuthStyleInHeader,
 		},
 	}
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: connStore,
-		ConfigStore:     &mockConfigStore{mode: "database"},
-		PKCEStore:       pkcestore.NewMemoryStore(),
-		ConnOAuthStore:  tokenStore,
-		AuthEvents:      writer,
-		AuthEventStore:  eventStore,
-		OAuthKinds:      OAuthKindHandlers{connoauth.KindMCP: fakeKind},
-	}, nil)
+	h := testMux(Config{
+		Connections:    connStore,
+		PKCEStore:      pkcestore.NewMemoryStore(),
+		Tokens:         tokenStore,
+		AuthEvents:     writer,
+		AuthEventStore: eventStore,
+		Kinds:          OAuthKindHandlers{connoauth.KindMCP: fakeKind},
+	})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/connections/oauth-health", http.NoBody)
@@ -930,7 +933,7 @@ func TestConnectionOAuthCallbackFailureLogsCarryNoControlCharacters(t *testing.T
 // startOAuthForTest runs oauth-start against connection "alpha" and returns
 // the issued PKCE state. name selects the connection path segment; empty
 // means "alpha".
-func startOAuthForTest(t *testing.T, h *Handler, name string) string {
+func startOAuthForTest(t *testing.T, h *seamMux, name string) string {
 	t.Helper()
 	if name == "" {
 		name = "alpha"
@@ -982,8 +985,7 @@ func (*failingAuthEventStore) Prune(context.Context, time.Time) (int64, error) {
 func TestConnectionAuthEventsListFailureLogsSanitizedNames(t *testing.T) {
 	const forged = "\r\nlevel=ERROR msg=\"forged log line\""
 	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
-	fx := setupOAuthFixture(t, srv)
-	fx.handler.deps.AuthEventStore = &failingAuthEventStore{err: errors.New("db down")}
+	fx := setupOAuthFixtureWithEvents(t, srv, &failingAuthEventStore{err: errors.New("db down")})
 	snapshot := captureLogAttrs(t)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,

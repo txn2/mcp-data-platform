@@ -1,4 +1,4 @@
-package admin
+package catalogapi
 
 import (
 	"context"
@@ -172,16 +172,15 @@ func (f *fakeEmbedJobs) Health(_ context.Context, catalogID string) (*catalogind
 // newCatalogTestHandlerWithJobs wires a catalog store + the
 // fake queue. Mirrors newCatalogTestHandler so existing
 // scaffolding patterns transfer.
-func newCatalogTestHandlerWithJobs(t *testing.T) (*Handler, *apicatalog.MemoryStore, *fakeEmbedJobs) {
+func newCatalogTestHandlerWithJobs(t *testing.T) (*http.ServeMux, *apicatalog.MemoryStore, *fakeEmbedJobs) {
 	t.Helper()
 	store := apicatalog.NewMemoryStore()
 	jobs := &fakeEmbedJobs{}
-	h := NewHandler(Deps{
-		APICatalogStore:   store,
-		EmbedJobs:         jobs,
-		ConfigStore:       &mockConfigStore{mode: "database"},
-		DatabaseAvailable: true,
-	}, nil)
+	h := testMux(Config{
+		Catalogs:  store,
+		EmbedJobs: jobs,
+		Mutable:   true,
+	})
 	if err := store.CreateCatalog(context.Background(), apicatalog.Catalog{
 		ID: "petstore", Name: "petstore", DisplayName: "Petstore",
 	}); err != nil {
@@ -278,11 +277,10 @@ func TestSpecUpsert_OperationCountStored(t *testing.T) {
 func TestSpecUpsert_NoQueueIsNoOp(t *testing.T) {
 	t.Parallel()
 	store := apicatalog.NewMemoryStore()
-	h := NewHandler(Deps{
-		APICatalogStore:   store,
-		ConfigStore:       &mockConfigStore{mode: "database"},
-		DatabaseAvailable: true,
-	}, nil)
+	h := testMux(Config{
+		Catalogs: store,
+		Mutable:  true,
+	})
 	_ = store.CreateCatalog(context.Background(), apicatalog.Catalog{ID: "p", Name: "p", DisplayName: "P"})
 	res := doJSON(t, h, http.MethodPut, "/api/v1/admin/api-catalogs/p/specs/d", map[string]any{
 		"source_kind": "inline",

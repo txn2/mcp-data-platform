@@ -1,4 +1,4 @@
-package admin
+package connoauthapi
 
 import (
 	"bytes"
@@ -16,7 +16,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
-	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 )
@@ -60,15 +59,12 @@ func TestStartGatewayOAuth_PKCEPutErrorReturns500(t *testing.T) {
 	tk := gatewaykit.New("primary")
 	tk.SetConnOAuthStore(connoauth.NewMemoryStore())
 	t.Cleanup(func() { _ = tk.Close() })
-	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: store,
-		ToolkitRegistry: reg,
-		ConfigStore:     &mockConfigStore{mode: "database"},
-		PKCEStore:       failing,
-		ConnOAuthStore:  connoauth.NewMemoryStore(),
-	}, nil)
+	h := testMux(Config{
+		Connections:    store,
+		GatewayToolkit: func() *gatewaykit.Toolkit { return tk },
+		PKCEStore:      failing,
+		Tokens:         connoauth.NewMemoryStore(),
+	})
 
 	req := httptest.NewRequestWithContext(context.Background(),
 		http.MethodPost, "/api/v1/admin/gateway/connections/vendor/oauth-start", http.NoBody)
@@ -109,14 +105,12 @@ func TestStartConnectionOAuth_PKCEPutErrorReturns500(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = failing.Close() })
 
-	h := NewHandler(Deps{
-		Config:          testConfig(),
-		ConnectionStore: connStore,
-		ConfigStore:     &mockConfigStore{mode: "database"},
-		PKCEStore:       failing,
-		ConnOAuthStore:  connoauth.NewMemoryStore(),
-		OAuthKinds:      OAuthKindHandlers{connoauth.KindMCP: fake},
-	}, nil)
+	h := testMux(Config{
+		Connections: connStore,
+		PKCEStore:   failing,
+		Tokens:      connoauth.NewMemoryStore(),
+		Kinds:       OAuthKindHandlers{connoauth.KindMCP: fake},
+	})
 
 	req := httptest.NewRequestWithContext(context.Background(),
 		http.MethodPost, "/api/v1/admin/connections/mcp/alpha/oauth-start", http.NoBody)

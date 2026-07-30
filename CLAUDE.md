@@ -220,7 +220,8 @@ mcp-data-platform/
 │   ├── urnbuild/                   # Constructs DataHub dataset URNs from query-engine table identifiers
 │   └── user/                       # Directory of known people keyed by email
 ├── internal/                       # Non-exported implementation (not part of the supported library surface)
-│   ├── admin/                      # Admin-API seams built only by pkg/admin (settingsapi/ = SMTP settings REST)
+│   ├── admin/                      # Admin-API seams built only by pkg/admin: auditapi/ (events + metrics), catalogapi/ (OpenAPI spec bundles + embedding jobs), connoauthapi/ (connection OAuth, unified + legacy per-kind), settingsapi/ (SMTP settings REST) — extracted by #1078
+│   ├── httpjson/                   # RFC 9457 Problem Details responder + admin list-query param parsing, shared by the admin/portal decomposition seams (#1078)
 │   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, datahubapi/, gatewayhttp/, health/, httpauth/, mentionhttp/, sources/, versionhttp/ (#1076)
 │   ├── platform/                   # Facade-internal seams composed only by pkg/platform (mwchain, iam, sessionsync, oauthserver, the six indexjobs consumers, mcpapps, connbackfill, ... — moved out of the public surface by #894 and #1076)
 │   ├── portal/                     # Portal seams built only by pkg/portal (publicviewer/ = embedded public share templates + CSP, viewerlimit/, sharecache/)

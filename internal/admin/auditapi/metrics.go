@@ -1,8 +1,10 @@
-package admin
+package auditapi
 
 import (
 	"net/http"
 	"strconv"
+
+	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 )
@@ -14,16 +16,16 @@ const (
 )
 
 // registerAuditMetricsRoutes registers audit metrics endpoints.
-func (h *Handler) registerAuditMetricsRoutes() {
-	if h.deps.AuditMetricsQuerier == nil {
+func (h *handler) registerAuditMetricsRoutes(mux *http.ServeMux) {
+	if h.cfg.Metrics == nil {
 		return
 	}
-	h.mux.HandleFunc("GET /api/v1/admin/audit/metrics/timeseries", h.getAuditTimeseries)
-	h.mux.HandleFunc("GET /api/v1/admin/audit/metrics/breakdown", h.getAuditBreakdown)
-	h.mux.HandleFunc("GET /api/v1/admin/audit/metrics/overview", h.getAuditOverview)
-	h.mux.HandleFunc("GET /api/v1/admin/audit/metrics/performance", h.getAuditPerformance)
-	h.mux.HandleFunc("GET /api/v1/admin/audit/metrics/enrichment", h.getAuditEnrichment)
-	h.mux.HandleFunc("GET /api/v1/admin/audit/metrics/discovery", h.getAuditDiscovery)
+	mux.HandleFunc("GET /api/v1/admin/audit/metrics/timeseries", h.getAuditTimeseries)
+	mux.HandleFunc("GET /api/v1/admin/audit/metrics/breakdown", h.getAuditBreakdown)
+	mux.HandleFunc("GET /api/v1/admin/audit/metrics/overview", h.getAuditOverview)
+	mux.HandleFunc("GET /api/v1/admin/audit/metrics/performance", h.getAuditPerformance)
+	mux.HandleFunc("GET /api/v1/admin/audit/metrics/enrichment", h.getAuditEnrichment)
+	mux.HandleFunc("GET /api/v1/admin/audit/metrics/discovery", h.getAuditDiscovery)
 }
 
 // getAuditTimeseries handles GET /api/v1/admin/audit/metrics/timeseries.
@@ -37,12 +39,12 @@ func (h *Handler) registerAuditMetricsRoutes() {
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
 // @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {array}   audit.TimeseriesBucket
-// @Failure      400  {object}  problemDetail
-// @Failure      500  {object}  problemDetail
+// @Failure      400  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/audit/metrics/timeseries [get]
-func (h *Handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	resolution := audit.Resolution(q.Get("resolution"))
@@ -50,24 +52,24 @@ func (h *Handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 		resolution = audit.ResolutionHour
 	}
 	if !audit.ValidResolutions[resolution] {
-		writeError(w, http.StatusBadRequest, "invalid resolution: must be minute, hour, or day")
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid resolution: must be minute, hour, or day")
 		return
 	}
 
 	filter := audit.TimeseriesFilter{
 		Resolution: resolution,
-		StartTime:  parseTimeParam(q, paramStartTime),
-		EndTime:    parseTimeParam(q, paramEndTime),
+		StartTime:  httpjson.ParseTimeParam(q, paramStartTime),
+		EndTime:    httpjson.ParseTimeParam(q, paramEndTime),
 		EventKind:  q.Get(paramEventKind),
 	}
 
-	buckets, err := h.deps.AuditMetricsQuerier.Timeseries(r.Context(), filter)
+	buckets, err := h.cfg.Metrics.Timeseries(r.Context(), filter)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to query timeseries")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to query timeseries")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, buckets)
+	httpjson.WriteJSON(w, http.StatusOK, buckets)
 }
 
 // getAuditBreakdown handles GET /api/v1/admin/audit/metrics/breakdown.
@@ -82,17 +84,17 @@ func (h *Handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
 // @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {array}   audit.BreakdownEntry
-// @Failure      400  {object}  problemDetail
-// @Failure      500  {object}  problemDetail
+// @Failure      400  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/audit/metrics/breakdown [get]
-func (h *Handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
 	groupBy := audit.BreakdownDimension(q.Get("group_by"))
 	if !audit.ValidBreakdownDimensions[groupBy] {
-		writeError(w, http.StatusBadRequest,
+		httpjson.WriteError(w, http.StatusBadRequest,
 			"invalid group_by: must be tool_name, user_id, persona, toolkit_kind, or connection")
 		return
 	}
@@ -107,18 +109,18 @@ func (h *Handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
 	filter := audit.BreakdownFilter{
 		GroupBy:   groupBy,
 		Limit:     limit,
-		StartTime: parseTimeParam(q, paramStartTime),
-		EndTime:   parseTimeParam(q, paramEndTime),
+		StartTime: httpjson.ParseTimeParam(q, paramStartTime),
+		EndTime:   httpjson.ParseTimeParam(q, paramEndTime),
 		EventKind: q.Get(paramEventKind),
 	}
 
-	entries, err := h.deps.AuditMetricsQuerier.Breakdown(r.Context(), filter)
+	entries, err := h.cfg.Metrics.Breakdown(r.Context(), filter)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to query breakdown")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to query breakdown")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, entries)
+	httpjson.WriteJSON(w, http.StatusOK, entries)
 }
 
 // getAuditOverview handles GET /api/v1/admin/audit/metrics/overview.
@@ -131,27 +133,27 @@ func (h *Handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
 // @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {object}  audit.Overview
-// @Failure      500  {object}  problemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/audit/metrics/overview [get]
-func (h *Handler) getAuditOverview(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getAuditOverview(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
-	overview, err := h.deps.AuditMetricsQuerier.Overview(
+	overview, err := h.cfg.Metrics.Overview(
 		r.Context(),
 		audit.MetricsFilter{
-			StartTime: parseTimeParam(q, paramStartTime),
-			EndTime:   parseTimeParam(q, paramEndTime),
+			StartTime: httpjson.ParseTimeParam(q, paramStartTime),
+			EndTime:   httpjson.ParseTimeParam(q, paramEndTime),
 			EventKind: q.Get(paramEventKind),
 		},
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to query overview")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to query overview")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, overview)
+	httpjson.WriteJSON(w, http.StatusOK, overview)
 }
 
 // getAuditPerformance handles GET /api/v1/admin/audit/metrics/performance.
@@ -164,27 +166,27 @@ func (h *Handler) getAuditOverview(w http.ResponseWriter, r *http.Request) {
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
 // @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {object}  audit.PerformanceStats
-// @Failure      500  {object}  problemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/audit/metrics/performance [get]
-func (h *Handler) getAuditPerformance(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getAuditPerformance(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
-	perf, err := h.deps.AuditMetricsQuerier.Performance(
+	perf, err := h.cfg.Metrics.Performance(
 		r.Context(),
 		audit.MetricsFilter{
-			StartTime: parseTimeParam(q, paramStartTime),
-			EndTime:   parseTimeParam(q, paramEndTime),
+			StartTime: httpjson.ParseTimeParam(q, paramStartTime),
+			EndTime:   httpjson.ParseTimeParam(q, paramEndTime),
 			EventKind: q.Get(paramEventKind),
 		},
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to query performance")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to query performance")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, perf)
+	httpjson.WriteJSON(w, http.StatusOK, perf)
 }
 
 // getAuditEnrichment handles GET /api/v1/admin/audit/metrics/enrichment.
@@ -197,27 +199,27 @@ func (h *Handler) getAuditPerformance(w http.ResponseWriter, r *http.Request) {
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
 // @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {object}  audit.EnrichmentStats
-// @Failure      500  {object}  problemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/audit/metrics/enrichment [get]
-func (h *Handler) getAuditEnrichment(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getAuditEnrichment(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
-	stats, err := h.deps.AuditMetricsQuerier.Enrichment(
+	stats, err := h.cfg.Metrics.Enrichment(
 		r.Context(),
 		audit.MetricsFilter{
-			StartTime: parseTimeParam(q, paramStartTime),
-			EndTime:   parseTimeParam(q, paramEndTime),
+			StartTime: httpjson.ParseTimeParam(q, paramStartTime),
+			EndTime:   httpjson.ParseTimeParam(q, paramEndTime),
 			EventKind: q.Get(paramEventKind),
 		},
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to query enrichment metrics")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to query enrichment metrics")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, stats)
+	httpjson.WriteJSON(w, http.StatusOK, stats)
 }
 
 // getAuditDiscovery handles GET /api/v1/admin/audit/metrics/discovery.
@@ -230,25 +232,25 @@ func (h *Handler) getAuditEnrichment(w http.ResponseWriter, r *http.Request) {
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
 // @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {object}  audit.DiscoveryStats
-// @Failure      500  {object}  problemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/audit/metrics/discovery [get]
-func (h *Handler) getAuditDiscovery(w http.ResponseWriter, r *http.Request) {
+func (h *handler) getAuditDiscovery(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
-	stats, err := h.deps.AuditMetricsQuerier.Discovery(
+	stats, err := h.cfg.Metrics.Discovery(
 		r.Context(),
 		audit.MetricsFilter{
-			StartTime: parseTimeParam(q, paramStartTime),
-			EndTime:   parseTimeParam(q, paramEndTime),
+			StartTime: httpjson.ParseTimeParam(q, paramStartTime),
+			EndTime:   httpjson.ParseTimeParam(q, paramEndTime),
 			EventKind: q.Get(paramEventKind),
 		},
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to query discovery metrics")
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to query discovery metrics")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, stats)
+	httpjson.WriteJSON(w, http.StatusOK, stats)
 }

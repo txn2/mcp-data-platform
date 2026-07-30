@@ -1,4 +1,4 @@
-package admin
+package connoauthapi
 
 import (
 	"context"
@@ -56,7 +56,7 @@ func TestExtractRevocationReasonMalformedJSON(t *testing.T) {
 
 func TestLastRevocationForNoStore(t *testing.T) {
 	t.Parallel()
-	h := &Handler{}
+	h := &handler{}
 	if got := h.lastRevocationFor(context.Background(), "mcp", "x"); got != nil {
 		t.Errorf("lastRevocationFor with no store = %+v, want nil", got)
 	}
@@ -65,7 +65,7 @@ func TestLastRevocationForNoStore(t *testing.T) {
 func TestLastRevocationForNoEvents(t *testing.T) {
 	t.Parallel()
 	store := authevents.NewMemoryStore()
-	h := &Handler{deps: Deps{AuthEventStore: store}}
+	h := &handler{cfg: Config{AuthEventStore: store}}
 	if got := h.lastRevocationFor(context.Background(), "mcp", "x"); got != nil {
 		t.Errorf("lastRevocationFor with no events = %+v, want nil", got)
 	}
@@ -85,7 +85,7 @@ func TestLastRevocationForLatestRevoked(t *testing.T) {
 		Actor: "system:tool-call", IDPHost: "idp.example.com",
 		Detail: json.RawMessage(`{"reason":"invalid_grant"}`),
 	}))
-	h := &Handler{deps: Deps{AuthEventStore: store}}
+	h := &handler{cfg: Config{AuthEventStore: store}}
 	got := h.lastRevocationFor(context.Background(), "mcp", "x")
 	if got == nil {
 		t.Fatal("lastRevocationFor returned nil for a connection with a revocation event")
@@ -122,7 +122,7 @@ func TestLastRevocationForSkippedLeads(t *testing.T) {
 				Kind: "api", Name: "test", Type: tc.leadType,
 				Actor: authevents.SystemBackgroundRefresh, IDPHost: "iam.example.io",
 			}))
-			h := &Handler{deps: Deps{AuthEventStore: store}}
+			h := &handler{cfg: Config{AuthEventStore: store}}
 			got := h.lastRevocationFor(context.Background(), "api", "test")
 			if got == nil {
 				t.Fatalf("lastRevocationFor returned nil for %v", tc.leadType)
@@ -139,7 +139,7 @@ func TestLastRevocationForSkippedLeads(t *testing.T) {
 
 func TestConnectionAuthEventsEndpointEmpty(t *testing.T) {
 	t.Parallel()
-	h := &Handler{}
+	h := &handler{}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/connections/mcp/x/auth-events", http.NoBody)
@@ -164,7 +164,7 @@ func TestConnectionAuthEventsEndpointReturnsList(t *testing.T) {
 		Actor:      authevents.SystemBackgroundRefresh,
 		OccurredAt: time.Now(),
 	}))
-	h := &Handler{deps: Deps{AuthEventStore: store}}
+	h := &handler{cfg: Config{AuthEventStore: store}}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
 		"/api/v1/admin/connections/mcp/y/auth-events", http.NoBody)

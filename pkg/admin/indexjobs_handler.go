@@ -447,7 +447,7 @@ func failedUnitResponseFromUnit(u indexjobs.FailedUnit) failedUnitResponse {
 		Attempts:    u.Attempts,
 		Occurrences: u.Occurrences,
 	}
-	// formatTime (catalog_handler.go) renders zero -> "" so the omitempty
+	// formatTime renders zero -> "" so the omitempty
 	// tags drop the field; UTC-normalize first to match the other
 	// timestamps on this surface.
 	out.FirstFailedAt = formatTime(u.FirstFailedAt.UTC())
@@ -464,4 +464,15 @@ func formatNullableTime(t *time.Time) *string {
 	}
 	s := t.UTC().Format(time.RFC3339)
 	return &s
+}
+
+// formatTime renders the audit-visible timestamp shape used across the admin
+// API. Zero time → empty string so the JSON wire shape omits the field
+// cleanly. The catalog routes that shared this now carry their own copy in
+// internal/admin/catalogapi.
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }

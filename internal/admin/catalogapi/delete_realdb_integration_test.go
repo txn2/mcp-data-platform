@@ -1,6 +1,6 @@
 //go:build integration
 
-package admin
+package catalogapi
 
 import (
 	"context"
@@ -66,12 +66,11 @@ func TestCatalogSpecDelete_ClearsIndexResidue_RealDB(t *testing.T) {
 
 	catalogStore := apicatalog.NewPostgresStore(db)
 	jobs := indexjobs.NewPostgresStore(db)
-	h := NewHandler(Deps{
-		APICatalogStore:   catalogStore,
-		EmbedJobs:         catalogindex.NewAdminStore(jobs, db),
-		ConfigStore:       &mockConfigStore{mode: "database"},
-		DatabaseAvailable: true,
-	}, nil)
+	h := testMux(Config{
+		Catalogs:  catalogStore,
+		EmbedJobs: catalogindex.NewAdminStore(jobs, db),
+		Mutable:   true,
+	})
 
 	require.NoError(t, catalogStore.CreateCatalog(ctx, apicatalog.Catalog{
 		ID: "cat1", Name: "cat1", DisplayName: "Catalog One",
