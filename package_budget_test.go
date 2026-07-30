@@ -42,19 +42,17 @@ import (
 
 const (
 	// maxPackageLOC caps non-generated, non-test lines per package under
-	// pkg/. Measured with this gate after the #1078 admin decomposition, the
-	// largest are pkg/portal (11,796 LOC) and pkg/platform (9,551); pkg/admin
-	// has come down to 7,881 by moving its catalog, connection-OAuth and audit
-	// surfaces to internal/admin/.
+	// pkg/. Measured with this gate after the #1121 portal decomposition, the
+	// largest are pkg/platform (9,551 LOC), pkg/toolkits/apigateway (8,289)
+	// and pkg/middleware (8,182); pkg/portal has come down from 11,796 to
+	// 7,114 by moving its domain types, its stores, its authorization core and
+	// its feedback surface to internal/portal/.
 	//
-	// This stays at 11,800 only because pkg/portal has not been decomposed
-	// yet: it is 4 lines under the ceiling and cannot take another change.
-	// Portal needs its domain types (User, Asset, Collection, the store
-	// interfaces) moved into a package its handler seams can import before it
-	// can be split at all, which is tracked separately. The ratchet target
-	// once that lands is 9,600 — just above pkg/platform, which then becomes
-	// the largest and the next package this gate pushes on.
-	maxPackageLOC = 11800
+	// At 9,600 the largest package under pkg/ is pkg/platform with 49 lines of
+	// headroom, so this gate now pushes on pkg/platform: that is the intended
+	// direction of the ratchet, not a side effect. Decomposing it is the next
+	// target; raising this number is not.
+	maxPackageLOC = 9600
 
 	// maxPackageFiles caps non-generated, non-test .go files per package
 	// under pkg/. The largest today (pkg/middleware) holds 33 files; this

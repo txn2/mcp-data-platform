@@ -537,6 +537,15 @@ linters:
         linters:
           - nilerr
 
+      # pkg/portal/domain.go is nothing but aliases and one-line forwarders
+      # onto internal/portal/portaldomain, which exist to keep the portal's
+      # public spelling stable across the #1121 split. A validator's error text
+      # is what the REST API returns to the caller; wrapping it in the
+      # forwarder would change that message and defeat the point of the alias.
+      - path: pkg/portal/domain\.go
+        linters:
+          - wrapcheck
+
       # Main packages can have longer functions
       - path: cmd/
         linters:
@@ -600,6 +609,19 @@ linters:
           - revive
         text: "max-public-structs"
       - path: pkg/portal/
+        linters:
+          - revive
+        text: "max-public-structs"
+      # The portal's domain vocabulary and its feedback seam are the same kind
+      # of type-defining package as pkg/portal itself, which they were split
+      # out of (#1121): portaldomain defines the persisted entities and the
+      # search contracts over them, feedbackapi its request/response DTOs
+      # alongside its Config and Handler.
+      - path: internal/portal/portaldomain/
+        linters:
+          - revive
+        text: "max-public-structs"
+      - path: internal/portal/feedbackapi/
         linters:
           - revive
         text: "max-public-structs"

@@ -3,15 +3,8 @@ package portal
 import (
 	"context"
 	"net/http"
-	"slices"
 	"strings"
 )
-
-// applyKnowledgeTool is the persona tool whose access gates insight review and
-// canonical-knowledge writes. It is the single capability the REST path checks,
-// matching the MCP path's persona tool-visibility gate so both agree on who may
-// promote knowledge.
-const applyKnowledgeTool = "apply_knowledge"
 
 // SearchRouter is the unified knowledge-search federation behind the portal's
 // GET /api/v1/portal/search endpoint. It is a portal-local interface (rather
@@ -192,38 +185,9 @@ func (h *Handler) callerFor(user *User) SearchCaller {
 }
 
 // userHasApplyKnowledge reports whether the user effectively holds the
-// apply_knowledge capability. It grants access when the user's resolved persona
-// lists the tool (the same Tools the frontend reads from GET /me and the MCP
-// path gates on, so a non-admin persona granted apply_knowledge can review and
-// promote), OR when the user is an admin.
-//
-// Admins are always treated as holding the capability for two reasons: their
-// persona normally grants every registered tool, and the tool may not be
-// registered at all on a given deployment (apply_knowledge is absent when
-// Knowledge.Apply.Enabled is false, its default), in which case the resolved
-// Tools list can never contain it. Without the admin arm, enabling capability
-// gating would lock admins out of knowledge writes wherever apply is disabled,
-// a regression from the prior admin-role gate. The admin arm only widens access;
-// the capability still grants non-admins, which is the behavior #661 requires.
+// apply_knowledge capability.
 func (h *Handler) userHasApplyKnowledge(user *User) bool {
-	return h.userHasTool(user, applyKnowledgeTool)
-}
-
-// userHasTool reports whether the user's resolved persona grants the named tool,
-// or the user is an admin. It is the shared capability check behind the
-// apply_knowledge and DataHub write authorizations; the admin arm only widens
-// access (a separate write-enabled-connection check still applies to DataHub
-// writes, so admin cannot mutate a read-only connection).
-func (h *Handler) userHasTool(user *User, tool string) bool {
-	if user == nil {
-		return false
-	}
-	if h.deps.PersonaResolver != nil {
-		if info := h.deps.PersonaResolver(user.Roles); info != nil && slices.Contains(info.Tools, tool) {
-			return true
-		}
-	}
-	return h.userIsAdmin(user)
+	return h.access.HasApplyKnowledge(user)
 }
 
 // queryValues returns the trimmed, non-empty values for a query parameter,

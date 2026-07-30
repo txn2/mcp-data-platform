@@ -193,7 +193,7 @@ mcp-data-platform/
 │   ├── persona/                    # Persona-based access control and customization
 │   ├── pkcestore/                  # In-flight PKCE state for outbound OAuth (oauth-start → callback)
 │   ├── platform/                   # Core orchestration: facade, config, options, lifecycle (fieldcrypt/, instructions/, personastore/ = seams shared with pkg/admin; other facade-internal seams live under internal/platform/)
-│   ├── portal/                     # Asset portal data layer (knowledgepage/, mention/, shareaccess/, shareguest/, threads/, ...)
+│   ├── portal/                     # Asset portal HTTP surface + aliases over its seams (knowledgepage/, mention/, shareaccess/, shareguest/, threads/, ...)
 │   ├── prompt/                     # Prompt management: versioned store contract, review gate (attachserve/, postgres/)
 │   ├── query/                      # Query execution provider abstraction (trino/ = Trino adapter)
 │   ├── ratelimit/                  # Shared per-IP token-bucket limiter + trusted-proxy client-IP resolver (portal viewer, OAuth endpoints)
@@ -224,7 +224,7 @@ mcp-data-platform/
 │   ├── httpjson/                   # RFC 9457 Problem Details responder + admin list-query param parsing, shared by the admin/portal decomposition seams (#1078)
 │   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, datahubapi/, gatewayhttp/, health/, httpauth/, mentionhttp/, sources/, versionhttp/ (#1076)
 │   ├── platform/                   # Facade-internal seams composed only by pkg/platform (mwchain, iam, sessionsync, oauthserver, the six indexjobs consumers, mcpapps, connbackfill, ... — moved out of the public surface by #894 and #1076)
-│   ├── portal/                     # Portal seams built only by pkg/portal (publicviewer/ = embedded public share templates + CSP, viewerlimit/, sharecache/)
+│   ├── portal/                     # Portal seams built only by pkg/portal, extracted by #1121: portaldomain/ (domain types, store contracts, validation — aliased back so portal.Asset etc. are unchanged), portalstore/ (PostgreSQL asset/share/collection stores + ranked search), portalversions/ (version history store), portalnoop/ (no-database stores), access/ (the authorization core + the User principal), feedbackapi/ (threads, activity, worklists, sign-off, validation, capture-as-insight), plus publicviewer/ (embedded public share templates + CSP), viewerlimit/, sharecache/
 │   └── server/                     # Server factory (server.go)
 ├── configs/                        # Example configurations
 │   └── platform.yaml

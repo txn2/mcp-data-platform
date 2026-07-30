@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+
+	"github.com/txn2/mcp-data-platform/internal/portal/access"
 )
 
 // fakeSearchRouter records the query it received and returns a canned result.
@@ -141,8 +143,8 @@ func TestUserHasToolAccess(t *testing.T) {
 		resolver PersonaResolver
 		want     bool
 	}{
-		{"nil user", nil, grants(applyKnowledgeTool), false},
-		{"persona grants capability, no admin role", kpViewer, grants(applyKnowledgeTool, "search"), true},
+		{"nil user", nil, grants(access.ApplyKnowledgeTool), false},
+		{"persona grants capability, no admin role", kpViewer, grants(access.ApplyKnowledgeTool, "search"), true},
 		{"non-admin without capability denied", kpViewer, grants("search"), false},
 		{"admin without capability still allowed (tool may be unregistered)", kpAdmin, grants("search"), true},
 		{"no resolver falls back to admin role", kpAdmin, nil, true},
@@ -200,8 +202,10 @@ func TestKnowledgePage_CreateByCapabilityNotRole(t *testing.T) {
 		deps := Deps{
 			KnowledgePageStore: store,
 			AdminRoles:         []string{"admin"},
-			PersonaResolver:    func([]string) *PersonaInfo { return &PersonaInfo{Name: "curator", Tools: []string{applyKnowledgeTool}} },
-			RateLimit:          RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+			PersonaResolver: func([]string) *PersonaInfo {
+				return &PersonaInfo{Name: "curator", Tools: []string{access.ApplyKnowledgeTool}}
+			},
+			RateLimit: RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
 		}
 		h := NewHandler(deps, testAuthMiddleware(kpViewer))
 		rec := doKP(h, "POST", "/api/v1/portal/knowledge-pages", `{"title":"X","body":"y"}`)

@@ -57,8 +57,13 @@ layers, the background index consumers, MCP Apps support, and similar) live
 under `internal/platform/`. The HTTP adapters the server mounts — the gateway
 REST shim, the prompt attachment, version and mention endpoints, the DataHub
 catalog API, the MCP transport auth gate, the persona access gate and the health
-handlers — live under `internal/httpserver/`, and the portal's public-viewer
-templates, rate limiter and share cache under `internal/portal/`. Go's
+handlers — live under `internal/httpserver/`, and the portal's own seams under
+`internal/portal/`: its domain types and store contracts, its PostgreSQL and
+no-database stores, its authorization core, its feedback surface (threads,
+activity, worklists, sign-off, validation), and its public-viewer templates,
+rate limiter and share cache. Every name the portal's domain move touched is
+aliased back in `pkg/portal`, so `portal.Asset`, `portal.Collection`,
+`portal.User` and the store constructors are spelled exactly as before. Go's
 `internal/` rule makes all of them unimportable from outside this module. They
 were never a supported integration surface; the location now enforces that so
 their evolution cannot break an external build.

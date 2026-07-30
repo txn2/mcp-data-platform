@@ -2,10 +2,12 @@ package portal
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
@@ -61,7 +63,7 @@ func TestSearchMyAssets_Unauthenticated(t *testing.T) {
 // withScopedUserID injects a portal user with the given owner_id (and a fixed
 // email) so the search owner-scope guard, which keys on UserID, can be exercised.
 func withScopedUserID(r *http.Request, userID string) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), portalUserKey, &User{UserID: userID, Email: "alice@example.com"}))
+	return r.WithContext(ContextWithUser(r.Context(), &User{UserID: userID, Email: "alice@example.com"}))
 }
 
 func TestSearchMyAssets_EmptyIdentityFailsClosed(t *testing.T) {
@@ -222,8 +224,8 @@ func TestIntegration_SearchMyAssets_RealStoreEnforcesOwnerScope(t *testing.T) {
 
 	// Hybrid binds $1=vector, $2=query, $3=owner_id. If the handler failed to
 	// scope by the caller, this expectation would not be met.
-	rows := sqlmock.NewRows(append(append([]string{}, assetSearchCols...), "vec_score", "lex_match"))
-	addAssetRow(rows, "a-1", "Cohort retention", driverValueList{0.9, true})
+	rows := sqlmock.NewRows(append(append([]string{}, rankedAssetCols...), "vec_score", "lex_match"))
+	rows.AddRow(rankedAssetRow("a-1", callerID, "Cohort retention", 0.9, true)...)
 	mock.ExpectQuery("UNION ALL").
 		WithArgs(sqlmock.AnyArg(), "retention", callerID).
 		WillReturnRows(rows)
@@ -257,4 +259,26 @@ func TestIntegration_SearchMyAssets_RealStoreEnforcesOwnerScope(t *testing.T) {
 	require.Len(t, resp.Data, 1)
 	assert.Equal(t, "a-1", resp.Data[0].Asset.ID)
 	assert.Positive(t, resp.Data[0].Score, "a real relevance score must reach the JSON response")
+}
+
+// rankedAssetCols is the asset projection the ranked-search scanner reads, in
+// the store's scan order (sqlmock scans positionally). It is spelled here
+// rather than imported because the store's own fixtures live with the store;
+// a drift between the two shows up as a scan error in this test.
+var rankedAssetCols = []string{
+	"id", "owner_id", "owner_email", "name", "description", "content_type",
+	"s3_bucket", "s3_key", "thumbnail_s3_key", "thumbnail_dark_s3_key", "size_bytes", "tags", "provenance",
+	"session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
+}
+
+// rankedAssetRow builds one ranked-search row: the asset projection followed by
+// the two per-arm score columns the hybrid query appends.
+func rankedAssetRow(id, ownerID, name string, vecScore float64, lexMatch bool) []driver.Value {
+	now := time.Now()
+	return []driver.Value{
+		id, ownerID, "alice@example.com", name, "desc", "text/html",
+		"bucket", "key", "", "", int64(10), []byte(`["t"]`), []byte(`{}`),
+		"", 1, now, now, nil, "",
+		vecScore, lexMatch,
+	}
 }
