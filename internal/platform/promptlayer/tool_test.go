@@ -3,6 +3,7 @@ package promptlayer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -32,6 +33,121 @@ func TestHandlePromptCreate_Success(t *testing.T) {
 	assert.False(t, r.IsError)
 	assert.Contains(t, store.prompts, "my-prompt")
 	assert.Equal(t, "global", store.prompts["my-prompt"].Scope)
+}
+
+// TestHandlePromptCreate_AdminSharedLandsApproved locks the #1124 lifecycle
+// rule: the admin creating a shared prompt is its approver, so the prompt is
+// born approved (and therefore searchable) with the approval stamped.
+func TestHandlePromptCreate_AdminSharedLandsApproved(t *testing.T) {
+	h, store := newTestHandle()
+	for _, scope := range []string{prompt.ScopeGlobal, prompt.ScopePersona} {
+		name := "shared-" + scope
+		r, _, _ := h.handlePromptCreate(adminCtx(), managePromptInput{
+			Name: name, Content: "c", Scope: scope, Personas: []string{"analyst"},
+		})
+		require.False(t, r.IsError, resultText(r))
+		created := store.prompts[name]
+		assert.Equal(t, prompt.StatusApproved, created.Status, scope)
+		assert.Equal(t, "admin@example.com", created.ApprovedBy, scope)
+		require.NotNil(t, created.ApprovedAt, scope)
+	}
+}
+
+// TestHandlePromptCreate_PersonalStaysDraft: personal prompts publish through
+// the promotion flow, so a create at personal scope lands draft for admins and
+// non-admins alike.
+func TestHandlePromptCreate_PersonalStaysDraft(t *testing.T) {
+	h, store := newTestHandle()
+	r, _, _ := h.handlePromptCreate(adminCtx(), managePromptInput{
+		Name: "admin-personal", Content: "c", Scope: prompt.ScopePersonal,
+	})
+	require.False(t, r.IsError)
+	assert.Equal(t, prompt.StatusDraft, store.prompts["admin-personal"].Status)
+	assert.Empty(t, store.prompts["admin-personal"].ApprovedBy)
+
+	r, _, _ = h.handlePromptCreate(userCtx("user@example.com", "analyst"), managePromptInput{
+		Name: "user-personal", Content: "c",
+	})
+	require.False(t, r.IsError)
+	assert.Equal(t, prompt.StatusDraft, store.prompts["user-personal"].Status)
+}
+
+// --- collection placement (#1124) ---
+
+func TestHandlePromptCreate_WithCollection(t *testing.T) {
+	h, store := newTestCollectionHandle()
+	store.collections["col1"] = &prompt.Collection{ID: "col1", Name: "Sales"}
+
+	r, _, _ := h.handlePromptCreate(userCtx("user@example.com", "analyst"), managePromptInput{
+		Name: "placed", Content: "c", CollectionID: new("col1"),
+	})
+	require.False(t, r.IsError, resultText(r))
+	assert.Equal(t, "col1", store.prompts["placed"].CollectionID)
+}
+
+func TestHandlePromptCreate_UnknownCollection(t *testing.T) {
+	h, store := newTestCollectionHandle()
+	r, _, _ := h.handlePromptCreate(userCtx("user@example.com", "analyst"), managePromptInput{
+		Name: "placed", Content: "c", CollectionID: new("nope"),
+	})
+	assert.True(t, r.IsError)
+	assert.Contains(t, resultText(r), "not found")
+	assert.NotContains(t, store.prompts, "placed", "a bad collection id must not create a half-placed prompt")
+}
+
+func TestHandlePromptCreate_CollectionsUnavailable(t *testing.T) {
+	h, _ := newTestHandle() // plain store: no collection capability
+	r, _, _ := h.handlePromptCreate(userCtx("user@example.com", "analyst"), managePromptInput{
+		Name: "placed", Content: "c", CollectionID: new("col1"),
+	})
+	assert.True(t, r.IsError)
+	assert.Contains(t, resultText(r), "not available")
+}
+
+func TestHandlePromptUpdate_AssignAndClearCollection(t *testing.T) {
+	h, store := newTestCollectionHandle()
+	store.collections["col1"] = &prompt.Collection{ID: "col1", Name: "Sales"}
+	store.prompts["mine"] = &prompt.Prompt{
+		ID: "p1", Name: "mine", Scope: prompt.ScopePersonal, OwnerEmail: "user@example.com",
+		Content: "c", Enabled: true,
+	}
+	ctx := userCtx("user@example.com", "analyst")
+
+	r, _, _ := h.handlePromptUpdate(ctx, managePromptInput{Name: "mine", CollectionID: new("col1")})
+	require.False(t, r.IsError, resultText(r))
+	assert.Equal(t, "col1", store.prompts["mine"].CollectionID)
+
+	r, _, _ = h.handlePromptUpdate(ctx, managePromptInput{Name: "mine", CollectionID: new("")})
+	require.False(t, r.IsError, resultText(r))
+	assert.Empty(t, store.prompts["mine"].CollectionID)
+}
+
+func TestHandlePromptUpdate_UnknownCollection(t *testing.T) {
+	h, store := newTestCollectionHandle()
+	store.prompts["mine"] = &prompt.Prompt{
+		ID: "p1", Name: "mine", Scope: prompt.ScopePersonal, OwnerEmail: "user@example.com",
+		Content: "c", Enabled: true,
+	}
+	r, _, _ := h.handlePromptUpdate(userCtx("user@example.com", "analyst"), managePromptInput{
+		Name: "mine", CollectionID: new("nope"),
+	})
+	assert.True(t, r.IsError)
+	assert.Contains(t, resultText(r), "not found")
+}
+
+func TestHandlePromptUpdate_CollectionStoreError(t *testing.T) {
+	h, store := newTestCollectionHandle()
+	store.setErr = errors.New("pq: down")
+	store.prompts["mine"] = &prompt.Prompt{
+		ID: "p1", Name: "mine", Scope: prompt.ScopePersonal, OwnerEmail: "user@example.com",
+		Content: "c", Enabled: true,
+	}
+	r, _, _ := h.handlePromptUpdate(userCtx("user@example.com", "analyst"), managePromptInput{
+		Name: "mine", CollectionID: new(""),
+	})
+	assert.True(t, r.IsError)
+	assert.Contains(t, resultText(r), "failed to assign collection")
+	assert.NotContains(t, resultText(r), "pq:")
 }
 
 func TestHandlePromptCreate_InvalidName(t *testing.T) {
@@ -280,9 +396,21 @@ func TestHandlePromptList_NonAdminNoScope(t *testing.T) {
 	h, store := newTestHandle()
 	store.prompts["personal"] = &prompt.Prompt{
 		ID: "1", Name: "personal", Scope: prompt.ScopePersonal, Enabled: true, OwnerEmail: "user@example.com",
+		Status: prompt.StatusDraft,
 	}
 	store.prompts["global"] = &prompt.Prompt{
-		ID: "2", Name: "global", Scope: prompt.ScopeGlobal, Enabled: true,
+		ID: "2", Name: "global", Scope: prompt.ScopeGlobal, Enabled: true, Status: prompt.StatusApproved,
+	}
+	// Another owner's draft shared prompt is invisible to non-admins, matching
+	// ranked search; the caller's own prompts are visible at any scope and
+	// status (#1124).
+	store.prompts["draft-global"] = &prompt.Prompt{
+		ID: "3", Name: "draft-global", Scope: prompt.ScopeGlobal, Enabled: true, Status: prompt.StatusDraft,
+		OwnerEmail: "someone-else@example.com",
+	}
+	store.prompts["my-deprecated-global"] = &prompt.Prompt{
+		ID: "4", Name: "my-deprecated-global", Scope: prompt.ScopeGlobal, Enabled: true,
+		Status: prompt.StatusDeprecated, OwnerEmail: "user@example.com",
 	}
 	r, _, _ := h.handlePromptList(userCtx("user@example.com", "analyst"), managePromptInput{Command: "list"})
 	assert.False(t, r.IsError)
@@ -291,12 +419,21 @@ func TestHandlePromptList_NonAdminNoScope(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(resultText(r)), &resp))
 	countVal, _ := resp["count"].(float64)
 	count := int(countVal)
-	assert.Equal(t, 2, count) // personal + global
+	assert.Equal(t, 3, count) // own personal (draft ok) + own deprecated global + approved global
+	assert.Equal(t, "user@example.com", resp["caller_email"])
 }
 
 func TestHandlePromptList_NonAdminWithScope(t *testing.T) {
 	h, store := newTestHandle()
-	store.prompts["g1"] = &prompt.Prompt{ID: "1", Name: "g1", Scope: prompt.ScopeGlobal, Enabled: true}
+	store.prompts["g1"] = &prompt.Prompt{ID: "1", Name: "g1", Scope: prompt.ScopeGlobal, Enabled: true, Status: prompt.StatusApproved}
+	store.prompts["g2-draft"] = &prompt.Prompt{
+		ID: "3", Name: "g2-draft", Scope: prompt.ScopeGlobal, Enabled: true, Status: prompt.StatusDraft,
+		OwnerEmail: "someone-else@example.com",
+	}
+	store.prompts["g3-mine-draft"] = &prompt.Prompt{
+		ID: "4", Name: "g3-mine-draft", Scope: prompt.ScopeGlobal, Enabled: true, Status: prompt.StatusDraft,
+		OwnerEmail: "user@example.com",
+	}
 	store.prompts["p1"] = &prompt.Prompt{ID: "2", Name: "p1", Scope: prompt.ScopePersonal, Enabled: true, OwnerEmail: "user@example.com"}
 	r, _, _ := h.handlePromptList(userCtx("user@example.com", "analyst"), managePromptInput{
 		Command: "list", Scope: "global",
@@ -307,7 +444,7 @@ func TestHandlePromptList_NonAdminWithScope(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(resultText(r)), &resp))
 	countVal, _ := resp["count"].(float64)
 	count := int(countVal)
-	assert.Equal(t, 1, count) // only global
+	assert.Equal(t, 2, count) // the approved global + the caller's own draft global
 }
 
 func TestHandlePromptList_StoreError(t *testing.T) {

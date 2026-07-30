@@ -58,8 +58,13 @@ type managePromptInput struct {
 	SupersededBy string            `json:"superseded_by,omitempty"`
 	Search       string            `json:"search,omitempty"`
 
-	// Query (list command) ranks visible approved prompts by relevance instead
-	// of the substring Search filter; Limit caps the ranked results.
+	// CollectionID places the prompt in a shared collection (create/update).
+	// A pointer so "not sent" (leave placement alone) is distinct from ""
+	// (clear the placement). Collections themselves are created in the portal.
+	CollectionID *string `json:"collection_id,omitempty"`
+
+	// Query (list command) ranks the caller's visible prompts by relevance
+	// instead of the substring Search filter; Limit caps the ranked results.
 	Query string `json:"query,omitempty"`
 	Limit int    `json:"limit,omitempty"`
 
@@ -207,6 +212,20 @@ func (h *Handle) handlePromptCreate(ctx context.Context, input managePromptInput
 		Source:      prompt.SourceOperator,
 		Enabled:     true,
 	}
+	// An admin creating a shared prompt is its approver: the prompt lands
+	// approved (and therefore searchable) instead of stuck in draft with no
+	// approve affordance in sight (#1124).
+	if h.isAdminPersona(ctx) {
+		pr.ApproveOnAdminCreate(email, time.Now().UTC())
+	}
+	if input.CollectionID != nil && *input.CollectionID != "" {
+		// Validate placement before the row exists so a bad collection id does
+		// not leave a half-placed prompt behind.
+		if errMsg := h.checkCollectionExists(ctx, *input.CollectionID); errMsg != "" {
+			return promptErrorResult(errMsg), nil, nil
+		}
+		pr.CollectionID = *input.CollectionID
+	}
 
 	if err := h.store.Create(ctx, pr); err != nil {
 		slog.Error("failed to create prompt", promptLogKey, input.Name, promptLogKeyErr, err)
@@ -255,29 +274,73 @@ func (h *Handle) handlePromptUpdate(ctx context.Context, input managePromptInput
 		return promptErrorResult(errMsg), nil, nil
 	}
 
-	return h.persistPromptUpdate(ctx, &before, existing, oldScope, email)
+	// Validate a requested placement before the edit lands so a typo'd
+	// collection id fails the whole update up front. The assignment itself
+	// runs inside persistPromptEdit AFTER the edit applies: assigning first
+	// would invert the semantics both ways, since the full-row write behind
+	// ApplyEdit persists existing.CollectionID (reverting the assignment on
+	// success) while a refused edit would leave the assignment committed.
+	if input.CollectionID != nil && *input.CollectionID != "" {
+		if errMsg := h.checkCollectionExists(ctx, *input.CollectionID); errMsg != "" {
+			return promptErrorResult(errMsg), nil, nil
+		}
+	}
+
+	return h.persistPromptEdit(ctx, promptEdit{
+		before: &before, after: existing, oldScope: oldScope, email: email,
+		collectionID: input.CollectionID,
+	})
 }
 
-// persistPromptUpdate lands an edited prompt through the shared review gate.
-// A review-gated content edit becomes a pending draft version and the served
-// prompt (and its runtime metadata) stays on the approved snapshot; every
-// other edit applies and re-registers.
-func (h *Handle) persistPromptUpdate(ctx context.Context, before, existing *prompt.Prompt, oldScope, email string) (*mcp.CallToolResult, any, error) {
-	return h.persistPromptEdit(ctx, promptEdit{
-		before: before, after: existing, oldScope: oldScope, email: email,
-	})
+// checkCollectionExists verifies a collection id refers to an existing shared
+// collection. Returns a non-empty user-facing error message when collections
+// are unavailable, the lookup fails, or no such collection exists.
+func (h *Handle) checkCollectionExists(ctx context.Context, collectionID string) string {
+	cs := prompt.AsCollectionStore(h.store)
+	if cs == nil {
+		return "collections are not available on this deployment"
+	}
+	col, err := cs.GetCollection(ctx, collectionID)
+	if err != nil {
+		slog.Error("failed to look up prompt collection", "collection_id", collectionID, promptLogKeyErr, err)
+		return "failed to look up collection"
+	}
+	if col == nil {
+		return fmt.Sprintf("collection %q not found; collections are created and managed in the portal", collectionID)
+	}
+	return ""
+}
+
+// assignPromptCollection places a prompt in a collection, or clears the
+// placement when collectionID is empty. Returns a non-empty user-facing error
+// message on failure.
+func (h *Handle) assignPromptCollection(ctx context.Context, promptID, collectionID string) string {
+	cs := prompt.AsCollectionStore(h.store)
+	if cs == nil {
+		return "collections are not available on this deployment"
+	}
+	if err := cs.SetPromptCollection(ctx, promptID, collectionID); err != nil {
+		if errors.Is(err, prompt.ErrCollectionNotFound) {
+			return fmt.Sprintf("collection %q not found; collections are created and managed in the portal", collectionID)
+		}
+		slog.Error("failed to assign prompt collection", "collection_id", collectionID, promptLogKeyErr, err)
+		return "failed to assign collection"
+	}
+	return ""
 }
 
 // promptEdit is one edit on its way through the review gate: the persisted
 // pre-edit state, the fully mutated copy, the scope the prompt held before, the
 // acting author, and any extra response fields the caller wants merged into the
-// result (a patch's per-edit report and diff).
+// result (a patch's per-edit report and diff). A non-nil collectionID is a
+// placement change ("" = clear) applied after the edit lands.
 type promptEdit struct {
-	before   *prompt.Prompt
-	after    *prompt.Prompt
-	oldScope string
-	email    string
-	extra    map[string]any
+	before       *prompt.Prompt
+	after        *prompt.Prompt
+	oldScope     string
+	email        string
+	extra        map[string]any
+	collectionID *string
 }
 
 // persistPromptEdit lands an edit through prompt.ApplyEdit and renders the
@@ -294,6 +357,17 @@ func (h *Handle) persistPromptEdit(ctx context.Context, e promptEdit) (*mcp.Call
 	if err != nil {
 		slog.Error("failed to update prompt", promptLogKey, existing.Name, promptLogKeyErr, err)
 		return h.promptErrorDetail(ctx, "failed to update prompt", err), nil, nil
+	}
+	// The edit landed (applied, or deferred to a pending draft — placement is
+	// organizational metadata and never waits for review). Apply the placement
+	// through SetPromptCollection now, AFTER the full-row write: that write
+	// persists existing.CollectionID, so assigning first would be silently
+	// reverted, and assigning on a failed edit would leave a placement the
+	// caller was told did not happen.
+	if e.collectionID != nil {
+		if errMsg := h.assignPromptCollection(ctx, existing.ID, *e.collectionID); errMsg != "" {
+			return promptErrorResult(errMsg), nil, nil
+		}
 	}
 	if !outcome.Applied {
 		return promptJSONResult(withExtra(map[string]any{
@@ -475,7 +549,7 @@ func (h *Handle) handlePromptDelete(ctx context.Context, input managePromptInput
 }
 
 // handlePromptList lists prompts visible to the current user. When a free-text
-// query is supplied it ranks visible approved prompts by relevance; otherwise
+// query is supplied it ranks the caller's visible prompts by relevance; otherwise
 // it returns the visible set filtered by the substring Search and scope.
 func (h *Handle) handlePromptList(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(input.Query) != "" {
@@ -492,13 +566,16 @@ func (h *Handle) handlePromptList(ctx context.Context, input managePromptInput) 
 	filter.Enabled = &enabled
 
 	if !isAdmin {
-		// Non-admin with explicit scope: serve that scope directly (no owner filter for global/persona).
-		// Non-admin with no scope: fetch personal + global + persona separately.
+		// Non-admin visibility is the same rule ranked search applies (#1124):
+		// every prompt the caller owns at any scope and status, plus the
+		// approved shared sets. No scope lists everything owned (the shared
+		// sets merge in below); an explicit personal scope narrows to owned
+		// personal; an explicit shared scope serves the approved set (the
+		// caller's own rows in that scope merge in below).
 		if filter.Scope == prompt.ScopePersonal || filter.Scope == "" {
 			filter.OwnerEmail = resolveEmail(ctx)
-			if filter.Scope == "" {
-				filter.Scope = prompt.ScopePersonal
-			}
+		} else {
+			filter.Status = prompt.StatusApproved
 		}
 	}
 
@@ -508,9 +585,8 @@ func (h *Handle) handlePromptList(ctx context.Context, input managePromptInput) 
 		return h.promptErrorDetail(ctx, "failed to list prompts", err), nil, nil
 	}
 
-	// For non-admins without an explicit scope, also include global and persona-scoped prompts.
-	if !isAdmin && input.Scope == "" {
-		prompts = h.mergeExtraScopes(ctx, prompts, &enabled)
+	if !isAdmin {
+		prompts = h.mergeNonAdminExtras(ctx, prompts, input.Scope, &enabled)
 	}
 
 	ptrs := make([]*prompt.Prompt, len(prompts))
@@ -527,8 +603,11 @@ func (h *Handle) handlePromptList(ctx context.Context, input managePromptInput) 
 // audit-derived usage to the returned prompts and attaches the shared
 // collection list (#1010) when the store supports collections, so MCP clients
 // and the prompt-browser app see the same organization model as the portal.
+// caller_email names the caller so the prompt-browser app can bucket "My
+// Prompts" by ownership rather than by scope (#1124).
 func (h *Handle) browseResponse(ctx context.Context, prompts []*prompt.Prompt, resp map[string]any) (*mcp.CallToolResult, any, error) {
 	h.applyUsageAll(ctx, prompts)
+	resp["caller_email"] = resolveEmail(ctx)
 	if cols := h.listCollections(ctx); len(cols) > 0 {
 		resp["collections"] = cols
 	}
@@ -550,11 +629,55 @@ func (h *Handle) listCollections(ctx context.Context) []prompt.Collection {
 	return cols
 }
 
-// mergeExtraScopes appends global and persona-scoped prompts for non-admin users.
+// mergeNonAdminExtras completes a non-admin list beyond the primary query:
+// with no explicit scope the approved global and persona sets join the
+// caller's owned prompts; with an explicit shared scope the caller's own rows
+// in that scope join the approved set (own work is visible at any status,
+// #1124). The merge is deduplicated by id because the caller's own approved
+// shared prompts satisfy both queries.
+func (h *Handle) mergeNonAdminExtras(ctx context.Context, prompts []prompt.Prompt, scope string, enabled *bool) []prompt.Prompt {
+	switch scope {
+	case "":
+		prompts = h.mergeExtraScopes(ctx, prompts, enabled)
+	case prompt.ScopeGlobal, prompt.ScopePersona:
+		own, err := h.store.List(ctx, prompt.ListFilter{
+			Scope:      scope,
+			OwnerEmail: resolveEmail(ctx),
+			Enabled:    enabled,
+		})
+		if err != nil {
+			slog.Warn("failed to load own shared prompts", logKeyError, err)
+		} else {
+			prompts = append(prompts, own...)
+		}
+	}
+	return dedupPromptsByID(prompts)
+}
+
+// dedupPromptsByID drops later duplicates of the same prompt id, preserving
+// order of first appearance.
+func dedupPromptsByID(prompts []prompt.Prompt) []prompt.Prompt {
+	seen := make(map[string]struct{}, len(prompts))
+	out := prompts[:0]
+	for i := range prompts {
+		if _, dup := seen[prompts[i].ID]; dup {
+			continue
+		}
+		seen[prompts[i].ID] = struct{}{}
+		out = append(out, prompts[i])
+	}
+	return out
+}
+
+// mergeExtraScopes appends the approved global and persona-scoped prompts for
+// non-admin users. Other people's shared prompts browse approved-only,
+// matching ranked search (#1124); the caller's own rows arrive at any status
+// through the ownership query this merges into.
 func (h *Handle) mergeExtraScopes(ctx context.Context, prompts []prompt.Prompt, enabled *bool) []prompt.Prompt {
 	globalPrompts, globalErr := h.store.List(ctx, prompt.ListFilter{
 		Scope:   prompt.ScopeGlobal,
 		Enabled: enabled,
+		Status:  prompt.StatusApproved,
 	})
 	if globalErr != nil {
 		slog.Warn("failed to load global prompts", logKeyError, globalErr)
@@ -568,6 +691,7 @@ func (h *Handle) mergeExtraScopes(ctx context.Context, prompts []prompt.Prompt, 
 			Scope:    prompt.ScopePersona,
 			Personas: []string{pc.PersonaName},
 			Enabled:  enabled,
+			Status:   prompt.StatusApproved,
 		})
 		if personaErr != nil {
 			slog.Warn("failed to load persona prompts", logKeyError, personaErr)
@@ -578,10 +702,11 @@ func (h *Handle) mergeExtraScopes(ctx context.Context, prompts []prompt.Prompt, 
 	return prompts
 }
 
-// handlePromptSearch ranks visible approved prompts by relevance to the query.
-// Visibility is applied before ranking: a non-admin caller ranks over global,
-// matching-persona, and their own personal approved prompts; an admin ranks
-// over all approved prompts. Ranking is hybrid (semantic + lexical) when an
+// handlePromptSearch ranks the caller's visible prompts by relevance to the
+// query: approved shared prompts plus the caller's own personal prompts at any
+// status, the same rule the browse paths apply (#1124). A non-admin caller
+// ranks over global, matching-persona, and their own personal prompts; an
+// admin ranks across every owner. Ranking is hybrid (semantic + lexical) when an
 // embedding provider is configured and lexical-only otherwise, reported as the
 // "ranking" field so the caller knows which path produced the results.
 func (h *Handle) handlePromptSearch(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
@@ -957,8 +1082,9 @@ func managePromptSchema() any {
 			},
 			"query": map[string]any{
 				schemaKeyType: schemaValString,
-				schemaKeyDescription: "Free-text relevance query (for list command). Ranks visible approved " +
-					"prompts by similarity to the query within your visibility. Takes precedence over 'search'.",
+				schemaKeyDescription: "Free-text relevance query (for list command). Ranks the prompts visible " +
+					"to you (approved shared prompts plus your own) by similarity to the query. " +
+					"Takes precedence over 'search'.",
 			},
 			"limit": map[string]any{
 				schemaKeyType:        "integer",
@@ -973,6 +1099,12 @@ func managePromptSchema() any {
 				schemaKeyType:        schemaValString,
 				schemaKeyEnum:        promotionRequestScopes,
 				schemaKeyDescription: "Request promotion of your personal prompt to this shared scope (update). Flags it for the admin review queue; an admin approves to apply it. Does not change the scope by itself.",
+			},
+			"collection_id": map[string]any{
+				schemaKeyType: schemaValString,
+				schemaKeyDescription: "Collection to place the prompt in (create/update): an id from the " +
+					"'collections' array returned by list. An empty string clears the placement. " +
+					"Collections themselves are created and managed in the portal.",
 			},
 			"requested_personas": map[string]any{
 				schemaKeyType:        schemaValArray,

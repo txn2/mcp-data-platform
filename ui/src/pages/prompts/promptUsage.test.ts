@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatLastRun, isInactive, matchesUsageFacet, usageSortValue } from "./promptUsage";
+import { formatLastRun, isInactive, matchesUsageFacet, usageBadge, usageSortValue } from "./promptUsage";
 
 const now = new Date("2026-07-22T12:00:00Z");
 const daysAgo = (n: number) => new Date(now.getTime() - n * 24 * 60 * 60 * 1000).toISOString();
@@ -14,6 +14,29 @@ describe("isInactive", () => {
     expect(isInactive({ run_count: 5, last_run_at: daysAgo(3) }, now)).toBe(false);
     expect(isInactive({ run_count: 5, last_run_at: daysAgo(59) }, now)).toBe(false);
     expect(isInactive({ run_count: 5, last_run_at: daysAgo(61) }, now)).toBe(true);
+  });
+});
+
+describe("usageBadge", () => {
+  it("names the never-run condition instead of a lifecycle-sounding label", () => {
+    const badge = usageBadge(undefined, daysAgo(30), now);
+    expect(badge?.label).toBe("never run");
+    expect(usageBadge({ run_count: 0 }, daysAgo(30), now)?.label).toBe("never run");
+  });
+
+  it("suppresses the badge for recently created prompts", () => {
+    expect(usageBadge(undefined, daysAgo(0), now)).toBeNull();
+    expect(usageBadge(undefined, daysAgo(6), now)).toBeNull();
+    expect(usageBadge(undefined, daysAgo(8), now)).not.toBeNull();
+  });
+
+  it("flags long-unused prompts with the threshold in the label", () => {
+    expect(usageBadge({ run_count: 5, last_run_at: daysAgo(61) }, daysAgo(90), now)?.label).toBe("unused 60d+");
+    expect(usageBadge({ run_count: 5, last_run_at: daysAgo(59) }, daysAgo(90), now)).toBeNull();
+  });
+
+  it("shows never run when created_at is missing and the prompt has no runs", () => {
+    expect(usageBadge(undefined, undefined, now)?.label).toBe("never run");
   });
 });
 

@@ -33,6 +33,10 @@ func (m *mockPromptStore) Create(_ context.Context, p *prompt.Prompt) error {
 		return m.createErr
 	}
 	p.ID = "gen-" + p.Name
+	// Mirror the real store: a new prompt with no explicit status lands draft.
+	if p.Status == "" {
+		p.Status = prompt.StatusDraft
+	}
 	m.prompts[p.Name] = p
 	return nil
 }
@@ -45,7 +49,7 @@ func (m *mockPromptStore) Get(_ context.Context, name string) (*prompt.Prompt, e
 	// personal prompts are per-owner and served via GetPersonal.
 	for _, p := range m.prompts {
 		if p.Name == name && p.Scope != prompt.ScopePersonal {
-			return p, nil
+			return clonePrompt(p), nil
 		}
 	}
 	return nil, nil //nolint:nilnil // interface contract
@@ -57,7 +61,7 @@ func (m *mockPromptStore) GetPersonal(_ context.Context, ownerEmail, name string
 	}
 	for _, p := range m.prompts {
 		if p.Scope == prompt.ScopePersonal && p.OwnerEmail == ownerEmail && p.Name == name {
-			return p, nil
+			return clonePrompt(p), nil
 		}
 	}
 	return nil, nil //nolint:nilnil // interface contract
@@ -69,7 +73,7 @@ func (m *mockPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt,
 	}
 	for _, p := range m.prompts {
 		if p.ID == id {
-			return p, nil
+			return clonePrompt(p), nil
 		}
 	}
 	return nil, nil //nolint:nilnil // interface contract
@@ -92,7 +96,18 @@ func (m *mockPromptStore) Update(_ context.Context, p *prompt.Prompt) error {
 	if m.updateErr != nil {
 		return m.updateErr
 	}
-	m.prompts[p.Name] = p
+	// Mirror the real store's updateTx: the row is matched by id and the full
+	// row — collection_id included — is written from p, so state the caller
+	// did not carry is overwritten.
+	if p.ID != "" {
+		for key, existing := range m.prompts {
+			if existing.ID == p.ID {
+				m.prompts[key] = clonePrompt(p)
+				return nil
+			}
+		}
+	}
+	m.prompts[p.Name] = clonePrompt(p)
 	return nil
 }
 
@@ -135,6 +150,9 @@ func (m *mockPromptStore) List(_ context.Context, f prompt.ListFilter) ([]prompt
 		if f.ExcludeSource != "" && p.Source == f.ExcludeSource {
 			continue
 		}
+		if f.Status != "" && p.Status != f.Status {
+			continue
+		}
 		result = append(result, *p)
 	}
 	return result, nil
@@ -145,6 +163,72 @@ func (m *mockPromptStore) Count(_ context.Context, _ prompt.ListFilter) (int, er
 }
 
 var _ prompt.Store = (*mockPromptStore)(nil)
+
+// --- mock collection-capable prompt store ---
+
+// mockCollectionStore layers the collection capability over mockPromptStore,
+// modeling the real store's contract: SetPromptCollection is the only
+// collection_id writer, refuses an unknown collection with
+// ErrCollectionNotFound, and clears the placement on an empty id.
+type mockCollectionStore struct {
+	*mockPromptStore
+	collections map[string]*prompt.Collection
+	setErr      error
+}
+
+func newMockCollectionStore() *mockCollectionStore {
+	return &mockCollectionStore{
+		mockPromptStore: newMockPromptStore(),
+		collections:     make(map[string]*prompt.Collection),
+	}
+}
+
+func (m *mockCollectionStore) CreateCollection(_ context.Context, c *prompt.Collection) error {
+	m.collections[c.ID] = c
+	return nil
+}
+
+func (m *mockCollectionStore) GetCollection(_ context.Context, id string) (*prompt.Collection, error) {
+	return m.collections[id], nil
+}
+
+func (m *mockCollectionStore) ListCollections(_ context.Context) ([]prompt.Collection, error) {
+	out := make([]prompt.Collection, 0, len(m.collections))
+	for _, c := range m.collections {
+		out = append(out, *c)
+	}
+	return out, nil
+}
+
+func (m *mockCollectionStore) UpdateCollection(_ context.Context, id, name, description string) error {
+	if c := m.collections[id]; c != nil {
+		c.Name, c.Description = name, description
+	}
+	return nil
+}
+
+func (m *mockCollectionStore) DeleteCollection(_ context.Context, id string) error {
+	delete(m.collections, id)
+	return nil
+}
+
+func (m *mockCollectionStore) SetPromptCollection(_ context.Context, promptID, collectionID string) error {
+	if m.setErr != nil {
+		return m.setErr
+	}
+	if collectionID != "" && m.collections[collectionID] == nil {
+		return prompt.ErrCollectionNotFound
+	}
+	for _, p := range m.prompts {
+		if p.ID == promptID {
+			p.CollectionID = collectionID
+			return nil
+		}
+	}
+	return nil
+}
+
+var _ prompt.CollectionStore = (*mockCollectionStore)(nil)
 
 // --- mock toolkit ---
 
@@ -192,6 +276,18 @@ var _ ShareLister = (*stubShareLister)(nil)
 // registration path set their own.
 func newTestHandle() (*Handle, *mockPromptStore) {
 	store := newMockPromptStore()
+	h := &Handle{
+		store:        store,
+		adminPersona: "admin",
+		registry:     registry.NewRegistry(),
+	}
+	return h, store
+}
+
+// newTestCollectionHandle builds a Handle whose store also carries the
+// collection capability.
+func newTestCollectionHandle() (*Handle, *mockCollectionStore) {
+	store := newMockCollectionStore()
 	h := &Handle{
 		store:        store,
 		adminPersona: "admin",

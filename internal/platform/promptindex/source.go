@@ -9,7 +9,7 @@ import (
 )
 
 // Source implements indexjobs.Source for the prompts kind. A unit is one
-// approved prompt (SourceID = prompt id) and yields exactly one item: the
+// enabled prompt (SourceID = prompt id) and yields exactly one item: the
 // prompt's composed embed text. The worker embeds it and the Sink writes the
 // vector back onto the same row.
 type Source struct {

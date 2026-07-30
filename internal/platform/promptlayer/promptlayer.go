@@ -32,6 +32,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/notifystore"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -171,12 +172,11 @@ func New(cfg Config) *Handle {
 		// Wrap the backing store so every write path (manage_prompt tool,
 		// admin/portal REST, knowledge add_prompt) fires prompts/list_changed
 		// through the one shared instance — no per-handler emission to keep in
-		// sync. wrapStore preserves the store's search capability; the notifier
-		// is bound later via SetListChangedNotifier.
-		// wrapStore preserves the store's capability extensions (search,
-		// versioning), so version writes that change what is served fire
-		// list_changed like every other write.
-		h.store = wrapStore(base, h.notifyListChanged, h.guardAttachmentScope)
+		// sync. The wrapper preserves the store's capability extensions
+		// (search, versioning), so version writes that change what is served
+		// fire list_changed like every other write; the notifier is bound
+		// later via SetListChangedNotifier.
+		h.store = notifystore.Wrap(base, h.notifyListChanged, h.guardAttachmentScope)
 	}
 	return h
 }

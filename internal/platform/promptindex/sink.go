@@ -56,15 +56,15 @@ func (s *Sink) UpsertBatch(ctx context.Context, key indexjobs.Key, rows []indexj
 // expected count to record per unit.
 func (*Sink) StampExpected(context.Context, indexjobs.Key, int) error { return nil }
 
-// FindGaps returns approved, enabled prompt ids whose embedding is missing or
-// was produced by a model other than the current one.
+// FindGaps returns enabled prompt ids whose embedding is missing or was
+// produced by a model other than the current one.
 func (s *Sink) FindGaps(ctx context.Context) ([]string, error) {
 	return s.store.FindGaps(ctx, s.currentModel)
 }
 
-// Coverage reports the prompts kind's indexed-vs-expected totals (approved
-// prompts with an embedding vs all approved prompts). ExpectedKnown is true:
-// every approved prompt is expected to converge to one vector.
+// Coverage reports the prompts kind's indexed-vs-expected totals (enabled
+// prompts with an embedding vs all enabled prompts). ExpectedKnown is true:
+// every enabled prompt is expected to converge to one vector.
 func (s *Sink) Coverage(ctx context.Context) (indexjobs.Coverage, error) {
 	indexed, expected, err := s.store.Coverage(ctx)
 	if err != nil {

@@ -292,7 +292,7 @@ See [Knowledge Capture](../knowledge/overview.md) and [Memory Layer](../memory/o
 
 ## Prompts
 
-Prompts are reusable templates that guide AI agent behavior: the organization's SOP manual for agent-run procedures. The library presents two buckets: **My Prompts** (your personal prompts, plus prompts shared with you, each attributed to its sharer) and **Library** (the approved team prompts visible to you, grouped by collection). Scope and persona mechanics appear only inside the promote and admin flows.
+Prompts are reusable templates that guide AI agent behavior: the organization's SOP manual for agent-run procedures. The library presents two buckets: **My Prompts** (every prompt you own, whatever its scope — shared-scope prompts carry a scope badge — plus prompts shared with you, each attributed to its sharer) and **Library** (the approved team prompts visible to you, grouped by collection). Scope and persona mechanics appear only inside the promote and admin flows.
 
 ![Prompts](../images/screenshots/light/user-prompts-light.webp#only-light)![Prompts](../images/screenshots/dark/user-prompts-dark.webp#only-dark)
 
@@ -314,10 +314,10 @@ Opening a prompt shows its rendered content, arguments, actions (copy, save-as-a
 
 Features:
 
-- **Search**: Type a phrase to rank prompts by relevance to what you mean, not just literal substrings. Results span your prompts and the Library, are ranked best-first, and only include approved shared prompts; prompts shared with you are matched by name and description.
+- **Search**: Type a phrase to rank prompts by relevance to what you mean, not just literal substrings. Results span your prompts and the Library, ranked best-first: your own prompts match at any status, shared prompts once approved; prompts shared with you are matched by name and description.
 - **Collections**: Group prompts by team, domain, or workflow. Any user can create collections (the **Collections** button opens the manager); renaming and deleting are limited to the collection's creator or an admin. A prompt belongs to at most one collection: owners assign their own prompts, admins assign shared prompts, from the picker on the prompt page. Deleting a collection releases its prompts to the General group.
 - **Facets**: Narrow the list by collection, tag, status (My Prompts), owner (Library), and usage (recently used / never or long unused).
-- **Usage columns and sorting**: Every row shows its run count and last-run age, aggregated from prompt-serve audit events. Sort by name, runs, or last run; usage sorts default to most-active-first. Prompts never run, or not run in over 60 days, carry an **inactive** badge so dead prompts are identifiable at a glance.
+- **Usage columns and sorting**: Every row shows its run count and last-run age, aggregated from prompt-serve audit events. Sort by name, runs, or last run; usage sorts default to most-active-first. Dead prompts are flagged with a badge naming the exact condition — **never run**, or **unused 60d+** — and a prompt created within the last week carries no flag while it is still too new to judge.
 - **Status badges**: Lifecycle state on your own prompts: draft (gray), approved (emerald), deprecated (amber), superseded (rose)
 - **Tags**: Free-form, comma-separated labels for organizing prompts, set on create and edit
 - **New Prompt** — Create prompts with name, display name, description, content (supports `{arg}` placeholders), category, and tags

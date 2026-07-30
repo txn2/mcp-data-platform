@@ -5574,7 +5574,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a new prompt and registers it with the live MCP server when enabled.",
+                "description": "Creates a new prompt and registers it with the live MCP server when enabled. A global or persona prompt created here lands approved, with the creating admin stamped as its approver.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10983,7 +10983,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the user's personal prompts plus available global, persona, and system prompts.",
+                "description": "Returns the prompts the user owns (any scope) plus the approved global, persona, and system prompts visible to them.",
                 "produces": [
                     "application/json"
                 ],
@@ -11081,7 +11081,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Ranks approved prompts visible to the caller by relevance to q. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Visibility (global, matching-persona, and own personal prompts; all approved prompts for admins) is applied before ranking.",
+                "description": "Ranks prompts visible to the caller by relevance to q: approved shared prompts plus the caller's own prompts at any status, the same visibility rule the browse lists apply. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Visibility (global, matching-persona, and own personal prompts; every owner's prompts for admins) is applied before ranking.",
                 "produces": [
                     "application/json"
                 ],

@@ -274,7 +274,7 @@ Features:
 
 - **Scope filter** — Dropdown to filter by Global, Persona, Personal, or System scope
 - **Search** — Full-text search across name and description
-- **New Prompt** — Create prompts with scope, persona assignment, tags, and enabled/disabled state
+- **New Prompt** — Create prompts with scope, persona assignment, tags, and enabled/disabled state. A global or persona prompt created by an admin lands `approved` with the creating admin stamped as approver — the creator is the reviewer, so nothing sits in draft with no approve affordance in sight
 - **Sortable table** — Name, scope badge, description, owner, category, and actions
 - **Scope badges** — Global (blue), Persona (purple), Personal (gray), System (amber)
 - **Status badges** — Lifecycle state next to each name: draft (gray), approved (emerald), deprecated (amber), superseded (rose)

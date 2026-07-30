@@ -1,8 +1,8 @@
 // Package promptindex is the prompt-library consumer of the shared indexjobs
 // framework (#557, epic #525 phase 4). It registers a Source/Sink pair under
-// source_kind = "prompts" so the reconciler embeds approved prompts off the
-// request path: a prompt promoted to approved (whose vector is still NULL) or
-// left stale by a provider model swap self-heals on the next sweep.
+// source_kind = "prompts" so the reconciler embeds prompts off the request
+// path: a freshly created prompt (whose vector is still NULL) or one left
+// stale by a provider model swap self-heals on the next sweep.
 //
 // Like the memory consumer, and unlike api-catalog/tools, prompts store their
 // vectors inline on the prompts table (one embedding per row), not in a
@@ -12,9 +12,11 @@
 // unit yields exactly one Item whose text is prompt.IndexText (title + body +
 // description + tags).
 //
-// Only approved, enabled prompts are indexed. Gap detection and coverage both
-// filter on status = 'approved' AND enabled, so a draft or deprecated prompt is
-// never embedded and never counted as missing coverage.
+// Every enabled prompt is indexed regardless of lifecycle status (#1124):
+// ranked search decides visibility at query time — a caller's own drafts and
+// an admin's whole library rank — so the index covers what any caller can
+// rank. Gap detection and coverage filter on enabled only; a disabled prompt
+// is never embedded and never counted as missing coverage.
 package promptindex
 
 // SourceKind is the indexjobs source_kind this package serves.

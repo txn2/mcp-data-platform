@@ -49,46 +49,52 @@ func TestTruncate(t *testing.T) {
 }
 
 func TestPromptVisibilityClause(t *testing.T) {
-	t.Run("admin sees all approved (no clause)", func(t *testing.T) {
-		clause, args, next := promptVisibilityClause(prompt.SearchQuery{IsAdmin: true}, 3)
+	t.Run("admin ranks everything (no clause)", func(t *testing.T) {
+		// Admin browse is unrestricted, so admin search carries no status or
+		// scope predicate: a draft awaiting review is findable by its reviewer.
+		clause, args, next := promptVisibilityClause(prompt.SearchQuery{IsAdmin: true, OwnerEmail: "a@x.com"}, 3)
 		assert.Empty(t, clause)
 		assert.Empty(t, args)
 		assert.Equal(t, 3, next)
 	})
 
 	t.Run("admin with explicit scope", func(t *testing.T) {
-		clause, args, _ := promptVisibilityClause(prompt.SearchQuery{IsAdmin: true, Scope: "global"}, 3)
+		clause, args, _ := promptVisibilityClause(prompt.SearchQuery{IsAdmin: true, OwnerEmail: "a@x.com", Scope: "global"}, 3)
 		assert.Contains(t, clause, "scope = $3")
+		assert.NotContains(t, clause, "status")
 		assert.Equal(t, []any{"global"}, args)
 	})
 
 	t.Run("non-admin without persona", func(t *testing.T) {
 		clause, args, next := promptVisibilityClause(
 			prompt.SearchQuery{OwnerEmail: "u@x.com"}, 3)
+		assert.Contains(t, clause, "(status = 'approved' OR owner_email = $3)")
 		assert.Contains(t, clause, "scope = 'global'")
-		assert.Contains(t, clause, "scope = 'personal' AND owner_email = $3")
+		assert.Contains(t, clause, "owner_email = $4")
 		assert.NotContains(t, clause, "ANY(personas)")
-		assert.Equal(t, []any{"u@x.com"}, args)
-		assert.Equal(t, 4, next)
+		assert.Equal(t, []any{"u@x.com", "u@x.com"}, args)
+		assert.Equal(t, 5, next)
 	})
 
 	t.Run("non-admin with persona", func(t *testing.T) {
 		clause, args, next := promptVisibilityClause(
 			prompt.SearchQuery{OwnerEmail: "u@x.com", Persona: "analyst"}, 3)
-		assert.Contains(t, clause, "owner_email = $3")
-		assert.Contains(t, clause, "$4 = ANY(personas)")
-		assert.Equal(t, []any{"u@x.com", "analyst"}, args)
-		assert.Equal(t, 5, next)
+		assert.Contains(t, clause, "owner_email = $4")
+		assert.Contains(t, clause, "$5 = ANY(personas)")
+		assert.Equal(t, []any{"u@x.com", "u@x.com", "analyst"}, args)
+		assert.Equal(t, 6, next)
 	})
 
 	t.Run("non-admin with explicit scope and persona", func(t *testing.T) {
 		clause, args, _ := promptVisibilityClause(
 			prompt.SearchQuery{OwnerEmail: "u@x.com", Persona: "analyst", Scope: "persona"}, 3)
-		// scope filter binds $3, then visibility binds $4 (owner) and $5 (persona).
+		// The scope filter binds $3, the publication gate $4, then the
+		// non-admin visibility binds $5 (owner) and $6 (persona).
 		assert.Contains(t, clause, "scope = $3")
-		assert.Contains(t, clause, "owner_email = $4")
-		assert.Contains(t, clause, "$5 = ANY(personas)")
-		assert.Equal(t, []any{"persona", "u@x.com", "analyst"}, args)
+		assert.Contains(t, clause, "(status = 'approved' OR owner_email = $4)")
+		assert.Contains(t, clause, "owner_email = $5")
+		assert.Contains(t, clause, "$6 = ANY(personas)")
+		assert.Equal(t, []any{"persona", "u@x.com", "u@x.com", "analyst"}, args)
 	})
 }
 
@@ -113,9 +119,10 @@ func TestSearch_Hybrid(t *testing.T) {
 		WillReturnRows(rows)
 
 	got, err := store.Search(context.Background(), prompt.SearchQuery{
-		Embedding: []float32{0.1, 0.2, 0.3},
-		QueryText: "sales report",
-		IsAdmin:   true,
+		Embedding:  []float32{0.1, 0.2, 0.3},
+		QueryText:  "sales report",
+		OwnerEmail: "a@x.com",
+		IsAdmin:    true,
 	})
 	require.NoError(t, err)
 	require.Len(t, got, 2)
@@ -151,9 +158,10 @@ func TestSearch_HybridDedupsAcrossArms(t *testing.T) {
 		WillReturnRows(rows)
 
 	got, err := store.Search(context.Background(), prompt.SearchQuery{
-		Embedding: []float32{0.1},
-		QueryText: "x",
-		IsAdmin:   true,
+		Embedding:  []float32{0.1},
+		QueryText:  "x",
+		OwnerEmail: "a@x.com",
+		IsAdmin:    true,
 	})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -174,9 +182,10 @@ func TestSearch_Lexical(t *testing.T) {
 	rows := sqlmock.NewRows(cols).AddRow(lexRow...)
 
 	// Nil embedding selects the lexical-only path: $1 is the query text, $2 the
-	// caller email for personal visibility.
+	// caller email for the publication gate, $3 the same email for personal
+	// visibility.
 	mock.ExpectQuery("SELECT .+ FROM prompts").
-		WithArgs("inventory", "u@x.com").
+		WithArgs("inventory", "u@x.com", "u@x.com").
 		WillReturnRows(rows)
 
 	got, err := store.Search(context.Background(), prompt.SearchQuery{

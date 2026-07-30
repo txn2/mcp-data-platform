@@ -49,7 +49,7 @@ func callUse(ctx context.Context, t *testing.T, h *Handle, input managePromptInp
 func TestPromptUse_ExactBareNamePrecedence(t *testing.T) {
 	h, store := newTestHandle()
 	store.prompts["report"] = &prompt.Prompt{
-		ID: "g1", Name: "report", Scope: prompt.ScopeGlobal, Content: "global body", Enabled: true,
+		ID: "g1", Name: "report", Scope: prompt.ScopeGlobal, Content: "global body", Enabled: true, Status: prompt.StatusApproved,
 	}
 	store.prompts["report:sarah"] = &prompt.Prompt{
 		ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "sarah@example.com",
@@ -70,12 +70,34 @@ func TestPromptUse_ExactBareNamePrecedence(t *testing.T) {
 	assert.Equal(t, "global body", parsed.Content)
 }
 
+// TestPromptUse_ExactNameHonorsPublicationGate: exact-name resolution applies
+// the same visibility rule as browse and search (#1124). Another owner's draft
+// shared prompt does not resolve for a non-admin; the owner and an admin reach
+// it at any status.
+func TestPromptUse_ExactNameHonorsPublicationGate(t *testing.T) {
+	h, store := newTestHandle()
+	store.prompts["draft-sop"] = &prompt.Prompt{
+		ID: "g1", Name: "draft-sop", Scope: prompt.ScopeGlobal, Content: "draft body",
+		Enabled: true, Status: prompt.StatusDraft, OwnerEmail: "owner@example.com",
+	}
+
+	_, res := callUse(userCtx("bob@example.com", "analyst"), t, h, managePromptInput{Name: "draft-sop"})
+	assert.True(t, res.IsError, "another owner's draft shared prompt must not resolve for a non-admin")
+
+	parsed, res := callUse(userCtx("owner@example.com", "analyst"), t, h, managePromptInput{Name: "draft-sop"})
+	require.False(t, res.IsError, "the owner resolves their own draft: %s", resultText(res))
+	assert.Equal(t, "draft body", parsed.Content)
+
+	_, res = callUse(adminCtx(), t, h, managePromptInput{Name: "draft-sop"})
+	assert.False(t, res.IsError, "an admin resolves any status")
+}
+
 func TestPromptUse_SystemPromptResolvable(t *testing.T) {
 	// Built-ins are mirrored into the store as system rows; `use` resolves them
 	// so "run the explore prompt" works without the static registry.
 	h, store := newTestHandle()
 	store.prompts["explore-available-data"] = &prompt.Prompt{
-		Name: "explore-available-data", Scope: prompt.ScopeGlobal,
+		Name: "explore-available-data", Scope: prompt.ScopeGlobal, Status: prompt.StatusApproved,
 		Source: prompt.SourceSystem, Content: "builtin body", Enabled: true,
 	}
 
@@ -114,7 +136,7 @@ func TestPromptUse_DisplayName(t *testing.T) {
 	h, store := newTestHandle()
 	store.prompts["daily-sales-report"] = &prompt.Prompt{
 		ID: "g1", Name: "daily-sales-report", DisplayName: "Daily Sales Report",
-		Scope: prompt.ScopeGlobal, Content: "global body", Enabled: true,
+		Scope: prompt.ScopeGlobal, Content: "global body", Enabled: true, Status: prompt.StatusApproved,
 	}
 
 	parsed, res := callUse(userCtx("sarah@example.com", "analyst"), t, h, managePromptInput{Name: "daily sales report"})
@@ -128,7 +150,7 @@ func TestPromptUse_DisplayNamePrecedenceAndTie(t *testing.T) {
 	h, store := newTestHandle()
 	store.prompts["report-a"] = &prompt.Prompt{
 		ID: "g1", Name: "report-a", DisplayName: "The Report",
-		Scope: prompt.ScopeGlobal, Content: "global body", Enabled: true,
+		Scope: prompt.ScopeGlobal, Content: "global body", Enabled: true, Status: prompt.StatusApproved,
 	}
 	store.prompts["report-b:sarah"] = &prompt.Prompt{
 		ID: "p1", Name: "report-b", DisplayName: "The Report",
@@ -144,7 +166,7 @@ func TestPromptUse_DisplayNamePrecedenceAndTie(t *testing.T) {
 	// Two same-precedence matches are ambiguous: candidates, not a silent pick.
 	store.prompts["report-c"] = &prompt.Prompt{
 		ID: "g2", Name: "report-c", DisplayName: "The Report",
-		Scope: prompt.ScopeGlobal, Content: "other global", Enabled: true,
+		Scope: prompt.ScopeGlobal, Content: "other global", Enabled: true, Status: prompt.StatusApproved,
 	}
 	parsed, res = callUse(userCtx("bob@example.com", "analyst"), t, h, managePromptInput{Name: "The Report"})
 	require.False(t, res.IsError)
@@ -155,7 +177,7 @@ func TestPromptUse_DisplayNamePrecedenceAndTie(t *testing.T) {
 func TestPromptUse_ArgsSubstitutionAndMissing(t *testing.T) {
 	h, store := newTestHandle()
 	store.prompts["report"] = &prompt.Prompt{
-		ID: "g1", Name: "report", Scope: prompt.ScopeGlobal, Content: "about {topic} on {date}",
+		ID: "g1", Name: "report", Scope: prompt.ScopeGlobal, Status: prompt.StatusApproved, Content: "about {topic} on {date}",
 		Arguments: []prompt.Argument{
 			{Name: "topic", Required: true},
 			{Name: "date", Required: true},
@@ -224,9 +246,11 @@ func TestPromptUse_SubstringFallbackWithoutSearcher(t *testing.T) {
 	h, store := newTestHandle()
 	store.prompts["daily-sales-report"] = &prompt.Prompt{
 		ID: "g1", Name: "daily-sales-report", Scope: prompt.ScopeGlobal, Content: "sales body", Enabled: true,
+		Status: prompt.StatusApproved,
 	}
 	store.prompts["ops-runbook"] = &prompt.Prompt{
 		ID: "g2", Name: "ops-runbook", Scope: prompt.ScopeGlobal, Content: "ops body", Enabled: true,
+		Status: prompt.StatusApproved,
 	}
 	ctx := userCtx("sarah@example.com", "analyst")
 
@@ -236,6 +260,7 @@ func TestPromptUse_SubstringFallbackWithoutSearcher(t *testing.T) {
 
 	store.prompts["weekly-sales-report"] = &prompt.Prompt{
 		ID: "g3", Name: "weekly-sales-report", Scope: prompt.ScopeGlobal, Content: "weekly", Enabled: true,
+		Status: prompt.StatusApproved,
 	}
 	parsed, res = callUse(ctx, t, h, managePromptInput{Name: "sales report"})
 	require.False(t, res.IsError)
@@ -257,11 +282,12 @@ func TestPromptUse_DisplayNamePersonaBeatsGlobal(t *testing.T) {
 	h, store := newTestHandle()
 	store.prompts["report-g"] = &prompt.Prompt{
 		ID: "g1", Name: "report-g", DisplayName: "Team Report",
-		Scope: prompt.ScopeGlobal, Content: "global body", Enabled: true,
+		Scope: prompt.ScopeGlobal, Content: "global body", Enabled: true, Status: prompt.StatusApproved,
 	}
 	store.prompts["report-p"] = &prompt.Prompt{
 		ID: "pp1", Name: "report-p", DisplayName: "Team Report",
 		Scope: prompt.ScopePersona, Personas: []string{"analyst"}, Content: "persona body", Enabled: true,
+		Status: prompt.StatusApproved,
 	}
 
 	parsed, res := callUse(userCtx("sarah@example.com", "analyst"), t, h, managePromptInput{Name: "Team Report"})

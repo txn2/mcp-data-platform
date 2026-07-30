@@ -195,6 +195,32 @@ func TestCreatePrompt_Success(t *testing.T) {
 	assert.Contains(t, store.prompts, "test-prompt")
 	assert.Equal(t, "global", store.prompts["test-prompt"].Scope)
 	assert.Contains(t, registrar.registered, "test-prompt")
+	// The creating admin is the approver: a shared create lands approved with
+	// the stamp set (#1124), not stuck in draft.
+	assert.Equal(t, prompt.StatusApproved, store.prompts["test-prompt"].Status)
+	assert.NotEmpty(t, store.prompts["test-prompt"].ApprovedBy)
+	assert.NotNil(t, store.prompts["test-prompt"].ApprovedAt)
+}
+
+// TestCreatePrompt_PersonalScopeStaysDraft: a personal-scope create is not a
+// shared publication, so the admin-approver rule does not apply.
+func TestCreatePrompt_PersonalScopeStaysDraft(t *testing.T) {
+	h, store, _ := newTestPromptHandler()
+
+	body := adminPromptCreateRequest{
+		Name:       "personal-prompt",
+		Content:    "c",
+		Scope:      prompt.ScopePersonal,
+		OwnerEmail: "alice@example.com",
+	}
+	bodyBytes, _ := json.Marshal(body)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/prompts", bytes.NewReader(bodyBytes))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	assert.NotEqual(t, prompt.StatusApproved, store.prompts["personal-prompt"].Status)
+	assert.Empty(t, store.prompts["personal-prompt"].ApprovedBy)
 }
 
 func TestCreatePrompt_MissingName(t *testing.T) {

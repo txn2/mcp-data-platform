@@ -128,7 +128,7 @@ func TestNotifyingStore_EndToEndBroadcast(t *testing.T) {
 	}
 }
 
-// TestNotifyingStore_PreservesSearchCapability proves wrapStore keeps the
+// TestNotifyingStore_PreservesSearchCapability proves notifystore.Wrap keeps the
 // backing store's prompt.Searcher capability through the wrapper (so the
 // manage_prompt / portal / searchfed up-casts still succeed) while still firing
 // the notifier on writes. A store that is NOT a Searcher must not be wrapped
