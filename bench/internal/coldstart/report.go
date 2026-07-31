@@ -10,12 +10,16 @@ package coldstart
 import (
 	"encoding/json"
 	"fmt"
+	// nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- bootstrap-CI resampling for benchmark statistics; not security-sensitive, and a seedable PRNG is required for reproducible intervals.
+	"math/rand"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
+	"github.com/txn2/mcp-data-platform/bench/internal/capture"
+	"github.com/txn2/mcp-data-platform/bench/internal/stats"
 )
 
 // Manifest pins the run so results are attributable and reproducible.
@@ -76,6 +80,14 @@ type LessonRecord struct {
 
 	Captured *bool `json:"captured,omitempty"` // insight recorded and entity-linked
 	Promoted *bool `json:"promoted,omitempty"` // applied + changeset links the insight
+
+	// Capture-miss attribution (issue #1136), read from the teach episode. Nil
+	// when the episode never ran (harness abort before teach).
+	CaptureAttempted *bool `json:"capture_attempted,omitempty"` // teach episode executed a capture call
+	// BudgetExhausted is nil when budget exhaustion is not observable (the
+	// claude-cli path runs its own turn budget), which attributes a miss on that
+	// path no further than "never attempted".
+	BudgetExhausted *bool `json:"budget_exhausted,omitempty"` // teach episode hit its tool-call budget (loop path only)
 
 	Episode EpisodeRecord `json:"episode"`
 	Error   string        `json:"error,omitempty"` // harness failure in the teach/promote
@@ -191,6 +203,17 @@ type Metrics struct {
 	Checkpoints     int `json:"checkpoints"`
 	EvalTasks       int `json:"eval_tasks"`
 	HarnessFailures int `json:"harness_failures"`
+
+	// CaptureRate is the headline capture metric with a confidence interval:
+	// among lessons whose capture outcome was graded, the fraction that landed an
+	// entity-linked insight. A lesson that misses capture is never promoted, so
+	// its trap class stays flat for the rest of the curve — capture caps the
+	// whole run, which is why it carries an interval and a decomposition rather
+	// than the bare LessonsCaptured count alone. Capture splits it into attempted
+	// versus landed and attributes every miss to a cause (issue #1136).
+	CaptureRate stats.Rate    `json:"capture_rate"`
+	Capture     capture.Split `json:"capture_split"`
+
 	// EvalMemoryWrites totals evaluator memory writes across every attempt. Any
 	// non-zero value flags the curve's validity: an evaluator taught itself
 	// something a later checkpoint's evaluators may have read.
@@ -245,12 +268,26 @@ func (res *Results) Aggregate() {
 		m.AccuracyLift = last.Accuracy - first.Accuracy
 		m.BaselineCoverage, m.FinalCoverage = first.EnrichmentCoverage, last.EnrichmentCoverage
 	}
+	m.fillCIs(stats.NewRNG())
 	res.Metrics = m
+}
+
+// fillCIs attaches a bootstrap confidence interval to the capture rates,
+// threading one seeded RNG in a fixed order so the scorecard is reproducible
+// from a single seed, exactly as the S1-S3 and S5 reports are. The curve's
+// accuracy points carry no interval here: they are per-checkpoint aggregates
+// over k evaluators answering a fixed eval set, which the report renders with
+// its own resampling.
+func (m *Metrics) fillCIs(rng *rand.Rand) {
+	stats.FillCIs(rng, &m.CaptureRate)
+	m.Capture.FillCIs(rng)
 }
 
 // foldLesson accumulates one lesson's outcome, validity signals, and token
 // spend into the scorecard.
 func (m *Metrics) foldLesson(l LessonRecord) {
+	m.CaptureRate.Add(l.Captured)
+	m.Capture.Add(l.Captured, l.CaptureAttempted, l.BudgetExhausted)
 	if boolTrue(l.Captured) {
 		m.LessonsCaptured++
 	}
@@ -353,6 +390,13 @@ func (res *Results) HumanSummary() string {
 	fmt.Fprintf(&b, "tokens: input %d  output %d  cache read %d  cache write %d (apply current model pricing for cost)\n\n",
 		mt.TotalInputTokens, mt.TotalOutputTokens, mt.TotalCacheReadTokens, mt.TotalCacheCreationTokens)
 
+	// Capture leads the scorecard: a lesson that misses capture is never
+	// promoted, so it caps every accuracy point downstream of it.
+	b.WriteString(mt.CaptureRate.Row("capture rate"))
+	b.WriteString(mt.Capture.Rows())
+	b.WriteString(mt.Capture.MissBlock())
+	b.WriteString("\n")
+
 	b.WriteString("learning curve (accuracy and enrichment coverage vs promoted knowledge):\n")
 	fmt.Fprintf(&b, "  %-4s %-22s %-9s %-8s %-9s\n", "idx", "lesson promoted", "promoted", "accuracy", "coverage")
 	for _, c := range res.Checkpoints {
@@ -400,7 +444,7 @@ func (res *Results) writeLessonFailures(b *strings.Builder) {
 		case l.Error != "":
 			lines = append(lines, fmt.Sprintf("  %s: %s", l.LessonID, l.Error))
 		case !boolTrue(l.Captured):
-			lines = append(lines, fmt.Sprintf("  %s: not captured", l.LessonID))
+			lines = append(lines, fmt.Sprintf("  %s: %s", l.LessonID, captureMissLine(l)))
 		case !boolTrue(l.Promoted):
 			lines = append(lines, fmt.Sprintf("  %s: captured but not promoted", l.LessonID))
 		}
@@ -410,6 +454,18 @@ func (res *Results) writeLessonFailures(b *strings.Builder) {
 	}
 	b.WriteString("\nlesson gaps (knowledge not delivered, so its class stays flat):\n")
 	b.WriteString(strings.Join(lines, "\n") + "\n")
+}
+
+// captureMissLine describes one lesson's capture miss, naming the attributed
+// cause so a reader sees which layer the miss points at (the agent, the harness
+// budget, or the capture path) without opening the transcript. A record whose
+// capture outcome was never graded carries no cause and is reported bare.
+func captureMissLine(l LessonRecord) string {
+	cause := capture.Classify(l.Captured, l.CaptureAttempted, l.BudgetExhausted)
+	if cause == capture.CauseNone {
+		return "not captured"
+	}
+	return "not captured (" + cause.String() + ")"
 }
 
 // short truncates a hash for display.

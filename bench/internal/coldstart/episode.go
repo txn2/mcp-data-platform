@@ -11,6 +11,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/bench/internal/agent"
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
+	"github.com/txn2/mcp-data-platform/bench/internal/capture"
 	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
 	"github.com/txn2/mcp-data-platform/bench/internal/grade"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
@@ -105,9 +106,19 @@ type episodeResult struct {
 	toolErrors   int
 	searchCalled bool
 	memoryWrites int
-	wallMS       int64
-	usage        llm.Usage
-	audit        auditapi.Metrics
+	// captureAttempted is true when the episode executed a knowledge-capture call
+	// (a budget-refused request does not count). On a teach episode it separates a
+	// capture miss where the agent never tried from one where capture ran and the
+	// insight did not land (issue #1136).
+	captureAttempted bool
+	// budgetExhausted is whether the episode hit its tool-call budget, and nil
+	// when that is not observable: the claude-cli path runs its own turn budget,
+	// so a claude-cli miss is attributed no further than "never attempted" rather
+	// than being falsely asserted not-starved.
+	budgetExhausted *bool
+	wallMS          int64
+	usage           llm.Usage
+	audit           auditapi.Metrics
 	// auditReadErr records a failed audit read-back on an otherwise-successful
 	// episode. The attempt still grades, but its zero audit metrics must not
 	// pass for "no enrichment": pooled coverage is a documented pass criterion,
@@ -238,6 +249,10 @@ func (e *runEnv) runEpisode(ctx context.Context, spec episodeSpec) episodeResult
 	res.usage = result.Usage
 	res.finalAnswer = result.FinalAnswer
 	res.memoryWrites = countMemoryWrites(result.Transcript)
+	res.captureAttempted = capture.Attempted(result.Transcript)
+	// The loop owns the tool-call budget here, so its exhaustion is observable.
+	exhausted := result.BudgetExhausted
+	res.budgetExhausted = &exhausted
 	e.writeTranscript(spec, result.Transcript)
 	if runErr != nil {
 		res.err = fmt.Sprintf("agent loop: %v", runErr)
@@ -272,6 +287,9 @@ func (e *runEnv) runClaudeCLIEpisode(ctx context.Context, spec episodeSpec) epis
 	res.toolErrors = cres.ToolErrors
 	res.searchCalled = cres.SearchCalled
 	res.memoryWrites = countMemoryWrites(cres.Transcript)
+	// budgetExhausted stays nil: claude manages its own turn budget, so the
+	// harness cannot observe exhaustion on this path.
+	res.captureAttempted = capture.Attempted(cres.Transcript)
 	res.usage = cres.Usage
 	res.finalAnswer = cres.FinalText
 	e.recordPlatformVersion(cres.PlatformVersion)

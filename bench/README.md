@@ -200,6 +200,7 @@ bench/
     ├── agent/           model-driven tool loop with budget
     ├── mcpc/            MCP session, handle mint, session_id threading
     ├── auditapi/        admin audit API read-back + metrics (+ enrichment coverage)
+    ├── capture/         capture attempt signal, miss attribution, attempted/landed split (S5 + cold-start)
     ├── lifecycleapi/    admin insights + changesets read-back, approve + apply drivers
     ├── promote/         shared reviewer-promotion path (approve + apply_knowledge + verify)
     ├── grade/           deterministic graders (numeric, entity, execution-result)
@@ -209,6 +210,6 @@ bench/
     ├── coldstart/       cold-start curriculum runner, learning-curve metrics, results model
     ├── pool/            identity-pool allocation
     ├── report/          results model, aggregates, cross-arm comparison
-    ├── stats/           bootstrap confidence intervals
+    ├── stats/           bootstrap confidence intervals + the shared num/den rate type
     └── target/          endpoint + Bearer auth
 ```

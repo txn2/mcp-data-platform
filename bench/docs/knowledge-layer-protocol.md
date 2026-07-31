@@ -208,7 +208,12 @@ Metrics (each a numerator/denominator over the applicable, non-harness-failed
 runs): **capture rate**, **personal recall**, **unprompted surface**, **transfer
 rate**, **update correctness**, **update capture rate**, **duplicate rate**
 (lower is better), and **abstention rate**, plus **pass^k** over protocols (all
-k attempts pass the full applicable lifecycle). The duplicate rate counts only
+k attempts pass the full applicable lifecycle). Capture leads the scorecard
+because it caps every metric under it: an insight that was never recorded can be
+neither recalled nor promoted, so a capture miss removes the attempt from the
+downstream stages rather than merely lowering one number. It is therefore
+reported with its own confidence interval and a decomposition (below), not as a
+supporting count. The duplicate rate counts only
 attempts whose correction capture actually executed: an update episode that
 never called capture left one live insight and the supersede gate never ran, so
 it is an update-capture miss (measured on its own rate, and a pass^k failure),
@@ -252,6 +257,45 @@ The **capture-budget lever** `-teach-budget N` overrides the per-episode tool-ca
 budget for the capture-bearing stages (teach and update), so the capture-rate
 lift from a larger teach budget can be measured directly against the same
 protocol set.
+
+### Capture decomposition and miss attribution (#1136)
+
+Capture is a headline metric with an interval in both the S5 lifecycle and the
+cold-start suite, and both report the same decomposition under
+`metrics.capture_split`, built by `bench/internal/capture`:
+
+- **capture attempted** (`capture_split.attempt_rate`) is, over the same graded
+  denominator as the capture rate, the fraction of teach episodes that actually
+  executed a capture call. A budget-refused request never ran, so it does not
+  count as an attempt. The one case where its denominator is smaller than the
+  capture rate's is a results file written before the attempt signal existed:
+  those outcomes are excluded rather than assumed not-attempted, and any miss
+  among them is reported as `unattributed` with a warning.
+- **landed given attempt** (`capture_split.given_attempted`) is, among those
+  attempts, the fraction that produced an entity-linked insight.
+- **capture misses** (`capture_split.misses`) attributes every graded miss to
+  exactly one cause, and reports the total so the buckets can be checked to sum:
+  `attempted_failed` (capture ran, nothing landed — the capture path itself),
+  `budget_starved` (never executed, budget spent — a harness-budget concept, so
+  no platform change follows from it), `never_attempted` (never executed with
+  budget to spare — the model or its steering), and `budget_unobservable`
+  (never executed on the claude-cli path, whose turn budget the harness cannot
+  see, so the miss is attributed as far as the evidence allows and no further).
+  A fifth bucket, `unattributed`, exists only for results written before the
+  attempt signal did; a run from this harness leaves it zero.
+
+The three real causes imply fixes in different layers, which is the point of
+splitting them: a run that reports mostly `never_attempted` argues for a
+platform-side nudge, one that reports mostly `budget_starved` argues for a
+harness budget change and nothing product-side, and one that reports mostly
+`attempted_failed` argues for the capture path. Cold-start additionally names
+the cause on each missed lesson in its summary, since a lesson that misses
+capture is never promoted and its trap class stays flat for the rest of the
+curve.
+
+Like the other #964 diagnostics, the decomposition is deliberately **not**
+gated by `-baseline`: its denominators are small enough that gating would trip
+on noise. It exists to explain a capture regression, not to define one.
 
 ### Harness hardening (#966)
 
@@ -391,8 +435,15 @@ trap class — the harness:
    knowledge. This isolates the delivery of *promoted* knowledge (the coupling
    between the lifecycle and the enrichment layer), not an evaluator's own memory.
 
-The report is a **learning curve**: per checkpoint, the eval set's accuracy, a
-per-trap-class breakdown (which lesson unlocked which class), and the
+The report leads with the **capture rate** — the fraction of lessons whose teach
+episode landed an entity-linked insight, with a confidence interval, the
+attempted/landed split, and every miss attributed to a cause (see the capture
+decomposition above). Capture bounds the whole curve: a lesson that misses
+capture is never promoted, so its trap class stays flat for every checkpoint
+after it, and a bare captured-lesson count cannot say which layer to fix.
+
+The rest of the report is the **learning curve**: per checkpoint, the eval set's
+accuracy, a per-trap-class breakdown (which lesson unlocked which class), and the
 delivery-side **enrichment coverage** (the fraction of tool calls whose response
 carried cross-enrichment, from the audit trail). Lesson order is the x-axis, run
 foundational-first (units before net-revenue, then the calendar/freshness/tier/

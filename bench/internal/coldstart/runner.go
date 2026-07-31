@@ -307,6 +307,10 @@ func (e *runEnv) teachAndPromote(ctx context.Context, lesson curriculum.Lesson, 
 		prompt: lesson.Teach.Prompt, system: teachScaffold, budget: lesson.BudgetToolCalls,
 	})
 	lr.Episode = teachEpisode(rec)
+	// Record the miss attribution before the abort check: a teach episode that
+	// ran and then failed a later step still says whether capture was attempted.
+	attempted := rec.captureAttempted
+	lr.CaptureAttempted, lr.BudgetExhausted = &attempted, rec.budgetExhausted
 	if rec.err != "" {
 		lr.Error = rec.err
 		return lr
