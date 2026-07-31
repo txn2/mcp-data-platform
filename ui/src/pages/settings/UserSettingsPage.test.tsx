@@ -8,6 +8,9 @@ import type { NotificationPrefs } from "@/api/portal/hooks/notifications";
 vi.mock("@/api/portal/hooks", () => ({
   useNotificationPrefs: vi.fn(),
   useSetNotificationPrefs: vi.fn(),
+  // The page also renders the user's own notification history alongside the
+  // preferences; these tests are about the preferences, so it stays empty.
+  useMyNotifications: () => ({ data: undefined, isLoading: false, error: null }),
 }));
 
 // The no-delivery notice offers admins the way in to SMTP settings, so the

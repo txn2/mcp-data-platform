@@ -1,5 +1,10 @@
 import { ReactNode, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import {
+  modalNaturalClass,
+  modalOverlayClass,
+  modalRowClass,
+} from "@/components/ModalShell";
 import { AlertCircle, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -64,61 +69,72 @@ export function ConfirmDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-        <Dialog.Content
-          className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-md border bg-card p-5 shadow-lg focus:outline-none"
-          aria-describedby={description ? "confirm-description" : undefined}
-          onEscapeKeyDown={blockCloseWhileBusy}
-          onPointerDownOutside={blockCloseWhileBusy}
-          onInteractOutside={blockCloseWhileBusy}
-        >
-          <div className="flex items-start gap-3">
-            {destructive && (
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
-            )}
-            <div className="min-w-0 flex-1">
-              <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
-              {description && (
-                <Dialog.Description
-                  id="confirm-description"
-                  className="mt-1 text-sm text-muted-foreground"
-                >
-                  {description}
-                </Dialog.Description>
+        <Dialog.Overlay className={modalOverlayClass}>
+          <div className={modalRowClass}>
+            <Dialog.Content
+              className={modalNaturalClass(
+                "max-w-md",
+                "rounded-md border bg-card p-5 shadow-lg focus:outline-none",
               )}
-            </div>
-          </div>
-          {error && (
-            <div className="mt-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="min-w-0 flex-1 break-words">{error}</div>
-            </div>
-          )}
+              aria-describedby={description ? "confirm-description" : undefined}
+              onEscapeKeyDown={blockCloseWhileBusy}
+              onPointerDownOutside={blockCloseWhileBusy}
+              onInteractOutside={blockCloseWhileBusy}
+            >
+              <div className="flex items-start gap-3">
+                {destructive && (
+                  <AlertTriangle
+                    className="mt-0.5 h-5 w-5 shrink-0 text-destructive"
+                    aria-hidden
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <Dialog.Title className="text-base font-semibold">
+                    {title}
+                  </Dialog.Title>
+                  {description && (
+                    <Dialog.Description
+                      id="confirm-description"
+                      className="mt-1 text-sm text-muted-foreground"
+                    >
+                      {description}
+                    </Dialog.Description>
+                  )}
+                </div>
+              </div>
+              {error && (
+                <div className="mt-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="min-w-0 flex-1 break-words">{error}</div>
+                </div>
+              )}
 
-          <div className="mt-5 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => onOpenChange(false)}
-              disabled={inFlight}
-              className="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
-            >
-              {cancelLabel}
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirm}
-              disabled={inFlight}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50",
-                destructive
-                  ? "bg-destructive text-destructive-foreground hover:opacity-90"
-                  : "bg-primary text-primary-foreground hover:opacity-90",
-              )}
-            >
-              {inFlight ? "Working…" : confirmLabel}
-            </button>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenChange(false)}
+                  disabled={inFlight}
+                  className="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
+                >
+                  {cancelLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirm}
+                  disabled={inFlight}
+                  className={cn(
+                    "rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50",
+                    destructive
+                      ? "bg-destructive text-destructive-foreground hover:opacity-90"
+                      : "bg-primary text-primary-foreground hover:opacity-90",
+                  )}
+                >
+                  {inFlight ? "Working…" : confirmLabel}
+                </button>
+              </div>
+            </Dialog.Content>
           </div>
-        </Dialog.Content>
+        </Dialog.Overlay>
       </Dialog.Portal>
     </Dialog.Root>
   );

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	httpswagger "github.com/swaggo/http-swagger/v2"
@@ -200,6 +201,14 @@ type Deps struct {
 	// SMTP test-send UI can surface a target's opt-out state (#1022). nil
 	// disables the recipient-status route.
 	NotificationPrefs notification.PrefsStore
+	// NotificationHistory reads the delivery history behind the admin
+	// Notifications tab: what was sent, what failed and why. nil disables
+	// the /api/v1/admin/notifications routes.
+	NotificationHistory NotificationHistory
+	// NotificationRetention is how long a resolved queue row survives, shown
+	// alongside the history so an admin reads it as a recent window rather
+	// than a complete record. Zero omits the claim.
+	NotificationRetention time.Duration
 }
 
 // IndexJobsService is the cross-kind index-jobs surface the admin
@@ -348,6 +357,7 @@ func (h *Handler) registerRoutes() {
 	h.registerPromptRoutes()
 	h.registerIndexJobsRoutes()
 	h.registerSettingsRoutes()
+	h.registerNotificationRoutes()
 }
 
 // registerKnowledgeRoutes registers knowledge management endpoints or a

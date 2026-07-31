@@ -47,7 +47,7 @@ The viewer provides:
 - **Actions** — Delete, Download, and Share buttons
 - **Owner display** — Shows the asset owner's email address
 
-The Share action opens a dialog to mint a link or a user-scoped share, with an optional expiration, a copy-once token, and a per-link access count. Every share carries an **access mode** that decides who the link opens for:
+The Share action opens a dialog to mint a link or a user-scoped share, with a copy-once token and a per-link access count. A link share takes an optional expiration; a share addressed to a person does not, because it grants that person access until the owner revokes it rather than for a span of time. Every share carries an **access mode** that decides who the link opens for:
 
 | Mode | Who can open the link |
 |---|---|
@@ -57,9 +57,13 @@ The Share action opens a dialog to mint a link or a user-scoped share, with an o
 
 Sharing with a person makes the share `restricted`: the link resolves only for that recipient, signed in, so forwarding the email or the URL grants nothing. The **Share by Link** section mints a link for any signed-in user by default; choosing **Anyone with the link** makes it `public` and shows a warning that the link opens without sign-in. A signed-in user who is not the recipient of a restricted share sees a branded page naming the account they are signed in as, with a sign-out-and-switch action, rather than a generic not-found.
 
-A recipient who opens a non-public share while signed out lands on a branded page with a **Sign in** action that returns them to the shared item after authenticating. When the share names an email address, the same page also offers **Email me a one-time view link** for recipients who have no platform account: a single-use link is emailed to the address the share names (never to an address the visitor types), expires in 15 minutes, and opens a view-only guest session scoped to that one share for the current browsing visit. Guests see the shared item (and, for collection shares, its items) with a "Viewing as guest" indicator; they can download but not edit, even when the share grants Editor, and they never gain portal access. A forwarded or replayed link is dead after its first use, and revoking the share cuts off existing guest sessions immediately. The recipient can request a fresh link for each viewing session, which keeps an email share strictly safer than a public URL. When the address the share names has opted out of notification emails, the same landing page shows a notice with a **Resume notification emails** action, so an opted-out recipient has a way back in without asking the sharer; opting back in takes one deliberate click and restores immediate delivery.
-
 ![Share asset](../images/screenshots/light/user-asset-share-light.webp#only-light)![Share asset](../images/screenshots/dark/user-asset-share-dark.webp#only-dark)
+
+Naming a recipient reveals two more controls. **Notify by email** is checked by default and can be cleared to share quietly — the share is created either way, only the email is suppressed. With notification on, an optional **Message** box attaches a short plain-text note to that email, quoted and attributed to the sharer; it travels only in the notification and is stored nowhere. The note takes text, not markup or links: a link inside a trusted platform email is a phishing vector, so one is refused rather than delivered. Addresses pasted in the `Example User <user@example.com>` form mail clients copy are reduced to the bare address as the field loses focus, so what is stored and mailed is what the sharer sees. See [Email Notifications](notifications.md) for what the recipient receives and how they control it.
+
+![Share with a recipient](../images/screenshots/light/user-asset-share-recipient-light.webp#only-light)![Share with a recipient](../images/screenshots/dark/user-asset-share-recipient-dark.webp#only-dark)
+
+A recipient who opens a non-public share while signed out lands on a branded page with a **Sign in** action that returns them to the shared item after authenticating. When the share names an email address, the same page also offers **Email me a one-time view link** for recipients who have no platform account: a single-use link is emailed to the address the share names (never to an address the visitor types), expires in 15 minutes, and opens a view-only guest session scoped to that one share for the current browsing visit. Guests see the shared item (and, for collection shares, its items) with a "Viewing as guest" indicator; they can download but not edit, even when the share grants Editor, and they never gain portal access. A forwarded or replayed link is dead after its first use, and revoking the share cuts off existing guest sessions immediately. The recipient can request a fresh link for each viewing session, which keeps an email share strictly safer than a public URL. When the address the share names has opted out of notification emails, the same landing page shows a notice with a **Resume notification emails** action, so an opted-out recipient has a way back in without asking the sharer; opting back in takes one deliberate click and restores immediate delivery.
 
 All content types are rendered inline:
 
@@ -366,3 +370,13 @@ The **Notifications** section controls [email notifications](notifications.md):
 a delivery mode (Off, Immediate, or Daily digest) and per-category toggles
 for shares, comments/feedback, and mentions. Defaults are immediate delivery
 with all categories enabled; changes save as they are made.
+
+**Recent notifications** sits directly below and shows what the platform has
+actually sent you: the subject, category, and delivery status of each
+notification addressed to your account, newest first. It pairs with the
+preferences above because the two answer one question together — what should
+I be told, and what was I told. It shows recent activity rather than a full
+record: notifications are removed on a retention schedule, and the effective
+window is stated on the panel. A notification that never went out reads
+"Not delivered"; the reason belongs to the platform's mail configuration and
+is shown to admins, not here.

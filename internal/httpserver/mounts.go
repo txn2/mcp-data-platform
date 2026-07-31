@@ -625,10 +625,13 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 		deps.APIKeyManager = p.APIKeyAuthenticator()
 	}
 
-	// Email notification settings surface (nil-safe: absent without a DB).
+	// Email notification settings and monitoring surfaces (nil-safe: absent
+	// without a DB, which also leaves the monitoring routes unregistered).
 	deps.NotificationSettings = notify.Settings()
 	deps.SendTestEmail = notify.SendTest
 	deps.NotificationPrefs = notify.Prefs()
+	deps.NotificationHistory = notify.History()
+	deps.NotificationRetention = notifydelivery.HistoryRetention
 
 	return admin.NewHandler(deps, buildAdminAuth(p))
 }

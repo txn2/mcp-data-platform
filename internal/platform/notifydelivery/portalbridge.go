@@ -60,37 +60,46 @@ func (h *Handle) PortalNotifier(stores PortalStores, baseURL string) *PortalNoti
 // NotifyShare queues a "shared with you" email for a direct share.
 // Token-only shares (no recipient email) queue nothing: a share targeted by
 // user ID alone carries no email address anywhere in the system.
-func (n *PortalNotifier) NotifyShare(ctx context.Context, share *portal.Share, kind, itemID, itemTitle string) {
+func (n *PortalNotifier) NotifyShare(ctx context.Context, share *portal.Share, ev portal.ShareEvent) {
 	// Prompts have no public token viewer; link to the in-app prompt page.
 	// Asset/collection shares link to the token viewer. The link is not a
 	// bearer credential: unless the share is public, the viewer resolves it
 	// only for a signed-in recipient (#999).
 	link := ""
 	switch {
-	case kind == notification.KindPrompt:
-		link = notification.PortalLink(n.baseURL, "/prompts/"+itemID)
+	case ev.Kind == notification.KindPrompt:
+		link = notification.PortalLink(n.baseURL, "/prompts/"+ev.ItemID)
 	case share.Token != "" && n.baseURL != "":
 		link = notification.PortalLink(n.baseURL, "/view/"+share.Token)
 	}
-	// The notice renders as a quoted personal message from the sharer, so
-	// only a custom notice belongs there -- the default confidentiality
-	// banner is viewer chrome, not something the sharer wrote.
-	message := share.NoticeText
-	if message == portal.DefaultNoticeText {
-		message = ""
-	}
 	_, err := n.enq.Notify(ctx, share.SharedWithEmail, notification.CategoryShare, notification.Payload{
-		Kind:      kind,
-		ItemID:    itemID,
-		ItemTitle: itemTitle,
+		Kind:      ev.Kind,
+		ItemID:    ev.ItemID,
+		ItemTitle: ev.ItemTitle,
 		Actor:     share.CreatedBy,
-		Message:   message,
+		Message:   shareMessage(share, ev),
 		Link:      link,
 	})
 	if err != nil {
 		slog.Warn("notification: share enqueue failed", // #nosec G706 -- structured slog call; error sanitized
 			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
+}
+
+// shareMessage picks the quoted note the share email renders.
+//
+// The sharer's own note wins. A custom notice falls back into that slot
+// because it is text the sharer typed about this share and predates the note
+// field; the default confidentiality banner never does, being viewer chrome
+// rather than anything the sharer wrote.
+func shareMessage(share *portal.Share, ev portal.ShareEvent) string {
+	if ev.Message != "" {
+		return ev.Message
+	}
+	if share.NoticeText == portal.DefaultNoticeText {
+		return ""
+	}
+	return share.NoticeText
 }
 
 // NotifyThreadEvent queues the emails one thread event produces: a mention

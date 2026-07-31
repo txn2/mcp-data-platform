@@ -1,4 +1,5 @@
 import { type Page } from "@playwright/test";
+import { openShareDialog, openShareDialogWithRecipient } from "./route-actions";
 
 export interface ScreenshotRoute {
   slug: string;
@@ -236,13 +237,16 @@ export const routes: ScreenshotRoute[] = [
     slug: "asset-share",
     path: "/portal/assets/ast-001",
     category: "user",
-    beforeCapture: async (page) => {
-      const btn = page.locator("button:has-text('Share')").first();
-      if (await btn.isVisible()) {
-        await btn.click();
-        await page.waitForTimeout(600);
-      }
-    },
+    beforeCapture: openShareDialog,
+  },
+  {
+    // Share dialog with a recipient named, which is the only state that shows
+    // the notify checkbox and the sharer's message box (#1016). Captured
+    // separately because those controls are absent from the dialog above.
+    slug: "asset-share-recipient",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openShareDialogWithRecipient,
   },
 
   // Asset viewer — one per content type
@@ -340,14 +344,16 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
   {
-    // AuditLogPage's real hash tabs are mcp/apigateway/health/indexing/events
-    // (there is no "overview" tab; the default is "mcp"). The "indexing" tab is
-    // where IndexingPage renders. Capturing all five keeps this in sync with the
-    // merged Dashboard activity view.
+    // AuditLogPage's real hash tabs are
+    // mcp/apigateway/health/indexing/events/notifications (there is no
+    // "overview" tab; the default is "mcp"). The "indexing" tab is where
+    // IndexingPage renders and "notifications" is the email-delivery monitor.
+    // Capturing all six keeps this in sync with the merged Dashboard activity
+    // view.
     slug: "admin-audit",
     path: "/portal/admin/audit",
     category: "admin",
-    tabs: ["mcp", "apigateway", "health", "indexing", "events"],
+    tabs: ["mcp", "apigateway", "health", "indexing", "events", "notifications"],
   },
   {
     slug: "admin-api-catalogs",

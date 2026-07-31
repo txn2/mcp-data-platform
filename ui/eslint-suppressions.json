@@ -71,7 +71,7 @@
   },
   "src/components/ShareDialog.tsx": {
     "complexity": {
-      "count": 2
+      "count": 1
     }
   },
   "src/components/assetviewer/AssetViewerModals.tsx": {

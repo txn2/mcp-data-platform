@@ -10,12 +10,12 @@ import type {
   PaginatedResponse,
   ShareResponse,
   SharePermission,
-  ShareAccessMode,
   ScoredCollection,
   Collection,
   CollectionConfig,
   CollectionResponse,
   SharedCollection,
+  CreateShareBody,
 } from "../types";
 
 // --- Collections ---
@@ -181,16 +181,7 @@ export function useCreateCollectionShare() {
     mutationFn: ({
       collectionId,
       ...body
-    }: {
-      collectionId: string;
-      expires_in?: string;
-      shared_with_user_id?: string;
-      shared_with_email?: string;
-      hide_expiration?: boolean;
-      notice_text?: string;
-      permission?: SharePermission;
-      access_mode?: ShareAccessMode;
-    }) =>
+    }: CreateShareBody & { collectionId: string }) =>
       apiFetch<ShareResponse>(`/collections/${collectionId}/shares`, {
         method: "POST",
         body: JSON.stringify(body),
@@ -216,12 +207,7 @@ export function useCreatePromptShare() {
     mutationFn: ({
       promptId,
       ...body
-    }: {
-      promptId: string;
-      shared_with_user_id?: string;
-      shared_with_email?: string;
-      permission?: SharePermission;
-    }) =>
+    }: CreateShareBody & { promptId: string }) =>
       apiFetch<ShareResponse>(`/prompts/${promptId}/shares`, {
         method: "POST",
         body: JSON.stringify(body),

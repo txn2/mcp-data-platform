@@ -8,6 +8,7 @@ import { GatewayActionBar, GatewayRulesDrawer } from "../GatewayActions";
 import { ConnectionOAuthStatusCard } from "../ConnectionOAuthStatusCard";
 import { CONFIG_LABELS, kindColor } from "./constants";
 import { GatewayHealthDetail } from "./HealthBadges";
+import { ModalScroll } from "@/components/ModalShell";
 
 export function ConnectionViewer({
   connection,
@@ -24,17 +25,31 @@ export function ConnectionViewer({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
 
-  const datahubSourceName = typeof connection.config?.datahub_source_name === "string"
-    ? connection.config.datahub_source_name : undefined;
+  const datahubSourceName =
+    typeof connection.config?.datahub_source_name === "string"
+      ? connection.config.datahub_source_name
+      : undefined;
   const rawMapping = connection.config?.catalog_mapping;
-  const catalogMapping = (rawMapping != null && typeof rawMapping === "object" && !Array.isArray(rawMapping))
-    ? rawMapping as Record<string, string> : undefined;
-  const hasDataHub = Boolean(datahubSourceName) || (catalogMapping != null && Object.keys(catalogMapping).length > 0);
+  const catalogMapping =
+    rawMapping != null &&
+    typeof rawMapping === "object" &&
+    !Array.isArray(rawMapping)
+      ? (rawMapping as Record<string, string>)
+      : undefined;
+  const hasDataHub =
+    Boolean(datahubSourceName) ||
+    (catalogMapping != null && Object.keys(catalogMapping).length > 0);
   // datahub_source_name/catalog_mapping render in their own DataHub section;
   // description renders as the markdown subtitle above. Filter them out of the
   // raw Configuration rows so they are not shown twice.
-  const hiddenConfigKeys = new Set(["datahub_source_name", "catalog_mapping", "description"]);
-  const configEntries = Object.entries(connection.config ?? {}).filter(([key]) => !hiddenConfigKeys.has(key));
+  const hiddenConfigKeys = new Set([
+    "datahub_source_name",
+    "catalog_mapping",
+    "description",
+  ]);
+  const configEntries = Object.entries(connection.config ?? {}).filter(
+    ([key]) => !hiddenConfigKeys.has(key),
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -43,18 +58,29 @@ export function ConnectionViewer({
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold">{connection.name}</h2>
-            <span className={cn("rounded-full px-2.5 py-0.5 text-xs font-medium", kindColor(connection.kind))}>
+            <span
+              className={cn(
+                "rounded-full px-2.5 py-0.5 text-xs font-medium",
+                kindColor(connection.kind),
+              )}
+            >
               {connection.kind}
             </span>
           </div>
           {connection.description && (
             <div className="mt-1">
-              <CollapsibleMarkdown content={connection.description} maxHeightPx={200} fadeFrom="from-muted" />
+              <CollapsibleMarkdown
+                content={connection.description}
+                maxHeightPx={200}
+                fadeFrom="from-muted"
+              />
             </div>
           )}
           {connection.source === "both" && (
             <p className="mt-1 text-xs text-muted-foreground">
-              This connection is managed in the database. A fallback version also exists in the config file and can be removed once database management is confirmed.
+              This connection is managed in the database. A fallback version
+              also exists in the config file and can be removed once database
+              management is confirmed.
             </p>
           )}
         </div>
@@ -96,9 +122,7 @@ export function ConnectionViewer({
       {/* Runtime reachability for gateway upstreams. Same state the
           list_connections MCP tool reports, so the admin UI and the tool
           never disagree about whether an upstream is up. */}
-      {connection.health && (
-        <GatewayHealthDetail health={connection.health} />
-      )}
+      {connection.health && <GatewayHealthDetail health={connection.health} />}
 
       {/* OAuth status — shown for every connection kind that supports
           authorization_code. The card hides itself when the
@@ -116,10 +140,17 @@ export function ConnectionViewer({
       {/* Metadata */}
       <div className="grid grid-cols-3 gap-4">
         <InfoCard label="Kind" value={connection.kind} />
-        <InfoCard label="Created By" value={connection.created_by || "unknown"} />
+        <InfoCard
+          label="Created By"
+          value={connection.created_by || "unknown"}
+        />
         <InfoCard
           label="Last Updated"
-          value={connection.updated_at ? new Date(connection.updated_at).toLocaleString() : "N/A"}
+          value={
+            connection.updated_at
+              ? new Date(connection.updated_at).toLocaleString()
+              : "N/A"
+          }
         />
       </div>
 
@@ -134,17 +165,23 @@ export function ConnectionViewer({
           </div>
           <div className="rounded-md border divide-y">
             {configEntries.map(([key, value]) => {
-              const displayValue = typeof value === "object" && value !== null
-                ? JSON.stringify(value)
-                : String(value);
+              const displayValue =
+                typeof value === "object" && value !== null
+                  ? JSON.stringify(value)
+                  : String(value);
               const labelMap = CONFIG_LABELS[connection.kind] ?? {};
               const displayLabel = labelMap[key];
               return (
                 <div key={key} className="flex items-center gap-4 px-4 py-2">
-                  <span className="text-xs text-muted-foreground w-48 shrink-0 truncate" title={key}>
+                  <span
+                    className="text-xs text-muted-foreground w-48 shrink-0 truncate"
+                    title={key}
+                  >
                     {displayLabel ?? key}
                     {displayLabel && (
-                      <span className="ml-1 font-mono text-[10px] opacity-50">{key}</span>
+                      <span className="ml-1 font-mono text-[10px] opacity-50">
+                        {key}
+                      </span>
                     )}
                   </span>
                   <span className="text-xs font-mono flex-1 truncate">
@@ -184,7 +221,10 @@ export function ConnectionViewer({
                 </span>
                 <div className="ml-4 space-y-0.5">
                   {Object.entries(catalogMapping).map(([local, datahub]) => (
-                    <div key={local} className="flex items-center gap-2 text-xs font-mono">
+                    <div
+                      key={local}
+                      className="flex items-center gap-2 text-xs font-mono"
+                    >
                       <span>{local}</span>
                       <span className="text-muted-foreground">&rarr;</span>
                       <span>{datahub}</span>
@@ -199,11 +239,12 @@ export function ConnectionViewer({
 
       {/* Delete confirmation */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setConfirmDelete(false)}>
-          <div className="rounded-lg border bg-card p-6 shadow-lg max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+        <ModalScroll onClose={() => setConfirmDelete(false)} width="max-w-sm">
+          <div className="rounded-lg border bg-card p-6 shadow-lg">
             <h3 className="text-sm font-semibold mb-2">Delete Connection</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Are you sure you want to delete &quot;{connection.kind}/{connection.name}&quot;? This cannot be undone.
+              Are you sure you want to delete &quot;{connection.kind}/
+              {connection.name}&quot;? This cannot be undone.
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -228,7 +269,7 @@ export function ConnectionViewer({
               </button>
             </div>
           </div>
-        </div>
+        </ModalScroll>
       )}
     </div>
   );

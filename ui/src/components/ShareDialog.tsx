@@ -1,15 +1,28 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Link, Trash2, Check, Copy, ChevronDown, ChevronRight, TriangleAlert } from "lucide-react";
-import { useShares, useCreateShare, useRevokeShare, useCollectionShares, useCreateCollectionShare, usePromptShares, useCreatePromptShare } from "@/api/portal/hooks";
-import type { SharePermission, ShareAccessMode } from "@/api/portal/types";
-import { UserPicker } from "@/components/UserPicker";
-
-/**
- * LinkAccessMode is the subset of share access modes a link share can take:
- * a link addressed to nobody cannot be restricted to a recipient.
- */
-type LinkAccessMode = Exclude<ShareAccessMode, "restricted">;
+import { X } from "lucide-react";
+import {
+  useShares,
+  useCreateShare,
+  useRevokeShare,
+  useCollectionShares,
+  useCreateCollectionShare,
+  usePromptShares,
+  useCreatePromptShare,
+} from "@/api/portal/hooks";
+import type { SharePermission } from "@/api/portal/types";
+import { parseEmailAddress } from "@/lib/emailAddress";
+import { ActiveShares } from "@/components/share/ActiveShares";
+import {
+  LinkShareSection,
+  UserShareSection,
+  type LinkAccessMode,
+} from "@/components/share/ShareSections";
+import {
+  modalNaturalClass,
+  modalOverlayClass,
+  modalRowClass,
+} from "@/components/ModalShell";
 
 export type ShareTarget =
   | { type: "asset"; id: string }
@@ -24,149 +37,26 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
-function formatTimeRemaining(expiresAt?: string): string {
-  if (!expiresAt) return "No expiration";
-  const remaining = new Date(expiresAt).getTime() - Date.now();
-  if (remaining <= 0) return "Expired";
-  const hours = Math.floor(remaining / 3600000);
-  if (hours < 1) {
-    const minutes = Math.max(1, Math.floor(remaining / 60000));
-    return `Expires in ${minutes}m`;
-  }
-  if (hours < 24) return `Expires in ${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `Expires in ${days}d`;
-}
-
-interface LinkShareSectionProps {
-  linkAccess: LinkAccessMode;
-  setLinkAccess: (v: LinkAccessMode) => void;
-  ttl: string;
-  setTtl: (v: string) => void;
-  showOptions: boolean;
-  setShowOptions: (fn: (v: boolean) => boolean) => void;
-  showExpiration: boolean;
-  setShowExpiration: (v: boolean) => void;
-  noticeText: string;
-  setNoticeText: (v: string) => void;
-  onCreate: () => void;
-  isPending: boolean;
-}
-
-/**
- * LinkShareSection creates a share that is not addressed to a person: either
- * one any signed-in user can open, or a public one that opens without signing
- * in. The public choice carries an explicit warning, since it is the only mode
- * where possession of the URL is the whole of the access check.
- */
-function LinkShareSection({
-  linkAccess,
-  setLinkAccess,
-  ttl,
-  setTtl,
-  showOptions,
-  setShowOptions,
-  showExpiration,
-  setShowExpiration,
-  noticeText,
-  setNoticeText,
-  onCreate,
-  isPending,
-}: LinkShareSectionProps) {
-  return (
-    <div className="mb-4">
-      <h3 className="text-sm font-medium mb-2">Share by Link</h3>
-      <div className="flex gap-2">
-        <select
-          value={linkAccess}
-          onChange={(e) => setLinkAccess(e.target.value as LinkAccessMode)}
-          className="rounded-md border bg-background px-3 py-1.5 text-sm"
-          aria-label="Who can open this link"
-        >
-          <option value="authenticated">Signed-in users</option>
-          <option value="public">Anyone with the link</option>
-        </select>
-        <select
-          value={ttl}
-          onChange={(e) => setTtl(e.target.value)}
-          className="rounded-md border bg-background px-3 py-1.5 text-sm"
-          aria-label="Link expiration"
-        >
-          <option value="1h">1 hour</option>
-          <option value="24h">24 hours</option>
-          <option value="168h">7 days</option>
-          <option value="720h">30 days</option>
-        </select>
-        <button
-          type="button"
-          onClick={onCreate}
-          disabled={isPending}
-          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          <Link className="h-3.5 w-3.5" />
-          Create Link
-        </button>
-      </div>
-      {linkAccess === "public" && (
-        <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
-            This link works without signing in. Anyone who receives it, including anyone
-            it is forwarded to, can open the content.
-          </span>
-        </p>
-      )}
-      <button
-        type="button"
-        onClick={() => setShowOptions((v) => !v)}
-        className="flex items-center gap-1 mt-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-      >
-        {showOptions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        Options
-      </button>
-      {showOptions && (
-        <div className="mt-2 space-y-2 rounded-md border bg-muted/30 p-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={showExpiration}
-              onChange={(e) => setShowExpiration(e.target.checked)}
-              className="rounded border-input"
-            />
-            Show expiration notice
-          </label>
-          <div>
-            <label className="text-sm text-muted-foreground" htmlFor="notice-text">
-              Notice text
-            </label>
-            <input
-              id="notice-text"
-              type="text"
-              placeholder="Leave empty to hide the notice"
-              value={noticeText}
-              onChange={(e) => setNoticeText(e.target.value)}
-              className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Clear to hide notice bar entirely.
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   // Resolve target: prefer `target` prop, fall back to `assetId` for backward compat.
   const resolved: ShareTarget = target ?? { type: "asset", id: assetId ?? "" };
   const isCollection = resolved.type === "collection";
   const isPrompt = resolved.type === "prompt";
 
-  const { data: assetShares = [] } = useShares(resolved.type === "asset" ? resolved.id : "");
-  const { data: collectionShares = [] } = useCollectionShares(isCollection ? resolved.id : "");
-  const { data: promptShares = [] } = usePromptShares(isPrompt ? resolved.id : "");
-  const shares = isCollection ? collectionShares : isPrompt ? promptShares : assetShares;
+  const { data: assetShares = [] } = useShares(
+    resolved.type === "asset" ? resolved.id : "",
+  );
+  const { data: collectionShares = [] } = useCollectionShares(
+    isCollection ? resolved.id : "",
+  );
+  const { data: promptShares = [] } = usePromptShares(
+    isPrompt ? resolved.id : "",
+  );
+  const shares = isCollection
+    ? collectionShares
+    : isPrompt
+      ? promptShares
+      : assetShares;
 
   const createAssetShare = useCreateShare();
   const createCollShare = useCreateCollectionShare();
@@ -177,6 +67,9 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   const [copied, setCopied] = useState<string | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const [permission, setPermission] = useState<SharePermission>("viewer");
+  const [notify, setNotify] = useState(true);
+  const [message, setMessage] = useState("");
+  const [shareError, setShareError] = useState<string | null>(null);
   const [linkAccess, setLinkAccess] = useState<LinkAccessMode>("authenticated");
   const [showOptions, setShowOptions] = useState(false);
   const [showExpiration, setShowExpiration] = useState(true);
@@ -184,7 +77,10 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
     "Proprietary & Confidential. Only share with authorized viewers.",
   );
 
-  const isPending = createAssetShare.isPending || createCollShare.isPending || createPromptShare.isPending;
+  const isPending =
+    createAssetShare.isPending ||
+    createCollShare.isPending ||
+    createPromptShare.isPending;
 
   function handleCreateLink() {
     const opts = {
@@ -201,197 +97,144 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   }
 
   // Recipient shares are restricted: only the named person (and the sender)
-  // can open the link, whether or not they receive it by email.
+  // can open the link, whether or not they receive it by email. They carry no
+  // expiration -- access ends when the owner revokes the share.
   function handleShareWithUser() {
     if (!email.trim()) return;
+    // Normalize here too, not only on the field's blur: a click on Share
+    // straight from the input can beat the blur handler, and the address that
+    // reaches the server decides who the share matches at view time.
+    const recipient = parseEmailAddress(email);
+    if (!recipient) {
+      setShareError("Enter a single email address, e.g. user@example.com.");
+      return;
+    }
+    setShareError(null);
+
+    const opts = {
+      shared_with_email: recipient,
+      permission,
+      // Only stated when it differs from the default, so the request says
+      // what the sharer changed rather than restating the default.
+      ...(!notify && { notify: false }),
+      ...(notify && message.trim() !== "" && { message: message.trim() }),
+    };
+    const onError = (err: unknown) =>
+      setShareError(
+        err instanceof Error ? err.message : "Failed to create the share.",
+      );
+
     if (isPrompt) {
-      createPromptShare.mutate({ promptId: resolved.id, shared_with_email: email.trim(), permission });
+      createPromptShare.mutate({ promptId: resolved.id, ...opts }, { onError });
     } else if (isCollection) {
-      createCollShare.mutate({ collectionId: resolved.id, shared_with_email: email.trim(), permission });
+      createCollShare.mutate(
+        { collectionId: resolved.id, ...opts },
+        { onError },
+      );
     } else {
-      createAssetShare.mutate({ assetId: resolved.id, shared_with_email: email.trim(), permission });
+      createAssetShare.mutate({ assetId: resolved.id, ...opts }, { onError });
     }
     setEmail("");
+    setMessage("");
   }
 
   function handleCopy(text: string, id: string) {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(id);
-      setTimeout(() => setCopied(null), 2000);
-    }).catch(() => {
-      // Fallback: select a temporary input for manual copy.
-      const el = document.createElement("textarea");
-      el.value = text;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand("copy");
-      document.body.removeChild(el);
-      setCopied(id);
-      setTimeout(() => setCopied(null), 2000);
-    });
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(id);
+        setTimeout(() => setCopied(null), 2000);
+      })
+      .catch(() => {
+        // Fallback: select a temporary input for manual copy.
+        const el = document.createElement("textarea");
+        el.value = text;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand("copy");
+        document.body.removeChild(el);
+        setCopied(id);
+        setTimeout(() => setCopied(null), 2000);
+      });
   }
 
   const activeShares = shares.filter((s) => !s.revoked);
 
   return (
-    <Dialog.Root open={open} onOpenChange={(v) => { if (!v) setConfirmRevoke(null); onOpenChange(v); }}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) setConfirmRevoke(null);
+        onOpenChange(v);
+      }}
+    >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/40 z-40" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg rounded-lg border bg-card p-6 shadow-lg">
-          <div className="flex items-center justify-between mb-4">
-            <Dialog.Title className="text-lg font-semibold">{isPrompt ? "Share Prompt" : isCollection ? "Share Collection" : "Share Asset"}</Dialog.Title>
-            <Dialog.Close className="rounded-md p-1 hover:bg-accent">
-              <X className="h-4 w-4" />
-            </Dialog.Close>
-          </div>
-
-          {/* Link shares are not offered for prompts, which are run, not viewed via a public page */}
-          {!isPrompt && (
-            <LinkShareSection
-              linkAccess={linkAccess}
-              setLinkAccess={setLinkAccess}
-              ttl={ttl}
-              setTtl={setTtl}
-              showOptions={showOptions}
-              setShowOptions={setShowOptions}
-              showExpiration={showExpiration}
-              setShowExpiration={setShowExpiration}
-              noticeText={noticeText}
-              setNoticeText={setNoticeText}
-              onCreate={handleCreateLink}
-              isPending={isPending}
-            />
-          )}
-
-          {/* Share with user */}
-          <div className="mb-4">
-            <h3 className="text-sm font-medium mb-2">Share with User</h3>
-            <p className="mb-2 text-xs text-muted-foreground">
-              Only this person can open the link. With an account they sign in
-              and get the permission you grant; without one they can view (not
-              edit) through single-use links emailed to them.
-            </p>
-            <div className="flex gap-2">
-              <UserPicker value={email} onChange={setEmail} />
-              <select
-                value={permission}
-                onChange={(e) => setPermission(e.target.value as SharePermission)}
-                className="rounded-md border bg-background px-3 py-1.5 text-sm"
-              >
-                <option value="viewer">Viewer</option>
-                <option value="editor">Editor</option>
-              </select>
-              <button
-                type="button"
-                onClick={handleShareWithUser}
-                disabled={!email.trim() || isPending}
-                className="rounded-md bg-secondary px-3 py-1.5 text-sm font-medium text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50"
-              >
-                Share
-              </button>
-            </div>
-          </div>
-
-          {/* Active shares */}
-          {activeShares.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium mb-2">Active Shares ({activeShares.length})</h3>
-              <div className="space-y-2 max-h-48 overflow-auto">
-                {activeShares.map((share) => (
-                  <div
-                    key={share.id}
-                    className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-                  >
-                    <div className="min-w-0 flex-1">
-                      {share.shared_with_user_id || share.shared_with_email ? (
-                        <span className="text-muted-foreground">
-                          User: {share.shared_with_email || share.shared_with_user_id}
-                          <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-medium ${share.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
-                            {share.permission === "editor" ? "Editor" : "Viewer"}
-                          </span>
-                          {share.access_mode === "public" && (
-                            <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                              Opens without sign-in
-                            </span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          {share.access_mode === "public" ? "Link: anyone" : "Link: signed-in users"}
-                        </span>
-                      )}
-                      {!share.shared_with_user_id && !share.shared_with_email && share.access_count > 0 && (
-                        <span className="text-xs text-muted-foreground ml-2">
-                          ({share.access_count} {share.access_count === 1 ? "view" : "views"})
-                        </span>
-                      )}
-                      <span className="text-xs text-muted-foreground ml-2">
-                        {formatTimeRemaining(share.expires_at)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1 ml-2">
-                      {!share.shared_with_user_id && !share.shared_with_email && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleCopy(
-                              `${window.location.origin}/portal/view/${share.token}`,
-                              share.id,
-                            )
-                          }
-                          className="flex items-center gap-1 rounded px-2 py-1 text-xs hover:bg-accent"
-                          title="Copy public link"
-                        >
-                          {copied === share.id ? (
-                            <>
-                              <Check className="h-3.5 w-3.5 text-green-500" />
-                              Copied
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3.5 w-3.5" />
-                              Copy Link
-                            </>
-                          )}
-                        </button>
-                      )}
-                      {confirmRevoke === share.id ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              revokeShare.mutate(share.id);
-                              setConfirmRevoke(null);
-                            }}
-                            className="rounded px-2 py-0.5 text-xs font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                          >
-                            Remove
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setConfirmRevoke(null)}
-                            className="rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmRevoke(share.id)}
-                          className="rounded p-1 hover:bg-destructive/10 text-destructive"
-                          title="Revoke"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+        <Dialog.Overlay className={modalOverlayClass}>
+          <div className={modalRowClass}>
+            <Dialog.Content
+              className={modalNaturalClass(
+                "max-w-lg",
+                "rounded-lg border bg-card p-6 shadow-lg",
+              )}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <Dialog.Title className="text-lg font-semibold">
+                  {isPrompt
+                    ? "Share Prompt"
+                    : isCollection
+                      ? "Share Collection"
+                      : "Share Asset"}
+                </Dialog.Title>
+                <Dialog.Close className="rounded-md p-1 hover:bg-accent">
+                  <X className="h-4 w-4" />
+                </Dialog.Close>
               </div>
-            </div>
-          )}
-        </Dialog.Content>
+
+              {/* Link shares are not offered for prompts, which are run, not viewed via a public page */}
+              {!isPrompt && (
+                <LinkShareSection
+                  linkAccess={linkAccess}
+                  setLinkAccess={setLinkAccess}
+                  ttl={ttl}
+                  setTtl={setTtl}
+                  showOptions={showOptions}
+                  setShowOptions={setShowOptions}
+                  showExpiration={showExpiration}
+                  setShowExpiration={setShowExpiration}
+                  noticeText={noticeText}
+                  setNoticeText={setNoticeText}
+                  onCreate={handleCreateLink}
+                  isPending={isPending}
+                />
+              )}
+
+              {/* Share with user */}
+              <UserShareSection
+                email={email}
+                setEmail={setEmail}
+                permission={permission}
+                setPermission={setPermission}
+                notify={notify}
+                setNotify={setNotify}
+                message={message}
+                setMessage={setMessage}
+                error={shareError}
+                onClearError={() => setShareError(null)}
+                onShare={handleShareWithUser}
+                isPending={isPending}
+              />
+
+              <ActiveShares
+                shares={activeShares}
+                copied={copied}
+                confirmRevoke={confirmRevoke}
+                setConfirmRevoke={setConfirmRevoke}
+                onCopy={handleCopy}
+                onRevoke={(id) => revokeShare.mutate(id)}
+              />
+            </Dialog.Content>
+          </div>
+        </Dialog.Overlay>
       </Dialog.Portal>
     </Dialog.Root>
   );

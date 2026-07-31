@@ -2570,6 +2570,29 @@ Both responses carry delivery_available, a read-only boolean derived from the st
 
 Preferences are keyed by bare email, so they cover recipients with no platform account. Every notification email carries a no-login unsubscribe footer link (GET /portal/notifications/unsubscribe?tok=..., an HMAC token bound to the recipient address, key derived from the browser-session signing key). The GET renders a confirmation page with a single Unsubscribe button and records nothing (mail security layers prefetch body URLs, and the token is a bearer credential, so a mutating GET would let a recipient's own mail infrastructure silently opt them out); confirming submits a form POST to the same URL, which records mode off for that address. The same token URL is emitted as RFC 8058 one-click headers (List-Unsubscribe plus List-Unsubscribe-Post: List-Unsubscribe=One-Click) on every message carrying the footer link; a provider POST with body List-Unsubscribe=One-Click records the opt-out and returns a bare status with no page (providers fire it only on a real user action, so it is not exposed to prefetch). An opted-out email-share recipient can opt back in from the share landing page: a notice with a Resume notification emails action posts to /portal/view/{token}/resubscribe (uniform response, rate limited), restoring the immediate-delivery default. Each message's Message-ID domain comes from the configured From address rather than the server hostname. When portal.terms_url or portal.privacy_url is set, the footer also renders the corresponding legal link; the portal.about_text/portal.support_contact block renders below it. One-time guest view links (#1001) are transactional: rendered with the same branding but delivered directly (never queued or digest-deferred), not gated on preferences, and carrying neither the unsubscribe footer nor the headers, since the recipient requests each one.
 
+## Sharer control over the share email
+
+A share addressed to a person notifies by default. Two request fields on POST /api/v1/portal/{assets|collections|prompts}/{id}/shares change that: notify (*bool, omitted = notify) shares quietly when false -- no queue row, no email, share otherwise unchanged, and the recipient's own preferences still apply when it is true; message (optional, 500 chars) attaches a plain-text note rendered as a quoted block attributed to the sharer. The note is never persisted: it travels with the one notification the share produces, so notify:false carries no note anywhere. Markup and links are rejected with 400 rather than escaped and delivered -- escaping stops a note rendering as markup, but a plausible link inside a trusted platform email is a phishing vector however it is encoded; rendering escapes too, so the two defenses are independent.
+
+Recipient addresses are accepted bare or in the "Example User <user@example.com>" form mail clients copy; only the bare address is stored, lowercased (portaldomain.ParseEmail is the single door, and ValidateEmail is exactly its verdict). A value naming no single routable address is refused with 400 instead of stored raw, which previously produced a share matching no signed-in user and a notification addressed to an unroutable string. The share dialog applies the same rule on blur.
+
+A share addressed to a person carries no expiration: it grants that person access until the owner revokes it. expires_in is link-share-only -- where the URL is the credential and a bounded life limits what a forwarded link is worth -- and sending it alongside a recipient is refused rather than silently resolved either way.
+
+## Delivery history
+
+Both history surfaces are bounded by the retention pass and state their effective window, so an empty view is not mistaken for a quiet week.
+
+Admin (Dashboard > Notifications tab, behind the admin persona gate): per-status counts that double as filters, a filterable list (recipient, status, category) of queue rows with subject, attempts and status, and a drill-in carrying the verbatim mail-server error.
+
+- GET /api/v1/admin/notifications?recipient=&status=&category=&page=&per_page=
+- GET /api/v1/admin/notifications/stats ({"pending","sending","sent","failed","total","retention_days"}; the recipient and category filters apply, status does not, so a failure-filtered list still shows how many sent)
+
+User (Settings > Recent notifications): the caller's own rows only.
+
+- GET /api/v1/portal/notifications
+
+The user endpoint is self-scoped server-side -- the authenticated caller's address is the only recipient queried and there is no parameter to widen it -- and omits the delivery error text the admin view carries, since a failed send fails for mail-infrastructure reasons (host names, credentials, relay refusals) the recipient can act on none of. Both surfaces show the same subject line the email itself carried (notifyrender.Subject), so a reported message matches its row.
+
 ## Configuration
 
 ```yaml

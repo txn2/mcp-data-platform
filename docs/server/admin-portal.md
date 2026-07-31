@@ -174,7 +174,7 @@ Toggle the tool's membership in the platform-wide deny list, and preview whether
 
 ## Activity (Dashboard tabs)
 
-The admin Dashboard hosts the platform activity views as tabs: **MCP**, **API Gateway**, **Health**, **Indexing**, and **Events**. (Indexing is documented above.) Each works across configurable time ranges (1h, 6h, 24h, 7d).
+The admin Dashboard hosts the platform activity views as tabs: **MCP**, **API Gateway**, **Health**, **Indexing**, **Events**, and **Notifications**. (Indexing is documented above.) The first four work across configurable time ranges (1h, 6h, 24h, 7d).
 
 ### MCP
 
@@ -219,6 +219,18 @@ Features:
     - **Parameters** — Full request parameters as JSON
 
 ![Event detail](../images/screenshots/light/admin-admin-audit-event-detail-light.webp#only-light)![Event detail](../images/screenshots/dark/admin-admin-audit-event-detail-dark.webp#only-dark)
+
+### Notifications
+
+The Notifications tab is the admin read on email delivery: whether the platform's notification emails are reaching people, and what happened to the ones that did not. Without it, a broken SMTP relay is invisible until a user reports never receiving a share.
+
+![Notification delivery](../images/screenshots/light/admin-admin-audit-notifications-light.webp#only-light)![Notification delivery](../images/screenshots/dark/admin-admin-audit-notifications-dark.webp#only-dark)
+
+Counts by status sit above the list — Failed, Pending, Sending, Sent — as an at-a-glance health read, and each count doubles as a filter. The list shows every queue row with when it was raised, its recipient, the subject line the email carried, its category, delivery status, and attempt count. Clicking a row opens the detail, which exists for the failure case: the error the mail server returned, verbatim, alongside how many attempts the queue made before giving up.
+
+Filters narrow by recipient, status, and category. The tab is admin-only and shows every recipient's rows; each user sees their own activity in **Settings > Recent notifications** in the user portal.
+
+It shows recent history rather than an archive: the send worker purges resolved rows on a retention schedule (30 days by default, undelivered rows after 7), and the effective window is stated above the list so an empty view is not mistaken for a quiet week. See [Email Notifications](notifications.md) for the delivery semantics behind the statuses.
 
 ## Knowledge & Memory (review and promotion)
 

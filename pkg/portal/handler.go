@@ -1337,7 +1337,10 @@ func (h *Handler) revertContentToVersion(ctx context.Context, asset *Asset, asse
 
 // createShareRequest is the request body for creating a share.
 type createShareRequest struct {
-	ExpiresIn        string  `json:"expires_in,omitempty" example:"24h"` // duration string, e.g. "24h"
+	// ExpiresIn is a duration string ("24h") bounding a link share's life. It
+	// applies to link shares only: a share addressed to a person is access
+	// granted to that person and is revoked, not timed out.
+	ExpiresIn        string  `json:"expires_in,omitempty" example:"24h"`
 	SharedWithUserID string  `json:"shared_with_user_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
 	SharedWithEmail  string  `json:"shared_with_email,omitempty" example:"colleague@example.com"`
 	HideExpiration   bool    `json:"hide_expiration,omitempty" example:"false"`
@@ -1347,6 +1350,41 @@ type createShareRequest struct {
 	// the default for the share's shape: restricted when a recipient is
 	// named, authenticated otherwise. "public" is never implied.
 	AccessMode string `json:"access_mode,omitempty" example:"restricted"`
+	// Notify controls whether a named recipient gets a "shared with you"
+	// email. nil (omitted) means notify -- the default a share carries when
+	// nobody says otherwise. false shares quietly. The recipient's own
+	// notification preferences still apply when it is true; this only removes
+	// the sharer's ability to force one.
+	Notify *bool `json:"notify,omitempty" example:"true"`
+	// Message is an optional plain-text note from the sharer, delivered in the
+	// notification email and stored nowhere. Markup and links are rejected
+	// (ValidateShareMessage) whatever the share's shape, so a malformed note
+	// is reported rather than silently dropped; a note on a share that sends
+	// no email is accepted and then goes nowhere.
+	Message string `json:"message,omitempty" example:"Here's the Q3 revenue breakdown you asked about"`
+}
+
+// wantsNotify reports whether a share created from this request should notify
+// its recipient. Omitted means yes.
+func (req createShareRequest) wantsNotify() bool {
+	return req.Notify == nil || *req.Notify
+}
+
+// normalizeRecipient reduces the request's recipient to the bare address it
+// names, so every later comparison (self-share checks, view-time matching,
+// the notification recipient) sees one spelling. An empty recipient stays
+// empty: that is a link share, not an invalid address.
+func (req *createShareRequest) normalizeRecipient() error {
+	if strings.TrimSpace(req.SharedWithEmail) == "" {
+		req.SharedWithEmail = ""
+		return nil
+	}
+	addr, err := portaldomain.ParseEmail(req.SharedWithEmail)
+	if err != nil {
+		return err //nolint:wrapcheck // message is the verbatim 400 body
+	}
+	req.SharedWithEmail = addr
+	return nil
 }
 
 // shareResponse is the response for a created share.
@@ -1408,7 +1446,11 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.notifyShare(r.Context(), &share, "asset", asset.ID, asset.Name)
+	if req.wantsNotify() {
+		h.notifyShare(r.Context(), &share, ShareEvent{
+			Kind: "asset", ItemID: asset.ID, ItemTitle: asset.Name, Message: req.Message,
+		})
+	}
 
 	resp := shareResponse{Share: share}
 	if h.deps.PublicBaseURL != "" {
@@ -1432,11 +1474,12 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 		return Share{}, errors.New("failed to generate share token")
 	}
 
-	email := strings.ToLower(strings.TrimSpace(req.SharedWithEmail))
-	if email != "" {
-		if err := ValidateEmail(email); err != nil {
-			return Share{}, err
-		}
+	if err := req.normalizeRecipient(); err != nil {
+		return Share{}, err
+	}
+	email := req.SharedWithEmail
+	if err := ValidateShareMessage(req.Message); err != nil {
+		return Share{}, err
 	}
 
 	noticeText := defaultNoticeText
@@ -1472,7 +1515,15 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 		NoticeText:       noticeText,
 	}
 
+	// A share addressed to a person grants that person access; it ends when
+	// the owner revokes it, not on a clock. Expiry belongs to link shares,
+	// where the URL is the credential and a bounded life limits what a
+	// forwarded or leaked link is worth. Setting both is a contradiction, so
+	// it is refused rather than silently resolved either way.
 	if req.ExpiresIn != "" {
+		if email != "" || req.SharedWithUserID != "" {
+			return Share{}, errors.New("expires_in does not apply to a share addressed to a person; revoke the share to end access")
+		}
 		dur, parseErr := time.ParseDuration(req.ExpiresIn)
 		if parseErr != nil {
 			return Share{}, errors.New("invalid expires_in duration")

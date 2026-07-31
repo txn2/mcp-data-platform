@@ -188,6 +188,85 @@ uniformly for every share state, is rate limited alongside the other
 public share routes, and restores the immediate-delivery default for the
 share's stored recipient address.
 
+## Sharer control over the share email
+
+A share addressed to a person notifies its recipient by default. The sharer
+can change two things about that email at the moment they share, from the
+share dialog or the API:
+
+- **`notify`** (`*bool`, omitted means notify): `false` shares quietly. No
+  row is queued and no email is sent; the share itself is created exactly as
+  it would be otherwise. The recipient's own preferences still apply when
+  notification is on, so this only removes the sharer's ability to force one.
+- **`message`** (optional, 500 characters): a plain-text note from the
+  sharer, rendered in the email as a quoted block attributed to them. It is
+  never persisted: it travels with the one notification the share produces
+  and is stored nowhere, so a share created with `notify: false` carries no
+  note anywhere.
+
+The note is plain text and is checked as such at validation time: markup and
+links are rejected with a 400 rather than escaped and delivered. Escaping
+alone would stop a note from rendering as markup, but a plausible-looking
+link inside a trusted platform email is a phishing vector however it is
+encoded. Rendering escapes as well, so the two defenses are independent.
+
+```
+POST /api/v1/portal/assets/{id}/shares
+{"shared_with_email": "colleague@example.com", "notify": false}
+
+POST /api/v1/portal/assets/{id}/shares
+{"shared_with_email": "colleague@example.com",
+ "message": "Here's the Q3 revenue breakdown you asked about"}
+```
+
+Recipient addresses are accepted in both the bare form and the
+`Example User <user@example.com>` form mail clients put on the clipboard;
+only the bare address is stored, lowercased. A value that names no single
+routable address is refused with a 400 instead of being stored raw, which
+previously produced a share matching no signed-in user and a notification
+addressed to a string no mail server would route. The share dialog applies
+the same rule as the field loses focus, so what the sharer sees is what will
+be stored and mailed.
+
+A share addressed to a person carries no expiration: it grants that person
+access until the owner revokes it. `expires_in` is a link-share concept --
+where the URL is the credential and a bounded life limits what a forwarded
+link is worth -- and sending it alongside a recipient is refused rather than
+silently resolved either way.
+
+## Delivery history
+
+Both the admin monitoring tab and each user's own notification screen read
+the queue's delivery history. Both are bounded by the retention pass below:
+they show recent history, not an archive, and both state the effective
+window.
+
+**Admin (Dashboard > Notifications)** lists every queue row with its
+recipient, category, subject, status, attempt count, and -- on drill-in --
+the error the mail server returned. Counts by status sit above the list as
+an at-a-glance health read, and each count doubles as a filter. The routes
+sit behind the admin persona gate:
+
+```
+GET /api/v1/admin/notifications?status=failed&recipient=user@example.com
+GET /api/v1/admin/notifications/stats
+```
+
+**Users (Settings > Recent notifications)** see the notifications addressed
+to them, alongside the preferences that govern them, because the two answer
+one question together: what should I be told, and what was I actually told.
+The endpoint is self-scoped server-side -- the authenticated caller's address
+is the only recipient it queries, and there is no parameter to widen it:
+
+```
+GET /api/v1/portal/notifications
+```
+
+The user view deliberately omits the delivery error text the admin view
+carries. A failed send fails for reasons belonging to the platform's mail
+infrastructure (host names, credentials, relay refusals), which the recipient
+can act on none of; the status alone tells them whether to expect an email.
+
 ## Branded emails
 
 Emails are responsive, table-based HTML (broad email-client compatibility)

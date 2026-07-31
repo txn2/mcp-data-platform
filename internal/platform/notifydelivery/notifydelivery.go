@@ -66,6 +66,10 @@ type Handle struct {
 	settings smtp.SettingsStore
 	prefs    notification.PrefsStore
 	queue    notification.QueueStore
+	// history is the same PostgreSQL queue store narrowed to its read
+	// contract, held separately so the accessor cannot hand a caller the
+	// worker's write path.
+	history  notification.HistoryStore
 	enqueuer *notification.Enqueuer
 	renderer *notifyrender.Renderer
 	sender   notifysend.Sender
@@ -86,10 +90,12 @@ func New(cfg Config) (*Handle, error) {
 	if cfg.UnsubscribeURL != nil {
 		renderer.SetUnsubscribeURLFn(cfg.UnsubscribeURL)
 	}
+	queue := notifyqueue.NewPostgresStore(cfg.DB)
 	h := &Handle{
 		settings: smtp.NewPostgresStore(cfg.DB, cfg.Encryptor),
 		prefs:    notifyprefs.NewPostgresStore(cfg.DB),
-		queue:    notifyqueue.NewPostgresStore(cfg.DB),
+		queue:    queue,
+		history:  queue,
 		renderer: renderer,
 		sender:   notifysend.NewSMTPSender(),
 	}
@@ -160,6 +166,22 @@ func (h *Handle) Settings() smtp.SettingsStore {
 	}
 	return h.settings
 }
+
+// History returns the delivery-history reader the admin monitoring surface
+// and each user's own notification screen read from, or nil when the feature
+// is unavailable. It is the same PostgreSQL store the worker writes through,
+// narrowed to its read contract.
+func (h *Handle) History() notification.HistoryStore {
+	if h == nil {
+		return nil
+	}
+	return h.history
+}
+
+// HistoryRetention is how long a resolved row survives before the worker's
+// purge removes it -- the window History can report on. Both surfaces show it
+// so a reader knows the listing is recent history, not an archive.
+const HistoryRetention = notifyworker.DefaultResolvedRetention
 
 // SendGuestLink delivers a one-time view link email directly through the
 // sender (#1001). The send is transactional: the recipient requested it from

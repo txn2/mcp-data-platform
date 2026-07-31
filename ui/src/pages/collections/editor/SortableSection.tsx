@@ -22,6 +22,7 @@ import { AssetPreviewModal } from "@/components/AssetPreviewModal";
 import { SortableItem } from "./SortableItem";
 import { AssetBrowserModal } from "./AssetBrowserModal";
 import type { SectionDraft, ItemDraft } from "./types";
+import { ModalScroll } from "@/components/ModalShell";
 
 export function SortableSection({
   section,
@@ -35,14 +36,28 @@ export function SortableSection({
 }: {
   section: SectionDraft;
   index: number;
-  onUpdate: (index: number, field: "title" | "description", value: string) => void;
+  onUpdate: (
+    index: number,
+    field: "title" | "description",
+    value: string,
+  ) => void;
   onRemove: (index: number) => void;
-  onAddItem: (sectionIndex: number, assetId: string, assetName: string, assetContentType: string) => void;
+  onAddItem: (
+    sectionIndex: number,
+    assetId: string,
+    assetName: string,
+    assetContentType: string,
+  ) => void;
   onRemoveItem: (sectionIndex: number, itemIndex: number) => void;
-  onReorderItems: (sectionIndex: number, oldIndex: number, newIndex: number) => void;
+  onReorderItems: (
+    sectionIndex: number,
+    oldIndex: number,
+    newIndex: number,
+  ) => void;
   assets: Asset[];
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: section.id });
+  const { attributes, listeners, setNodeRef, transform, transition } =
+    useSortable({ id: section.id });
   const [browserOpen, setBrowserOpen] = useState(false);
   const [itemPreview, setItemPreview] = useState<ItemDraft | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -50,7 +65,9 @@ export function SortableSection({
 
   const sensors = useSensors(
     useSensor(PointerSensor),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   );
 
   const style = {
@@ -72,10 +89,19 @@ export function SortableSection({
   const itemCount = section.items.length;
 
   return (
-    <div ref={setNodeRef} style={style} className="rounded-lg border bg-card overflow-hidden">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="rounded-lg border bg-card overflow-hidden"
+    >
       {/* Header — always visible, acts as collapse toggle */}
       <div className="flex items-center gap-2 px-4 py-3 bg-muted/20">
-        <button {...attributes} {...listeners} className="cursor-grab text-muted-foreground hover:text-foreground" title="Drag to reorder">
+        <button
+          {...attributes}
+          {...listeners}
+          className="cursor-grab text-muted-foreground hover:text-foreground"
+          title="Drag to reorder"
+        >
           <GripVertical className="h-4 w-4" />
         </button>
         <button
@@ -83,7 +109,9 @@ export function SortableSection({
           onClick={() => setCollapsed((c) => !c)}
           className="flex flex-1 items-center gap-2 text-left"
         >
-          <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+          <ChevronDown
+            className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`}
+          />
           <span className="text-sm font-medium truncate">{displayTitle}</span>
           <span className="text-xs text-muted-foreground">
             {itemCount} {itemCount === 1 ? "asset" : "assets"}
@@ -110,7 +138,9 @@ export function SortableSection({
           />
 
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Description (markdown)</label>
+            <label className="block text-xs text-muted-foreground mb-1">
+              Description (markdown)
+            </label>
             <MarkdownEditor
               value={section.description}
               onChange={(v) => onUpdate(index, "description", v)}
@@ -121,9 +151,18 @@ export function SortableSection({
 
           {/* Items with drag-and-drop */}
           <div>
-            <label className="block text-xs text-muted-foreground mb-1">Assets</label>
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleItemDragEnd}>
-              <SortableContext items={section.items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+            <label className="block text-xs text-muted-foreground mb-1">
+              Assets
+            </label>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleItemDragEnd}
+            >
+              <SortableContext
+                items={section.items.map((i) => i.id)}
+                strategy={verticalListSortingStrategy}
+              >
                 <div className="space-y-1.5">
                   {section.items.map((item, itemIdx) => (
                     <SortableItem
@@ -151,13 +190,14 @@ export function SortableSection({
 
       {/* Delete confirmation modal */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setConfirmDelete(false)}>
-          <div className="rounded-lg border bg-card p-6 shadow-lg max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+        <ModalScroll onClose={() => setConfirmDelete(false)} width="max-w-sm">
+          <div className="rounded-lg border bg-card p-6 shadow-lg">
             <h3 className="text-sm font-semibold mb-2">Delete Section</h3>
             <p className="text-sm text-muted-foreground mb-4">
               Are you sure you want to delete <strong>{displayTitle}</strong>?
-              {itemCount > 0 && ` This will remove ${itemCount} ${itemCount === 1 ? "asset" : "assets"} from the section.`}
-              {" "}This cannot be undone.
+              {itemCount > 0 &&
+                ` This will remove ${itemCount} ${itemCount === 1 ? "asset" : "assets"} from the section.`}{" "}
+              This cannot be undone.
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -179,7 +219,7 @@ export function SortableSection({
               </button>
             </div>
           </div>
-        </div>
+        </ModalScroll>
       )}
 
       {browserOpen && (
