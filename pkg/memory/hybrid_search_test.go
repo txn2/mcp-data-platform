@@ -3,6 +3,9 @@ package memory
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -499,4 +502,78 @@ func TestClampStoreLimit(t *testing.T) {
 	assert.Equal(t, DefaultLimit, clampStoreLimit(-5))
 	assert.Equal(t, 7, clampStoreLimit(7))
 	assert.Equal(t, MaxLimit, clampStoreLimit(MaxLimit+100))
+}
+
+// TestHybridSearch_InsightStatusPredicate verifies the insight-status predicate
+// reaches SQL and binds after the positive column scopes. Without it the
+// organization-wide insight search would take a top-k over every capturer's
+// active insights and only then drop the non-applied ones in Go, so other
+// people's pending captures would crowd out the applied knowledge it exists to
+// return (#980 B2).
+func TestHybridSearch_InsightStatusPredicate(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("insight_status").
+		WithArgs(sqlmock.AnyArg(), "orders", DimensionKnowledge, StatusActive, "applied").
+		WillReturnRows(sqlmock.NewRows(hybridColumns))
+
+	_, err = store.HybridSearch(context.Background(), HybridQuery{
+		Embedding:     []float32{0.1},
+		QueryText:     "orders",
+		Dimension:     DimensionKnowledge,
+		Status:        StatusActive,
+		InsightStatus: "applied",
+		Limit:         10,
+	})
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestLexicalSearch_InsightStatusPredicate is the same guarantee on the
+// degradation path taken when no embedding provider is configured.
+func TestLexicalSearch_InsightStatusPredicate(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("legacy_status").
+		WithArgs("orders", DimensionKnowledge, "applied").
+		WillReturnRows(sqlmock.NewRows(lexicalColumns))
+
+	_, err = store.LexicalSearch(context.Background(), LexicalQuery{
+		QueryText:     "orders",
+		Dimension:     DimensionKnowledge,
+		InsightStatus: "applied",
+		Limit:         10,
+	})
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestInsightStatusExprMatchesMigration pins the expression to the one migration
+// 000095 indexes. Postgres matches a partial/expression index by the expression
+// text, so a drift here silently turns the organization-wide insight search into
+// a sequential scan over every capturer's knowledge records.
+func TestInsightStatusExprMatchesMigration(t *testing.T) {
+	t.Parallel()
+
+	migration, err := os.ReadFile(filepath.Join(
+		"..", "database", "migrate", "migrations", "000095_memory_insight_status_index.up.sql",
+	))
+	require.NoError(t, err)
+
+	normalize := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	if !strings.Contains(normalize(string(migration)), normalize(insightStatusExpr)) {
+		t.Errorf("insightStatusExpr %q does not appear in migration 000095; the index will not be used", insightStatusExpr)
+	}
 }

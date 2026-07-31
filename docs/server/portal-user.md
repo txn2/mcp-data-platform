@@ -284,7 +284,7 @@ The review pipeline for insights, which are the only memories that cross between
 
 ### Memory
 
-Memory is personal: this tab is scoped to your own records. The only memory that crosses to other users is an insight, reviewed in the Insights tab.
+Memory is personal: this tab is scoped to your own records. The only memory that crosses to other users is an insight, reviewed in the Insights tab, and it crosses when it is applied: applying an insight writes it to a canonical sink and makes it findable by everyone through `search`, attributed to whoever captured it. An insight that is still pending or approved stays yours alone.
 
 - **Your memory** - The raw substrate captured from your sessions, classified by lifecycle **class** (`sink_class`): Preference, Event, Business knowledge, Operational rule, and Schema/entity. The class is why something is "just memory" versus a candidate for promotion
 

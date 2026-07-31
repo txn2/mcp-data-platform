@@ -876,3 +876,42 @@ func TestNewPostgresStore(t *testing.T) {
 	store := NewPostgresStore(db)
 	assert.NotNil(t, store)
 }
+
+// TestPostgresStore_List_InsightStatusFilter covers the List-path counterpart of
+// the search-arm predicate: the entity-keyed insight lookup pages the whole
+// matching set, so pushing the exact insight status into SQL keeps that walk to
+// the applied rows instead of reading every capturer's active knowledge records
+// and discarding most of them per record (#980 B2).
+func TestPostgresStore_List_InsightStatusFilter(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+	now := time.Now().Truncate(time.Second)
+
+	mock.ExpectQuery("SELECT COUNT").
+		WithArgs(DimensionKnowledge, StatusActive, "applied").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	rows := sqlmock.NewRows(memorySelectColumns).AddRow(
+		"mem-applied", now, now, "alice@example.com", "analyst", DimensionKnowledge, "schema_entity",
+		"Refunds are booked net of tax.", CategoryBusinessCtx, ConfidenceHigh, SourceUser,
+		`[]`, `[]`, `{"insight_status":"applied"}`,
+		StatusActive, nil, nil, nil,
+	)
+	mock.ExpectQuery("insight_status").
+		WithArgs(DimensionKnowledge, StatusActive, "applied").
+		WillReturnRows(rows)
+
+	records, total, err := store.List(context.Background(), Filter{
+		Dimension:     DimensionKnowledge,
+		Status:        StatusActive,
+		InsightStatus: "applied",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, records, 1)
+	assert.Equal(t, "mem-applied", records[0].ID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}

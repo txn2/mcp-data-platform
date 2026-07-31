@@ -27,16 +27,31 @@ type insightSource interface {
 
 // InsightsProvider exposes captured domain knowledge (insights) to the router.
 //
-// Insights are knowledge-dimension memory rows owned by the caller
-// (insight.captured_by == caller email). The underlying store scopes to that
-// owner and to the knowledge dimension, so this provider covers exactly the
-// records the MemoryProvider skips.
+// Insights are knowledge-dimension memory rows owned by their capturer
+// (insight.captured_by). The store scopes to the knowledge dimension, so this
+// provider covers exactly the records the MemoryProvider skips.
 //
-// Scope note (#632): the epic envisions reviewed insights becoming shared
-// across callers. The current store has no review-state-aware sharing, and
-// searching it without an owner would expose every user's personal insights, so
-// PR1 keeps this provider per-user. Promoting reviewed insights to ScopeShared
-// is deferred to the write-path/review work (#633).
+// It searches two arms and merges them (#980 B2):
+//
+//   - the owner arm, the caller's own insights at any review status. This is
+//     personal recall and is unchanged.
+//   - the shared arm, every capturer's insights at StatusApplied. An applied
+//     insight has been reviewed and written to a canonical sink with a
+//     changeset, which is the act that turns one person's capture into
+//     organization knowledge. Before this, such a fact reached other people
+//     only if its sink happened to be a knowledge page (PagesProvider is
+//     unscoped) or if a tool result named the entity it hangs off, which is
+//     what the benchmark measured as a cross-identity transfer gap.
+//
+// Statuses short of applied stay private to their capturer: pending and
+// approved are unpublished personal captures, and rejected, superseded and
+// rolled-back knowledge is retracted (isLiveInsightStatus).
+//
+// Scope stays ScopePerUser even though the shared arm returns other people's
+// records. ScopePerUser is what makes the Router refuse this provider to an
+// anonymous caller, and the search toolkit builds an anonymous caller whenever
+// a request carries no platform context, so a public share viewer must not be
+// able to reach applied organization knowledge through it.
 type InsightsProvider struct {
 	store insightSource
 }
@@ -50,47 +65,84 @@ func NewInsightsProvider(store insightSource) *InsightsProvider {
 // Name returns the provenance label.
 func (*InsightsProvider) Name() string { return SourceInsights }
 
-// Scope marks this provider per-user; see the type doc for why reviewed-insight
-// sharing is deferred.
+// Scope marks this provider per-user: it requires an identified caller. See the
+// type doc for why the shared arm does not make it ScopeShared.
 func (*InsightsProvider) Scope() Scope { return ScopePerUser }
 
-// Search returns the caller's captured insights. It serves both query shapes:
-// an exact entity-keyed lookup on EntityURNs (insights linked to the requested
-// datasets, lineage-expanded by the Router) and a relevance search on Intent.
-// Results from both paths are merged and de-duplicated by insight id. Each hit
-// carries the insight's review status and linked entity URNs as provenance. It
-// fails closed on a missing caller email rather than searching across all users.
+// Search returns the caller's captured insights plus the organization's applied
+// ones. It serves both query shapes: an exact entity-keyed lookup on EntityURNs
+// (insights linked to the requested datasets, lineage-expanded by the Router)
+// and a relevance search on Intent. Results from every path are merged and
+// de-duplicated by insight id. Each hit carries the insight's review status,
+// capturer and linked entity URNs as provenance. It fails closed on a missing
+// caller email rather than searching across all users.
+//
+// The owner arm runs first so that when a caller's own insight is also applied,
+// the hit kept is the one read under their own identity.
 func (p *InsightsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 	if q.Caller.Email == "" {
 		return nil, nil
 	}
 
-	var hits []Hit
 	seen := make(map[string]bool)
-
-	entityHits, err := p.searchByEntity(ctx, q, seen)
+	hits, err := p.searchArm(ctx, q, seen, false)
 	if err != nil {
 		return nil, err
 	}
-	hits = append(hits, entityHits...)
 
-	textHits, err := p.searchByText(ctx, q, seen)
+	if !sharedArmApplies(q.Status) {
+		return hits, nil
+	}
+	shared, err := p.searchArm(ctx, q, seen, true)
 	if err != nil {
 		return nil, err
 	}
-	hits = append(hits, textHits...)
-
-	return hits, nil
+	return trimToLimit(append(hits, shared...), q.Limit), nil
 }
 
-// searchByEntity returns the caller's insights linked to the query's entity URNs
-// (already lineage-expanded by the Router). It reuses the entity-keyed List path
-// that memory_manage(filter_entity_urn=...) relies on, scoped to the caller's
-// email and the knowledge dimension by the store. Already-seen insights are
-// skipped; when no explicit status was requested, rejected/superseded/rolled-back
-// insights are dropped so a "what do we know" lookup never surfaces retracted
-// knowledge.
-func (p *InsightsProvider) searchByEntity(ctx context.Context, q Query, seen map[string]bool) ([]Hit, error) {
+// trimToLimit caps the merged arms at the candidate limit the Router asked this
+// provider for. Each arm queries the store with that limit, so returning both
+// unmerged would hand back up to twice as many candidates as any other source,
+// overstating the insights coverage count and giving the allocator a deeper pool
+// for this one source than the caller asked for. The owner arm is kept first, so
+// what a trim drops is the organization's copy rather than the caller's own.
+func trimToLimit(hits []Hit, limit int) []Hit {
+	if limit <= 0 || len(hits) <= limit {
+		return hits
+	}
+	return hits[:limit]
+}
+
+// sharedArmApplies reports whether the shared arm can contribute to a query.
+// That arm only ever returns applied insights, so an explicit request for any
+// other status is already answered in full by the owner arm; running it anyway
+// would return records the caller filtered out.
+func sharedArmApplies(status string) bool {
+	return status == "" || status == knowledgekit.StatusApplied
+}
+
+// searchArm runs both query shapes under one owner scope and merges them.
+// shared selects the organization-wide arm over the caller's own records.
+func (p *InsightsProvider) searchArm(ctx context.Context, q Query, seen map[string]bool, shared bool) ([]Hit, error) {
+	entityHits, err := p.searchByEntity(ctx, q, seen, shared)
+	if err != nil {
+		return nil, err
+	}
+	textHits, err := p.searchByText(ctx, q, seen, shared)
+	if err != nil {
+		return nil, err
+	}
+	return append(entityHits, textHits...), nil
+}
+
+// searchByEntity returns insights linked to the query's entity URNs (already
+// lineage-expanded by the Router). It reuses the entity-keyed List path that
+// memory_manage(filter_entity_urn=...) relies on, scoped to the knowledge
+// dimension by the store and to either the caller (owner arm) or the applied
+// set (shared arm). Already-seen insights are skipped; when no explicit status
+// was requested, rejected/superseded/rolled-back insights are dropped so a
+// "what do we know" lookup never surfaces retracted knowledge.
+func (p *InsightsProvider) searchByEntity(ctx context.Context, q Query, seen map[string]bool, shared bool) ([]Hit, error) {
 	if len(q.EntityURNs) == 0 {
 		return nil, nil
 	}
@@ -99,8 +151,9 @@ func (p *InsightsProvider) searchByEntity(ctx context.Context, q Query, seen map
 	for _, urn := range q.EntityURNs {
 		insights, _, err := p.store.List(ctx, knowledgekit.InsightFilter{
 			EntityURN:  urn,
-			CapturedBy: q.Caller.Email,
+			CapturedBy: ownerScope(q, shared),
 			Status:     q.Status,
+			Shared:     shared,
 			Limit:      q.Limit,
 		})
 		if err != nil {
@@ -120,10 +173,23 @@ func (p *InsightsProvider) searchByEntity(ctx context.Context, q Query, seen map
 	return hits, nil
 }
 
-// searchByText returns the caller's insights ranked by relevance to the intent,
-// optionally filtered by review status. Already-seen insights (recalled on the
-// entity path) are skipped. A query with no intent yields nothing here.
-func (p *InsightsProvider) searchByText(ctx context.Context, q Query, seen map[string]bool) ([]Hit, error) {
+// ownerScope returns the capturer the arm scopes on: the caller for the owner
+// arm, and nobody for the shared arm, which the store re-scopes to the applied
+// set of every capturer. It is passed explicitly rather than left empty so the
+// owner arm can never lose its predicate by omission.
+func ownerScope(q Query, shared bool) string {
+	if shared {
+		return ""
+	}
+	return q.Caller.Email
+}
+
+// searchByText returns insights ranked by relevance to the intent, optionally
+// filtered by review status, from either the caller's own set (owner arm) or
+// the applied set (shared arm). Already-seen insights (recalled on the entity
+// path, or already returned by the owner arm) are skipped. A query with no
+// intent yields nothing here.
+func (p *InsightsProvider) searchByText(ctx context.Context, q Query, seen map[string]bool, shared bool) ([]Hit, error) {
 	if q.Intent == "" {
 		return nil, nil
 	}
@@ -131,8 +197,9 @@ func (p *InsightsProvider) searchByText(ctx context.Context, q Query, seen map[s
 	scored, err := p.store.Search(ctx, knowledgekit.InsightSearchQuery{
 		QueryText:  q.Intent,
 		Embedding:  q.Embedding,
-		CapturedBy: q.Caller.Email,
+		CapturedBy: ownerScope(q, shared),
 		Status:     q.Status,
+		Shared:     shared,
 		Limit:      q.Limit,
 	})
 	if err != nil {
@@ -173,16 +240,18 @@ func insightHit(in knowledgekit.Insight, score float64) Hit {
 }
 
 // Fetch dereferences an mcp:insight:<id> reference to the full insight (#699),
-// following the AssetsProvider precedent. Insights are per-user, so the read is
-// scoped to the caller: it returns an insight only when the caller captured it
-// (captured_by == caller email); a non-owner, a missing id, or an anonymous caller
-// is ErrNotFound, so fetch never reveals an insight the caller could not have
-// searched. It does NOT additionally gate on review status: Search retracts non-live
-// insights only from the default (no-status) discovery path, while an explicit
-// status query surfaces them, so a caller can search any of their own insights by
-// status and fetch must dereference any reference search hands out. The
-// knowledge-dimension scope is enforced by the store adapter's Get, so a reference
-// that names a non-knowledge memory record resolves to not-found here.
+// following the AssetsProvider precedent. The read is scoped to exactly what
+// Search could have returned, so fetch never reveals an insight the caller could
+// not have found and never refuses a reference search handed out: the caller's
+// own insights at any status (the owner arm), plus any capturer's applied
+// insights (the shared arm). A non-owner's unapplied insight, a missing id, or
+// an anonymous caller is ErrNotFound. Within the owner arm it does NOT
+// additionally gate on review status: Search retracts non-live insights only
+// from the default (no-status) discovery path, while an explicit status query
+// surfaces them, so a caller can search any of their own insights by status and
+// fetch must dereference any reference search hands out. The knowledge-dimension
+// scope is enforced by the store adapter's Get, so a reference that names a
+// non-knowledge memory record resolves to not-found here.
 func (p *InsightsProvider) Fetch(ctx context.Context, ref string, caller Caller) (*Document, bool, error) {
 	parsed, err := knowledgepage.ParseEntityRef(ref)
 	if err != nil || parsed.TargetType != knowledgepage.RefTargetInsight {
@@ -201,7 +270,7 @@ func (p *InsightsProvider) Fetch(ctx context.Context, ref string, caller Caller)
 		}
 		return nil, true, fmt.Errorf("getting insight %s: %w", parsed.InsightID, err)
 	}
-	if in == nil || in.CapturedBy != caller.Email {
+	if in == nil || !readableBy(*in, caller) {
 		return nil, true, ErrNotFound
 	}
 	return &Document{
@@ -211,6 +280,14 @@ func (p *InsightsProvider) Fetch(ctx context.Context, ref string, caller Caller)
 		Content:    in,
 		EntityURNs: in.EntityURNs,
 	}, true, nil
+}
+
+// readableBy reports whether a caller may read an insight: their own at any
+// status, or anyone's once it is applied. It is the read-side statement of the
+// two Search arms, so the set fetch dereferences and the set search returns
+// cannot drift apart.
+func readableBy(in knowledgekit.Insight, caller Caller) bool {
+	return in.CapturedBy == caller.Email || in.Status == knowledgekit.StatusApplied
 }
 
 // isLiveInsightStatus reports whether an insight status represents knowledge
