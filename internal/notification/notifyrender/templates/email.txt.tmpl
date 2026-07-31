@@ -4,6 +4,8 @@
 {{range .Items}}
 {{- if $.Digest}}
 - {{.Detail}}{{end}}
+{{- if .Body}}
+  {{.Body}}{{end}}
 {{- if .Message}}
   "{{.Message}}"{{end}}
 {{- if .Link}}

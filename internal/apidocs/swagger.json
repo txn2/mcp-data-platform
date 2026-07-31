@@ -6396,6 +6396,80 @@
                 }
             }
         },
+        "/admin/settings/review-queue-alert": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the knowledge review-queue staleness alert configuration. Before an operator has written one, the platform defaults are returned with no recipients, and warnings state that nothing will be delivered.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get review-queue alert settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsView"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upserts the knowledge review-queue staleness alert configuration: the pending-count and age thresholds, the re-alert cooldown, and the recipients the digest is delivered to.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update review-queue alert settings",
+                "parameters": [
+                    {
+                        "description": "Review-queue alert settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/smtp": {
             "get": {
                 "security": [
@@ -19831,6 +19905,77 @@
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/resource.Version"
+                    }
+                }
+            }
+        },
+        "reviewalert.SettingsInput": {
+            "type": "object",
+            "properties": {
+                "cooldown_hours": {
+                    "type": "integer",
+                    "example": 24
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "oldest_pending_days": {
+                    "type": "integer",
+                    "example": 30
+                },
+                "pending_threshold": {
+                    "type": "integer",
+                    "example": 25
+                },
+                "recipients": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "data-admin@example.com"
+                    ]
+                }
+            }
+        },
+        "reviewalert.SettingsView": {
+            "type": "object",
+            "properties": {
+                "cooldown_hours": {
+                    "type": "integer",
+                    "example": 24
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "oldest_pending_days": {
+                    "type": "integer",
+                    "example": 30
+                },
+                "pending_threshold": {
+                    "type": "integer",
+                    "example": 25
+                },
+                "recipients": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "warnings": {
+                    "description": "Warnings describes a configuration that saves cleanly but delivers\nnothing. They never block a save; they exist so the operator sees the\ngap at the surface where the setting was chosen.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 }
             }

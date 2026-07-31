@@ -38,6 +38,13 @@ const (
 	// chatter still leaves a person reachable when someone addresses them
 	// directly.
 	CategoryMention = "mention"
+	// CategoryReviewQueue covers the operator alert raised when the knowledge
+	// review queue crosses its staleness threshold (#803). Unlike the three
+	// above it carries no per-user toggle: the operator names its recipients
+	// in the admin settings, so removing an address there is the way to stop
+	// sending it. A recipient still opts out for themselves with ModeOff,
+	// including through the no-login unsubscribe link every email carries.
+	CategoryReviewQueue = "review_queue"
 )
 
 // Delivery modes for user preferences.
@@ -76,7 +83,31 @@ const (
 	KindFeedback = "feedback"
 	// KindMention marks a comment that named the recipient.
 	KindMention = "mention"
+	// KindReviewQueue marks a knowledge review-queue staleness alert (#803).
+	// Its payload carries a Review rollup instead of an item reference.
+	KindReviewQueue = "review_queue"
 )
+
+// ReviewQueue is the pending-review rollup a KindReviewQueue notification
+// carries. The renderer turns it into the alert's subject and body, so the
+// queued row holds the numbers rather than a sentence about them.
+//
+// The values are the queue as the check saw it. A daily-digest recipient
+// therefore reads what actually tripped the threshold, not a re-measurement
+// taken when the digest happened to go out.
+type ReviewQueue struct {
+	// Pending is the total number of insights awaiting review.
+	Pending int `json:"pending"`
+	// OldestAgeDays is the age in days of the oldest pending insight.
+	OldestAgeDays int `json:"oldest_age_days"`
+	// StaleCount is how many pending insights are at least StaleAfterDays
+	// old -- the accumulating review debt.
+	StaleCount int `json:"stale_count"`
+	// StaleAfterDays is the age at which a pending insight counts toward
+	// StaleCount. The email states it rather than assuming the reader knows
+	// the platform's staleness window.
+	StaleAfterDays int `json:"stale_after_days"`
+}
 
 // Payload carries the event details a template needs to render an email.
 // It is stored as the queue row's JSONB payload.
@@ -93,6 +124,9 @@ type Payload struct {
 	Message string `json:"message,omitempty"`
 	// Link is the absolute portal deep link for the item.
 	Link string `json:"link,omitempty"`
+	// Review carries the review-queue rollup of a KindReviewQueue alert and
+	// is nil for every other kind.
+	Review *ReviewQueue `json:"review,omitempty"`
 }
 
 // Notification is one queued delivery.

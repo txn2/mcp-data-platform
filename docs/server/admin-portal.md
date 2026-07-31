@@ -495,7 +495,7 @@ dialog falls back to free-typed email only.
 
 ## Settings
 
-The Settings page holds global platform settings; the first section is
+The Settings page holds global platform settings. The first section is
 **Email (SMTP)**, which configures outbound mail for [email
 notifications](notifications.md). Host, port, credentials, sender address,
 and TLS mode are stored in the database (the password encrypted at rest
@@ -506,6 +506,14 @@ action (the test still sends). Like other admin configuration, editing
 requires database config mode. Email branding (footer text, legal links,
 Reply-To) is implementor-owned YAML, not part of this page; see the
 [portal configuration](configuration.md).
+
+The second section is **Review queue alert**, which decides when the
+platform emails an operator about an unworked knowledge review queue: the
+pending-count and oldest-age thresholds, the re-alert cooldown, and the
+recipients. A section that would deliver nothing (enabled with no
+recipients, or with both thresholds cleared) says so in a banner rather
+than saving silently. See [review queue
+alerts](notifications.md#review-queue-alerts).
 
 ## Change Log
 

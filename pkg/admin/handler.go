@@ -13,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	httpswagger "github.com/swaggo/http-swagger/v2"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -201,6 +202,10 @@ type Deps struct {
 	// SMTP test-send UI can surface a target's opt-out state (#1022). nil
 	// disables the recipient-status route.
 	NotificationPrefs notification.PrefsStore
+	// ReviewQueueAlert persists the knowledge review-queue staleness alert
+	// threshold, cooldown, and recipients (#803). nil disables the
+	// /api/v1/admin/settings/review-queue-alert routes.
+	ReviewQueueAlert reviewalert.SettingsStore
 	// NotificationHistory reads the delivery history behind the admin
 	// Notifications tab: what was sent, what failed and why. nil disables
 	// the /api/v1/admin/notifications routes.

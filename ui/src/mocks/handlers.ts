@@ -708,6 +708,38 @@ function smtpWarnings(): string[] {
   ];
 }
 
+// reviewQueueAlert is the knowledge review-queue staleness alert settings
+// (#803). The fixture is a configured alert so the settings screenshot shows
+// the section doing its job rather than an empty form.
+const reviewQueueAlert = {
+  enabled: true,
+  pending_threshold: 25,
+  oldest_pending_days: 30,
+  cooldown_hours: 24,
+  recipients: ["sarah.chen@example.com"],
+  updated_by: "sarah.chen@example.com",
+  updated_at: "2026-07-28T09:15:00Z",
+  warnings: [] as string[],
+};
+
+// reviewQueueAlertWarnings mirrors the server's check for a configuration that
+// saves cleanly and delivers nothing.
+function reviewQueueAlertWarnings(): string[] {
+  if (!reviewQueueAlert.enabled) return [];
+  const out: string[] = [];
+  if (reviewQueueAlert.recipients.length === 0) {
+    out.push(
+      "no recipients are configured, so no alert will be delivered; add at least one address",
+    );
+  }
+  if (reviewQueueAlert.pending_threshold <= 0 && reviewQueueAlert.oldest_pending_days <= 0) {
+    out.push(
+      "both thresholds are 0, so nothing can cross; set a pending count, an age in days, or both",
+    );
+  }
+  return out;
+}
+
 // mockNotificationRows backs both delivery-history surfaces: the admin
 // monitoring tab reads them whole, the user's own screen reads the subset a
 // recipient sees. One fixture keeps the two screenshots telling one story.
@@ -2885,6 +2917,30 @@ export const handlers = [
       );
     }
     return HttpResponse.json({ status: "sent", to: String(body.to ?? "") });
+  }),
+
+  // =========================================================================
+  // Admin: Settings (knowledge review-queue alert, #803)
+  // =========================================================================
+
+  http.get(`${ADMIN_BASE}/settings/review-queue-alert`, () => {
+    reviewQueueAlert.warnings = reviewQueueAlertWarnings();
+    return HttpResponse.json(reviewQueueAlert);
+  }),
+
+  http.put(`${ADMIN_BASE}/settings/review-queue-alert`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    reviewQueueAlert.enabled = Boolean(body.enabled);
+    reviewQueueAlert.pending_threshold = Number(body.pending_threshold ?? 0);
+    reviewQueueAlert.oldest_pending_days = Number(body.oldest_pending_days ?? 0);
+    reviewQueueAlert.cooldown_hours = Number(body.cooldown_hours ?? 24);
+    // The server normalizes recipients to the bare, lowercased address.
+    reviewQueueAlert.recipients = (Array.isArray(body.recipients) ? body.recipients : [])
+      .map((r) => String(r).trim().toLowerCase());
+    reviewQueueAlert.updated_by = "sarah.chen@example.com";
+    reviewQueueAlert.updated_at = new Date().toISOString();
+    reviewQueueAlert.warnings = reviewQueueAlertWarnings();
+    return HttpResponse.json(reviewQueueAlert);
   }),
 
   // =========================================================================

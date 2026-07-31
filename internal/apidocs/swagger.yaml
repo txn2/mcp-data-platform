@@ -4157,6 +4157,59 @@ definitions:
           $ref: '#/definitions/resource.Version'
         type: array
     type: object
+  reviewalert.SettingsInput:
+    properties:
+      cooldown_hours:
+        example: 24
+        type: integer
+      enabled:
+        example: true
+        type: boolean
+      oldest_pending_days:
+        example: 30
+        type: integer
+      pending_threshold:
+        example: 25
+        type: integer
+      recipients:
+        example:
+        - data-admin@example.com
+        items:
+          type: string
+        type: array
+    type: object
+  reviewalert.SettingsView:
+    properties:
+      cooldown_hours:
+        example: 24
+        type: integer
+      enabled:
+        example: true
+        type: boolean
+      oldest_pending_days:
+        example: 30
+        type: integer
+      pending_threshold:
+        example: 25
+        type: integer
+      recipients:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      updated_by:
+        example: admin@example.com
+        type: string
+      warnings:
+        description: |-
+          Warnings describes a configuration that saves cleanly but delivers
+          nothing. They never block a save; they exist so the operator sees the
+          gap at the surface where the setting was chosen.
+        items:
+          type: string
+        type: array
+    type: object
   settingsapi.problemDetail:
     properties:
       detail:
@@ -8452,6 +8505,54 @@ paths:
       summary: Prompt usage stats
       tags:
       - Prompts
+  /admin/settings/review-queue-alert:
+    get:
+      description: Returns the knowledge review-queue staleness alert configuration.
+        Before an operator has written one, the platform defaults are returned with
+        no recipients, and warnings state that nothing will be delivered.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/reviewalert.SettingsView'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get review-queue alert settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: 'Upserts the knowledge review-queue staleness alert configuration:
+        the pending-count and age thresholds, the re-alert cooldown, and the recipients
+        the digest is delivered to.'
+      parameters:
+      - description: Review-queue alert settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/reviewalert.SettingsInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/reviewalert.SettingsView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update review-queue alert settings
+      tags:
+      - Settings
   /admin/settings/smtp:
     get:
       description: Returns the stored SMTP configuration. The password is never returned;

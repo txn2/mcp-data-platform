@@ -154,6 +154,12 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	notify.Start(ctx)
 	defer notify.Stop()
 
+	// Scheduled knowledge review-queue staleness check (#803). It enqueues
+	// through the substrate above, so it starts after it and stops before it.
+	reviewAlert := buildReviewAlert(p, notify)
+	reviewAlert.Start(ctx)
+	defer reviewAlert.Stop()
+
 	mux := http.NewServeMux()
 	hcfg := extractHTTPConfig(p)
 	hc := health.NewChecker()

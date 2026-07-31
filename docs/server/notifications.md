@@ -3,7 +3,8 @@
 The platform emails users when something needs their attention: a teammate
 shares an asset, collection, or prompt with them, comments on something they
 own or that is shared with them, or names them in a comment with an
-@-mention. Delivery is durable (a database-backed queue with retries), never
+@-mention. It also alerts operators when the knowledge review queue goes
+unworked. Delivery is durable (a database-backed queue with retries), never
 blocks the originating request, and respects per-user preferences including
 a daily digest mode.
 
@@ -22,6 +23,7 @@ graph LR
         Share[Share created]
         Comment[Thread comment / feedback]
         Mention["@-mention in a comment"]
+        Review[Review queue over threshold]
     end
     subgraph Queue
         Prefs[(user preferences)]
@@ -34,6 +36,7 @@ graph LR
     Share --> Prefs
     Comment --> Prefs
     Mention --> Prefs
+    Review --> Prefs
     Prefs -->|off| Drop[Dropped]
     Prefs -->|immediate or daily| Rows
     Rows --> Worker --> SMTP
@@ -62,6 +65,10 @@ graph LR
    pod restarts and expired delivery leases are reclaimed automatically.
 3. Daily-digest users get one email per day summarizing that window's
    events instead of one email per event.
+4. One trigger has no human behind it: a scheduled check compares the
+   knowledge review queue against the operator's staleness threshold and
+   queues an alert when it crosses. See
+   [Review queue alerts](#review-queue-alerts) below.
 
 ## Admin SMTP settings
 
@@ -121,6 +128,70 @@ GET  /api/v1/admin/settings/smtp/recipient-status    opt-out state of an address
 Like other admin configuration, writes require database config mode; in
 file mode the endpoints respond 405.
 
+## Review queue alerts
+
+An `apply_knowledge` review queue that nobody works erodes the knowledge
+flywheel silently: captures stop becoming shared knowledge and agents keep
+re-deriving facts nobody promoted. The pending count and its age are already
+visible to anyone who looks (`bulk_review`, `platform_info`, and the portal's
+Insights tab all report them). This is the push signal for everyone who does
+not look.
+
+A scheduled check reads the pending queue once an hour through the same
+lightweight rollup `platform_info` uses -- one aggregate query, never on a
+request path -- and queues an alert when the queue crosses the operator's
+threshold. The alert is a normal notification: it goes through the same
+preference gate, queue, worker, and branded renderer as every other email,
+and a daily-mode recipient reads it as one line of their digest.
+
+Admins configure it in the portal under **Admin, then Settings**, beside the
+SMTP section, or via the REST API:
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Master switch for the scheduled check. |
+| `pending_threshold` | Alert once this many insights are awaiting review. `0` turns this condition off. |
+| `oldest_pending_days` | Alert once the oldest pending insight reaches this age in days. `0` turns this condition off. Defaults to 30, the same age at which the portal badges an insight stale. |
+| `cooldown_hours` | Minimum gap between two alerts while the queue stays over threshold (1-720, default 24). |
+| `recipients` | The addresses the digest is delivered to (at most 20). |
+
+Either threshold alone is enough to cross; an empty queue never crosses. The
+recipient list is explicit rather than derived from roles: role membership
+arrives with a request from the identity provider, so there is no set of
+admins the platform can enumerate at check time.
+
+Like the SMTP section, the read and update responses carry a `warnings` array
+for a configuration that saves cleanly and delivers nothing -- an enabled
+alert with no recipients, or with both thresholds cleared -- and the admin UI
+shows them as a banner above the form. Neither blocks a save.
+
+```
+GET /api/v1/admin/settings/review-queue-alert    read the threshold, cooldown, and recipients
+PUT /api/v1/admin/settings/review-queue-alert    update them
+```
+
+**Re-alert policy.** A queue that stays over threshold produces one alert per
+cooldown window, not one per check. A queue worked back under the threshold
+clears the marker, so the next crossing alerts immediately rather than serving
+out a cooldown that belongs to a queue which has since been dealt with. The
+claim is a single conditional write against a one-row table, so it also makes
+the alert a cluster-wide singleton: on a multi-replica deployment exactly one
+replica's check wins a given window.
+
+**What the email says.** The pending count, the age of the oldest pending
+insight, how many are past the staleness threshold, and a deep link to the
+review queue itself (`<portal>/knowledge#review`) -- the queue, not the tab it
+lives behind. The figures are the queue as the check saw it, so a digest
+delivered hours later still reports what actually tripped the threshold. The
+link opens the review queue for anyone holding `apply_knowledge`; a recipient
+without that capability lands on the Insights tab's own-captures view, since
+the review queue is not a surface they can act on.
+
+**Preferences.** This category has no per-user toggle: the operator chose the
+recipient list, so removing an address there is how you stop sending it.
+A recipient still opts out for themselves with delivery mode `off`, including
+through the unsubscribe link the email carries like any other.
+
 ## User notification preferences
 
 Each user manages their own preferences in the portal under **Settings**
@@ -130,7 +201,8 @@ ever read or write their own preferences.
 - **Delivery mode**: `immediate` (one email per event, the default),
   `daily` (one digest email per day), or `off`.
 - **Category toggles**: shares, comments/feedback, and mentions, each individually
-  switchable.
+  switchable. Review queue alerts have no toggle here; see
+  [Review queue alerts](#review-queue-alerts).
 
 Users with no stored preferences get the defaults: immediate delivery with
 all categories enabled. Turning notifications off drops events at enqueue

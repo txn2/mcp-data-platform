@@ -90,7 +90,10 @@ describe("route manifest sync", () => {
         routePath: "/portal/admin/audit",
       },
       {
-        file: "../../src/pages/knowledge/KnowledgeHub.tsx",
+        // KnowledgeHub's hash contract lives in hubHash.ts, the module that
+        // owns the link shape other systems (the review-queue alert email)
+        // depend on.
+        file: "../../src/pages/knowledge/hubHash.ts",
         typeName: "Tab",
         routePath: "/portal/knowledge",
       },

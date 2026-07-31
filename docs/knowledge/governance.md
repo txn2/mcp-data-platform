@@ -68,6 +68,8 @@ The knowledge flywheel only turns if humans work the queue, so `bulk_review` als
 
 An agent can use these to nudge a reviewer (for example, "6 insights are pending review, the oldest is 94 days old"). The same rollup appears in `platform_info` under `features.knowledge_apply.review_queue` for any caller who can reach `apply_knowledge`. In the admin portal, the review queue view badges each pending insight by age and can be sorted oldest-first (`order=oldest` on the insights API) to work the stalest debt first.
 
+All of the above surface staleness to whoever looks. For the operator who does not, a scheduled check emails a review-queue digest when the pending queue crosses a configured threshold (pending count, oldest age, or both), with a deep link into the review queue and a cooldown so a persistently stale queue does not alert every interval. It is configured in **Admin > Settings** and delivered through the notification substrate; see [Review queue alerts](../server/notifications.md#review-queue-alerts).
+
 ### Enumerate the Review Queue
 
 `bulk_review` returns counts only. To list the pending insights themselves (the relevance-ranked `search` tool cannot enumerate the queue completely), pass `itemize: true`. The list is paginated by `offset`/`limit` (default 20, max 100) and carries `next_offset` while more remain:

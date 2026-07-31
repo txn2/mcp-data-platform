@@ -46,6 +46,48 @@ func TestBuildNotifications_NoDatabase(t *testing.T) {
 	}
 }
 
+// TestBuildReviewAlert_NoDatabase covers the degraded path of the scheduled
+// review-queue check (#803). Its database-present path needs a live Postgres
+// (Platform wires p.db only from a real DSN) and is covered by
+// TestBuildReviewAlert_RealDB in dbmounts_realdb_integration_test.go.
+func TestBuildReviewAlert_NoDatabase(t *testing.T) {
+	if got := buildReviewAlert(nil, nil); got != nil {
+		t.Error("nil platform must yield no checker")
+	}
+	if got := reviewAlertSettings(nil); got != nil {
+		t.Error("nil platform must yield no settings store")
+	}
+
+	p := newTestPlatform(t, &platform.Config{})
+	defer func() { _ = p.Close() }()
+
+	if got := buildReviewAlert(p, nil); got != nil {
+		t.Error("no database must yield no checker")
+	}
+	if got := reviewAlertSettings(p); got != nil {
+		t.Error("no database must yield no settings store")
+	}
+	// The composition root brackets Start/Stop on whatever it got back.
+	buildReviewAlert(p, nil).Start(context.Background())
+	buildReviewAlert(p, nil).Stop()
+}
+
+// TestReviewAlertSettings_NotificationsDisabled: with notifications off in
+// YAML the admin routes must not mount, so an operator cannot configure an
+// alert that nothing will ever send. This mirrors the SMTP section, whose
+// store is likewise absent in that state.
+func TestReviewAlertSettings_NotificationsDisabled(t *testing.T) {
+	cfg := &platform.Config{}
+	off := false
+	cfg.Notifications.Enabled = &off
+	p := newTestPlatform(t, cfg)
+	defer func() { _ = p.Close() }()
+
+	if got := reviewAlertSettings(p); got != nil {
+		t.Error("disabled notifications must yield no settings store")
+	}
+}
+
 // TestEmailLogo covers the startup resolve. A missing or broken logo must
 // degrade to the text wordmark rather than block notifications: the asset is
 // decoration, and a 404 on it is not a reason to stop sending email.

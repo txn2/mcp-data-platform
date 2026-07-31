@@ -1,9 +1,9 @@
-// Package settingsapi serves the /api/v1/admin/settings/smtp surface: the
-// stored SMTP configuration (#631), the send-test action, and the test
-// recipient's notification opt-out status (#1022). It is a decomposition seam
-// of pkg/admin (which sits at the package size budget): the parent registers
-// it on the admin mux and injects the request-scoped helpers it shares with
-// the other admin routes.
+// Package settingsapi serves the /api/v1/admin/settings surface: the stored
+// SMTP configuration (#631), the send-test action, the test recipient's
+// notification opt-out status (#1022), and the knowledge review-queue alert
+// threshold (#803). It is a decomposition seam of pkg/admin (which sits at the
+// package size budget): the parent registers it on the admin mux and injects
+// the request-scoped helpers it shares with the other admin routes.
 package settingsapi
 
 import (
@@ -14,6 +14,7 @@ import (
 	"net/mail"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
@@ -34,6 +35,9 @@ type Config struct {
 	// can surface a target's opt-out state (#1022). nil disables the
 	// recipient-status route.
 	Prefs notification.PrefsStore
+	// ReviewAlert persists the knowledge review-queue alert threshold
+	// (#803). nil disables the review-queue-alert routes.
+	ReviewAlert reviewalert.SettingsStore
 	// Mutable reports database config mode; false swaps the write routes for
 	// ReadOnly.
 	Mutable bool
@@ -56,10 +60,11 @@ type handler struct {
 // writes need database config mode (405 otherwise, matching the other admin
 // configuration surfaces).
 func Register(mux *http.ServeMux, cfg Config) {
+	h := &handler{cfg: cfg}
+	registerReviewAlert(mux, h)
 	if cfg.Settings == nil {
 		return
 	}
-	h := &handler{cfg: cfg}
 	mux.HandleFunc("GET /api/v1/admin/settings/smtp", h.getSMTP)
 	if cfg.Prefs != nil {
 		mux.HandleFunc("GET /api/v1/admin/settings/smtp/recipient-status", h.getRecipientStatus)
