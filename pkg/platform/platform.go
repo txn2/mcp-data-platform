@@ -28,6 +28,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/completionlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/connbackfill"
+	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
 	"github.com/txn2/mcp-data-platform/internal/platform/exportadapters"
 	"github.com/txn2/mcp-data-platform/internal/platform/iam"
@@ -1652,6 +1653,7 @@ func (p *Platform) initSearch() error {
 		EmbedTimeout:       p.config.Knowledge.SearchEmbedTimeout,    // 0 keeps the default
 		CatalogEnabled:     p.config.Semantic.Provider == kindDataHub,
 		SemanticProvider:   p.semanticProvider,
+		CatalogIndex:       datasetindex.Searcher(p.db, p.config.Knowledge.CatalogIndex),
 		MemoryStore:        p.memory.MemoryStore(),
 		InsightStore:       p.knowledge.InsightStore(),
 		KnowledgePageStore: p.portalStore.KnowledgePageStore(),

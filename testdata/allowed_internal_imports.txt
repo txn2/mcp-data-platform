@@ -120,6 +120,9 @@ internal/platform/connauth -> pkg/platform/fieldcrypt
 internal/platform/connbackfill -> pkg/connview
 internal/platform/connbackfill -> pkg/registry
 internal/platform/connscope -> pkg/persona
+internal/platform/datasetindex -> pkg/indexjobs
+internal/platform/datasetindex -> pkg/knowledge
+internal/platform/datasetindex -> pkg/semantic
 internal/platform/dedup -> pkg/middleware
 internal/platform/exportadapters -> pkg/portal
 internal/platform/exportadapters -> pkg/toolkits/apigateway
@@ -129,6 +132,7 @@ internal/platform/iam -> pkg/middleware
 internal/platform/iam -> pkg/persona
 internal/platform/indexqueue -> internal/platform/assetindex
 internal/platform/indexqueue -> internal/platform/collectionindex
+internal/platform/indexqueue -> internal/platform/datasetindex
 internal/platform/indexqueue -> internal/platform/knowledgepageindex
 internal/platform/indexqueue -> internal/platform/memoryindex
 internal/platform/indexqueue -> internal/platform/promptindex
@@ -362,6 +366,7 @@ pkg/platform -> internal/platform/connauth
 pkg/platform -> internal/platform/connbackfill
 pkg/platform -> internal/platform/connscope
 pkg/platform -> internal/platform/connsource
+pkg/platform -> internal/platform/datasetindex
 pkg/platform -> internal/platform/dedup
 pkg/platform -> internal/platform/exportadapters
 pkg/platform -> internal/platform/iam
