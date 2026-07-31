@@ -363,3 +363,26 @@ func TestJoinURL(t *testing.T) {
 		}
 	}
 }
+
+// TestSubject pins the shared summary line: the admin monitoring tab and a
+// user's own notification history both read it from here, so it must equal
+// the subject the email itself carries.
+func TestSubject(t *testing.T) {
+	n := notification.Notification{
+		Recipient: "a@b.io",
+		Payload: notification.Payload{
+			Kind: notification.KindAsset, ItemTitle: "Q3 Revenue", Actor: "alice@b.io",
+		},
+	}
+	email, err := testRenderer(t).Render([]notification.Notification{n})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := Subject(n)
+	if got == "" {
+		t.Fatal("Subject must summarize the event")
+	}
+	if !strings.Contains(email.Subject, got) {
+		t.Errorf("Subject() = %q, which is not the line the email carries (%q)", got, email.Subject)
+	}
+}

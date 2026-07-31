@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useDirectoryUsers } from "@/api/portal/hooks";
 import type { DirectoryUser } from "@/api/portal/types";
+import { parseEmailAddress } from "@/lib/emailAddress";
 
 interface Props {
   value: string;
@@ -20,6 +21,12 @@ function displayName(u: DirectoryUser): string {
  * (no database), it degrades silently to a plain email input. The suggestion
  * list is keyboard navigable (Arrow keys / Enter / Escape) and exposed as an
  * ARIA listbox.
+ *
+ * A value pasted in the `Display Name <user@example.com>` form mail clients
+ * copy is reduced to the bare address when the field loses focus, so what the
+ * user sees is what will be stored and mailed. Normalizing on blur rather than
+ * on every keystroke leaves the angle brackets alone while they are still
+ * being typed.
  */
 export function UserPicker({ value, onChange, placeholder }: Props) {
   const [focused, setFocused] = useState(false);
@@ -43,17 +50,32 @@ export function UserPicker({ value, onChange, placeholder }: Props) {
     setHighlight(-1);
   }, [debounced, data]);
 
+  // Reduce a pasted display-name form to the bare address on the way out.
+  // An unparseable value is left untouched: the field shows what was typed
+  // and the server states plainly why it was refused.
+  //
+  // Memoized on the current value because the outside-click effect below
+  // closes over it; a plain function would let that effect keep normalizing
+  // whatever the value was when the dropdown opened.
+  const normalizeOnBlur = useCallback(() => {
+    const parsed = parseEmailAddress(value);
+    if (parsed && parsed !== value.trim()) {
+      onChange(parsed);
+    }
+  }, [value, onChange]);
+
   // Close the dropdown on outside click.
   useEffect(() => {
     if (!focused) return;
     function onClick(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setFocused(false);
+        normalizeOnBlur();
       }
     }
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
-  }, [focused]);
+  }, [focused, normalizeOnBlur]);
 
   const showDropdown = focused && suggestions.length > 0;
 
@@ -89,6 +111,7 @@ export function UserPicker({ value, onChange, placeholder }: Props) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => setFocused(true)}
+        onBlur={normalizeOnBlur}
         onKeyDown={onKeyDown}
         autoComplete="off"
         role="combobox"

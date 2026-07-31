@@ -14,6 +14,8 @@ package portaldomain
 import (
 	"errors"
 	"fmt"
+	"net/mail"
+	"regexp"
 	"strings"
 	"time"
 
@@ -335,6 +337,42 @@ func ValidateNoticeText(text string) error {
 	return nil
 }
 
+// MaxShareMessageLength is the maximum length for the personal note a sharer
+// may attach to a share.
+const MaxShareMessageLength = 500
+
+// shareMessageTag matches the start of an HTML tag: "<" followed by an
+// optional slash and a name or declaration character. It deliberately does not
+// match a bare "<" or ">", so plain prose like "margin > 40%" stays legal.
+var shareMessageTag = regexp.MustCompile(`<\s*/?\s*[a-zA-Z!]`)
+
+// shareMessageLink matches the link forms mail clients turn into clickable
+// anchors, plus the schemes that would be dangerous if one ever did: an
+// explicit scheme separator, a "www." host, or a named scheme.
+var shareMessageLink = regexp.MustCompile(`(?i)(://|\bwww\.|\b(?:https?|mailto|data|javascript|file|ftp)\s*:)`)
+
+// ValidateShareMessage checks the optional personal note a sharer attaches to
+// a share. The note is plain text and travels only in the notification email.
+//
+// The email is a message the recipient's employer sends them, so its body is
+// trusted in a way arbitrary web content is not. Markup and links are rejected
+// here rather than escaped alone: escaping stops a note from rendering as
+// markup, but a plausible-looking link inside a platform email is a phishing
+// vector regardless of how it is encoded. Rendering escapes as well, so the
+// two defenses are independent.
+func ValidateShareMessage(message string) error {
+	if len(message) > MaxShareMessageLength {
+		return fmt.Errorf("message exceeds %d characters", MaxShareMessageLength)
+	}
+	if shareMessageTag.MatchString(message) {
+		return errors.New("message must be plain text: remove HTML tags")
+	}
+	if shareMessageLink.MatchString(message) {
+		return errors.New("message must be plain text: remove links")
+	}
+	return nil
+}
+
 // MaxChangeSummaryLength is the maximum length for a version change summary.
 const MaxChangeSummaryLength = 500
 
@@ -494,17 +532,38 @@ func ValidateSections(sections []CollectionSection) error {
 // MaxEmailLength is the maximum length for an email address (RFC 5321).
 const MaxEmailLength = 254
 
-// ValidateEmail checks that an email address has a basic valid format.
+// ParseEmail reduces recipient input to the bare address it names, lowercased.
+//
+// It accepts both a plain address and the "Display Name <user@example.com>"
+// form mail clients put on the clipboard, because that is what people paste
+// into a share field. Storing the display form verbatim produced a share that
+// matched no signed-in user and a notification addressed to a string no mail
+// server would route, so the display name is stripped here rather than
+// anywhere downstream: every door that accepts a recipient stores what this
+// returns.
+//
+// The domain must contain a dot, which keeps single-label hosts
+// ("user@localhost") out of a recipient field whose value is mailed to.
+func ParseEmail(input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if len(input) > MaxEmailLength {
+		return "", fmt.Errorf("email exceeds %d characters", MaxEmailLength)
+	}
+	addr, err := mail.ParseAddress(input)
+	if err != nil {
+		return "", errors.New("invalid email address")
+	}
+	local, domain, ok := strings.Cut(addr.Address, "@")
+	if !ok || local == "" || !strings.Contains(domain, ".") {
+		return "", errors.New("invalid email address")
+	}
+	return strings.ToLower(addr.Address), nil
+}
+
+// ValidateEmail reports whether recipient input names a usable address. It is
+// exactly ParseEmail's verdict: a value that cannot be reduced to a bare
+// address is rejected rather than stored raw.
 func ValidateEmail(email string) error {
-	if len(email) > MaxEmailLength {
-		return fmt.Errorf("email exceeds %d characters", MaxEmailLength)
-	}
-	parts := strings.SplitN(email, "@", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return errors.New("invalid email address")
-	}
-	if !strings.Contains(parts[1], ".") {
-		return errors.New("invalid email address")
-	}
-	return nil
+	_, err := ParseEmail(email)
+	return err
 }

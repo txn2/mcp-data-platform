@@ -205,6 +205,9 @@ func ValidateDescription(desc string) error { return portaldomain.ValidateDescri
 // ValidateNoticeText checks that notice text is within length limits.
 func ValidateNoticeText(text string) error { return portaldomain.ValidateNoticeText(text) }
 
+// ValidateShareMessage checks the sharer's optional plain-text note.
+func ValidateShareMessage(message string) error { return portaldomain.ValidateShareMessage(message) }
+
 // ValidateChangeSummary checks that a change summary is within length limits.
 func ValidateChangeSummary(s string) error { return portaldomain.ValidateChangeSummary(s) }
 

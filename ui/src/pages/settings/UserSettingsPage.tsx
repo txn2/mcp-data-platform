@@ -8,6 +8,7 @@ import {
 } from "@/api/portal/hooks";
 import { useAuthStore } from "@/stores/auth";
 import { ConfigToggle } from "./connections/fields";
+import { MyNotifications } from "./MyNotifications";
 import { cn } from "@/lib/utils";
 import { AlertCircle, Bell, Check, RefreshCw, Settings, XCircle } from "lucide-react";
 
@@ -178,13 +179,28 @@ function NoDeliveryNotice({ onNavigate }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// UserSettingsPage: per-user settings (/settings). Notifications section:
-// email delivery mode and category opt-outs (#631). Each change saves
-// immediately via a partial PUT (the API accepts only the changed fields),
-// with transient inline saved/error feedback.
+// UserSettingsPage: per-user settings (/settings). It pairs the notification
+// preferences (what should I be told) with the notification history (what was
+// I actually told), because a user checking one is usually answering the
+// other -- "I turned shares on, so why have I had no email?"
 // ---------------------------------------------------------------------------
 
 export function UserSettingsPage({ onNavigate }: Props) {
+  return (
+    <div className="space-y-4">
+      <NotificationPrefsCard onNavigate={onNavigate} />
+      <MyNotifications />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// NotificationPrefsCard: email delivery mode and category opt-outs (#631).
+// Each change saves immediately via a partial PUT (the API accepts only the
+// changed fields), with transient inline saved/error feedback.
+// ---------------------------------------------------------------------------
+
+function NotificationPrefsCard({ onNavigate }: Props) {
   const {
     data: prefs,
     isLoading,

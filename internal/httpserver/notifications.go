@@ -139,18 +139,29 @@ func wirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 		deps.Notifier = bridge
 		wireFeedbackToolNotifications(p, bridge)
 	}
+	callerEmail := func(r *http.Request) string {
+		if user := portal.GetUser(r.Context()); user != nil {
+			return user.Email
+		}
+		return ""
+	}
 	prefsAPI := &notifyhttp.PrefsAPI{
 		Store: notify.Prefs(),
 		// Backs delivery_available: the settings page states plainly when no
 		// SMTP path exists rather than offering live controls over a
 		// preference nothing can act on (#1099).
-		Settings: notify.Settings(),
-		UserEmail: func(r *http.Request) string {
-			if user := portal.GetUser(r.Context()); user != nil {
-				return user.Email
-			}
-			return ""
-		},
+		Settings:  notify.Settings(),
+		UserEmail: callerEmail,
 	}
-	deps.NotificationRegistrar = prefsAPI.Register
+	historyAPI := &notifyhttp.HistoryAPI{
+		Store:     notify.History(),
+		UserEmail: callerEmail,
+		Retention: notifydelivery.HistoryRetention,
+	}
+	// Both surfaces are self-scoped to the same caller identity, so they
+	// resolve it through one function rather than two spellings of it.
+	deps.NotificationRegistrar = func(mux *http.ServeMux) {
+		prefsAPI.Register(mux)
+		historyAPI.Register(mux)
+	}
 }

@@ -647,6 +647,13 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 		writePortalError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	// Normalize before the recipient checks: "Owner Name <owner@example.com>"
+	// must fail the you-already-own-this test the bare address fails, and the
+	// MCP serving path matches recipients by bare address.
+	if err := req.normalizeRecipient(); err != nil {
+		writePortalError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if msg := validatePromptRecipient(req.SharedWithEmail, user.Email); msg != "" {
 		writePortalError(w, http.StatusBadRequest, msg)
 		return
@@ -661,7 +668,11 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 		writePortalError(w, http.StatusInternalServerError, "failed to create share")
 		return
 	}
-	h.notifyShare(r.Context(), &share, "prompt", pr.ID, pr.DisplayName)
+	if req.wantsNotify() {
+		h.notifyShare(r.Context(), &share, ShareEvent{
+			Kind: "prompt", ItemID: pr.ID, ItemTitle: pr.DisplayName, Message: req.Message,
+		})
+	}
 	writePortalJSON(w, http.StatusCreated, shareResponse{Share: share})
 }
 

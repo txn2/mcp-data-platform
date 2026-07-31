@@ -2680,6 +2680,129 @@ definitions:
         example: 42
         type: integer
     type: object
+  notifyapi.notificationListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/notifyapi.notificationRow'
+        type: array
+      page:
+        example: 1
+        type: integer
+      per_page:
+        example: 50
+        type: integer
+      total:
+        example: 196
+        type: integer
+    type: object
+  notifyapi.notificationRow:
+    properties:
+      actor:
+        example: alice@example.com
+        type: string
+      attempts:
+        example: 5
+        type: integer
+      category:
+        example: share
+        type: string
+      created_at:
+        type: string
+      digest:
+        example: false
+        type: boolean
+      id:
+        example: 4211
+        type: integer
+      item_title:
+        example: Q3 Revenue
+        type: string
+      last_error:
+        example: 'dial tcp: connection refused'
+        type: string
+      link:
+        example: https://platform.example.com/portal/assets/a1
+        type: string
+      recipient:
+        example: bob@example.com
+        type: string
+      scheduled_for:
+        type: string
+      sent_at:
+        type: string
+      status:
+        example: failed
+        type: string
+      subject:
+        example: alice@example.com shared the asset "Q3 Revenue" with you
+        type: string
+    type: object
+  notifyapi.notificationStatsResponse:
+    properties:
+      failed:
+        example: 7
+        type: integer
+      pending:
+        example: 3
+        type: integer
+      retention_days:
+        description: |-
+          RetentionDays is how long a resolved row survives before the worker
+          purges it. Zero means the deployment did not report a window.
+        example: 30
+        type: integer
+      sending:
+        example: 1
+        type: integer
+      sent:
+        example: 842
+        type: integer
+      total:
+        example: 853
+        type: integer
+    type: object
+  notifyhttp.HistoryItem:
+    properties:
+      actor:
+        type: string
+      category:
+        type: string
+      created_at:
+        type: string
+      digest:
+        type: boolean
+      id:
+        type: integer
+      item_title:
+        type: string
+      link:
+        type: string
+      sent_at:
+        type: string
+      status:
+        type: string
+      subject:
+        type: string
+    type: object
+  notifyhttp.HistoryResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/notifyhttp.HistoryItem'
+        type: array
+      page:
+        type: integer
+      per_page:
+        type: integer
+      retention_days:
+        description: |-
+          RetentionDays is the window this history covers. Zero means the
+          deployment did not report one.
+        type: integer
+      total:
+        type: integer
+    type: object
   notifyhttp.PrefsRequest:
     properties:
       comments_enabled:
@@ -3088,16 +3211,37 @@ definitions:
         example: restricted
         type: string
       expires_in:
-        description: duration string, e.g. "24h"
+        description: |-
+          ExpiresIn is a duration string ("24h") bounding a link share's life. It
+          applies to link shares only: a share addressed to a person is access
+          granted to that person and is revoked, not timed out.
         example: 24h
         type: string
       hide_expiration:
         example: false
         type: boolean
+      message:
+        description: |-
+          Message is an optional plain-text note from the sharer, delivered in the
+          notification email and stored nowhere. Markup and links are rejected
+          (ValidateShareMessage) whatever the share's shape, so a malformed note
+          is reported rather than silently dropped; a note on a share that sends
+          no email is accepted and then goes nowhere.
+        example: Here's the Q3 revenue breakdown you asked about
+        type: string
       notice_text:
         description: nil = default, "" = hidden, custom = as-is
         example: Confidential
         type: string
+      notify:
+        description: |-
+          Notify controls whether a named recipient gets a "shared with you"
+          email. nil (omitted) means notify -- the default a share carries when
+          nobody says otherwise. false shares quietly. The recipient's own
+          notification preferences still apply when it is true; this only removes
+          the sharer's ability to force one.
+        example: true
+        type: boolean
       permission:
         description: '"viewer" (default) or "editor"'
         example: viewer
@@ -7358,6 +7502,80 @@ paths:
       summary: Get insight stats
       tags:
       - Knowledge
+  /admin/notifications:
+    get:
+      description: Returns paginated notification queue rows, newest first, with delivery
+        status, attempt count, and failure detail. Bounded by the queue's retention
+        window rather than being a full archive.
+      parameters:
+      - description: Filter by recipient email
+        in: query
+        name: recipient
+        type: string
+      - description: Filter by status (pending, sending, sent, failed)
+        in: query
+        name: status
+        type: string
+      - description: Filter by category (share, comment, mention)
+        in: query
+        name: category
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 50, max: 200)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notifyapi.notificationListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List notification deliveries
+      tags:
+      - Notifications
+  /admin/notifications/stats:
+    get:
+      description: Returns per-status notification counts and the retention window
+        they cover. The recipient and category filters apply; status does not, so
+        a status-filtered list still shows the full breakdown.
+      parameters:
+      - description: Filter by recipient email
+        in: query
+        name: recipient
+        type: string
+      - description: Filter by category (share, comment, mention)
+        in: query
+        name: category
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notifyapi.notificationStatsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get notification delivery stats
+      tags:
+      - Notifications
   /admin/oauth/callback:
     get:
       description: Public endpoint hit by the upstream OAuth provider after the operator
@@ -11043,6 +11261,54 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update my notification preferences
+      tags:
+      - Notifications
+  /portal/notifications:
+    get:
+      description: 'Returns the calling user''s own notification history, newest first:
+        category, subject, delivery status, and send time. Server-side self-scoped
+        -- the caller''s address is the only recipient queried, and there is no parameter
+        to widen it. Bounded by the queue''s retention window.'
+      parameters:
+      - description: Filter by status (pending, sending, sent, failed)
+        in: query
+        name: status
+        type: string
+      - description: Filter by category (share, comment, mention)
+        in: query
+        name: category
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 50, max: 200)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notifyhttp.HistoryResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my notifications
       tags:
       - Notifications
   /portal/prompt-collections:

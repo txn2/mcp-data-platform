@@ -122,3 +122,81 @@ func TestValidateEmail(t *testing.T) {
 	longEmail := strings.Repeat("a", 250) + "@b.co"
 	assert.Error(t, ValidateEmail(longEmail)) // exceeds 254
 }
+
+func TestParseEmail(t *testing.T) {
+	cases := map[string]struct {
+		input string
+		want  string
+	}{
+		"bare address":           {"user@example.com", "user@example.com"},
+		"display name form":      {"Example User <User@Example.com>", "user@example.com"},
+		"quoted display name":    {`"Doe, Jane" <jane.doe@example.com>`, "jane.doe@example.com"},
+		"angle brackets only":    {"<user@example.com>", "user@example.com"},
+		"surrounding whitespace": {"  user@example.com  ", "user@example.com"},
+		"uppercase bare address": {"USER@EXAMPLE.COM", "user@example.com"},
+		"display name with plus": {"Ops <ops+alerts@example.com>", "ops+alerts@example.com"},
+		"subdomain":              {"user@mail.example.com", "user@mail.example.com"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := ParseEmail(tc.input)
+			assert.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+
+	for name, input := range map[string]string{
+		"empty":                        "",
+		"display name only":            "Example User",
+		"unroutable host":              "user@localhost",
+		"no local part":                "@example.com",
+		"two addresses":                "a@example.com, b@example.com",
+		"unclosed bracket":             "Example User <user@example.com",
+		"empty angle pair":             "<>",
+		"over length limit":            strings.Repeat("a", 250) + "@example.com",
+		"missing domain dot":           "Example User <user@localhost>",
+		"spaces inside angle brackets": "Example User < user@example.com >",
+	} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			got, err := ParseEmail(input)
+			assert.Error(t, err)
+			assert.Empty(t, got)
+		})
+	}
+}
+
+func TestValidateShareMessage(t *testing.T) {
+	for name, msg := range map[string]string{
+		"empty":                "",
+		"plain sentence":       "Here's the Q3 revenue breakdown you asked about.",
+		"comparison operators": "margin > 40% and churn < 2%",
+		"punctuation":          "Review by Friday -- numbers are final (finally!).",
+		"multiline":            "Two things:\n1. the totals\n2. the footnote",
+		"at the length cap":    strings.Repeat("a", MaxShareMessageLength),
+		"bare domain mention":  "the numbers came from the finance export",
+	} {
+		t.Run("accepts "+name, func(t *testing.T) {
+			assert.NoError(t, ValidateShareMessage(msg))
+		})
+	}
+
+	for name, msg := range map[string]string{
+		"anchor tag":       `see <a href="https://x.io">here</a>`,
+		"bold tag":         "<b>urgent</b>",
+		"closing tag":      "urgent</b>",
+		"spaced tag":       "< script >alert(1)",
+		"doctype":          "<!DOCTYPE html>",
+		"http url":         "details at http://x.io/report",
+		"https url":        "details at https://x.io/report",
+		"www host":         "go to www.x.io",
+		"javascript uri":   "javascript:alert(1)",
+		"data uri":         "data:text/html;base64,PHNjcmlwdD4=",
+		"mailto uri":       "mailto:someone@example.com",
+		"over length":      strings.Repeat("a", MaxShareMessageLength+1),
+		"uppercase scheme": "HTTPS://X.IO",
+	} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			assert.Error(t, ValidateShareMessage(msg))
+		})
+	}
+}

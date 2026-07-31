@@ -141,7 +141,7 @@ Each feature links to its full documentation.
 | [Multi-provider](https://mcp-data-platform.txn2.com/server/multi-provider/) | Multiple instances of each service behind one endpoint, with isolated failure domains |
 | [Operating modes](https://mcp-data-platform.txn2.com/server/operating-modes/) | Standalone (no database) or file + database with live config overrides resolved per read |
 | [Deployment shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) | Which backends you need: the semantic stack for cross-enrichment, PostgreSQL alone for the gateways and knowledge layer, or both |
-| [Email notifications](https://mcp-data-platform.txn2.com/server/notifications/) | Branded emails for shares and feedback: admin-configured SMTP, per-user preferences (immediate, daily digest, or off), durable queue with retries |
+| [Email notifications](https://mcp-data-platform.txn2.com/server/notifications/) | Branded emails for shares and feedback: admin-configured SMTP, per-user preferences (immediate, daily digest, or off), durable queue with retries, a per-share notify toggle and optional plain-text note, and delivery history for admins and for each recipient |
 
 ## The Portal
 

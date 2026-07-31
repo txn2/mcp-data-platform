@@ -9,6 +9,7 @@ import {
   useDeletePromptCollection,
 } from "@/api/portal/hooks";
 import type { PromptCollection } from "@/api/admin/types";
+import { ModalScroll } from "@/components/ModalShell";
 
 // CollectionsManagerDialog creates, renames, and deletes prompt collections
 // (#1010). Any user can create a collection; renaming and deleting are limited
@@ -28,7 +29,8 @@ export function CollectionsManagerDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   const collections = data?.data ?? [];
-  const canManage = (c: PromptCollection) => isAdmin || c.created_by === myEmail;
+  const canManage = (c: PromptCollection) =>
+    isAdmin || c.created_by === myEmail;
 
   function reportError(err: unknown) {
     setError(err instanceof Error ? err.message : "Operation failed");
@@ -45,9 +47,15 @@ export function CollectionsManagerDialog({ onClose }: { onClose: () => void }) {
     setError(null);
     const body = { name, description };
     if (editingId) {
-      updateMutation.mutate({ id: editingId, ...body }, { onSuccess: resetForm, onError: reportError });
+      updateMutation.mutate(
+        { id: editingId, ...body },
+        { onSuccess: resetForm, onError: reportError },
+      );
     } else {
-      createMutation.mutate(body, { onSuccess: resetForm, onError: reportError });
+      createMutation.mutate(body, {
+        onSuccess: resetForm,
+        onError: reportError,
+      });
     }
   }
 
@@ -67,13 +75,18 @@ export function CollectionsManagerDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-label="Manage collections">
-      <div className="w-full max-w-lg rounded-lg border bg-background shadow-lg">
+    <ModalScroll onClose={onClose} width="max-w-lg" label="Manage collections">
+      <div className="rounded-lg border bg-background shadow-lg">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <FolderOpen className="h-4 w-4 text-muted-foreground" /> Manage collections
+            <FolderOpen className="h-4 w-4 text-muted-foreground" /> Manage
+            collections
           </h3>
-          <button onClick={onClose} className="rounded-md p-1 hover:bg-accent" aria-label="Close">
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 hover:bg-accent"
+            aria-label="Close"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -99,7 +112,7 @@ export function CollectionsManagerDialog({ onClose }: { onClose: () => void }) {
           onSubmit={handleSubmit}
         />
       </div>
-    </div>
+    </ModalScroll>
   );
 }
 
@@ -142,11 +155,16 @@ function CollectionEditorForm({
         className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
       />
       {error && (
-        <div className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>
+        <div className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          {error}
+        </div>
       )}
       <div className="flex justify-end gap-2">
         {editing && (
-          <button onClick={onCancel} className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted">
+          <button
+            onClick={onCancel}
+            className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+          >
             Cancel
           </button>
         )}
@@ -179,12 +197,17 @@ function CollectionList({
   onDelete: (c: PromptCollection) => void;
 }) {
   if (isLoading) {
-    return <div className="px-4 py-6 text-center text-sm text-muted-foreground">Loading...</div>;
+    return (
+      <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+        Loading...
+      </div>
+    );
   }
   if (collections.length === 0) {
     return (
       <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-        No collections yet. Create one below to group prompts by team, domain, or workflow.
+        No collections yet. Create one below to group prompts by team, domain,
+        or workflow.
       </div>
     );
   }
@@ -195,7 +218,9 @@ function CollectionList({
           <div className="min-w-0 flex-1">
             <div className="font-medium truncate">{c.name}</div>
             {c.description && (
-              <div className="text-xs text-muted-foreground truncate">{markdownToPlainText(c.description)}</div>
+              <div className="text-xs text-muted-foreground truncate">
+                {markdownToPlainText(c.description)}
+              </div>
             )}
           </div>
           <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -203,7 +228,11 @@ function CollectionList({
           </span>
           {canManage(c) && (
             <>
-              <button onClick={() => onEdit(c)} className="rounded-md p-1.5 hover:bg-accent" aria-label={`Rename ${c.name}`}>
+              <button
+                onClick={() => onEdit(c)}
+                className="rounded-md p-1.5 hover:bg-accent"
+                aria-label={`Rename ${c.name}`}
+              >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
               <button

@@ -128,7 +128,7 @@ func TestNotifyShare_TokenViewerLink(t *testing.T) {
 
 	n.NotifyShare(context.Background(),
 		&portal.Share{Token: "tok", CreatedBy: "o@b.io", SharedWithEmail: "r@b.io"},
-		"asset", "a1", "Report")
+		portal.ShareEvent{Kind: "asset", ItemID: "a1", ItemTitle: "Report"})
 
 	rows := queue.snapshot()
 	if len(rows) != 1 {
@@ -147,7 +147,7 @@ func TestNotifyShare_PromptLinksToPromptPage(t *testing.T) {
 
 	n.NotifyShare(context.Background(),
 		&portal.Share{Token: "tok", CreatedBy: "o@b.io", SharedWithEmail: "r@b.io"},
-		"prompt", "pr1", "Daily Report")
+		portal.ShareEvent{Kind: "prompt", ItemID: "pr1", ItemTitle: "Daily Report"})
 
 	rows := queue.snapshot()
 	if len(rows) != 1 {
@@ -162,7 +162,7 @@ func TestNotifyShare_TokenOnlyShareQueuesNothing(t *testing.T) {
 	n, queue := bridgeUnderTest(t, PortalStores{}, "https://x.io")
 
 	n.NotifyShare(context.Background(),
-		&portal.Share{Token: "tok", CreatedBy: "o@b.io"}, "asset", "a1", "Report")
+		&portal.Share{Token: "tok", CreatedBy: "o@b.io"}, portal.ShareEvent{Kind: "asset", ItemID: "a1", ItemTitle: "Report"})
 
 	if len(queue.snapshot()) != 0 {
 		t.Error("share without a recipient email must queue nothing")
@@ -175,11 +175,11 @@ func TestNotifyShare_DefaultNoticeSuppressed(t *testing.T) {
 	n.NotifyShare(context.Background(), &portal.Share{
 		Token: "t1", CreatedBy: "o@b.io", SharedWithEmail: "r@b.io",
 		NoticeText: portal.DefaultNoticeText,
-	}, "asset", "a1", "Report")
+	}, portal.ShareEvent{Kind: "asset", ItemID: "a1", ItemTitle: "Report"})
 	n.NotifyShare(context.Background(), &portal.Share{
 		Token: "t2", CreatedBy: "o@b.io", SharedWithEmail: "r2@b.io",
 		NoticeText: "Please review by Friday",
-	}, "asset", "a1", "Report")
+	}, portal.ShareEvent{Kind: "asset", ItemID: "a1", ItemTitle: "Report"})
 
 	rows := queue.snapshot()
 	if len(rows) != 2 {
@@ -190,6 +190,26 @@ func TestNotifyShare_DefaultNoticeSuppressed(t *testing.T) {
 	}
 	if rows[1].Payload.Message != "Please review by Friday" {
 		t.Errorf("custom notice must pass through: %q", rows[1].Payload.Message)
+	}
+}
+
+func TestNotifyShare_SharerNoteWinsOverNotice(t *testing.T) {
+	n, queue := bridgeUnderTest(t, PortalStores{}, "https://x.io")
+
+	n.NotifyShare(context.Background(), &portal.Share{
+		Token: "t1", CreatedBy: "o@b.io", SharedWithEmail: "r@b.io",
+		NoticeText: "Please review by Friday",
+	}, portal.ShareEvent{
+		Kind: "asset", ItemID: "a1", ItemTitle: "Report",
+		Message: "Here is the Q3 breakdown you asked about",
+	})
+
+	rows := queue.snapshot()
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0].Payload.Message != "Here is the Q3 breakdown you asked about" {
+		t.Errorf("the sharer's own note must be the quoted message: %q", rows[0].Payload.Message)
 	}
 }
 
@@ -519,7 +539,7 @@ func TestNotifyThreadEvent_FanoutDoesNotExhaustTheActorBudget(t *testing.T) {
 	// not one per recipient.
 	n.NotifyShare(context.Background(),
 		&portal.Share{Token: "tok", CreatedBy: "commenter@b.io", SharedWithEmail: "later@b.io"},
-		notification.KindAsset, "a2", "Another")
+		portal.ShareEvent{Kind: notification.KindAsset, ItemID: "a2", ItemTitle: "Another"})
 
 	var shared bool
 	for _, r := range queue.snapshot() {

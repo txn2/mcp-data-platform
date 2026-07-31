@@ -1,10 +1,22 @@
 import type { ReactNode } from "react";
+import { ModalScroll } from "@/components/ModalShell";
 
-export function Overlay({ children, onClose }: { children: ReactNode; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-4">
-      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative z-10 mx-4 w-full max-w-lg">{children}</div>
-    </div>
-  );
+/**
+ * Overlay is the shared backdrop for the resource modals. Each of them brings
+ * its own panel chrome, so this delegates to ModalScroll: the panel keeps its
+ * natural height and the backdrop scrolls.
+ *
+ * It previously centered with `items-center` over a scrolling overlay, which
+ * put the top of a tall panel -- its title and close button -- above the
+ * scroll container's start, where nothing could reach it. ModalScroll centers
+ * while the content fits and pins to the top once it does not.
+ */
+export function Overlay({
+  children,
+  onClose,
+}: {
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return <ModalScroll onClose={onClose}>{children}</ModalScroll>;
 }

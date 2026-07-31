@@ -722,7 +722,11 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	h.notifyShare(r.Context(), &share, "collection", coll.ID, coll.Name)
+	if req.wantsNotify() {
+		h.notifyShare(r.Context(), &share, ShareEvent{
+			Kind: "collection", ItemID: coll.ID, ItemTitle: coll.Name, Message: req.Message,
+		})
+	}
 
 	resp := shareResponse{Share: share}
 	if h.deps.PublicBaseURL != "" {

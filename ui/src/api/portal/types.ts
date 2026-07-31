@@ -82,6 +82,30 @@ export interface Share {
   notice_text?: string;
 }
 
+/**
+ * CreateShareBody is the share-creation request body, identical for assets,
+ * collections, and prompts because the server decodes all three with one
+ * type. It lives here rather than being restated per hook so the three
+ * cannot drift apart.
+ *
+ * `expires_in` is link-only: the server refuses it alongside a recipient,
+ * because a share addressed to a person ends when it is revoked, not on a
+ * clock.
+ */
+export interface CreateShareBody {
+  expires_in?: string;
+  shared_with_user_id?: string;
+  shared_with_email?: string;
+  hide_expiration?: boolean;
+  notice_text?: string;
+  permission?: SharePermission;
+  access_mode?: ShareAccessMode;
+  /** Omitted means notify; false shares without sending the recipient email. */
+  notify?: boolean;
+  /** Plain-text note from the sharer, delivered only in the notification email. */
+  message?: string;
+}
+
 export interface SharedAsset {
   asset: Asset;
   share_id: string;

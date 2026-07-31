@@ -20,6 +20,62 @@ export interface NotificationPrefs {
 // platform state, so it is never sent back.
 export type NotificationPrefsUpdate = Omit<NotificationPrefs, "delivery_available">;
 
+// --- My notification history (#1016) ---
+
+export type NotificationStatus = "pending" | "sending" | "sent" | "failed";
+
+/**
+ * NotificationItem is one notification as its recipient sees it. It carries no
+ * delivery-error text: a failed send fails for reasons that belong to the
+ * platform's mail infrastructure, which the recipient cannot act on.
+ */
+export interface NotificationItem {
+  id: number;
+  category: string;
+  subject: string;
+  item_title?: string;
+  actor?: string;
+  link?: string;
+  digest: boolean;
+  status: NotificationStatus;
+  sent_at?: string;
+  created_at: string;
+}
+
+export interface NotificationHistory {
+  data: NotificationItem[];
+  total: number;
+  page: number;
+  per_page: number;
+  // retention_days is the window this history covers; the queue purges
+  // resolved rows past it, so the screen shows recent activity rather than a
+  // complete record. Zero means the server reported no window.
+  retention_days: number;
+}
+
+export interface NotificationHistoryQuery {
+  status?: string;
+  category?: string;
+  page?: number;
+  per_page?: number;
+}
+
+// useMyNotifications reads the caller's own notification history. The endpoint
+// is self-scoped server-side: there is no recipient parameter to pass.
+export function useMyNotifications(query: NotificationHistoryQuery = {}) {
+  const params = new URLSearchParams();
+  if (query.status) params.set("status", query.status);
+  if (query.category) params.set("category", query.category);
+  if (query.page && query.page > 1) params.set("page", String(query.page));
+  if (query.per_page) params.set("per_page", String(query.per_page));
+  const qs = params.toString();
+
+  return useQuery({
+    queryKey: ["my-notifications", query],
+    queryFn: () => apiFetch<NotificationHistory>(`/notifications${qs ? `?${qs}` : ""}`),
+  });
+}
+
 export function useNotificationPrefs() {
   return useQuery({
     queryKey: ["notification-prefs"],

@@ -79,11 +79,109 @@ describe("ShareDialog access modes", () => {
     fireEvent.click(screen.getByRole("button", { name: /^share$/i }));
 
     // No access_mode is sent: the server defaults a named-recipient share to
-    // restricted, which is the behavior this section describes.
-    expect(createAsset.mutate).toHaveBeenCalledWith({
-      assetId: "ast-1",
-      shared_with_email: "bob@example.com",
-      permission: "viewer",
+    // restricted, which is the behavior this section describes. No expires_in
+    // either: a share addressed to a person ends by revocation.
+    expect(createAsset.mutate).toHaveBeenCalledWith(
+      {
+        assetId: "ast-1",
+        shared_with_email: "bob@example.com",
+        permission: "viewer",
+      },
+      expect.anything(),
+    );
+  });
+});
+
+describe("ShareDialog recipient notification", () => {
+  beforeEach(() => {
+    createAsset.mutate.mockClear();
+  });
+
+  function nameRecipient(email = "bob@example.com") {
+    fireEvent.change(screen.getByLabelText("Recipient"), { target: { value: email } });
+  }
+
+  function share() {
+    fireEvent.click(screen.getByRole("button", { name: /^share$/i }));
+  }
+
+  it("offers no notify control until a recipient is named", () => {
+    renderDialog();
+    expect(screen.queryByLabelText(/notify by email/i)).not.toBeInTheDocument();
+
+    nameRecipient();
+    expect(screen.getByLabelText(/notify by email/i)).toBeChecked();
+  });
+
+  it("sends no notify field when notification is left on", () => {
+    renderDialog();
+    nameRecipient();
+    share();
+
+    expect(createAsset.mutate).toHaveBeenCalledWith(
+      expect.not.objectContaining({ notify: expect.anything() }),
+      expect.anything(),
+    );
+  });
+
+  it("sends notify false and hides the message box when notification is off", () => {
+    renderDialog();
+    nameRecipient();
+    fireEvent.click(screen.getByLabelText(/notify by email/i));
+
+    // The note travels only in the email, so it has nowhere to go.
+    expect(screen.queryByLabelText(/message/i)).not.toBeInTheDocument();
+
+    share();
+    expect(createAsset.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ notify: false }),
+      expect.anything(),
+    );
+  });
+
+  it("sends a trimmed message with the share", () => {
+    renderDialog();
+    nameRecipient();
+    fireEvent.change(screen.getByLabelText(/message/i), {
+      target: { value: "  Here is the Q3 breakdown  " },
     });
+    share();
+
+    expect(createAsset.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Here is the Q3 breakdown" }),
+      expect.anything(),
+    );
+  });
+
+  it("omits an empty message rather than sending a blank field", () => {
+    renderDialog();
+    nameRecipient();
+    fireEvent.change(screen.getByLabelText(/message/i), { target: { value: "   " } });
+    share();
+
+    expect(createAsset.mutate).toHaveBeenCalledWith(
+      expect.not.objectContaining({ message: expect.anything() }),
+      expect.anything(),
+    );
+  });
+
+  it("normalizes a pasted display-name address before sending", () => {
+    renderDialog();
+    nameRecipient("Bob Jones <Bob@Example.COM>");
+    share();
+
+    expect(createAsset.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ shared_with_email: "bob@example.com" }),
+      expect.anything(),
+    );
+  });
+
+  it("refuses input that names no address, without calling the API", () => {
+    renderDialog();
+    nameRecipient("Bob Jones");
+    share();
+
+    expect(createAsset.mutate).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/single email address/i);
   });
 });

@@ -4921,6 +4921,120 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/notifications": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated notification queue rows, newest first, with delivery status, attempt count, and failure detail. Bounded by the queue's retention window rather than being a full archive.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "List notification deliveries",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by recipient email",
+                        "name": "recipient",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by status (pending, sending, sent, failed)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by category (share, comment, mention)",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 50, max: 200)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notifyapi.notificationListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/notifications/stats": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns per-status notification counts and the retention window they cover. The recipient and category filters apply; status does not, so a status-filtered list still shows the full breakdown.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Get notification delivery stats",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by recipient email",
+                        "name": "recipient",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by category (share, comment, mention)",
+                        "name": "category",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notifyapi.notificationStatsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/oauth/callback": {
             "get": {
                 "description": "Public endpoint hit by the upstream OAuth provider after the operator authenticates. Exchanges the code for tokens and stores them. Renders an HTML page on error so a stranded browser tab still gives a useful message.",
@@ -10664,6 +10778,78 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/notifications": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the calling user's own notification history, newest first: category, subject, delivery status, and send time. Server-side self-scoped -- the caller's address is the only recipient queried, and there is no parameter to widen it. Bounded by the queue's retention window.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "List my notifications",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by status (pending, sending, sent, failed)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by category (share, comment, mention)",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 50, max: 200)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notifyhttp.HistoryResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -17630,6 +17816,176 @@ const docTemplate = `{
                 }
             }
         },
+        "notifyapi.notificationListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/notifyapi.notificationRow"
+                    }
+                },
+                "page": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "per_page": {
+                    "type": "integer",
+                    "example": 50
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 196
+                }
+            }
+        },
+        "notifyapi.notificationRow": {
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "attempts": {
+                    "type": "integer",
+                    "example": 5
+                },
+                "category": {
+                    "type": "string",
+                    "example": "share"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "digest": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 4211
+                },
+                "item_title": {
+                    "type": "string",
+                    "example": "Q3 Revenue"
+                },
+                "last_error": {
+                    "type": "string",
+                    "example": "dial tcp: connection refused"
+                },
+                "link": {
+                    "type": "string",
+                    "example": "https://platform.example.com/portal/assets/a1"
+                },
+                "recipient": {
+                    "type": "string",
+                    "example": "bob@example.com"
+                },
+                "scheduled_for": {
+                    "type": "string"
+                },
+                "sent_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "failed"
+                },
+                "subject": {
+                    "type": "string",
+                    "example": "alice@example.com shared the asset \"Q3 Revenue\" with you"
+                }
+            }
+        },
+        "notifyapi.notificationStatsResponse": {
+            "type": "object",
+            "properties": {
+                "failed": {
+                    "type": "integer",
+                    "example": 7
+                },
+                "pending": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "retention_days": {
+                    "description": "RetentionDays is how long a resolved row survives before the worker\npurges it. Zero means the deployment did not report a window.",
+                    "type": "integer",
+                    "example": 30
+                },
+                "sending": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "sent": {
+                    "type": "integer",
+                    "example": 842
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 853
+                }
+            }
+        },
+        "notifyhttp.HistoryItem": {
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "type": "string"
+                },
+                "category": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "digest": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "item_title": {
+                    "type": "string"
+                },
+                "link": {
+                    "type": "string"
+                },
+                "sent_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                }
+            }
+        },
+        "notifyhttp.HistoryResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/notifyhttp.HistoryItem"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "per_page": {
+                    "type": "integer"
+                },
+                "retention_days": {
+                    "description": "RetentionDays is the window this history covers. Zero means the\ndeployment did not report one.",
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
         "notifyhttp.PrefsRequest": {
             "type": "object",
             "properties": {
@@ -18201,7 +18557,7 @@ const docTemplate = `{
                     "example": "restricted"
                 },
                 "expires_in": {
-                    "description": "duration string, e.g. \"24h\"",
+                    "description": "ExpiresIn is a duration string (\"24h\") bounding a link share's life. It\napplies to link shares only: a share addressed to a person is access\ngranted to that person and is revoked, not timed out.",
                     "type": "string",
                     "example": "24h"
                 },
@@ -18209,10 +18565,20 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": false
                 },
+                "message": {
+                    "description": "Message is an optional plain-text note from the sharer, delivered in the\nnotification email and stored nowhere. Markup and links are rejected\n(ValidateShareMessage) whatever the share's shape, so a malformed note\nis reported rather than silently dropped; a note on a share that sends\nno email is accepted and then goes nowhere.",
+                    "type": "string",
+                    "example": "Here's the Q3 revenue breakdown you asked about"
+                },
                 "notice_text": {
                     "description": "nil = default, \"\" = hidden, custom = as-is",
                     "type": "string",
                     "example": "Confidential"
+                },
+                "notify": {
+                    "description": "Notify controls whether a named recipient gets a \"shared with you\"\nemail. nil (omitted) means notify -- the default a share carries when\nnobody says otherwise. false shares quietly. The recipient's own\nnotification preferences still apply when it is true; this only removes\nthe sharer's ability to force one.",
+                    "type": "boolean",
+                    "example": true
                 },
                 "permission": {
                     "description": "\"viewer\" (default) or \"editor\"",

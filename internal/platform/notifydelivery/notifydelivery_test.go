@@ -78,7 +78,7 @@ func TestNew_WithDB(t *testing.T) {
 	if h == nil {
 		t.Fatal("expected handle")
 	}
-	if h.Enqueuer() == nil || h.Prefs() == nil || h.Settings() == nil {
+	if h.Enqueuer() == nil || h.Prefs() == nil || h.Settings() == nil || h.History() == nil {
 		t.Error("accessors must be populated")
 	}
 	if h.listener != nil {
@@ -104,7 +104,7 @@ func TestNew_WithDSNBuildsListener(t *testing.T) {
 
 func TestNilHandleAccessors(t *testing.T) {
 	var h *Handle
-	if h.Enqueuer() != nil || h.Prefs() != nil || h.Settings() != nil {
+	if h.Enqueuer() != nil || h.Prefs() != nil || h.Settings() != nil || h.History() != nil {
 		t.Error("nil handle accessors must return nil")
 	}
 	h.Start(context.Background()) // must not panic

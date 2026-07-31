@@ -279,6 +279,15 @@ func buildItem(n notification.Notification) emailItem {
 	}
 }
 
+// Subject returns the one-line summary of a single notification: the subject
+// its email carries, and the same line the admin monitoring tab and a user's
+// own notification history show for the row.
+//
+// Those surfaces read it from here rather than composing their own so a
+// reader comparing a queue row against the mail they received sees one
+// sentence, not two spellings of it.
+func Subject(n notification.Notification) string { return subjectFor(n) }
+
 // subjectFor returns the single-event subject/heading line.
 func subjectFor(n notification.Notification) string {
 	switch n.Payload.Kind {
