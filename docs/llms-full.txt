@@ -2119,7 +2119,7 @@ Admin-only tool for reviewing and applying captured insights. Requires the `admi
 
 ### Actions
 
-**bulk_review**: Counts of all pending insights (total_pending, by_entity, by_category, by_confidence) plus a review-queue staleness rollup (oldest_pending_at, oldest_pending_age_days, pending_over_30d, omitted when the queue is empty) so aging review debt is visible; the same rollup appears in platform_info under features.knowledge_apply.review_queue. Pass itemize:true to enumerate the queue itself, paginated by offset/limit, each insight carrying its full insight_text body, captured_by (author), sink_class and suggested_actions_count (full suggested_actions omitted, fetch for it); the relevance-ranked search tool cannot list it completely. The response is bounded so it stays under the output limit: page_size_capped:true flags a short insights page (continue with next_offset) and by_entity_truncated:true flags a capped by_entity.
+**bulk_review**: Counts of all pending insights (total_pending, by_entity, by_category, by_confidence) plus a review-queue staleness rollup (oldest_pending_at, oldest_pending_age_days, pending_over_30d, omitted when the queue is empty) so aging review debt is visible; the same rollup appears in platform_info under features.knowledge_apply.review_queue. An hourly operator alert emails a digest of the same rollup when the queue crosses an admin-configured threshold (see Review queue alerts). Pass itemize:true to enumerate the queue itself, paginated by offset/limit, each insight carrying its full insight_text body, captured_by (author), sink_class and suggested_actions_count (full suggested_actions omitted, fetch for it); the relevance-ranked search tool cannot list it completely. The response is bounded so it stays under the output limit: page_size_capped:true flags a short insights page (continue with next_offset) and by_entity_truncated:true flags a capped by_entity.
 
 ```json
 {"action": "bulk_review"}
@@ -2540,13 +2540,14 @@ Screenshots: `cd ui && npm run screenshots && npm run screenshots:convert`
 
 # Email Notifications
 
-The platform emails users when a teammate shares an asset, collection, or prompt with them, or comments on something they own. Delivery is durable (database-backed queue with retries), never blocks the originating share or comment request, and respects per-user preferences. Requires a database-backed deployment.
+The platform emails users when a teammate shares an asset, collection, or prompt with them, or comments on something they own, and alerts operators when the knowledge review queue goes unworked. Delivery is durable (database-backed queue with retries), never blocks the originating share or comment request, and respects per-user preferences. Requires a database-backed deployment.
 
 ## How it works
 
 1. A direct share or feedback-thread event consults the recipient's preferences and queues a notification row. Enqueue failures are logged, never surfaced: the share or comment always succeeds. The actor is never a recipient of their own event: the exclusion lives at the enqueue seam every trigger passes through and compares normalized addresses, so an owner or grantee recorded as "Display Name <addr>" is still recognized as the author. A thread event with no resolvable author queues no general fan-out (it cannot be shown not to be a self-notification), though addresses the body named explicitly still get their mention.
 2. A background send worker claims due rows (Postgres LISTEN/NOTIFY plus a 30s poll fallback), renders a branded table-based HTML email with a plaintext alternative, and delivers over SMTP. Failed sends retry up to 5 times with exponential backoff (30s doubling, 32m cap). Delivery leases (2m) make rows crash-safe across pod restarts.
 3. Daily-digest users receive one email per day summarizing that window's events.
+4. One trigger has no human behind it: an hourly check compares the knowledge review queue against the operator's staleness threshold and queues an alert when it crosses (see Review queue alerts below).
 
 ## Admin SMTP settings
 
@@ -2558,6 +2559,17 @@ Configured at runtime in the portal (Admin, then Settings) or via REST; stored i
 - GET /api/v1/admin/settings/smtp/recipient-status?to=... ({"to", "opted_out"}, informational only)
 
 Writes require database config mode (405 in file mode).
+
+## Review queue alerts
+
+An unworked apply_knowledge review queue erodes the knowledge flywheel silently: captures stop becoming shared knowledge and agents keep re-deriving facts nobody promoted. bulk_review, platform_info, and the portal's Insights tab already report the pending count and its age to whoever looks; this is the push signal for whoever does not. An hourly check reads the pending queue through the same lightweight rollup platform_info uses (one aggregate query, never on a request path) and enqueues an alert through the normal substrate -- same preference gate, queue, worker, and branded renderer -- so a daily-mode recipient reads it as one line of their digest.
+
+Configured in the portal (Admin, then Settings, beside SMTP) or via REST; stored in the platform_settings table. Fields: enabled, pending_threshold (alert at this many pending; 0 turns the condition off), oldest_pending_days (alert at this age in days; 0 turns it off; default 30, matching the age at which the portal badges an insight stale), cooldown_hours (1-720, default 24), recipients (at most 20 addresses). Either threshold alone is enough to cross and an empty queue never crosses. The recipient list is explicit rather than role-derived: role membership arrives with a request from the identity provider, so there is no set of admins the platform can enumerate at check time. Read and update responses carry a warnings array for a configuration that saves cleanly and delivers nothing (enabled with no recipients, or with both thresholds cleared), shown as a banner above the admin form and never blocking a save.
+
+- GET /api/v1/admin/settings/review-queue-alert
+- PUT /api/v1/admin/settings/review-queue-alert
+
+Re-alert policy: a queue that stays over threshold produces one alert per cooldown window, not one per check; a queue worked back under clears the marker so the next crossing alerts immediately instead of serving out a cooldown that belongs to a queue already dealt with. The claim is a single conditional write against a one-row table (knowledge_review_alert_state), which also makes the alert a cluster-wide singleton: exactly one replica's check wins a given window. The email states the pending count, the oldest pending age, how many are past the staleness threshold, and deep-links to <portal>/knowledge#review (the queue itself, not the tab it lives behind); the figures are the queue as the check saw it, so a deferred digest still reports what tripped the threshold. This category has no per-user toggle -- the operator chose the recipient list, so removing an address there is how you stop sending it -- but a recipient still opts out for themselves with delivery mode off, including via the unsubscribe link the email carries like any other.
 
 ## User notification preferences
 

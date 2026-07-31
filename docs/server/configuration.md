@@ -622,6 +622,9 @@ notifications:
     is not configured here: admins set host, credentials, and TLS mode at
     runtime in the portal (Admin, then Settings) or via
     `/api/v1/admin/settings/smtp`, with the password encrypted at rest.
+    The knowledge review-queue alert threshold is admin-configured the same
+    way, under `/api/v1/admin/settings/review-queue-alert`; see
+    [Review queue alerts](notifications.md#review-queue-alerts).
 
 ## Session Configuration
 

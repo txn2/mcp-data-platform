@@ -22,6 +22,7 @@ internal/admin/connoauthapi -> pkg/toolkits/gateway
 internal/admin/notifyapi -> internal/httpjson
 internal/admin/notifyapi -> internal/notification/notifyrender
 internal/admin/notifyapi -> pkg/notification
+internal/admin/settingsapi -> internal/platform/reviewalert
 internal/admin/settingsapi -> pkg/notification
 internal/admin/settingsapi -> pkg/notification/smtp
 internal/httpserver -> internal/apidocs
@@ -40,6 +41,7 @@ internal/httpserver -> internal/notification/notifyrender
 internal/httpserver -> internal/platform/branding
 internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/platform/resourceaudit
+internal/httpserver -> internal/platform/reviewalert
 internal/httpserver -> internal/ui
 internal/httpserver -> pkg/admin
 internal/httpserver -> pkg/audit
@@ -199,6 +201,9 @@ internal/platform/resourceindex -> pkg/resource
 internal/platform/resourcelayer -> internal/platform/toolkitcfg
 internal/platform/resourcelayer -> pkg/portal/s3adapter
 internal/platform/resourcelayer -> pkg/resource
+internal/platform/reviewalert -> internal/logsan
+internal/platform/reviewalert -> pkg/notification
+internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona
 internal/platform/searchfed -> pkg/embedding
@@ -257,6 +262,7 @@ pkg/admin -> internal/admin/notifyapi
 pkg/admin -> internal/admin/settingsapi
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/logsan
+pkg/admin -> internal/platform/reviewalert
 pkg/admin -> internal/server
 pkg/admin -> pkg/audit
 pkg/admin -> pkg/auth

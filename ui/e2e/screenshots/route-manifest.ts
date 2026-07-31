@@ -143,13 +143,15 @@ export const routes: ScreenshotRoute[] = [
     },
   },
   {
-    // KnowledgeHub (#661): one /knowledge route, three hash-driven tabs.
-    // The tabs expand to knowledge-{knowledge,insights,memory} captures, so
-    // no standalone #insights / #memory entries (they would collide).
+    // KnowledgeHub (#661): one /knowledge route, three hash-driven tabs plus
+    // the review queue, which is addressable on its own so the review-queue
+    // alert email can link straight to it (#803). The tabs expand to
+    // knowledge-{knowledge,insights,memory,review} captures, so no standalone
+    // #insights / #memory entries (they would collide).
     slug: "knowledge",
     path: "/portal/knowledge",
     category: "user",
-    tabs: ["knowledge", "insights", "memory"],
+    tabs: ["knowledge", "insights", "memory", "review"],
     beforeCapture: async (page) => {
       // On the "Search All" sub-tab (knowledge tab default) type a query so the
       // capture shows grouped federated results with a coverage summary instead

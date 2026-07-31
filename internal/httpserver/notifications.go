@@ -9,10 +9,59 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
+	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
 )
+
+// reviewAlertStore builds the review-queue alert's persistence (#803), or nil
+// when the alert cannot exist in this deployment: no database, or
+// notifications turned off in YAML. The checker and the admin API each build
+// one; it is stateless over the pool, so there is nothing to share, and
+// threading a handle through the admin wiring would imply a lifecycle it does
+// not have.
+func reviewAlertStore(p *platform.Platform) *reviewalert.PostgresStore {
+	if p == nil || p.DB() == nil || !p.Config().Notifications.IsEnabled() {
+		return nil
+	}
+	return reviewalert.NewPostgresStore(p.DB())
+}
+
+// reviewAlertSettings narrows the store to the half the admin settings surface
+// needs, or nil when the alert cannot exist here. A nil result unmounts the
+// admin routes, matching what the SMTP section already does in the same
+// states: an operator must not be able to configure an alert nothing will
+// ever send. The explicit nil check keeps a typed nil out of the interface.
+func reviewAlertSettings(p *platform.Platform) reviewalert.SettingsStore {
+	store := reviewAlertStore(p)
+	if store == nil {
+		return nil
+	}
+	return store
+}
+
+// buildReviewAlert assembles the scheduled review-queue staleness check.
+// Returns nil (a no-op checker) when anything it needs is absent: no database,
+// notifications off, no knowledge insight store -- an alert with nowhere to
+// send is not an alert.
+func buildReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *reviewalert.Checker {
+	store := reviewAlertStore(p)
+	if store == nil {
+		return nil
+	}
+	checker := reviewalert.New(reviewalert.Config{
+		Settings: store,
+		State:    store,
+		Insights: p.KnowledgeInsightStore(),
+		Enqueuer: notify.Enqueuer(),
+		BaseURL:  p.Config().Portal.PublicBaseURL,
+	})
+	if checker != nil {
+		log.Println("Knowledge review-queue staleness alert enabled")
+	}
+	return checker
+}
 
 // buildNotifications assembles the email-notification substrate from the
 // platform's database, encryptor, and branding. Returns nil when the

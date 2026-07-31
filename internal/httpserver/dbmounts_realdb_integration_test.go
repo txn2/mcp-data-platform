@@ -96,3 +96,22 @@ func TestBuildNotifications_RealDB(t *testing.T) {
 	h.Start(ctx)
 	h.Stop()
 }
+
+// TestBuildReviewAlert_RealDB proves the scheduled review-queue check (#803)
+// assembles against a live database: the checker exists, one Check runs
+// cleanly against the real knowledge and settings tables, and Start/Stop are
+// clean. An unconfigured deployment has no recipients, so the check reads the
+// settings and stops there -- which is exactly the default-path assertion.
+func TestBuildReviewAlert_RealDB(t *testing.T) {
+	p := newRealDBPlatform(t)
+
+	checker := buildReviewAlert(p, buildNotifications(p))
+	require.NotNil(t, checker, "database-backed platform must yield a review-queue checker")
+	require.NotNil(t, reviewAlertSettings(p))
+
+	ctx := context.Background()
+	require.NoError(t, checker.Check(ctx))
+
+	checker.Start(ctx)
+	checker.Stop()
+}

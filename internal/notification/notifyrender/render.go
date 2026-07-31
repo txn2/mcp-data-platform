@@ -241,8 +241,12 @@ type emailData struct {
 
 // emailItem is one event line in an email.
 type emailItem struct {
-	Title   string
-	Detail  string
+	Title  string
+	Detail string
+	// Body is prose the platform wrote about the event, rendered plainly.
+	// Message is text a person wrote, rendered as a quotation -- an alert
+	// must not appear to be quoting someone.
+	Body    string
 	Message string
 	Link    string
 	// LinkText overrides the default "Open ..." button label.
@@ -271,12 +275,17 @@ func (r *Renderer) buildData(ns []notification.Notification) emailData {
 
 // buildItem converts one notification into an email line item.
 func buildItem(n notification.Notification) emailItem {
-	return emailItem{
+	item := emailItem{
 		Title:   n.Payload.ItemTitle,
 		Detail:  subjectFor(n),
 		Message: n.Payload.Message,
 		Link:    n.Payload.Link,
 	}
+	if n.Payload.Kind == notification.KindReviewQueue {
+		item.Body = reviewQueueBody(n.Payload.Review)
+		item.LinkText = reviewQueueLinkText
+	}
+	return item
 }
 
 // Subject returns the one-line summary of a single notification: the subject
@@ -297,6 +306,8 @@ func subjectFor(n notification.Notification) string {
 		return fmt.Sprintf("%s left feedback on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	case notification.KindMention:
 		return fmt.Sprintf("%s mentioned you on %q", n.Payload.Actor, n.Payload.ItemTitle)
+	case notification.KindReviewQueue:
+		return reviewQueueSubject(n.Payload.Review)
 	default:
 		return fmt.Sprintf("%s commented on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	}
