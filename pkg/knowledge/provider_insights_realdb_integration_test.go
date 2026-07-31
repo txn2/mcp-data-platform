@@ -19,6 +19,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -84,4 +85,75 @@ func refIDs(hits []Hit) []string {
 		out = append(out, h.Ref)
 	}
 	return out
+}
+
+// TestInsightsProvider_RealDB_AppliedInsightsCrossIdentity is the #980 B2 gate
+// against real Postgres. sqlmock does not parse SQL, so it cannot tell whether
+// the insight-status expression is even valid, let alone whether it selects the
+// right rows; only this test exercises the COALESCE/NULLIF predicate and the
+// migration 000095 index against the real schema.
+//
+// It asserts the property the benchmark measured as a cross-identity transfer
+// gap: knowledge one person captured and had applied reaches a different person,
+// and nothing short of applied does.
+func TestInsightsProvider_RealDB_AppliedInsightsCrossIdentity(t *testing.T) {
+	store := memory.NewPostgresStore(testdb.New(t))
+	adapter, ok := knowledgekit.NewMemoryInsightAdapter(store).(knowledgekit.SearchableInsightStore)
+	require.True(t, ok, "the memory insight adapter must be searchable")
+	provider := NewInsightsProvider(adapter)
+	ctx := context.Background()
+
+	const (
+		alice = "alice@example.com"
+		bob   = "bob@example.com"
+		urn   = "urn:li:dataset:(urn:li:dataPlatform:trino,retail.public.refunds,PROD)"
+		token = "zqrefundwindow" // distinctive lexical token shared by every record
+	)
+	mk := func(id, capturedBy, insightStatus string) memory.Record {
+		return memory.Record{
+			ID:         id,
+			CreatedBy:  capturedBy,
+			Dimension:  memory.DimensionKnowledge,
+			Category:   "business_context",
+			Source:     "user",
+			Status:     memory.StatusActive,
+			Content:    token + " refunds are booked net of tax",
+			EntityURNs: []string{urn},
+			Metadata:   map[string]any{memory.MetaKeyInsightStatus: insightStatus},
+		}
+	}
+	require.NoError(t, store.Insert(ctx, mk("bob-applied", bob, knowledgekit.StatusApplied)))
+	require.NoError(t, store.Insert(ctx, mk("bob-pending", bob, memory.InsightStatusPending)))
+	require.NoError(t, store.Insert(ctx, mk("bob-approved", bob, knowledgekit.StatusApproved)))
+	require.NoError(t, store.Insert(ctx, mk("alice-pending", alice, memory.InsightStatusPending)))
+
+	caller := Caller{Email: alice}
+
+	for _, arm := range []struct {
+		name  string
+		query Query
+	}{
+		{"text path", Query{Intent: token, Caller: caller, Limit: 20}},
+		{"entity path", Query{EntityURNs: []string{urn}, Caller: caller, Limit: 20}},
+	} {
+		t.Run(arm.name, func(t *testing.T) {
+			hits, err := provider.Search(ctx, arm.query)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []string{"bob-applied", "alice-pending"}, refIDs(hits),
+				"alice must receive her own capture plus bob's applied insight, and nothing else")
+		})
+	}
+
+	// The read side agrees with the search side: the reference alice received is
+	// dereferenceable, and bob's unapplied captures are not.
+	doc, owned, err := provider.Fetch(ctx, knowledgepage.InsightRef("bob-applied"), caller)
+	require.NoError(t, err)
+	require.True(t, owned)
+	assert.Contains(t, doc.Body, token, "alice must be able to read the applied insight in full")
+
+	for _, id := range []string{"bob-pending", "bob-approved"} {
+		_, owned, err := provider.Fetch(ctx, knowledgepage.InsightRef(id), caller)
+		assert.True(t, owned)
+		assert.ErrorIs(t, err, ErrNotFound, "%s must not be readable by another capturer", id)
+	}
 }

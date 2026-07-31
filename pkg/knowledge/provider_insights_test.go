@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/pkg/memory"
@@ -12,12 +13,15 @@ import (
 )
 
 // fakeInsightStore is a SearchableInsightStore stub: it records the text-search
-// query and entity-list filters it was given and returns canned results.
+// queries and entity-list filters it was given and returns canned results. Both
+// are recorded as slices because the provider runs two arms per search (the
+// caller's own insights, then the organization's applied ones), so a test that
+// looked at one call could not tell the arms apart.
 type fakeInsightStore struct {
 	// text path
 	scored       []knowledgekit.ScoredInsight
 	searchErr    error
-	gotSearch    knowledgekit.InsightSearchQuery
+	gotSearches  []knowledgekit.InsightSearchQuery
 	searchCalled bool
 
 	// entity path
@@ -41,8 +45,18 @@ func (f *fakeInsightStore) Get(_ context.Context, id string) (*knowledgekit.Insi
 
 func (f *fakeInsightStore) Search(_ context.Context, q knowledgekit.InsightSearchQuery) ([]knowledgekit.ScoredInsight, error) {
 	f.searchCalled = true
-	f.gotSearch = q
+	f.gotSearches = append(f.gotSearches, q)
 	return f.scored, f.searchErr
+}
+
+// ownerSearch returns the query the owner arm issued (the first one; the shared
+// arm always follows it).
+func (f *fakeInsightStore) ownerSearch(t *testing.T) knowledgekit.InsightSearchQuery {
+	t.Helper()
+	if len(f.gotSearches) == 0 {
+		t.Fatal("no text search was issued")
+	}
+	return f.gotSearches[0]
 }
 
 func (f *fakeInsightStore) List(_ context.Context, filter knowledgekit.InsightFilter) ([]knowledgekit.Insight, int, error) {
@@ -151,11 +165,12 @@ func TestInsightsProvider_TextScopesAndMaps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if s.gotSearch.CapturedBy != "a@example.com" {
-		t.Errorf("CapturedBy = %q, want scoped to caller email", s.gotSearch.CapturedBy)
+	owner := s.ownerSearch(t)
+	if owner.CapturedBy != "a@example.com" || owner.Shared {
+		t.Errorf("owner arm = %+v, want scoped to caller email and not shared", owner)
 	}
-	if s.gotSearch.Limit != 5 || len(s.gotSearch.Embedding) == 0 {
-		t.Errorf("query not forwarded: %+v", s.gotSearch)
+	if owner.Limit != 5 || len(owner.Embedding) == 0 {
+		t.Errorf("query not forwarded: %+v", owner)
 	}
 	if len(hits) != 1 || hits[0].Source != SourceInsights || hits[0].Ref != "i1" || hits[0].Text != "churn = ..." {
 		t.Errorf("unexpected hit mapping: %+v", hits)
@@ -198,12 +213,9 @@ func TestInsightsProvider_EntityLookupScopedToCaller(t *testing.T) {
 	if s.searchCalled {
 		t.Error("text search must not run for an entity-only query")
 	}
-	if len(s.gotFilter) != 1 {
-		t.Fatalf("expected one entity list call, got %+v", s.gotFilter)
-	}
 	got := s.gotFilter[0]
-	if got.EntityURN != urn || got.CapturedBy != "a@example.com" || got.Limit != 9 {
-		t.Errorf("entity list not scoped/forwarded: %+v", got)
+	if got.EntityURN != urn || got.CapturedBy != "a@example.com" || got.Shared || got.Limit != 9 {
+		t.Errorf("owner entity list not scoped/forwarded: %+v", got)
 	}
 	if len(hits) != 1 || hits[0].Source != SourceInsights || hits[0].Ref != "i1" || hits[0].Score != entityMatchScore {
 		t.Errorf("unexpected entity hit: %+v", hits)
@@ -383,4 +395,308 @@ func TestInsightsProvider_Fetch(t *testing.T) {
 			t.Errorf("owned=%v err=%v, want a non-not-found error", owned, err)
 		}
 	})
+}
+
+// scopingInsightStore models the real store contract the shared arm depends on:
+// List and Search return only records matching the owner predicate, and the
+// Shared flag replaces that predicate with "applied, any owner" (the override
+// memoryInsightAdapter.sharedInsightScope performs). A fake that ignored the
+// scope would let a provider bug that leaks another owner's private insight pass
+// unnoticed, which is the whole risk of this feature.
+type scopingInsightStore struct {
+	all []knowledgekit.Insight
+}
+
+func (s *scopingInsightStore) visible(capturedBy, status string, shared bool, urn string) []knowledgekit.Insight {
+	var out []knowledgekit.Insight
+	for _, in := range s.all {
+		switch {
+		case shared && in.Status != knowledgekit.StatusApplied:
+			continue
+		case !shared && in.CapturedBy != capturedBy:
+			continue
+		}
+		if status != "" && in.Status != status {
+			continue
+		}
+		if urn != "" && !slices.Contains(in.EntityURNs, urn) {
+			continue
+		}
+		out = append(out, in)
+	}
+	return out
+}
+
+func (s *scopingInsightStore) Search(_ context.Context, q knowledgekit.InsightSearchQuery) ([]knowledgekit.ScoredInsight, error) {
+	visible := s.visible(q.CapturedBy, q.Status, q.Shared, "")
+	out := make([]knowledgekit.ScoredInsight, 0, len(visible))
+	for _, in := range visible {
+		out = append(out, knowledgekit.ScoredInsight{Insight: in, Score: 0.5})
+	}
+	return out, nil
+}
+
+func (s *scopingInsightStore) List(_ context.Context, f knowledgekit.InsightFilter) ([]knowledgekit.Insight, int, error) {
+	out := s.visible(f.CapturedBy, f.Status, f.Shared, f.EntityURN)
+	return out, len(out), nil
+}
+
+func (s *scopingInsightStore) Get(_ context.Context, id string) (*knowledgekit.Insight, error) {
+	for i := range s.all {
+		if s.all[i].ID == id {
+			return &s.all[i], nil
+		}
+	}
+	return nil, fmt.Errorf("getting insight record: %w", memory.ErrRecordNotFound)
+}
+
+// orgInsightsURN is the entity every fixture insight hangs off, so the entity
+// arm and the text arm run over the same corpus.
+const orgInsightsURN = "urn:li:dataset:orders"
+
+// orgInsights is the fixture for the cross-identity tests: one capturer (bob)
+// with an insight at every status, plus one of the caller's own.
+func orgInsights() []knowledgekit.Insight {
+	const urn = orgInsightsURN
+	mk := func(id, by, status string) knowledgekit.Insight {
+		return knowledgekit.Insight{
+			ID: id, CapturedBy: by, Status: status,
+			InsightText: id + " text", EntityURNs: []string{urn},
+		}
+	}
+	return []knowledgekit.Insight{
+		mk("bob-applied", "bob@example.com", knowledgekit.StatusApplied),
+		mk("bob-pending", "bob@example.com", knowledgekit.StatusPending),
+		mk("bob-approved", "bob@example.com", knowledgekit.StatusApproved),
+		mk("bob-rejected", "bob@example.com", knowledgekit.StatusRejected),
+		mk("bob-superseded", "bob@example.com", knowledgekit.StatusSuperseded),
+		mk("bob-rolledback", "bob@example.com", knowledgekit.StatusRolledBack),
+		mk("alice-pending", "alice@example.com", knowledgekit.StatusPending),
+	}
+}
+
+// TestInsightsProvider_SharedArm is the #980 B2 acceptance test: an insight that
+// was reviewed and applied by one person is knowledge the organization has, and
+// must reach a different person's search, while everything short of applied
+// stays private to its capturer. The benchmark measured this as a cross-identity
+// transfer gap against a much higher personal-recall rate.
+func TestInsightsProvider_SharedArm(t *testing.T) {
+	const (
+		urn   = orgInsightsURN
+		alice = "alice@example.com"
+	)
+
+	// Both query shapes must behave the same way: an agent reaches insights
+	// either by naming an entity or by asking a question.
+	for _, arm := range []struct {
+		name  string
+		query Query
+	}{
+		{"entity path", Query{EntityURNs: []string{urn}, Caller: Caller{Email: alice}}},
+		{"text path", Query{Intent: "orders", Caller: Caller{Email: alice}}},
+	} {
+		t.Run(arm.name, func(t *testing.T) {
+			s := &scopingInsightStore{all: orgInsights()}
+			hits, err := NewInsightsProvider(s).Search(context.Background(), arm.query)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := map[string]bool{}
+			for _, h := range hits {
+				got[h.Ref] = true
+			}
+
+			if !got["bob-applied"] {
+				t.Errorf("another capturer's applied insight did not reach the caller: %+v", hits)
+			}
+			if !got["alice-pending"] {
+				t.Errorf("caller's own insight was dropped: %+v", hits)
+			}
+			for _, private := range []string{
+				"bob-pending", "bob-approved", "bob-rejected", "bob-superseded", "bob-rolledback",
+			} {
+				if got[private] {
+					t.Errorf("another capturer's %q insight leaked into the caller's search", private)
+				}
+			}
+		})
+	}
+}
+
+// TestInsightsProvider_SharedArmAttributesTheCapturer checks that a hit from
+// another person carries their email, so the caller can see whose knowledge they
+// are reading rather than mistaking it for their own capture.
+func TestInsightsProvider_SharedArmAttributesTheCapturer(t *testing.T) {
+	const urn = orgInsightsURN
+	s := &scopingInsightStore{all: orgInsights()}
+	hits, err := NewInsightsProvider(s).Search(context.Background(), Query{
+		EntityURNs: []string{urn},
+		Caller:     Caller{Email: "alice@example.com"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, h := range hits {
+		if h.Ref == "bob-applied" {
+			if h.CapturedBy != "bob@example.com" {
+				t.Errorf("shared hit not attributed to its capturer: %+v", h)
+			}
+			return
+		}
+	}
+	t.Fatal("the applied insight was not returned at all")
+}
+
+// TestInsightsProvider_SharedArmSkippedForOtherStatuses confirms the shared arm
+// does not contradict an explicit status filter. It only ever returns applied
+// insights, so running it for a "show me my pending captures" query would answer
+// with records the caller excluded.
+func TestInsightsProvider_SharedArmSkippedForOtherStatuses(t *testing.T) {
+	s := &fakeInsightStore{}
+	p := NewInsightsProvider(s)
+	if _, err := p.Search(context.Background(), Query{
+		Intent: "q", Status: knowledgekit.StatusPending, Caller: Caller{Email: "alice@example.com"},
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(s.gotSearches) != 1 {
+		t.Fatalf("expected only the owner arm for an explicit non-applied status, got %+v", s.gotSearches)
+	}
+	if s.gotSearches[0].Shared {
+		t.Errorf("owner arm ran with Shared set: %+v", s.gotSearches[0])
+	}
+}
+
+// TestInsightsProvider_SharedArmRunsForAppliedStatus is the complement: an
+// explicit applied filter is exactly what the shared arm serves, so it must run.
+func TestInsightsProvider_SharedArmRunsForAppliedStatus(t *testing.T) {
+	s := &fakeInsightStore{}
+	p := NewInsightsProvider(s)
+	if _, err := p.Search(context.Background(), Query{
+		Intent: "q", Status: knowledgekit.StatusApplied, Caller: Caller{Email: "alice@example.com"},
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(s.gotSearches) != 2 || !s.gotSearches[1].Shared {
+		t.Fatalf("expected an owner arm then a shared arm, got %+v", s.gotSearches)
+	}
+	if s.gotSearches[1].CapturedBy != "" {
+		t.Errorf("shared arm carried an owner predicate: %+v", s.gotSearches[1])
+	}
+}
+
+// TestInsightsProvider_OwnCopyWinsDeduplication checks the arm order: when the
+// caller's own insight is itself applied, it is returned once, read under their
+// own identity rather than as a shared record.
+func TestInsightsProvider_OwnCopyWinsDeduplication(t *testing.T) {
+	const urn = orgInsightsURN
+	s := &scopingInsightStore{all: []knowledgekit.Insight{{
+		ID: "alice-applied", CapturedBy: "alice@example.com", Status: knowledgekit.StatusApplied,
+		InsightText: "amount is gross margin", EntityURNs: []string{urn},
+	}}}
+	hits, err := NewInsightsProvider(s).Search(context.Background(), Query{
+		EntityURNs: []string{urn},
+		Caller:     Caller{Email: "alice@example.com"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("own applied insight returned %d times, want 1: %+v", len(hits), hits)
+	}
+}
+
+// TestInsightsProvider_FetchMatchesSearchReach is the #980 B2 read-side
+// acceptance test: search hands out an mcp:insight:<id> reference for another
+// person's applied insight, so fetch must dereference exactly that, and nothing
+// short of applied.
+func TestInsightsProvider_FetchMatchesSearchReach(t *testing.T) {
+	const (
+		urn   = orgInsightsURN
+		alice = "alice@example.com"
+	)
+	s := &scopingInsightStore{all: orgInsights()}
+	p := NewInsightsProvider(s)
+
+	t.Run("another capturer's applied insight is fetchable", func(t *testing.T) {
+		doc, owned, err := p.Fetch(context.Background(), knowledgepage.InsightRef("bob-applied"), Caller{Email: alice})
+		if !owned || err != nil {
+			t.Fatalf("owned=%v err=%v, want the applied insight dereferenced", owned, err)
+		}
+		if doc.Body != "bob-applied text" {
+			t.Errorf("unexpected document: %+v", doc)
+		}
+	})
+
+	t.Run("another capturer's unapplied insight is not-found", func(t *testing.T) {
+		for _, id := range []string{"bob-pending", "bob-approved", "bob-rejected", "bob-superseded", "bob-rolledback"} {
+			_, owned, err := p.Fetch(context.Background(), knowledgepage.InsightRef(id), Caller{Email: alice})
+			if !owned || !errors.Is(err, ErrNotFound) {
+				t.Errorf("%s: owned=%v err=%v, want ErrNotFound", id, owned, err)
+			}
+		}
+	})
+
+	t.Run("an anonymous caller still gets nothing", func(t *testing.T) {
+		_, owned, err := p.Fetch(context.Background(), knowledgepage.InsightRef("bob-applied"), Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want ErrNotFound for an anonymous caller", owned, err)
+		}
+	})
+}
+
+// TestInsightsProvider_AnonymousCallerReachesNothing pins the reason the
+// provider stays ScopePerUser: the search toolkit builds an anonymous caller
+// when a request carries no platform context, and applied insights are internal
+// organization knowledge, not public-share content.
+func TestInsightsProvider_AnonymousCallerReachesNothing(t *testing.T) {
+	s := &scopingInsightStore{all: orgInsights()}
+	p := NewInsightsProvider(s)
+	if p.Scope() != ScopePerUser {
+		t.Errorf("Scope() = %v, want ScopePerUser so the Router refuses anonymous callers", p.Scope())
+	}
+	hits, err := p.Search(context.Background(), Query{Intent: "orders", Caller: Caller{}})
+	if err != nil || len(hits) != 0 {
+		t.Errorf("hits=%+v err=%v, want nothing for an anonymous caller", hits, err)
+	}
+}
+
+// TestInsightsProvider_MergedArmsRespectLimit checks the provider does not hand
+// the Router more candidates than it asked for. Each arm queries the store with
+// the same limit, so an unmerged concatenation would let insights contribute
+// twice the per-source candidate pool and overstate its coverage count.
+func TestInsightsProvider_MergedArmsRespectLimit(t *testing.T) {
+	const urn = orgInsightsURN
+	all := make([]knowledgekit.Insight, 0, 12)
+	for i := range 6 {
+		all = append(all,
+			knowledgekit.Insight{
+				ID: fmt.Sprintf("alice-%d", i), CapturedBy: "alice@example.com",
+				Status: knowledgekit.StatusPending, EntityURNs: []string{urn},
+			},
+			knowledgekit.Insight{
+				ID: fmt.Sprintf("bob-%d", i), CapturedBy: "bob@example.com",
+				Status: knowledgekit.StatusApplied, EntityURNs: []string{urn},
+			},
+		)
+	}
+	s := &scopingInsightStore{all: all}
+	hits, err := NewInsightsProvider(s).Search(context.Background(), Query{
+		EntityURNs: []string{urn},
+		Caller:     Caller{Email: "alice@example.com"},
+		Limit:      6,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 6 {
+		t.Fatalf("returned %d candidates for a limit of 6: %+v", len(hits), hits)
+	}
+	// The owner arm is kept first, so a trim drops the organization's copy.
+	for _, h := range hits {
+		if h.CapturedBy == "bob@example.com" {
+			t.Errorf("shared hit displaced an owned one under a tight limit: %+v", hits)
+			break
+		}
+	}
 }

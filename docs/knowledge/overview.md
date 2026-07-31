@@ -93,9 +93,24 @@ stateDiagram-v2
 | `pending` | Newly captured, awaiting admin review |
 | `approved` | Reviewed and approved, ready for synthesis and application |
 | `rejected` | Reviewed and rejected by admin |
-| `applied` | Changes have been written to DataHub |
+| `applied` | Changes have been written to the canonical sink (the DataHub catalog, or a knowledge page). Also the point at which the insight becomes organization-wide: see Visibility below |
 | `superseded` | Replaced by a newer insight for the same entity |
 | `rolled_back` | Applied changes were reverted via changeset rollback |
+
+## Visibility
+
+Applying an insight is what turns one person's capture into knowledge the organization holds, so `applied` is also the visibility boundary:
+
+| Status | Who can find it with `search` and read it with `fetch` |
+|--------|--------------------------------------------------------|
+| `pending`, `approved` | Only the capturer. A capture under review is not yet something the organization asserts |
+| `applied` | Every identified caller, attributed to the capturer through the hit's `captured_by` |
+| `rejected`, `superseded`, `rolled_back` | Only the capturer, and only by asking for that status explicitly: retracted knowledge is dropped from ordinary discovery |
+
+Two properties follow from this:
+
+- No insight is public. Reaching applied insights requires an identified caller, so an anonymous visitor to a shared portal link never sees them.
+- Discovery does not depend on the sink. Before this boundary existed, an applied fact reached other people only if it happened to land on a knowledge page, or if a tool result named the dataset it hung off; a fact applied to the DataHub catalog on a table the agent was not already looking at had no search-time route to anyone but its capturer.
 
 ## Governance Workflow
 

@@ -350,6 +350,11 @@ type InsightFilter struct {
 	// default newest-first (created_at DESC). The review queue uses it to work the
 	// oldest, stalest review debt first (#764).
 	OrderCreatedAsc bool
+	// Shared lists the applied insights of every capturer rather than one
+	// owner's. Like InsightSearchQuery.Shared it overrides CapturedBy and Status
+	// together, so listing across owners cannot be reached without pinning the
+	// applied status (#980 B2).
+	Shared bool
 }
 
 // DefaultLimit is the default page size for list queries.

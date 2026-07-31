@@ -121,15 +121,20 @@ func (a *memoryInsightAdapter) eachActiveInsightRecord(ctx context.Context, mf m
 // recover and filter on the exact insight status and confidence, then count and
 // paginate the survivors in Go.
 func (a *memoryInsightAdapter) List(ctx context.Context, filter InsightFilter) ([]Insight, int, error) {
+	owner, status := sharedInsightScope(filter.Shared, filter.CapturedBy, filter.Status)
 	mf := memory.Filter{
 		Category:  filter.Category,
 		EntityURN: filter.EntityURN,
-		CreatedBy: filter.CapturedBy,
+		CreatedBy: owner,
 		Source:    filter.Source,
 		Since:     filter.Since,
 		Until:     filter.Until,
-		// Lossy map; the exact status is recovered per record below.
-		Status: mapInsightStatusToMemory(filter.Status),
+		// Lossy map; the exact status is recovered per record below. Derived from
+		// the caller's status, not the shared arm's pinned one (see coarseStatus).
+		Status: coarseStatus(filter.Status),
+		// Exact where the store can express it, so the walk reads only the
+		// matching rows; the per-record filter below still governs.
+		InsightStatus: storeInsightStatus(status),
 	}
 
 	matched := make([]Insight, 0)
@@ -138,7 +143,7 @@ func (a *memoryInsightAdapter) List(ctx context.Context, filter InsightFilter) (
 		if filter.Confidence != "" && insight.Confidence != filter.Confidence {
 			return
 		}
-		if filter.Status != "" && insight.Status != filter.Status {
+		if status != "" && insight.Status != status {
 			return
 		}
 		matched = append(matched, insight)
@@ -174,6 +179,67 @@ type InsightSearchQuery struct {
 	CapturedBy string
 	Status     string
 	Limit      int
+	// Shared requests the organization-wide arm instead of the owner arm: the
+	// applied insights of every capturer, not the caller's own. It is a single
+	// flag rather than "leave CapturedBy empty" so that reaching across owners
+	// is impossible without also pinning the status — the adapter overrides
+	// both CapturedBy and Status together (see sharedInsightScope), so a caller
+	// that forgets to set an owner gets applied insights, never everyone's
+	// private pending captures (#980 B2).
+	Shared bool
+}
+
+// sharedInsightScope resolves the owner and status a query runs under. It is
+// the one place the shared arm's two invariants are enforced together: no owner
+// predicate, and the applied status pinned regardless of what the caller asked
+// for. Owner queries pass through untouched.
+func sharedInsightScope(shared bool, capturedBy, status string) (owner, resolvedStatus string) {
+	if shared {
+		return "", StatusApplied
+	}
+	return capturedBy, status
+}
+
+// coarseStatus is the lifecycle-column predicate a query runs under. It is
+// derived from the status the CALLER asked for, never from the status the
+// shared arm pins, so both arms admit the same lifecycle states.
+//
+// Deriving it from the pinned status instead would silently narrow the shared
+// arm: applied maps to the active column value, which would drop an applied
+// insight the staleness watcher has since flagged stale (it flags any active
+// record carrying entity URNs, knowledge-dimension rows included). The capturer,
+// whose arm carries no status, would still see it. Organization knowledge would
+// then vanish for everyone but its author the moment a watched entity changed,
+// which is the very gap the shared arm exists to close. Selecting applied rows
+// is the exact insight-status predicate's job; the column must not double as it.
+func coarseStatus(callerStatus string) string {
+	return mapInsightStatusToMemory(callerStatus)
+}
+
+// storeFilterableStatuses are the insight statuses that memory.InsightStatus
+// expresses exactly, so the store can filter on them instead of the caller
+// post-filtering after the top-k cut.
+//
+// The store predicate reads the insight overlay metadata only. It is exact for
+// precisely those statuses the coarse status column can never resolve to,
+// because for them an absent overlay key is not a match under either rule:
+// resolveInsightStatus falls back to mapMemoryStatusToInsight, which yields
+// pending, rejected or superseded and never these three. Pushing pending down
+// would instead drop the records that carry no overlay key at all and are
+// pending by virtue of the column, so those statuses stay post-filtered.
+var storeFilterableStatuses = map[string]bool{
+	StatusApproved:   true,
+	StatusApplied:    true,
+	StatusRolledBack: true,
+}
+
+// storeInsightStatus returns the status to push into the store query, or empty
+// when the status must be recovered and post-filtered per record instead.
+func storeInsightStatus(status string) string {
+	if storeFilterableStatuses[status] {
+		return status
+	}
+	return ""
 }
 
 // ScoredInsight pairs an insight with its search relevance score.
@@ -203,35 +269,47 @@ type SearchableInsightStore interface {
 	InsightSearcher
 }
 
-// Search returns the caller's knowledge-dimension insights ranked by
-// relevance to the query. It delegates to the shared memory search
-// primitives (HybridSearch when an embedding is supplied, LexicalSearch
-// otherwise), enforcing the same owner + knowledge-dimension scope as
-// List, then maps the scored records back to insights. As in List, the
-// exact insight status is recovered per record and post-filtered, because
-// the memory status enum is coarser than the insight status.
+// Search returns knowledge-dimension insights ranked by relevance to the query.
+// It delegates to the shared memory search primitives (HybridSearch when an
+// embedding is supplied, LexicalSearch otherwise), enforcing the same
+// knowledge-dimension scope as List, then maps the scored records back to
+// insights.
+//
+// Two owner scopes: by default the caller's own insights (CapturedBy), and with
+// Shared set the applied insights of every capturer. sharedInsightScope resolves
+// which, and pins the applied status for the shared arm so no query can reach
+// across owners without one.
+//
+// The exact insight status is still recovered and post-filtered per record,
+// because the memory status enum is coarser than the insight status. For the
+// statuses the store can express exactly (storeInsightStatus) the predicate also
+// goes into SQL, so a status-restricted search is not first narrowed to a top-k
+// of other statuses and then emptied by the post-filter.
 func (a *memoryInsightAdapter) Search(ctx context.Context, q InsightSearchQuery) ([]ScoredInsight, error) {
 	var (
 		scored []memory.ScoredRecord
 		err    error
 	)
-	memStatus := mapInsightStatusToMemory(q.Status)
+	owner, status := sharedInsightScope(q.Shared, q.CapturedBy, q.Status)
+	memStatus := coarseStatus(q.Status)
 	if len(q.Embedding) > 0 {
 		scored, err = a.store.HybridSearch(ctx, memory.HybridQuery{
-			Embedding: q.Embedding,
-			QueryText: q.QueryText,
-			CreatedBy: q.CapturedBy,
-			Dimension: a.dimension,
-			Status:    memStatus,
-			Limit:     q.Limit,
+			Embedding:     q.Embedding,
+			QueryText:     q.QueryText,
+			CreatedBy:     owner,
+			Dimension:     a.dimension,
+			Status:        memStatus,
+			InsightStatus: storeInsightStatus(status),
+			Limit:         q.Limit,
 		})
 	} else {
 		scored, err = a.store.LexicalSearch(ctx, memory.LexicalQuery{
-			QueryText: q.QueryText,
-			CreatedBy: q.CapturedBy,
-			Dimension: a.dimension,
-			Status:    memStatus,
-			Limit:     q.Limit,
+			QueryText:     q.QueryText,
+			CreatedBy:     owner,
+			Dimension:     a.dimension,
+			Status:        memStatus,
+			InsightStatus: storeInsightStatus(status),
+			Limit:         q.Limit,
 		})
 	}
 	if err != nil {
@@ -241,7 +319,7 @@ func (a *memoryInsightAdapter) Search(ctx context.Context, q InsightSearchQuery)
 	results := make([]ScoredInsight, 0, len(scored))
 	for i := range scored {
 		insight := recordToInsight(scored[i].Record)
-		if q.Status != "" && insight.Status != q.Status {
+		if status != "" && insight.Status != status {
 			continue
 		}
 		results = append(results, ScoredInsight{Insight: insight, Score: scored[i].Score})

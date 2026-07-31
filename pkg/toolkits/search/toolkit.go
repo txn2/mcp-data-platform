@@ -156,7 +156,7 @@ var fetchSchema = json.RawMessage(`{
   "properties": {
     "reference": {
       "type": "string",
-      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), saved assets (mcp:asset:<id>), uploaded reference material (mcp:resource:<id>), prompts (mcp:prompt:<id>), connections (mcp:connection:(kind,name)), your captured insights (mcp:insight:<id>), and your personal memory (mcp:memory:<id>). The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). A text resource comes back with its contents inline; a binary one comes back as metadata plus its mcp:// URI and size. Your memory and insights are scoped to you. Returns the full content the search snippet was a preview of."
+      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), saved assets (mcp:asset:<id>), uploaded reference material (mcp:resource:<id>), prompts (mcp:prompt:<id>), connections (mcp:connection:(kind,name)), captured insights (mcp:insight:<id>), and your personal memory (mcp:memory:<id>). The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). A text resource comes back with its contents inline; a binary one comes back as metadata plus its mcp:// URI and size. Your memory is scoped to you; so are your insights until one is applied, at which point it is organization knowledge anyone can read. Returns the full content the search snippet was a preview of."
     }
   }
 }`)
@@ -286,7 +286,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"that comes to mind. For example 'how do we calculate churn' or 'customer retention'. Results are " +
 			"navigational pointers (title, reference, source); read one in full with fetch (pass its reference) " +
 			"or drill in with a scoped tool (trino_query, api_invoke_endpoint). Pass entity_urns to pull what " +
-			"you know about specific datasets. Personal results are scoped to you. To enumerate a whole source " +
+			"you know about specific datasets. Personal results are scoped to you, except that an insight " +
+			"someone had applied is knowledge the organization holds and reaches everyone (its captured_by " +
+			"names who recorded it). To enumerate a whole source " +
 			"instead of relevance-ranking it (to audit or migrate it), call with exactly one `sources` entry, " +
 			"no intent, and an `offset`: this browses the complete set with a total count (browsable: " +
 			"knowledge_pages, context_documents). Freshness: catalog and context-document results come from " +
@@ -304,14 +306,15 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Description: "Read a reference in full. search returns navigational pointers with truncated " +
 			"snippets; fetch dereferences one pointer's reference back to its complete content (a knowledge " +
 			"page's body, a context document's full text, a dataset's catalog context, an asset's metadata, " +
-			"an uploaded resource's contents, a prompt, a connection descriptor, one of your captured insights, " +
+			"an uploaded resource's contents, a prompt, a connection descriptor, a captured insight, " +
 			"or one of your personal memory records). A reference is either a urn:li:... form (the external " +
 			"DataHub catalog scheme) or an mcp:... form (the internal-platform scheme); fetch accepts both. " +
 			"The usual source is a search result's \"reference\" field (pass it verbatim), but a well-formed " +
 			"reference you already hold from another tool works too (for example a urn:li:dataset:... from " +
 			"datahub_get_lineage or an entity_urns lookup). A reference that is stale, unknown, or outside what " +
 			"you can access returns found=false rather than an error, so a dangling citation is a clean answer. " +
-			"Personal results stay scoped to you: fetch never reads content you could not have found with search.",
+			"fetch never reads content you could not have found with search: your own personal records, plus " +
+			"the insights the organization has applied.",
 		InputSchema:  fetchSchema,
 		OutputSchema: fetchResultSchema,
 	}, t.handleFetch)
