@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
+	"github.com/txn2/mcp-data-platform/bench/internal/capture"
 	"github.com/txn2/mcp-data-platform/bench/internal/stats"
 )
 
@@ -172,72 +173,10 @@ func boolTrue(b *bool) bool { return b != nil && *b }
 // omits a stage is not penalized for it.
 func optPass(b *bool) bool { return b == nil || *b }
 
-// Rate is one metric's numerator, denominator, and ratio. Denominator counts
-// only the runs where the outcome was applicable and reached.
-type Rate struct {
-	Num  int     `json:"num"`
-	Den  int     `json:"den"`
-	Rate float64 `json:"rate"`
-	// CILow/CIHigh are the 95% percentile-bootstrap confidence interval on the
-	// rate (issue #965), resampled from num/den with a fixed seed so the interval
-	// is reproducible. Both zero when the denominator is empty — the metric was
-	// not exercised, so it carries no interval. The bootstrap treats each
-	// applicable outcome as an independent draw (like the S1-S3 report); it does
-	// not model protocol-level correlation across the k replicates, so a narrow
-	// interval on a small, few-protocol denominator still warrants caution.
-	CILow  float64 `json:"ci_low"`
-	CIHigh float64 `json:"ci_high"`
-}
-
-// fillCI attaches a bootstrap confidence interval to the rate from its num/den.
-// The caller threads one seeded RNG across a scorecard's rates so the whole
-// report is reproducible from a single seed (issue #965).
-func (r *Rate) fillCI(rng *rand.Rand) {
-	r.CILow, r.CIHigh = stats.ProportionCI(r.Num, r.Den, rng)
-}
-
-// add folds one applicable outcome into the rate.
-func (r *Rate) add(v *bool) {
-	if v == nil {
-		return
-	}
-	r.Den++
-	if *v {
-		r.Num++
-	}
-	if r.Den > 0 {
-		r.Rate = float64(r.Num) / float64(r.Den)
-	}
-}
-
-// addConditional folds one outcome into a conditional rate: the run counts
-// toward the denominator only when it belongs to the conditioning subset (e.g.
-// "among transfer attempts where the fact surfaced"). It backs the transfer-gap
-// and capture-budget decompositions, whose denominators are subsets of the
-// attempts rather than a single nil-able outcome.
-func (r *Rate) addConditional(applicable, value bool) {
-	if !applicable {
-		return
-	}
-	r.Den++
-	if value {
-		r.Num++
-	}
-	if r.Den > 0 {
-		r.Rate = float64(r.Num) / float64(r.Den)
-	}
-}
-
-// complement returns the rate of the opposite outcome over the same
-// denominator, so a pair like supersede/duplicate is stored once and derived
-// once rather than accumulated twice (which could silently drift apart).
-func (r Rate) complement() Rate {
-	c := Rate{Num: r.Den - r.Num, Den: r.Den}
-	if c.Den > 0 {
-		c.Rate = float64(c.Num) / float64(c.Den)
-	}
-	return c
-}
+// Rate is one metric's numerator, denominator, and ratio, with its bootstrap
+// confidence interval. It is the shared stats type: the cold-start suite reports
+// the same shape, so the two suites cannot drift into two rate implementations.
+type Rate = stats.Rate
 
 // captureMissed reports whether capture was applicable to a run and failed.
 func captureMissed(captured *bool) bool { return captured != nil && !*captured }
@@ -277,7 +216,14 @@ type Metrics struct {
 	TotalCacheReadTokens     int64 `json:"total_cache_read_tokens"`
 	TotalCacheCreationTokens int64 `json:"total_cache_creation_tokens"`
 
-	CaptureRate       Rate `json:"capture_rate"`
+	// CaptureRate is the headline capture metric: among graded runs, the fraction
+	// whose teach episode landed an entity-linked insight. It caps every metric
+	// below it — an insight that was never recorded can be neither recalled nor
+	// promoted — so Capture decomposes it into attempted versus landed and
+	// attributes every miss to a cause (issue #1136).
+	CaptureRate Rate          `json:"capture_rate"`
+	Capture     capture.Split `json:"capture_split"`
+
 	PersonalRecall    Rate `json:"personal_recall"`
 	UnpromptedSurface Rate `json:"unprompted_surface"` // among captured runs, search surfaced the memory
 	TransferRate      Rate `json:"transfer_rate"`
@@ -341,17 +287,18 @@ func (res *Results) Aggregate() {
 			continue
 		}
 		m.Attempts++
-		m.CaptureRate.add(r.Captured)
-		m.PersonalRecall.add(r.RecallCorrect)
-		m.UnpromptedSurface.add(r.RecallSurfaced)
-		m.TransferRate.add(r.TransferCorrect)
-		m.TransferSurfaced.add(r.TransferSurfaced)
-		m.TransferUsedGivenSurfaced.addConditional(boolTrue(r.TransferSurfaced), boolTrue(r.TransferCorrect))
-		m.UpdateCorrectness.add(r.UpdateCorrect)
-		m.UpdateCaptureRate.add(r.UpdateCaptured)
-		m.DuplicateRate.add(r.Duplicated)
-		m.AbstentionRate.add(r.AbstainCorrect)
-		m.CaptureBudgetStarved.addConditional(captureBudgetObservable(r), budgetStarved(r))
+		m.CaptureRate.Add(r.Captured)
+		m.PersonalRecall.Add(r.RecallCorrect)
+		m.UnpromptedSurface.Add(r.RecallSurfaced)
+		m.TransferRate.Add(r.TransferCorrect)
+		m.TransferSurfaced.Add(r.TransferSurfaced)
+		m.TransferUsedGivenSurfaced.AddConditional(boolTrue(r.TransferSurfaced), boolTrue(r.TransferCorrect))
+		m.UpdateCorrectness.Add(r.UpdateCorrect)
+		m.UpdateCaptureRate.Add(r.UpdateCaptured)
+		m.DuplicateRate.Add(r.Duplicated)
+		m.AbstentionRate.Add(r.AbstainCorrect)
+		m.CaptureBudgetStarved.AddConditional(captureBudgetObservable(r), budgetStarved(r))
+		m.Capture.Add(r.Captured, r.CaptureAttempted, r.TeachBudgetExhausted)
 	}
 	m.Protocols = len(order)
 	m.PassK = passKRate(order, byProtocol, res.Manifest.K)
@@ -363,16 +310,19 @@ func (res *Results) Aggregate() {
 // scorecard, threading one RNG in a fixed order so the whole report is
 // reproducible from a single seed (issue #965). The #964 diagnostic
 // decompositions carry intervals too — a reader weighing "surfaced but not used"
-// against noise needs the same uncertainty signal the headline rates carry.
+// against noise needs the same uncertainty signal the headline rates carry, and
+// so does one weighing the capture attempted/landed split (#1136). The RNG
+// advances per rate, so the capture-split rates are filled LAST: appending them
+// leaves every previously reported interval reproducible from the same seed,
+// which inserting them next to the capture rate would not.
 func (m *Metrics) fillCIs(rng *rand.Rand) {
-	for _, r := range []*Rate{
+	stats.FillCIs(rng,
 		&m.CaptureRate, &m.PersonalRecall, &m.UnpromptedSurface,
 		&m.TransferRate, &m.TransferSurfaced, &m.TransferUsedGivenSurfaced,
 		&m.UpdateCorrectness, &m.UpdateCaptureRate, &m.DuplicateRate, &m.AbstentionRate,
 		&m.CaptureBudgetStarved, &m.PassK,
-	} {
-		r.fillCI(rng)
-	}
+	)
+	m.Capture.FillCIs(rng)
 }
 
 // passKRate computes the fraction of protocols whose every one of the k attempts
@@ -446,6 +396,8 @@ func (res *Results) HumanSummary() string {
 	fmt.Fprintf(&b, "tokens: input %d  output %d  cache read %d  cache write %d (apply current model pricing for cost)\n\n",
 		mt.TotalInputTokens, mt.TotalOutputTokens, mt.TotalCacheReadTokens, mt.TotalCacheCreationTokens)
 	writeMetric(&b, "capture rate", mt.CaptureRate)
+	b.WriteString(mt.Capture.Rows())
+	b.WriteString(mt.Capture.MissBlock())
 	writeMetric(&b, "personal recall", mt.PersonalRecall)
 	writeMetric(&b, "unprompted surface", mt.UnpromptedSurface)
 	writeMetric(&b, "transfer rate", mt.TransferRate)
@@ -466,21 +418,10 @@ func (res *Results) HumanSummary() string {
 	return b.String()
 }
 
-// writeMetric renders one rate row. The 95% CI bracket is shown only when the
-// interval has width (CILow != CIHigh). A zero-width interval carries no
-// uncertainty and is omitted: it arises for an unexercised metric (empty
-// denominator), for an all-failure rate whose bootstrap collapses to a point at
-// zero AND for an all-success rate that collapses to a point at one (both ends,
-// not just zero), and for a pre-#965 results file whose stored metrics carry no
-// interval (the fields default to zero) — all of which would otherwise print a
-// meaningless [x.x-x.x] bracket the count already conveys.
+// writeMetric renders one rate row, in the shared scorecard format both suites
+// print (see stats.Rate.Row for how the CI bracket is handled).
 func writeMetric(b *strings.Builder, label string, r Rate) {
-	if r.CILow == r.CIHigh {
-		fmt.Fprintf(b, "  %-22s %5.1f%%  (%d/%d)\n", label, r.Rate*100, r.Num, r.Den)
-		return
-	}
-	fmt.Fprintf(b, "  %-22s %5.1f%%  95%% CI [%.1f-%.1f]  (%d/%d)\n",
-		label, r.Rate*100, r.CILow*100, r.CIHigh*100, r.Num, r.Den)
+	b.WriteString(r.Row(label))
 }
 
 // harnessFailures lists runs that errored rather than completing.

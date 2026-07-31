@@ -25,6 +25,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
+	"github.com/txn2/mcp-data-platform/bench/internal/capture"
 	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
 	"github.com/txn2/mcp-data-platform/bench/internal/curriculum"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
@@ -949,6 +950,72 @@ func TestTeachAndPromoteBranches(t *testing.T) {
 			}
 			assertBoolPtr(t, "captured", lr.Captured, tc.wantCaptured)
 			assertBoolPtr(t, "promoted", lr.Promoted, tc.wantPromoted)
+		})
+	}
+}
+
+// TestCaptureMissAttributionWiring drives the real teach path and asserts each
+// capture miss carries the signals its cause is derived from (issue #1136): a
+// teacher that never reaches capture under a spent budget is starved, one that
+// files the insight against another entity attempted and did not land, and a
+// clean capture leaves no miss at all. Attribution is derived from the
+// transcript the episode actually produced, so this is what a paid run records.
+func TestCaptureMissAttributionWiring(t *testing.T) {
+	lesson := testCurriculum().Lessons[0]
+	starved := lesson
+	starved.BudgetToolCalls = 1 // one search spends it; the capture call is refused
+
+	cases := []struct {
+		name      string
+		lesson    curriculum.Lesson
+		factory   AdapterFactory
+		wantCause capture.Cause
+	}{
+		{
+			name: "budget starved before capture", lesson: starved,
+			factory: func(string, string) (llm.Adapter, error) {
+				return llm.NewScripted([]llm.Step{
+					{ToolCalls: []llm.ToolCall{{Name: "search", Args: map[string]any{"query": "orders"}}}},
+					{ToolCalls: []llm.ToolCall{{Name: "memory_capture", Args: map[string]any{
+						"text": "cents", "category": "business_context", "entity_urns": []any{ordersURN}}}}},
+					{FinalText: "ran out of calls"},
+				}), nil
+			},
+			wantCause: capture.CauseBudgetStarved,
+		},
+		{
+			name: "capture executed against the wrong entity", lesson: lesson,
+			factory: func(string, string) (llm.Adapter, error) {
+				return &knowledgeAdapter{mode: StageTeach, class: lesson.TrapClass,
+					urn: "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.other,PROD)"}, nil
+			},
+			wantCause: capture.CauseAttemptedFailed,
+		},
+		{
+			name: "never attempted with budget to spare", lesson: lesson,
+			factory: func(string, string) (llm.Adapter, error) {
+				return llm.NewScripted([]llm.Step{{FinalText: "noted"}}), nil
+			},
+			wantCause: capture.CauseNeverAttempted,
+		},
+		{
+			name: "clean capture", lesson: lesson, factory: capturingTeachFactory(lesson),
+			wantCause: capture.CauseNone,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fp := newFakePlatform(t)
+			env := newTestEnv(fp, tc.factory)
+			lr := env.teachAndPromote(context.Background(), tc.lesson, 1)
+			if lr.Error != "" {
+				t.Fatalf("unexpected harness error: %s", lr.Error)
+			}
+			got := capture.Classify(lr.Captured, lr.CaptureAttempted, lr.BudgetExhausted)
+			if got != tc.wantCause {
+				t.Fatalf("cause = %q, want %q (captured=%v attempted=%v budgetExhausted=%v)",
+					got, tc.wantCause, lr.Captured, lr.CaptureAttempted, lr.BudgetExhausted)
+			}
 		})
 	}
 }

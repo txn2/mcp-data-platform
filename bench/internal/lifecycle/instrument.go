@@ -3,7 +3,7 @@ package lifecycle
 import (
 	"strings"
 
-	"github.com/txn2/mcp-data-platform/bench/internal/agent"
+	"github.com/txn2/mcp-data-platform/bench/internal/capture"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 )
@@ -23,52 +23,11 @@ import (
 // derivation.
 func (rec *EpisodeRecord) recordInstrumentation(spec episodeSpec, transcript []llm.Message, budgetExhausted bool) {
 	rec.BudgetExhausted = budgetExhausted
-	rec.CaptureAttempted = captureToolCalled(transcript)
+	rec.CaptureAttempted = capture.Attempted(transcript)
 	if spec.surfaceFact != "" {
 		s := factSurfaced(spec.surfaceFact, transcript)
 		rec.FactSurfaced = &s
 	}
-}
-
-// captureToolCalled reports whether the episode actually executed a knowledge
-// capture call. A capture request the budget refused (emitted only after the
-// tool-call budget was spent, so it never ran) does NOT count: it is a
-// budget-starvation miss, not an "attempted capture that failed to land". This
-// keeps the capture-budget diagnosis honest — a teacher that only reaches for
-// capture after burning its budget on discovery is starved, not a landing
-// failure. It distinguishes a capture miss caused by never reaching an executed
-// capture (budget starvation) from one where capture ran but the insight did
-// not land.
-func captureToolCalled(msgs []llm.Message) bool {
-	captureIDs := map[string]bool{}
-	for _, m := range msgs {
-		for _, c := range m.ToolCalls {
-			if isCaptureTool(c.Name) {
-				captureIDs[c.ID] = true
-			}
-		}
-	}
-	if len(captureIDs) == 0 {
-		return false
-	}
-	for _, m := range msgs {
-		for _, r := range m.ToolResults {
-			// A capture call ran when its paired result is present and is not the
-			// budget-refusal sentinel. A server-side capture error still counts as
-			// executed (that is a landing failure, a different bucket).
-			if captureIDs[r.CallID] && r.Text != agent.BudgetRefusalText {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// isCaptureTool reports whether a tool name is the knowledge-capture tool. The
-// suffix match tolerates a renamed or namespaced capture tool without silently
-// classifying every teach episode as a capture miss.
-func isCaptureTool(name string) bool {
-	return name == "memory_capture" || strings.HasSuffix(name, "_capture")
 }
 
 // factSurfaced reports whether the promoted fact appeared in any tool result the

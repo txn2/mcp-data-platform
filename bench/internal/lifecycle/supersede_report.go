@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/capture"
 	"github.com/txn2/mcp-data-platform/bench/internal/stats"
 )
 
@@ -38,10 +39,15 @@ type SupersedeMetrics struct {
 	TotalCacheReadTokens     int64 `json:"total_cache_read_tokens"`
 	TotalCacheCreationTokens int64 `json:"total_cache_creation_tokens"`
 
-	CaptureRate       Rate `json:"capture_rate"`
-	SupersedeRate     Rate `json:"supersede_rate"`     // among executed supersedes, the original was superseded (higher is better)
-	DuplicateRate     Rate `json:"duplicate_rate"`     // among executed supersedes, a duplicate was left (lower is better)
-	UpdateCorrectness Rate `json:"update_correctness"` // post-correction recall flipped to the new value
+	// CaptureRate gates this sub-benchmark: an attempt that never captured never
+	// reaches the supersede stage at all. Capture carries the same attempted/landed
+	// split and miss attribution the full S5 scorecard reports (issue #1136), so a
+	// thin supersede denominator can be read against why capture missed.
+	CaptureRate       Rate          `json:"capture_rate"`
+	Capture           capture.Split `json:"capture_split"`
+	SupersedeRate     Rate          `json:"supersede_rate"`     // among executed supersedes, the original was superseded (higher is better)
+	DuplicateRate     Rate          `json:"duplicate_rate"`     // among executed supersedes, a duplicate was left (lower is better)
+	UpdateCorrectness Rate          `json:"update_correctness"` // post-correction recall flipped to the new value
 	// UpdateCaptureRate is, among update stages that ran, the fraction whose
 	// correction capture executed. Its misses never enter the supersede/duplicate
 	// denominator: with no correction on the platform the supersede gate never
@@ -94,15 +100,16 @@ func (res *SupersedeResults) Aggregate() {
 		}
 		m.Attempts++
 		foldSupersedeStat(stat, r)
-		m.CaptureRate.add(r.Captured)
-		m.UpdateCaptureRate.add(r.UpdateCaptured)
-		m.DuplicateRate.add(r.Duplicated)
-		m.UpdateCorrectness.add(r.UpdateCorrect)
+		m.CaptureRate.Add(r.Captured)
+		m.Capture.Add(r.Captured, r.CaptureAttempted, r.TeachBudgetExhausted)
+		m.UpdateCaptureRate.Add(r.UpdateCaptured)
+		m.DuplicateRate.Add(r.Duplicated)
+		m.UpdateCorrectness.Add(r.UpdateCorrect)
 	}
 	// SupersedeRate is the complement of DuplicateRate over the same denominator
 	// (captured attempts whose supersede ran), derived once so the two can never
 	// drift out of the complement relationship the report advertises.
-	m.SupersedeRate = m.DuplicateRate.complement()
+	m.SupersedeRate = m.DuplicateRate.Complement()
 	m.Protocols = len(order)
 	m.PassK = supersedePassKRate(order, res.Runs, res.Manifest.K)
 	for _, id := range order {
@@ -123,11 +130,10 @@ func (res *SupersedeResults) Aggregate() {
 // denominator) DuplicateRate has no interval, so SupersedeRate keeps its
 // zero-width default rather than reflecting into a spurious [1, 1].
 func (m *SupersedeMetrics) fillCIs(rng *rand.Rand) {
-	for _, r := range []*Rate{
-		&m.CaptureRate, &m.UpdateCaptureRate, &m.DuplicateRate, &m.UpdateCorrectness, &m.PassK,
-	} {
-		r.fillCI(rng)
-	}
+	stats.FillCIs(rng, &m.CaptureRate, &m.UpdateCaptureRate, &m.DuplicateRate, &m.UpdateCorrectness, &m.PassK)
+	// Appended after the original five so every previously reported interval
+	// stays reproducible from the same seed (the RNG advances per rate).
+	m.Capture.FillCIs(rng)
 	if m.DuplicateRate.Den > 0 {
 		m.SupersedeRate.CILow = 1 - m.DuplicateRate.CIHigh
 		m.SupersedeRate.CIHigh = 1 - m.DuplicateRate.CILow
@@ -236,6 +242,8 @@ func (res *SupersedeResults) HumanSummary() string {
 	fmt.Fprintf(&b, "tokens: input %d  output %d  cache read %d  cache write %d (apply current model pricing for cost)\n\n",
 		mt.TotalInputTokens, mt.TotalOutputTokens, mt.TotalCacheReadTokens, mt.TotalCacheCreationTokens)
 	writeMetric(&b, "capture rate", mt.CaptureRate)
+	b.WriteString(mt.Capture.Rows())
+	b.WriteString(mt.Capture.MissBlock())
 	writeMetric(&b, "update capture rate", mt.UpdateCaptureRate)
 	writeMetric(&b, "supersede rate", mt.SupersedeRate)
 	writeMetric(&b, "duplicate rate", mt.DuplicateRate)
