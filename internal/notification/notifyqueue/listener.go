@@ -1,4 +1,4 @@
-package notification
+package notifyqueue
 
 import (
 	"context"
@@ -11,8 +11,9 @@ import (
 )
 
 // notifier is the worker hook the listener fires on every received NOTIFY.
-// Worker.Notify implements it; the one-method interface keeps the listener
-// testable with a fake.
+// notifyworker.Worker.Notify implements it; the one-method interface both keeps
+// the listener testable with a fake and keeps this package from depending on
+// the worker it wakes.
 type notifier interface {
 	Notify()
 }

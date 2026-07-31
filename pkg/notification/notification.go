@@ -1,9 +1,20 @@
-// Package notification is the platform's email-notification substrate: a
-// typed admin SMTP settings store, per-user notification preferences, a
-// durable delivery queue, and the enqueue path consulted by share and
-// thread-comment triggers. Delivery (worker + SMTP send + branded
-// rendering) also lives here; the platform wires it through the
-// internal/platform/notifydelivery seam.
+// Package notification is the domain of the platform's email notifications:
+// the event model, the preference model, the two store contracts that persist
+// them, and the enqueue path share and thread-comment triggers call.
+//
+// It is the vocabulary every other layer of the substrate is written in, and
+// depends on none of them:
+//
+//	pkg/notification/smtp                     admin-configured mail server settings
+//	internal/notification/notifyprefs         preference persistence
+//	internal/notification/notifyqueue         queue persistence + LISTEN wakeup
+//	internal/notification/notifyrender        branded email rendering
+//	internal/notification/notifysend          SMTP transport
+//	internal/notification/notifyworker        the send worker that drains the queue
+//	internal/httpserver/notifyhttp            self-scoped preference REST
+//	internal/httpserver/unsubhttp             no-login unsubscribe endpoint
+//
+// internal/platform/notifydelivery assembles them into one startable handle.
 package notification
 
 import (
@@ -11,17 +22,9 @@ import (
 	"time"
 )
 
-// Sentinel errors returned by the stores in this package.
-var (
-	// ErrNotFound is returned when a requested row does not exist.
-	ErrNotFound = errors.New("notification: not found")
-	// ErrNoWork is returned by claim methods when no due row is available.
-	ErrNoWork = errors.New("notification: no work available")
-	// ErrSMTPNotConfigured is returned by delivery actions when SMTP is
-	// absent, disabled, or missing a host; the caller should surface it as
-	// a configuration conflict, not a delivery failure.
-	ErrSMTPNotConfigured = errors.New("notification: smtp is disabled or not configured")
-)
+// ErrNoWork is returned by QueueStore claim methods when no due row is
+// available.
+var ErrNoWork = errors.New("notification: no work available")
 
 // Notification categories. A category maps to a per-user preference toggle
 // and an email template family.

@@ -1,10 +1,12 @@
-package notification
+package notifyrender
 
 import (
 	"bytes"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
 func testRenderer(t *testing.T) *Renderer {
@@ -33,11 +35,11 @@ func TestNewRenderer_DefaultBrandName(t *testing.T) {
 
 func TestRender_ShareEmail(t *testing.T) {
 	r := testRenderer(t)
-	email, err := r.Render([]Notification{{
+	email, err := r.Render([]notification.Notification{{
 		Recipient: "a@b.io",
-		Category:  CategoryShare,
-		Payload: Payload{
-			Kind:      KindAsset,
+		Category:  notification.CategoryShare,
+		Payload: notification.Payload{
+			Kind:      notification.KindAsset,
 			ItemTitle: "Quarterly Revenue",
 			Actor:     "owner@example.com",
 			Message:   "Take a look before Friday.",
@@ -78,18 +80,18 @@ func TestRender_SubjectVariants(t *testing.T) {
 		kind string
 		want string
 	}{
-		{KindAsset, `x@y.z shared the asset "T" with you`},
-		{KindCollection, `x@y.z shared the collection "T" with you`},
-		{KindPrompt, `x@y.z shared the prompt "T" with you`},
-		{KindFeedback, `x@y.z left feedback on "T"`},
-		{KindComment, `x@y.z commented on "T"`},
+		{notification.KindAsset, `x@y.z shared the asset "T" with you`},
+		{notification.KindCollection, `x@y.z shared the collection "T" with you`},
+		{notification.KindPrompt, `x@y.z shared the prompt "T" with you`},
+		{notification.KindFeedback, `x@y.z left feedback on "T"`},
+		{notification.KindComment, `x@y.z commented on "T"`},
 	}
 	r := testRenderer(t)
 	for _, tc := range tests {
 		t.Run(tc.kind, func(t *testing.T) {
-			email, err := r.Render([]Notification{{
+			email, err := r.Render([]notification.Notification{{
 				Recipient: "a@b.io",
-				Payload:   Payload{Kind: tc.kind, ItemTitle: "T", Actor: "x@y.z"},
+				Payload:   notification.Payload{Kind: tc.kind, ItemTitle: "T", Actor: "x@y.z"},
 			}})
 			if err != nil {
 				t.Fatal(err)
@@ -103,9 +105,9 @@ func TestRender_SubjectVariants(t *testing.T) {
 
 func TestRender_Digest(t *testing.T) {
 	r := testRenderer(t)
-	email, err := r.Render([]Notification{
-		{Recipient: "a@b.io", Payload: Payload{Kind: KindAsset, ItemTitle: "One", Actor: "x@y.z"}},
-		{Recipient: "a@b.io", Payload: Payload{Kind: KindComment, ItemTitle: "Two", Actor: "q@y.z"}},
+	email, err := r.Render([]notification.Notification{
+		{Recipient: "a@b.io", Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "One", Actor: "x@y.z"}},
+		{Recipient: "a@b.io", Payload: notification.Payload{Kind: notification.KindComment, ItemTitle: "Two", Actor: "q@y.z"}},
 	})
 	if err != nil {
 		t.Fatalf("Render digest: %v", err)
@@ -132,10 +134,10 @@ func TestRender_Empty(t *testing.T) {
 
 func TestRender_EscapesHTML(t *testing.T) {
 	r := testRenderer(t)
-	email, err := r.Render([]Notification{{
+	email, err := r.Render([]notification.Notification{{
 		Recipient: "a@b.io",
-		Payload: Payload{
-			Kind: KindComment, ItemTitle: "T",
+		Payload: notification.Payload{
+			Kind: notification.KindComment, ItemTitle: "T",
 			Actor: "x@y.z", Message: `<script>alert("x")</script>`,
 		},
 	}})
@@ -185,7 +187,7 @@ func TestRender_InlineLogo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderTest: %v", err)
 	}
-	if !strings.Contains(email.HTML, `src="cid:`+logoContentID+`"`) {
+	if !strings.Contains(email.HTML, `src="cid:`+LogoContentID+`"`) {
 		t.Errorf("HTML missing inline logo reference: %s", email.HTML)
 	}
 	if !strings.Contains(email.HTML, `alt="ACME Data Platform"`) {
@@ -330,7 +332,7 @@ func TestExecute_TemplateErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Render([]Notification{{Recipient: "a@b.io"}}); err == nil {
+	if _, err := r.Render([]notification.Notification{{Recipient: "a@b.io"}}); err == nil {
 		t.Error("expected html execution error")
 	}
 

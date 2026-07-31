@@ -2,9 +2,6 @@ package notification
 
 import (
 	"context"
-	"database/sql"
-	"errors"
-	"fmt"
 	"time"
 )
 
@@ -40,6 +37,25 @@ type PrefsUpdate struct {
 	MentionsEnabled *bool   `json:"mentions_enabled,omitempty"`
 }
 
+// Apply overlays the update's set fields onto p, leaving the rest untouched.
+// Which fields a partial write may leave alone is a property of the preference
+// model rather than of any one backend, so every store applies an update the
+// same way by calling this.
+func (u PrefsUpdate) Apply(p *Prefs) {
+	if u.Mode != nil {
+		p.Mode = *u.Mode
+	}
+	if u.SharesEnabled != nil {
+		p.SharesEnabled = *u.SharesEnabled
+	}
+	if u.CommentsEnabled != nil {
+		p.CommentsEnabled = *u.CommentsEnabled
+	}
+	if u.MentionsEnabled != nil {
+		p.MentionsEnabled = *u.MentionsEnabled
+	}
+}
+
 // ValidMode reports whether m is one of the delivery modes.
 func ValidMode(m string) bool {
 	return m == ModeOff || m == ModeImmediate || m == ModeDaily
@@ -48,79 +64,8 @@ func ValidMode(m string) bool {
 // PrefsStore persists per-user notification preferences.
 type PrefsStore interface {
 	// Get returns the user's preferences, falling back to DefaultPrefs when
-	// no row exists. It never returns ErrNotFound.
+	// no row exists. It never returns an error for an unknown user.
 	Get(ctx context.Context, email string) (Prefs, error)
 	// Set upserts the user's preferences, applying u over the current values.
 	Set(ctx context.Context, email string, u PrefsUpdate) (Prefs, error)
 }
-
-// PostgresPrefsStore implements PrefsStore backed by user_notification_prefs.
-type PostgresPrefsStore struct {
-	db *sql.DB
-}
-
-// NewPostgresPrefsStore creates a PostgreSQL-backed preferences store.
-func NewPostgresPrefsStore(db *sql.DB) *PostgresPrefsStore {
-	return &PostgresPrefsStore{db: db}
-}
-
-// Get returns the stored preferences or DefaultPrefs when absent.
-func (s *PostgresPrefsStore) Get(ctx context.Context, email string) (Prefs, error) {
-	var p Prefs
-	err := s.db.QueryRowContext(ctx,
-		`SELECT email, mode, shares_enabled, comments_enabled, mentions_enabled, updated_at
-		 FROM user_notification_prefs WHERE email = $1`, email).
-		Scan(&p.Email, &p.Mode, &p.SharesEnabled, &p.CommentsEnabled, &p.MentionsEnabled, &p.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return DefaultPrefs(email), nil
-	}
-	if err != nil {
-		return Prefs{}, fmt.Errorf("querying notification prefs: %w", err)
-	}
-	return p, nil
-}
-
-// Set applies u over the user's current (or default) preferences and upserts
-// the result.
-func (s *PostgresPrefsStore) Set(ctx context.Context, email string, u PrefsUpdate) (Prefs, error) {
-	current, err := s.Get(ctx, email)
-	if err != nil {
-		return Prefs{}, err
-	}
-	if u.Mode != nil {
-		current.Mode = *u.Mode
-	}
-	if u.SharesEnabled != nil {
-		current.SharesEnabled = *u.SharesEnabled
-	}
-	if u.CommentsEnabled != nil {
-		current.CommentsEnabled = *u.CommentsEnabled
-	}
-	if u.MentionsEnabled != nil {
-		current.MentionsEnabled = *u.MentionsEnabled
-	}
-	if !ValidMode(current.Mode) {
-		return Prefs{}, fmt.Errorf("invalid notification mode %q", current.Mode)
-	}
-
-	err = s.db.QueryRowContext(ctx,
-		`INSERT INTO user_notification_prefs (email, mode, shares_enabled, comments_enabled, mentions_enabled)
-		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (email) DO UPDATE SET
-		   mode = EXCLUDED.mode,
-		   shares_enabled = EXCLUDED.shares_enabled,
-		   comments_enabled = EXCLUDED.comments_enabled,
-		   mentions_enabled = EXCLUDED.mentions_enabled,
-		   updated_at = NOW()
-		 RETURNING updated_at`,
-		email, current.Mode, current.SharesEnabled, current.CommentsEnabled, current.MentionsEnabled).
-		Scan(&current.UpdatedAt)
-	if err != nil {
-		return Prefs{}, fmt.Errorf("storing notification prefs: %w", err)
-	}
-	current.Email = email
-	return current, nil
-}
-
-// Verify interface compliance.
-var _ PrefsStore = (*PostgresPrefsStore)(nil)

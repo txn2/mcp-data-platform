@@ -2680,7 +2680,7 @@ definitions:
         example: 42
         type: integer
     type: object
-  notification.PrefsRequest:
+  notifyhttp.PrefsRequest:
     properties:
       comments_enabled:
         type: boolean
@@ -2691,7 +2691,7 @@ definitions:
       shares_enabled:
         type: boolean
     type: object
-  notification.PrefsResponse:
+  notifyhttp.PrefsResponse:
     properties:
       comments_enabled:
         type: boolean
@@ -2708,79 +2708,6 @@ definitions:
         type: string
       shares_enabled:
         type: boolean
-    type: object
-  notification.SMTPSettingsInput:
-    properties:
-      enabled:
-        example: true
-        type: boolean
-      from:
-        example: platform@example.com
-        type: string
-      from_name:
-        example: Data Platform
-        type: string
-      host:
-        example: smtp.example.com
-        type: string
-      password:
-        example: app-password
-        type: string
-      port:
-        example: 587
-        type: integer
-      tls_mode:
-        example: starttls
-        type: string
-      username:
-        example: mailer@example.com
-        type: string
-    type: object
-  notification.SMTPSettingsView:
-    properties:
-      enabled:
-        example: true
-        type: boolean
-      from:
-        example: platform@example.com
-        type: string
-      from_name:
-        example: Data Platform
-        type: string
-      host:
-        example: smtp.example.com
-        type: string
-      password_set:
-        example: true
-        type: boolean
-      port:
-        example: 587
-        type: integer
-      tls_mode:
-        example: starttls
-        type: string
-      updated_at:
-        type: string
-      updated_by:
-        example: admin@example.com
-        type: string
-      username:
-        example: mailer@example.com
-        type: string
-      warnings:
-        description: |-
-          Warnings describes accepted-but-hazardous combinations in the stored
-          configuration. They never block a save; they exist so the operator sees
-          the hazard at the surface where the setting was chosen.
-        items:
-          type: string
-        type: array
-    type: object
-  notification.TestEmailRequest:
-    properties:
-      to:
-        example: admin@example.com
-        type: string
     type: object
   persona.AccessSource:
     enum:
@@ -4099,6 +4026,79 @@ definitions:
         type: string
       type:
         example: about:blank
+        type: string
+    type: object
+  smtp.SettingsInput:
+    properties:
+      enabled:
+        example: true
+        type: boolean
+      from:
+        example: platform@example.com
+        type: string
+      from_name:
+        example: Data Platform
+        type: string
+      host:
+        example: smtp.example.com
+        type: string
+      password:
+        example: app-password
+        type: string
+      port:
+        example: 587
+        type: integer
+      tls_mode:
+        example: starttls
+        type: string
+      username:
+        example: mailer@example.com
+        type: string
+    type: object
+  smtp.SettingsView:
+    properties:
+      enabled:
+        example: true
+        type: boolean
+      from:
+        example: platform@example.com
+        type: string
+      from_name:
+        example: Data Platform
+        type: string
+      host:
+        example: smtp.example.com
+        type: string
+      password_set:
+        example: true
+        type: boolean
+      port:
+        example: 587
+        type: integer
+      tls_mode:
+        example: starttls
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        example: admin@example.com
+        type: string
+      username:
+        example: mailer@example.com
+        type: string
+      warnings:
+        description: |-
+          Warnings describes accepted-but-hazardous combinations in the stored
+          configuration. They never block a save; they exist so the operator sees
+          the hazard at the surface where the setting was chosen.
+        items:
+          type: string
+        type: array
+    type: object
+  smtp.TestEmailRequest:
+    properties:
+      to:
+        example: admin@example.com
         type: string
     type: object
   threads.Thread:
@@ -8244,7 +8244,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/notification.SMTPSettingsView'
+            $ref: '#/definitions/smtp.SettingsView'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -8262,14 +8262,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/notification.SMTPSettingsInput'
+          $ref: '#/definitions/smtp.SettingsInput'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/notification.SMTPSettingsView'
+            $ref: '#/definitions/smtp.SettingsView'
         "400":
           description: Bad Request
           schema:
@@ -8320,7 +8320,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/notification.TestEmailRequest'
+          $ref: '#/definitions/smtp.TestEmailRequest'
       produces:
       - application/json
       responses:
@@ -10994,7 +10994,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/notification.PrefsResponse'
+            $ref: '#/definitions/notifyhttp.PrefsResponse'
         "401":
           description: Unauthorized
           schema:
@@ -11019,14 +11019,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/notification.PrefsRequest'
+          $ref: '#/definitions/notifyhttp.PrefsRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/notification.PrefsResponse'
+            $ref: '#/definitions/notifyhttp.PrefsResponse'
         "400":
           description: Bad Request
           schema:

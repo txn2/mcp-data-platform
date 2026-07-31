@@ -1,4 +1,12 @@
-package notification
+// Package notifyrender turns queued notifications into branded multipart
+// emails. It owns the embedded templates, the deployment branding they render
+// with, and the Email value a sender delivers.
+//
+// Rendering is the only layer that decides what a message looks like: the
+// worker hands it a claimed batch and passes the result to a sender unchanged,
+// so every message the platform emits carries the same footer, logo and
+// Reply-To treatment.
+package notifyrender
 
 import (
 	"embed"
@@ -8,6 +16,8 @@ import (
 	"io/fs"
 	"strings"
 	texttemplate "text/template"
+
+	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
 //go:embed templates/*.tmpl
@@ -53,9 +63,9 @@ type Branding struct {
 	LogoPNG []byte
 }
 
-// logoContentID is the Content-ID of the inline logo part. The HTML template
+// LogoContentID is the Content-ID of the inline logo part. The HTML template
 // references it as cid:<this>, so the two must stay in sync.
-const logoContentID = "logo.png"
+const LogoContentID = "logo.png"
 
 // supportHref returns the link target for the support contact: mailto: for an
 // address, the URL itself for http(s), empty (render as plain text) otherwise.
@@ -75,7 +85,7 @@ type Email struct {
 	Subject string
 	HTML    string
 	Text    string
-	// LogoPNG is the inline logo the sender must attach under logoContentID
+	// LogoPNG is the inline logo the sender must attach under LogoContentID
 	// when non-empty. The HTML references it but cannot carry the bytes.
 	LogoPNG []byte
 	// UnsubURL is the recipient's no-login unsubscribe link when the message
@@ -132,7 +142,7 @@ func newRendererFromFS(fsys fs.FS, b Branding) (*Renderer, error) {
 // Render renders one email covering the given notifications. A single
 // notification renders the per-event template; multiple render the digest
 // layout. All notifications must target the same recipient.
-func (r *Renderer) Render(ns []Notification) (*Email, error) {
+func (r *Renderer) Render(ns []notification.Notification) (*Email, error) {
 	if len(ns) == 0 {
 		return nil, errors.New("rendering email: no notifications")
 	}
@@ -148,7 +158,7 @@ func (r *Renderer) Render(ns []Notification) (*Email, error) {
 // applied, so every message the renderer produces carries them uniformly.
 func (r *Renderer) execute(to string, data emailData) (*Email, error) {
 	if len(r.branding.LogoPNG) > 0 {
-		data.LogoCID = logoContentID
+		data.LogoCID = LogoContentID
 	}
 	data.AboutText = r.branding.AboutText
 	data.SupportContact = r.branding.SupportContact
@@ -240,7 +250,7 @@ type emailItem struct {
 }
 
 // buildData assembles the template context for a batch of notifications.
-func (r *Renderer) buildData(ns []Notification) emailData {
+func (r *Renderer) buildData(ns []notification.Notification) emailData {
 	data := emailData{
 		Brand:    r.branding,
 		Digest:   len(ns) > 1,
@@ -260,7 +270,7 @@ func (r *Renderer) buildData(ns []Notification) emailData {
 }
 
 // buildItem converts one notification into an email line item.
-func buildItem(n Notification) emailItem {
+func buildItem(n notification.Notification) emailItem {
 	return emailItem{
 		Title:   n.Payload.ItemTitle,
 		Detail:  subjectFor(n),
@@ -270,13 +280,13 @@ func buildItem(n Notification) emailItem {
 }
 
 // subjectFor returns the single-event subject/heading line.
-func subjectFor(n Notification) string {
+func subjectFor(n notification.Notification) string {
 	switch n.Payload.Kind {
-	case KindAsset, KindCollection, KindPrompt:
+	case notification.KindAsset, notification.KindCollection, notification.KindPrompt:
 		return fmt.Sprintf("%s shared the %s %q with you", n.Payload.Actor, n.Payload.Kind, n.Payload.ItemTitle)
-	case KindFeedback:
+	case notification.KindFeedback:
 		return fmt.Sprintf("%s left feedback on %q", n.Payload.Actor, n.Payload.ItemTitle)
-	case KindMention:
+	case notification.KindMention:
 		return fmt.Sprintf("%s mentioned you on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	default:
 		return fmt.Sprintf("%s commented on %q", n.Payload.Actor, n.Payload.ItemTitle)

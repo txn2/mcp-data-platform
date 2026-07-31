@@ -1,4 +1,11 @@
-package notification
+// Package unsubhttp serves the no-login unsubscribe endpoint linked from every
+// notification email footer and named by the RFC 8058 List-Unsubscribe header.
+//
+// It also mints and verifies the HMAC token that link carries, so the one place
+// that decides a token is valid is the one place that acts on it. The opt-out
+// it records is an ordinary preference write: delivery mode "off" for the
+// address the token names.
+package unsubhttp
 
 import (
 	"crypto/hmac"
@@ -7,6 +14,8 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
 // unsubMACLabel domain-separates the unsubscribe MAC from any other use of
@@ -113,7 +122,7 @@ type unsubPageData struct {
 // no further notification emails. One-time view links are unaffected: those
 // are transactional sends the recipient asks for, not notifications.
 type UnsubscribeHandler struct {
-	Prefs PrefsStore
+	Prefs notification.PrefsStore
 	// Key signs and verifies the footer tokens; see UnsubToken.
 	Key []byte
 	// BrandName heads the confirmation page.
@@ -206,8 +215,8 @@ func (h *UnsubscribeHandler) renderInvalid(w http.ResponseWriter) {
 
 // optOut writes delivery mode "off" for email, reporting success.
 func (h *UnsubscribeHandler) optOut(r *http.Request, email string) bool {
-	mode := ModeOff
-	_, err := h.Prefs.Set(r.Context(), email, PrefsUpdate{Mode: &mode})
+	mode := notification.ModeOff
+	_, err := h.Prefs.Set(r.Context(), email, notification.PrefsUpdate{Mode: &mode})
 	return err == nil
 }
 

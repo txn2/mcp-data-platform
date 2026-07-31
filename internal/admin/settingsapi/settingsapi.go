@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
 
 // testSendFailureDetail is the invariant response detail for a failed test
@@ -25,7 +26,7 @@ const testSendFailureDetail = "sending test email failed; check the server log f
 type Config struct {
 	// Settings persists the admin SMTP configuration. nil disables every
 	// route in this package.
-	Settings notification.SettingsStore
+	Settings smtp.SettingsStore
 	// SendTest delivers a test email through the stored SMTP settings. nil
 	// disables the test route.
 	SendTest func(ctx context.Context, to string) error
@@ -80,14 +81,14 @@ func Register(mux *http.ServeMux, cfg Config) {
 // @Description  Returns the stored SMTP configuration. The password is never returned; password_set reports whether one is stored.
 // @Tags         Settings
 // @Produce      json
-// @Success      200  {object}  notification.SMTPSettingsView
+// @Success      200  {object}  smtp.SettingsView
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/settings/smtp [get]
 func (h *handler) getSMTP(w http.ResponseWriter, r *http.Request) {
-	settings, err := h.cfg.Settings.GetSMTP(r.Context())
-	if errors.Is(err, notification.ErrNotFound) {
-		writeJSON(w, http.StatusOK, notification.UnconfiguredSMTPView())
+	settings, err := h.cfg.Settings.Get(r.Context())
+	if errors.Is(err, smtp.ErrNotFound) {
+		writeJSON(w, http.StatusOK, smtp.UnconfiguredView())
 		return
 	}
 	if err != nil {
@@ -104,14 +105,14 @@ func (h *handler) getSMTP(w http.ResponseWriter, r *http.Request) {
 // @Tags         Settings
 // @Accept       json
 // @Produce      json
-// @Param        request  body  notification.SMTPSettingsInput  true  "SMTP settings"
-// @Success      200  {object}  notification.SMTPSettingsView
+// @Param        request  body  smtp.SettingsInput  true  "SMTP settings"
+// @Success      200  {object}  smtp.SettingsView
 // @Failure      400  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/settings/smtp [put]
 func (h *handler) setSMTP(w http.ResponseWriter, r *http.Request) {
-	var req notification.SMTPSettingsInput
+	var req smtp.SettingsInput
 	if err := h.cfg.Decode(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -120,7 +121,7 @@ func (h *handler) setSMTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
-	if err := h.cfg.Settings.SetSMTP(r.Context(), req.Settings(), h.cfg.Author(r)); err != nil {
+	if err := h.cfg.Settings.Set(r.Context(), req.Settings(), h.cfg.Author(r)); err != nil {
 		writeError(w, http.StatusInternalServerError, "storing smtp settings failed")
 		return
 	}
@@ -134,7 +135,7 @@ func (h *handler) setSMTP(w http.ResponseWriter, r *http.Request) {
 // @Tags         Settings
 // @Accept       json
 // @Produce      json
-// @Param        request  body  notification.TestEmailRequest  true  "Recipient"
+// @Param        request  body  smtp.TestEmailRequest  true  "Recipient"
 // @Success      200  {object}  map[string]string
 // @Failure      400  {object}  problemDetail
 // @Failure      409  {object}  problemDetail
@@ -143,7 +144,7 @@ func (h *handler) setSMTP(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /admin/settings/smtp/test [post]
 func (h *handler) sendTest(w http.ResponseWriter, r *http.Request) {
-	var req notification.TestEmailRequest
+	var req smtp.TestEmailRequest
 	if err := h.cfg.Decode(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -153,7 +154,7 @@ func (h *handler) sendTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.cfg.SendTest(r.Context(), req.To); err != nil {
-		if errors.Is(err, notification.ErrSMTPNotConfigured) {
+		if errors.Is(err, smtp.ErrNotConfigured) {
 			writeError(w, http.StatusConflict, "SMTP is disabled; enable and save the settings first")
 			return
 		}

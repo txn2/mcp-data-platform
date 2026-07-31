@@ -1,4 +1,11 @@
-package notification
+// Package notifyworker drains the notification queue: it claims due rows under
+// a lease, renders them, delivers them over SMTP, and resolves each batch to
+// sent, retried, or failed.
+//
+// It owns the delivery policy — the deliverability gate, the retry budget and
+// its backoff, and the retention purge that bounds the table — and holds the
+// rendering and transport layers behind the two collaborators in Config.
+package notifyworker
 
 import (
 	"context"
@@ -8,6 +15,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifysend"
+	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
 
 // logKeyError is the structured-logging key for an error value.
@@ -38,12 +50,12 @@ const (
 	purgeEvery = time.Hour
 )
 
-// WorkerConfig configures the send worker.
-type WorkerConfig struct {
-	Queue    QueueStore
-	Settings SettingsStore
-	Renderer *Renderer
-	Sender   Sender
+// Config configures the send worker.
+type Config struct {
+	Queue    notification.QueueStore
+	Settings smtp.SettingsStore
+	Renderer *notifyrender.Renderer
+	Sender   notifysend.Sender
 	// PollEvery, Lease, and MaxAttempts default to the package constants
 	// when zero.
 	PollEvery   time.Duration
@@ -57,7 +69,7 @@ type WorkerConfig struct {
 // exponential backoff). When SMTP is unconfigured or disabled the worker
 // leaves rows pending without burning delivery attempts.
 type Worker struct {
-	cfg      WorkerConfig
+	cfg      Config
 	wakeup   chan struct{}
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -68,8 +80,8 @@ type Worker struct {
 	lastPurge time.Time
 }
 
-// NewWorker creates a send worker, applying defaults for zero config values.
-func NewWorker(cfg WorkerConfig) *Worker {
+// New creates a send worker, applying defaults for zero config values.
+func New(cfg Config) *Worker {
 	if cfg.PollEvery <= 0 {
 		cfg.PollEvery = DefaultPollEvery
 	}
@@ -167,9 +179,9 @@ func (w *Worker) maybePurge(ctx context.Context) {
 
 // deliverableSettings returns SMTP settings ready for sending, or nil when
 // SMTP is unconfigured or disabled (rows stay pending, no attempts burned).
-func (w *Worker) deliverableSettings(ctx context.Context) *SMTPSettings {
-	settings, err := w.cfg.Settings.GetSMTP(ctx)
-	if errors.Is(err, ErrNotFound) {
+func (w *Worker) deliverableSettings(ctx context.Context) *smtp.Settings {
+	settings, err := w.cfg.Settings.Get(ctx)
+	if errors.Is(err, smtp.ErrNotFound) {
 		return nil
 	}
 	if err != nil {
@@ -184,9 +196,9 @@ func (w *Worker) deliverableSettings(ctx context.Context) *SMTPSettings {
 
 // processNext claims and delivers one unit of work (one immediate row or one
 // recipient's digest batch). It reports whether more work may remain.
-func (w *Worker) processNext(ctx context.Context, settings *SMTPSettings) bool {
+func (w *Worker) processNext(ctx context.Context, settings *smtp.Settings) bool {
 	batch, err := w.claimNext(ctx)
-	if errors.Is(err, ErrNoWork) {
+	if errors.Is(err, notification.ErrNoWork) {
 		return false
 	}
 	if err != nil {
@@ -198,13 +210,13 @@ func (w *Worker) processNext(ctx context.Context, settings *SMTPSettings) bool {
 }
 
 // claimNext prefers immediate rows, then falls back to digest batches.
-// ErrNoWork wraps through so processNext can match it with errors.Is.
-func (w *Worker) claimNext(ctx context.Context) ([]Notification, error) {
+// notification.ErrNoWork wraps through so processNext can match it with errors.Is.
+func (w *Worker) claimNext(ctx context.Context) ([]notification.Notification, error) {
 	n, err := w.cfg.Queue.ClaimImmediate(ctx, w.cfg.Lease)
 	if err == nil {
-		return []Notification{*n}, nil
+		return []notification.Notification{*n}, nil
 	}
-	if !errors.Is(err, ErrNoWork) {
+	if !errors.Is(err, notification.ErrNoWork) {
 		return nil, fmt.Errorf("claiming immediate notification: %w", err)
 	}
 	batch, err := w.cfg.Queue.ClaimDigest(ctx, w.cfg.Lease)
@@ -215,7 +227,7 @@ func (w *Worker) claimNext(ctx context.Context) ([]Notification, error) {
 }
 
 // deliver renders and sends one claimed batch, then resolves its rows.
-func (w *Worker) deliver(ctx context.Context, settings *SMTPSettings, batch []Notification) {
+func (w *Worker) deliver(ctx context.Context, settings *smtp.Settings, batch []notification.Notification) {
 	if len(batch) == 0 {
 		return
 	}
@@ -237,7 +249,7 @@ func (w *Worker) deliver(ctx context.Context, settings *SMTPSettings, batch []No
 }
 
 // resolve routes a failed batch to retry or permanent failure.
-func (w *Worker) resolve(ctx context.Context, batch []Notification, sendErr error, terminal bool) {
+func (w *Worker) resolve(ctx context.Context, batch []notification.Notification, sendErr error, terminal bool) {
 	attempts := maxAttempts(batch)
 	if terminal || attempts >= w.cfg.MaxAttempts {
 		slog.Error("notification: delivery failed permanently",
@@ -256,7 +268,7 @@ func (w *Worker) resolve(ctx context.Context, batch []Notification, sendErr erro
 }
 
 // ids collects the row IDs of a batch.
-func ids(batch []Notification) []int64 {
+func ids(batch []notification.Notification) []int64 {
 	out := make([]int64, len(batch))
 	for i, n := range batch {
 		out[i] = n.ID
@@ -266,7 +278,7 @@ func ids(batch []Notification) []int64 {
 
 // maxAttempts returns the highest attempt count in a batch (digest rows can
 // carry different counts when new rows join a retried batch).
-func maxAttempts(batch []Notification) int {
+func maxAttempts(batch []notification.Notification) int {
 	most := 0
 	for _, n := range batch {
 		if n.Attempts > most {

@@ -1,4 +1,4 @@
-package notification
+package smtp
 
 import (
 	"context"
@@ -33,16 +33,16 @@ type failingEncryptor struct{}
 func (failingEncryptor) Encrypt(string) (string, error) { return "", errors.New("encrypt boom") }
 func (failingEncryptor) Decrypt(string) (string, error) { return "", errors.New("decrypt boom") }
 
-func newMockSettingsStore(t *testing.T, enc StringEncryptor) (*PostgresSettingsStore, sqlmock.Sqlmock, func()) {
+func newMockSettingsStore(t *testing.T, enc StringEncryptor) (*PostgresStore, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewPostgresSettingsStore(db, enc), mock, func() { _ = db.Close() }
+	return NewPostgresStore(db, enc), mock, func() { _ = db.Close() }
 }
 
-func smtpRow(t *testing.T, s SMTPSettings, updatedBy string, updatedAt time.Time) *sqlmock.Rows {
+func smtpRow(t *testing.T, s Settings, updatedBy string, updatedAt time.Time) *sqlmock.Rows {
 	t.Helper()
 	raw, err := json.Marshal(s) // #nosec G117 -- test fixture; passwords here are fakes
 	if err != nil {
@@ -57,17 +57,17 @@ func TestSettingsStore_GetSMTP(t *testing.T) {
 	defer done()
 
 	now := time.Now().UTC().Truncate(time.Second)
-	stored := SMTPSettings{
+	stored := Settings{
 		Enabled: true, Host: "smtp.example.com", Port: 587,
 		Username: "mailer", Password: reverse("secret"), From: "p@example.com", TLSMode: TLSModeStartTLS,
 	}
 	mock.ExpectQuery("SELECT value, updated_by, updated_at FROM platform_settings").
-		WithArgs(SettingsSectionSMTP).
+		WithArgs(SettingsSection).
 		WillReturnRows(smtpRow(t, stored, "admin@example.com", now))
 
-	got, err := store.GetSMTP(context.Background())
+	got, err := store.Get(context.Background())
 	if err != nil {
-		t.Fatalf("GetSMTP: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
 	if got.Password != "secret" {
 		t.Errorf("password not decrypted: %q", got.Password)
@@ -87,7 +87,7 @@ func TestSettingsStore_GetSMTP_NotFound(t *testing.T) {
 	mock.ExpectQuery("SELECT value, updated_by, updated_at FROM platform_settings").
 		WillReturnRows(sqlmock.NewRows([]string{"value", "updated_by", "updated_at"}))
 
-	if _, err := store.GetSMTP(context.Background()); !errors.Is(err, ErrNotFound) {
+	if _, err := store.Get(context.Background()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -99,7 +99,7 @@ func TestSettingsStore_GetSMTP_QueryError(t *testing.T) {
 	mock.ExpectQuery("SELECT value, updated_by, updated_at FROM platform_settings").
 		WillReturnError(errors.New("connection reset"))
 
-	if _, err := store.GetSMTP(context.Background()); err == nil {
+	if _, err := store.Get(context.Background()); err == nil {
 		t.Fatal("expected error to propagate")
 	}
 }
@@ -113,7 +113,7 @@ func TestSettingsStore_GetSMTP_BadJSON(t *testing.T) {
 	mock.ExpectQuery("SELECT value, updated_by, updated_at FROM platform_settings").
 		WillReturnRows(rows)
 
-	if _, err := store.GetSMTP(context.Background()); err == nil {
+	if _, err := store.Get(context.Background()); err == nil {
 		t.Fatal("expected decode error")
 	}
 }
@@ -123,9 +123,9 @@ func TestSettingsStore_GetSMTP_DecryptError(t *testing.T) {
 	defer done()
 
 	mock.ExpectQuery("SELECT value, updated_by, updated_at FROM platform_settings").
-		WillReturnRows(smtpRow(t, SMTPSettings{Password: "x"}, "", time.Now()))
+		WillReturnRows(smtpRow(t, Settings{Password: "x"}, "", time.Now()))
 
-	if _, err := store.GetSMTP(context.Background()); err == nil {
+	if _, err := store.Get(context.Background()); err == nil {
 		t.Fatal("expected decrypt error")
 	}
 }
@@ -138,12 +138,12 @@ func TestSettingsStore_SetSMTP_StoredValueEncrypted(t *testing.T) {
 
 	var captured []byte
 	mock.ExpectExec("INSERT INTO platform_settings").
-		WithArgs(SettingsSectionSMTP, capture{&captured}, "a@b.io").
+		WithArgs(SettingsSection, capture{&captured}, "a@b.io").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	if err := store.SetSMTP(context.Background(),
-		SMTPSettings{Enabled: true, Password: "secret", UpdatedBy: "stale"}, "a@b.io"); err != nil {
-		t.Fatalf("SetSMTP: %v", err)
+	if err := store.Set(context.Background(),
+		Settings{Enabled: true, Password: "secret", UpdatedBy: "stale"}, "a@b.io"); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
@@ -180,15 +180,15 @@ func TestSettingsStore_SetSMTP_EmptyPasswordKeepsStored(t *testing.T) {
 
 	// Existing row holds an encrypted password.
 	mock.ExpectQuery("SELECT value, updated_by, updated_at FROM platform_settings").
-		WillReturnRows(smtpRow(t, SMTPSettings{Password: reverse("keepme")}, "", time.Now()))
+		WillReturnRows(smtpRow(t, Settings{Password: reverse("keepme")}, "", time.Now()))
 
 	var captured []byte
 	mock.ExpectExec("INSERT INTO platform_settings").
-		WithArgs(SettingsSectionSMTP, capture{&captured}, "a@b.io").
+		WithArgs(SettingsSection, capture{&captured}, "a@b.io").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	if err := store.SetSMTP(context.Background(), SMTPSettings{Host: "h"}, "a@b.io"); err != nil {
-		t.Fatalf("SetSMTP: %v", err)
+	if err := store.Set(context.Background(), Settings{Host: "h"}, "a@b.io"); err != nil {
+		t.Fatalf("Set: %v", err)
 	}
 	if !strings.Contains(string(captured), reverse("keepme")) {
 		t.Errorf("stored JSON lost the existing password: %s", captured)
@@ -204,8 +204,8 @@ func TestSettingsStore_SetSMTP_EmptyPasswordNoExisting(t *testing.T) {
 	mock.ExpectExec("INSERT INTO platform_settings").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	if err := store.SetSMTP(context.Background(), SMTPSettings{Host: "h"}, "a@b.io"); err != nil {
-		t.Fatalf("SetSMTP with no existing row: %v", err)
+	if err := store.Set(context.Background(), Settings{Host: "h"}, "a@b.io"); err != nil {
+		t.Fatalf("Set with no existing row: %v", err)
 	}
 }
 
@@ -213,7 +213,7 @@ func TestSettingsStore_SetSMTP_EncryptError(t *testing.T) {
 	store, _, done := newMockSettingsStore(t, failingEncryptor{})
 	defer done()
 
-	if err := store.SetSMTP(context.Background(), SMTPSettings{Password: "x"}, "a"); err == nil {
+	if err := store.Set(context.Background(), Settings{Password: "x"}, "a"); err == nil {
 		t.Fatal("expected encrypt error")
 	}
 }
@@ -225,7 +225,7 @@ func TestSettingsStore_SetSMTP_ExecError(t *testing.T) {
 	mock.ExpectExec("INSERT INTO platform_settings").
 		WillReturnError(errors.New("write failed"))
 
-	if err := store.SetSMTP(context.Background(), SMTPSettings{Password: "x"}, "a"); err == nil {
+	if err := store.Set(context.Background(), Settings{Password: "x"}, "a"); err == nil {
 		t.Fatal("expected exec error")
 	}
 }

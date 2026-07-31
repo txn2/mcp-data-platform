@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/unsubhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -151,7 +152,7 @@ func unsubscribeURLFn(p *platform.Platform) func(email string) string {
 	key := shareguest.DeriveKey(master, unsubscribeKeyLabel)
 	base := p.Config().Portal.PublicBaseURL
 	return func(email string) string {
-		return base + unsubscribePath + "?tok=" + notification.UnsubToken(key, email)
+		return base + unsubscribePath + "?tok=" + unsubhttp.UnsubToken(key, email)
 	}
 }
 
@@ -162,7 +163,7 @@ func mountNotificationUnsubscribe(mux *http.ServeMux, p *platform.Platform, noti
 	if notify == nil || notify.Prefs() == nil || master == nil {
 		return
 	}
-	handler := &notification.UnsubscribeHandler{
+	handler := &unsubhttp.UnsubscribeHandler{
 		Prefs:     notify.Prefs(),
 		Key:       shareguest.DeriveKey(master, unsubscribeKeyLabel),
 		BrandName: portalBrandName(p),

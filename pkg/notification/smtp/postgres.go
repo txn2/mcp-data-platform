@@ -1,4 +1,4 @@
-package notification
+package smtp
 
 import (
 	"context"
@@ -9,23 +9,23 @@ import (
 	"time"
 )
 
-// PostgresSettingsStore implements SettingsStore backed by the
+// PostgresStore implements SettingsStore backed by the
 // platform_settings table. Secrets inside a section value are encrypted with
 // the injected StringEncryptor before they reach the database.
-type PostgresSettingsStore struct {
+type PostgresStore struct {
 	db  *sql.DB
 	enc StringEncryptor
 }
 
-// NewPostgresSettingsStore creates a PostgreSQL-backed settings store. The
+// NewPostgresStore creates a PostgreSQL-backed settings store. The
 // encryptor may be nil-safe (encryption disabled) but must not be nil.
-func NewPostgresSettingsStore(db *sql.DB, enc StringEncryptor) *PostgresSettingsStore {
-	return &PostgresSettingsStore{db: db, enc: enc}
+func NewPostgresStore(db *sql.DB, enc StringEncryptor) *PostgresStore {
+	return &PostgresStore{db: db, enc: enc}
 }
 
-// GetSMTP returns the stored SMTP settings with the password decrypted.
-func (s *PostgresSettingsStore) GetSMTP(ctx context.Context) (*SMTPSettings, error) {
-	settings, err := s.readSMTP(ctx)
+// Get returns the stored SMTP settings with the password decrypted.
+func (s *PostgresStore) Get(ctx context.Context) (*Settings, error) {
+	settings, err := s.read(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -37,21 +37,21 @@ func (s *PostgresSettingsStore) GetSMTP(ctx context.Context) (*SMTPSettings, err
 	return settings, nil
 }
 
-// readSMTP loads the raw SMTP row without decrypting the password.
-func (s *PostgresSettingsStore) readSMTP(ctx context.Context) (*SMTPSettings, error) {
+// read loads the raw SMTP row without decrypting the password.
+func (s *PostgresStore) read(ctx context.Context) (*Settings, error) {
 	var raw []byte
 	var updatedBy string
 	var updatedAt time.Time
 	err := s.db.QueryRowContext(ctx,
 		`SELECT value, updated_by, updated_at FROM platform_settings WHERE section = $1`,
-		SettingsSectionSMTP).Scan(&raw, &updatedBy, &updatedAt)
+		SettingsSection).Scan(&raw, &updatedBy, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("querying smtp settings: %w", err)
 	}
-	var settings SMTPSettings
+	var settings Settings
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		return nil, fmt.Errorf("decoding smtp settings: %w", err)
 	}
@@ -60,10 +60,10 @@ func (s *PostgresSettingsStore) readSMTP(ctx context.Context) (*SMTPSettings, er
 	return &settings, nil
 }
 
-// SetSMTP upserts the SMTP settings. An empty incoming password keeps the
+// Set upserts the SMTP settings. An empty incoming password keeps the
 // previously stored (still encrypted) one so the admin UI never round-trips
 // the secret.
-func (s *PostgresSettingsStore) SetSMTP(ctx context.Context, in SMTPSettings, author string) error {
+func (s *PostgresStore) Set(ctx context.Context, in Settings, author string) error {
 	stored, err := s.encryptedPassword(ctx, in.Password)
 	if err != nil {
 		return err
@@ -82,7 +82,7 @@ func (s *PostgresSettingsStore) SetSMTP(ctx context.Context, in SMTPSettings, au
 		 VALUES ($1, $2, $3)
 		 ON CONFLICT (section) DO UPDATE SET
 		   value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
-		SettingsSectionSMTP, raw, author)
+		SettingsSection, raw, author)
 	if err != nil {
 		return fmt.Errorf("storing smtp settings: %w", err)
 	}
@@ -91,7 +91,7 @@ func (s *PostgresSettingsStore) SetSMTP(ctx context.Context, in SMTPSettings, au
 
 // encryptedPassword resolves the password to store: the encrypted incoming
 // value when one was provided, otherwise the existing stored ciphertext.
-func (s *PostgresSettingsStore) encryptedPassword(ctx context.Context, incoming string) (string, error) {
+func (s *PostgresStore) encryptedPassword(ctx context.Context, incoming string) (string, error) {
 	if incoming != "" {
 		encrypted, err := s.enc.Encrypt(incoming)
 		if err != nil {
@@ -99,7 +99,7 @@ func (s *PostgresSettingsStore) encryptedPassword(ctx context.Context, incoming 
 		}
 		return encrypted, nil
 	}
-	existing, err := s.readSMTP(ctx)
+	existing, err := s.read(ctx)
 	if errors.Is(err, ErrNotFound) {
 		return "", nil
 	}
@@ -110,4 +110,4 @@ func (s *PostgresSettingsStore) encryptedPassword(ctx context.Context, incoming 
 }
 
 // Verify interface compliance.
-var _ SettingsStore = (*PostgresSettingsStore)(nil)
+var _ SettingsStore = (*PostgresStore)(nil)

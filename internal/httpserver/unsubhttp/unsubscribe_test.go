@@ -1,4 +1,4 @@
-package notification
+package unsubhttp
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
 var unsubKey = []byte("unsubscribe-test-key-32-bytes-ok")
@@ -48,24 +49,24 @@ func TestVerifyUnsubTokenRejectsForgery(t *testing.T) {
 // memPrefsStore records Set calls for handler tests.
 type memPrefsStore struct {
 	mu     sync.Mutex
-	set    map[string]Prefs
+	set    map[string]notification.Prefs
 	setErr error
 }
 
-func newMemPrefsStore() *memPrefsStore { return &memPrefsStore{set: map[string]Prefs{}} }
+func newMemPrefsStore() *memPrefsStore { return &memPrefsStore{set: map[string]notification.Prefs{}} }
 
-func (m *memPrefsStore) Get(_ context.Context, email string) (Prefs, error) {
+func (m *memPrefsStore) Get(_ context.Context, email string) (notification.Prefs, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if p, ok := m.set[email]; ok {
 		return p, nil
 	}
-	return DefaultPrefs(email), nil
+	return notification.DefaultPrefs(email), nil
 }
 
-func (m *memPrefsStore) Set(ctx context.Context, email string, u PrefsUpdate) (Prefs, error) {
+func (m *memPrefsStore) Set(ctx context.Context, email string, u notification.PrefsUpdate) (notification.Prefs, error) {
 	if m.setErr != nil {
-		return Prefs{}, m.setErr
+		return notification.Prefs{}, m.setErr
 	}
 	current, _ := m.Get(ctx, email)
 	if u.Mode != nil {
@@ -134,7 +135,7 @@ func TestUnsubscribeHandlerConfirmPostOptsOut(t *testing.T) {
 
 	stored, err := prefs.Get(context.Background(), "bob@example.com")
 	require.NoError(t, err)
-	assert.Equal(t, ModeOff, stored.Mode, "a confirmed form POST writes delivery mode off")
+	assert.Equal(t, notification.ModeOff, stored.Mode, "a confirmed form POST writes delivery mode off")
 }
 
 func TestUnsubscribeHandlerConfirmPostRejectsBadToken(t *testing.T) {
@@ -185,7 +186,7 @@ func TestUnsubscribeHandlerOneClickPost(t *testing.T) {
 
 	stored, err := prefs.Get(context.Background(), "bob@example.com")
 	require.NoError(t, err)
-	assert.Equal(t, ModeOff, stored.Mode, "a one-click POST writes delivery mode off")
+	assert.Equal(t, notification.ModeOff, stored.Mode, "a one-click POST writes delivery mode off")
 }
 
 func TestUnsubscribeHandlerOneClickRejectsBadToken(t *testing.T) {
