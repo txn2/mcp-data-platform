@@ -614,6 +614,21 @@ carries a `withheld_notice` naming the persona and the remedy, so a shortened
 result set reads as "present, but not yours to see" rather than "does not
 exist". See [Persona Connection Access](../personas/overview.md#connection-access-control).
 
+**Catalog descriptions are semantically searchable.** The catalog source ranks
+two ways. The platform keeps its own index of every catalog dataset's text (name,
+description, tags, domain) and ranks the query against it first; DataHub's own
+keyword search follows as the recall tail, covering the fields the index does not
+carry (column names, glossary terms, ownership). This is what makes a fact written
+into a dataset's description — by `apply_knowledge`, or by a steward in DataHub —
+reachable from a topical query that shares none of its words and names none of its
+entities. A dataset both find is shown once. The index is refreshed on a schedule
+(`knowledge.catalog_index.sync_interval`, default 30m) by a background index job
+and appears on the admin Indexing dashboard as the `catalog-datasets` kind; it
+holds a discardable copy of catalog text, so every hit is still dereferenced
+against DataHub itself. It needs a DataHub semantic provider, a database, and an
+embedding provider; without them the catalog is ranked by DataHub's keyword search
+alone, exactly as before.
+
 **Resource links.** A hit backed by an uploaded file additionally carries an MCP
 `resource_link` content block with the resource's canonical `mcp://` URI, name,
 description, and MIME type, so a client with native resource support can attach the

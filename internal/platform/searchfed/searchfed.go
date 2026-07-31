@@ -70,6 +70,13 @@ type Config struct {
 	// entity lookup.
 	SemanticProvider semantic.Provider
 
+	// CatalogIndex ranks the platform's own index of catalog dataset text on the
+	// catalog provider's text path (#1131), so a fact applied to a description is
+	// reachable from a topical query naming no entity. Nil (no database, or the
+	// index disabled) leaves the catalog ranked by DataHub's keyword search
+	// alone.
+	CatalogIndex knowledge.CatalogIndexSearcher
+
 	// Source stores federated into the corpus. Each is gated on being non-nil and
 	// implementing the relevant searcher interface, so a source that is absent (or
 	// whose implementation is not searchable) contributes no provider.
@@ -183,7 +190,11 @@ func storeProviders(cfg Config) []knowledge.Provider {
 	// provider is configured (the noop fallback would add an always-empty
 	// provider).
 	if cfg.CatalogEnabled && cfg.SemanticProvider != nil {
-		providers = append(providers, knowledge.NewCatalogProvider(cfg.SemanticProvider))
+		catalog := knowledge.NewCatalogProvider(cfg.SemanticProvider)
+		// The platform's own index of dataset text, when one is wired, leads the
+		// catalog text path; DataHub's keyword search stays behind it.
+		catalog.SetIndexSearcher(cfg.CatalogIndex)
+		providers = append(providers, catalog)
 		// Context documents: a distinct search source (#692), present only when the
 		// real catalog exposes document search.
 		if ds, ok := semantic.DocumentSearcherFrom(cfg.SemanticProvider); ok {

@@ -1052,6 +1052,10 @@ knowledge:
     dedup_disabled: false
     oversize_bytes: 16384
     oversize_sections: 12
+  catalog_index:
+    enabled: true
+    sync_interval: 30m
+    max_entries: 5000
   search_provider_timeout: 5s
   search_embed_timeout: 5s
 ```
@@ -1067,6 +1071,9 @@ knowledge:
 | `pages.oversize_bytes` | int | `16384` | Body size, in bytes, at or above which a page write returns a non-blocking suggestion to split it. A negative value disables this arm |
 | `pages.oversize_sections` | int | `12` | Markdown heading count at or above which the same split suggestion fires. A negative value disables this arm |
 | `reflexive_capture.enabled` | bool | `true` | Auto-capture a "misconception + fix" correction when a Trino query errors and a later related same-session query on the same connection succeeds (#635). Source `automation`, reviewed sink-class (enters review, never live), gated by the persona's `memory_capture` grant. Default-on when the memory subsystem is available; set `false` to disable |
+| `catalog_index.enabled` | bool | `true` | Index the catalog's dataset descriptions into the platform's own semantic search, so a fact applied to a description is reachable from a topical query that names no entity. Requires a DataHub semantic provider, a database, and an embedding provider; without any of those it is inert. Set `false` to opt out, leaving catalog datasets ranked by DataHub's own keyword search alone |
+| `catalog_index.sync_interval` | duration | `30m` | How often the catalog is re-enumerated into that index. The sweep runs as a background index job, so raising it trades freshness for load on DataHub; lowering it makes a newly applied description searchable sooner |
+| `catalog_index.max_entries` | int | `5000` | Cap on how many datasets are mirrored. The cap bounds both the table and one sweep's working set. A catalog larger than this indexes the first `max_entries` datasets in catalog order and logs the truncation |
 | `search_provider_timeout` | duration | `5s` | Per-provider deadline for the `search` fan-out arms. Each knowledge source (catalog, memory, insights, endpoints, …) is bounded by this, so one slow source drops out as a collected error while the rest still return, instead of stalling the whole search. Set a negative duration to disable the bound (a search then waits for its slowest provider). |
 | `search_embed_timeout` | duration | `5s` | Deadline for the serial intent-embedding step in `search`, independent of `search_provider_timeout`. A slow or unreachable embedder degrades to lexical ranking rather than stalling the search; because that silently loses semantic relevance, this knob lets you give a slow (cold or CPU-only) embedder more headroom to preserve `hybrid` ranking without loosening the fan-out bound. Set a negative duration to disable the bound. |
 

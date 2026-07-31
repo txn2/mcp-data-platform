@@ -22,6 +22,41 @@ type tableSearcher interface {
 	GetTableContext(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error)
 }
 
+// CatalogIndexQuery is one ranking request against the platform's own index of
+// catalog datasets. A non-nil Embedding selects hybrid ranking; a nil one
+// selects the lexical fallback, so a query whose intent could not be embedded
+// still ranks against the index rather than dropping it.
+type CatalogIndexQuery struct {
+	QueryText string
+	Embedding []float32
+	Limit     int
+}
+
+// CatalogIndexHit is one catalog dataset the platform's own index matched: the
+// URN it is cited and fetched by, the text a search hit renders, and the
+// index's own relevance score.
+type CatalogIndexHit struct {
+	URN         string
+	Name        string
+	Description string
+	Score       float64
+}
+
+// CatalogIndexSearcher ranks the platform's own index of catalog dataset text
+// (#1131). It is what makes a fact written into a dataset's description
+// reachable from a topical query that names no entity: DataHub's own search is
+// keyword-only and lags its indexer, so without this a DataHub-sink fact was
+// discoverable only through the entity path. The index is an accelerator over
+// the same corpus, never a second source of truth — every hit it produces is
+// dereferenced against DataHub by URN.
+//
+// Implemented by the platform's catalog-dataset index; nil on a deployment with
+// no database or with the index disabled, which leaves the catalog ranked by
+// DataHub's keyword search alone.
+type CatalogIndexSearcher interface {
+	SearchCatalogIndex(ctx context.Context, q CatalogIndexQuery) ([]CatalogIndexHit, error)
+}
+
 // CatalogProvider exposes the technical catalog (DataHub) to the router. It
 // serves two query shapes: a relevance search on Intent (folding datahub_search
 // into search) and an exact entity-keyed lookup on EntityURNs that returns the
@@ -42,11 +77,20 @@ type tableSearcher interface {
 // then places these on the common scale.
 type CatalogProvider struct {
 	searcher tableSearcher
+	index    CatalogIndexSearcher
 }
 
 // NewCatalogProvider builds the catalog provider over a catalog searcher.
 func NewCatalogProvider(searcher tableSearcher) *CatalogProvider {
 	return &CatalogProvider{searcher: searcher}
+}
+
+// SetIndexSearcher attaches the platform's own index of catalog dataset text to
+// the text path (#1131). Nil (the default) leaves the text path ranked by
+// DataHub's keyword search alone. Not safe for concurrent use with Search; call
+// once at wiring time.
+func (p *CatalogProvider) SetIndexSearcher(index CatalogIndexSearcher) {
+	p.index = index
 }
 
 // Name returns the provenance label.
@@ -119,14 +163,142 @@ func (p *CatalogProvider) searchByEntity(ctx context.Context, q Query, seen map[
 	return hits
 }
 
+// catalogCandidate is one catalog entity a text arm surfaced, before scoring:
+// the URN it is keyed, cited, and boundary-checked by, and the snippet a hit
+// renders.
+type catalogCandidate struct {
+	urn  string
+	text string
+}
+
 // searchByText returns catalog entities relevant to the intent, minus those
 // belonging to connections the caller's persona may not reach. A query with no
 // intent yields nothing.
+//
+// Two sources feed it: the platform's own index of dataset text (#1131) and
+// DataHub's keyword search. The index leads because it ranks the same corpus
+// semantically and is consistent the moment a sweep lands, so a fact applied to
+// a description is reachable from a topical query that shares none of its
+// words; DataHub's search contributes the recall tail, covering the fields the
+// mirror does not carry (column names, glossary terms, ownership). A dataset
+// both return is emitted once, at its index rank.
+//
+// Scores are positional over the merged order rather than each source's own
+// scale: DataHub returns no numeric score at all, so a blend of the index's
+// cosine-derived score with an invented one would be a false precision. The
+// Router's per-provider normalization then places these on the common scale.
 func (p *CatalogProvider) searchByText(ctx context.Context, q Query, seen map[string]bool) ([]Hit, error) {
 	if q.Intent == "" {
 		return nil, nil
 	}
 
+	indexed := p.indexCandidates(ctx, q)
+	remote, err := p.catalogCandidates(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	candidates := mergeCandidates(indexed, remote, q.Limit)
+
+	n := len(candidates)
+	hits := make([]Hit, 0, n)
+	withheld := 0
+	for i := range candidates {
+		if seen[candidates[i].urn] {
+			continue
+		}
+		seen[candidates[i].urn] = true
+		if !q.Caller.allowsURN(candidates[i].urn) {
+			withheld++
+			continue
+		}
+		hits = append(hits, Hit{
+			Text:       candidates[i].text,
+			Source:     SourceCatalog,
+			Ref:        candidates[i].urn,
+			Score:      positionalScore(i, n),
+			EntityURNs: []string{candidates[i].urn},
+			// A DataHub reference is its URN verbatim (the canonical citable form).
+			Reference: candidates[i].urn,
+		})
+	}
+	q.Caller.withhold(withheld)
+	return hits, nil
+}
+
+// mergeCandidates interleaves the index's ranked candidates with DataHub's,
+// de-duplicates by URN keeping the index's copy, and truncates to the
+// per-source candidate budget.
+//
+// Interleaving rather than concatenating is what keeps the two arms from
+// crowding each other out of a fixed budget: concatenation would let a full
+// page of index hits consume every slot, dropping exactly the keyword matches
+// (a column name, a glossary term) the index cannot produce, while the reverse
+// order would bury the semantic hits this source exists to surface. The index
+// still leads, so the top catalog hit is its top hit.
+//
+// The truncation is what keeps the coverage contract honest: SourceCoverage
+// documents Matched as capped at the per-source candidate limit, and two
+// unbounded arms would report up to twice that.
+func mergeCandidates(indexed, remote []catalogCandidate, limit int) []catalogCandidate {
+	merged := make([]catalogCandidate, 0, len(indexed)+len(remote))
+	seen := make(map[string]bool, len(indexed)+len(remote))
+	add := func(c catalogCandidate) {
+		if seen[c.urn] {
+			return
+		}
+		seen[c.urn] = true
+		merged = append(merged, c)
+	}
+	for i := 0; i < len(indexed) || i < len(remote); i++ {
+		if i < len(indexed) {
+			add(indexed[i])
+		}
+		if i < len(remote) {
+			add(remote[i])
+		}
+	}
+	if limit > 0 && len(merged) > limit {
+		merged = merged[:limit]
+	}
+	return merged
+}
+
+// indexCandidates ranks the intent against the platform's own index of catalog
+// dataset text. No index wired means no candidates. An index failure is logged
+// and degrades to the DataHub arm rather than blanking the provider: the index
+// is an accelerator over a corpus DataHub still serves, so losing it must cost
+// recall, not the whole catalog source.
+func (p *CatalogProvider) indexCandidates(ctx context.Context, q Query) []catalogCandidate {
+	if p.index == nil {
+		return nil
+	}
+	hits, err := p.index.SearchCatalogIndex(ctx, CatalogIndexQuery{
+		QueryText: q.Intent,
+		Embedding: q.Embedding,
+		Limit:     q.Limit,
+	})
+	if err != nil {
+		slog.Debug("catalog index search skipped", "error", err)
+		return nil
+	}
+	out := make([]catalogCandidate, 0, len(hits))
+	for i := range hits {
+		if hits[i].URN == "" {
+			continue
+		}
+		out = append(out, catalogCandidate{
+			urn:  hits[i].URN,
+			text: catalogSnippet(hits[i].Name, hits[i].Description),
+		})
+	}
+	return out
+}
+
+// catalogCandidates ranks the intent through DataHub's own keyword search. Its
+// failure DOES blank the provider (the error propagates): unlike the index, it
+// is the catalog itself, so an error here means the source is unhealthy rather
+// than an accelerator being unavailable.
+func (p *CatalogProvider) catalogCandidates(ctx context.Context, q Query) ([]catalogCandidate, error) {
 	results, err := p.searcher.SearchTables(ctx, semantic.SearchFilter{
 		Query: q.Intent,
 		Limit: q.Limit,
@@ -134,31 +306,11 @@ func (p *CatalogProvider) searchByText(ctx context.Context, q Query, seen map[st
 	if err != nil {
 		return nil, fmt.Errorf("catalog search: %w", err)
 	}
-
-	n := len(results)
-	hits := make([]Hit, 0, n)
-	withheld := 0
+	out := make([]catalogCandidate, 0, len(results))
 	for i := range results {
-		if seen[results[i].URN] {
-			continue
-		}
-		seen[results[i].URN] = true
-		if !q.Caller.allowsURN(results[i].URN) {
-			withheld++
-			continue
-		}
-		hits = append(hits, Hit{
-			Text:       catalogHitText(results[i]),
-			Source:     SourceCatalog,
-			Ref:        results[i].URN,
-			Score:      positionalScore(i, n),
-			EntityURNs: []string{results[i].URN},
-			// A DataHub reference is its URN verbatim (the canonical citable form).
-			Reference: results[i].URN,
-		})
+		out = append(out, catalogCandidate{urn: results[i].URN, text: catalogHitText(results[i])})
 	}
-	q.Caller.withhold(withheld)
-	return hits, nil
+	return out, nil
 }
 
 // datasetPrefix is the URN form of a catalog dataset reference. The catalog owns

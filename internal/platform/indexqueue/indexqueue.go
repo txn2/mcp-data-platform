@@ -3,7 +3,7 @@
 // registry, the worker/reaper/reconciler, the optional retention sweep and
 // LISTEN/NOTIFY adapter, and every enabled consumer (api-catalog, tools,
 // memory, prompts, portal assets/collections/knowledge-pages, managed
-// resources).
+// resources, catalog datasets).
 //
 // New takes an explicit Config: callers translate their own config into Config
 // at the boundary and wire the returned Handle's Start/Stop into their own
@@ -19,6 +19,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/assetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/collectionindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/memoryindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptindex"
@@ -46,6 +47,12 @@ type Consumers struct {
 	PortalCollections    bool
 	PortalKnowledgePages bool
 	Resources            bool
+	// CatalogDatasets registers the catalog-dataset consumer, which mirrors the
+	// configured semantic catalog's dataset text into the platform's own index
+	// (#1131). Unlike the others it is not gated on a platform sub-store: its
+	// corpus lives in DataHub, so the caller reports whether a real catalog is
+	// configured and the index is enabled.
+	CatalogDatasets bool
 }
 
 // Config carries the values New needs to assemble the queue. Callers build it
@@ -90,6 +97,13 @@ type Config struct {
 
 	// Consumers gates the optional DB-backed consumers.
 	Consumers Consumers
+
+	// CatalogLister enumerates the semantic catalog for the catalog-dataset
+	// consumer, and CatalogIndex carries that consumer's operator tuning (sweep
+	// interval, entry cap). Both are used only when Consumers.CatalogDatasets is
+	// set; a nil lister leaves the consumer unregistered.
+	CatalogLister      datasetindex.Lister
+	CatalogIndexConfig datasetindex.Config
 
 	// ResourceBlobs and ResourceBucket locate managed-resource content for the
 	// resources consumer, which extracts a text prefix from the uploaded file so
@@ -255,6 +269,14 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 	})
 	tryRegister(cfg.Consumers.PortalKnowledgePages, "portal knowledge pages", func() error {
 		return knowledgepageindex.RegisterConsumer(h.registry, cfg.DB, cfg.ModelName)
+	})
+	// Catalog-dataset consumer: mirrors the semantic catalog's dataset text into
+	// the platform's own index so a fact applied to a description is reachable
+	// from a topical query that names no entity (#1131). Its corpus is DataHub,
+	// not a table, so it needs the catalog lister rather than a sub-store.
+	tryRegister(cfg.Consumers.CatalogDatasets && cfg.CatalogLister != nil, "catalog datasets", func() error {
+		return datasetindex.RegisterConsumer(h.registry, cfg.DB, cfg.CatalogLister,
+			cfg.ModelName, cfg.CatalogIndexConfig)
 	})
 	// Resources consumer: embeds human-uploaded reference material, including a
 	// bounded text prefix read from its blob, so an uploaded file is discoverable

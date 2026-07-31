@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -253,6 +254,13 @@ type KnowledgeConfig struct {
 	// a pending insight, not live catalog state. Auto-enabled with the memory
 	// subsystem; see pkg/platform/reflexivecapture.
 	ReflexiveCapture reflexivecapture.Config `yaml:"reflexive_capture"`
+
+	// CatalogIndex configures the platform's own semantic index over catalog
+	// dataset descriptions (#1131), which is what makes a fact applied to a
+	// DataHub description reachable from a topical query that names no entity.
+	// Enabled by default wherever a DataHub catalog and a database are present;
+	// see internal/platform/datasetindex.
+	CatalogIndex datasetindex.Config `yaml:"catalog_index"`
 
 	// SearchProviderTimeout bounds each knowledge provider arm in the `search`
 	// fan-out; default 5s, a negative value disables it.
