@@ -262,6 +262,19 @@ func (h *handler) connectionOAuthHealth(ctx context.Context, inst platform.Conne
 	}
 	cfg, err := handler.ParseOAuthConfig(inst.Config)
 	if err != nil {
+		if errors.Is(err, connoauth.ErrInvalidConfig) {
+			// The connection IS an OAuth connection whose OAuth config
+			// does not validate (a malformed endpoint URL, an unknown
+			// grant). Keeping has_oauth=false here would drop the row's
+			// badge entirely and hide the broken connection from the
+			// list — the operator's first-line signal that it stopped
+			// refreshing. Report it as needing operator action; the
+			// per-connection oauth-status route returns 409 with the
+			// specific message when they click in.
+			row.HasOAuth = true
+			row.NeedsReauth = true
+			return row
+		}
 		// Connection exists but is not configured for OAuth (e.g.,
 		// auth_mode=bearer on an api connection). has_oauth stays false.
 		return row
