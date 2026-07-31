@@ -1,4 +1,11 @@
-package notification
+// Package notifyhttp serves the self-scoped notification-preference REST
+// endpoints the portal settings page calls.
+//
+// It registers onto the portal's authenticated mux through a registrar hook
+// (the datahubapi pattern) rather than owning a server of its own, and it is
+// server-side self-scoped: the authenticated caller's email is the only key it
+// ever reads or writes.
+package notifyhttp
 
 import (
 	"context"
@@ -6,20 +13,23 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+
+	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
 
-// PrefsAPI serves the self-scoped notification preference REST endpoints.
-// It registers onto the portal's authenticated mux via a registrar hook (the
-// datahubapi pattern) so the feature lives in this package; the composition
-// root supplies UserEmail to resolve the authenticated caller. Server-side
-// self-scope: the caller's email is the only key ever read or written.
+// logKeyError is the structured-logging key for an error value.
+const logKeyError = "error"
+
+// PrefsAPI serves the preference endpoints. The composition root supplies
+// UserEmail to resolve the authenticated caller.
 type PrefsAPI struct {
-	Store PrefsStore
+	Store notification.PrefsStore
 	// Settings backs the delivery_available signal. Optional: when unset the
 	// field stays true, so a wiring gap never tells users a working feature
 	// is unavailable. Only the derived boolean is exposed -- no SMTP host,
 	// credential, or sender value reaches this non-admin response.
-	Settings SettingsStore
+	Settings smtp.SettingsStore
 	// UserEmail resolves the authenticated user's email from the request,
 	// returning "" when unauthenticated.
 	UserEmail func(*http.Request) string
@@ -101,11 +111,11 @@ func (a *PrefsAPI) putPrefs(w http.ResponseWriter, r *http.Request) {
 		writePrefsError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Mode != nil && !ValidMode(*req.Mode) {
+	if req.Mode != nil && !notification.ValidMode(*req.Mode) {
 		writePrefsError(w, http.StatusBadRequest, "mode must be off, immediate, or daily")
 		return
 	}
-	prefs, err := a.Store.Set(r.Context(), email, PrefsUpdate(req))
+	prefs, err := a.Store.Set(r.Context(), email, notification.PrefsUpdate(req))
 	if err != nil {
 		writePrefsError(w, http.StatusInternalServerError, "storing notification preferences failed")
 		return
@@ -121,8 +131,8 @@ func (a *PrefsAPI) deliveryAvailable(ctx context.Context) bool {
 	if a.Settings == nil {
 		return true
 	}
-	settings, err := a.Settings.GetSMTP(ctx)
-	if errors.Is(err, ErrNotFound) {
+	settings, err := a.Settings.Get(ctx)
+	if errors.Is(err, smtp.ErrNotFound) {
 		return false
 	}
 	if err != nil {
@@ -139,7 +149,7 @@ func (a *PrefsAPI) callerEmail(w http.ResponseWriter, r *http.Request) string {
 		// Same normalization the queue keys rows by, so a caller whose
 		// identity carries a display name reads and writes the row their
 		// notifications are addressed to.
-		email = NormalizeAddress(a.UserEmail(r))
+		email = notification.NormalizeAddress(a.UserEmail(r))
 	}
 	if email == "" {
 		writePrefsError(w, http.StatusUnauthorized, "authentication required")
@@ -148,7 +158,7 @@ func (a *PrefsAPI) callerEmail(w http.ResponseWriter, r *http.Request) string {
 }
 
 // prefsResponse maps store preferences to the API shape.
-func prefsResponse(p Prefs, deliveryAvailable bool) PrefsResponse {
+func prefsResponse(p notification.Prefs, deliveryAvailable bool) PrefsResponse {
 	return PrefsResponse{
 		Mode:              p.Mode,
 		SharesEnabled:     p.SharesEnabled,

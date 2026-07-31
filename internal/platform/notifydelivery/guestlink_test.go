@@ -8,13 +8,15 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
 
 func TestSendGuestLink(t *testing.T) {
 	sender := &captureSender{}
 	h := &Handle{
-		settings: &fakeSettings{settings: &notification.SMTPSettings{
+		settings: &fakeSettings{settings: &smtp.Settings{
 			Enabled: true, Host: "smtp.example.com", Port: 587, From: "p@example.com",
 		}},
 		renderer: testRenderer(t),
@@ -47,9 +49,9 @@ func TestSendGuestLink_Refusals(t *testing.T) {
 		sender   *captureSender
 	}{
 		{"settings error", &fakeSettings{err: errors.New("no row")}, &captureSender{}},
-		{"disabled", &fakeSettings{settings: &notification.SMTPSettings{Enabled: false, Host: "smtp.example.com"}}, &captureSender{}},
-		{"no host", &fakeSettings{settings: &notification.SMTPSettings{Enabled: true}}, &captureSender{}},
-		{"send fails", &fakeSettings{settings: &notification.SMTPSettings{Enabled: true, Host: "smtp.example.com"}}, &captureSender{err: errors.New("smtp down")}},
+		{"disabled", &fakeSettings{settings: &smtp.Settings{Enabled: false, Host: "smtp.example.com"}}, &captureSender{}},
+		{"no host", &fakeSettings{settings: &smtp.Settings{Enabled: true}}, &captureSender{}},
+		{"send fails", &fakeSettings{settings: &smtp.Settings{Enabled: true, Host: "smtp.example.com"}}, &captureSender{err: errors.New("smtp down")}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -73,7 +75,7 @@ func TestNew_UnsubscribeURLReachesRenderer(t *testing.T) {
 
 	h, err := New(Config{
 		DB: db, Encryptor: passthroughEncryptor{},
-		Branding:       notification.Branding{Name: "Test"},
+		Branding:       notifyrender.Branding{Name: "Test"},
 		UnsubscribeURL: func(email string) string { return "https://x/unsub?tok=" + email },
 	})
 	if err != nil {

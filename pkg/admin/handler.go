@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -191,7 +192,7 @@ type Deps struct {
 
 	// NotificationSettings persists the admin SMTP configuration (#631).
 	// nil disables the /api/v1/admin/settings/smtp routes.
-	NotificationSettings notification.SettingsStore
+	NotificationSettings smtp.SettingsStore
 	// SendTestEmail delivers a test email through the stored SMTP
 	// settings. nil disables the test-email route.
 	SendTestEmail func(ctx context.Context, to string) error

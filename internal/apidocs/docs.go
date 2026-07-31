@@ -6310,7 +6310,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/notification.SMTPSettingsView"
+                            "$ref": "#/definitions/smtp.SettingsView"
                         }
                     }
                 }
@@ -6342,7 +6342,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/notification.SMTPSettingsInput"
+                            "$ref": "#/definitions/smtp.SettingsInput"
                         }
                     }
                 ],
@@ -6350,7 +6350,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/notification.SMTPSettingsView"
+                            "$ref": "#/definitions/smtp.SettingsView"
                         }
                     },
                     "400": {
@@ -6434,7 +6434,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/notification.TestEmailRequest"
+                            "$ref": "#/definitions/smtp.TestEmailRequest"
                         }
                     }
                 ],
@@ -10601,7 +10601,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/notification.PrefsResponse"
+                            "$ref": "#/definitions/notifyhttp.PrefsResponse"
                         }
                     },
                     "401": {
@@ -10642,7 +10642,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/notification.PrefsRequest"
+                            "$ref": "#/definitions/notifyhttp.PrefsRequest"
                         }
                     }
                 ],
@@ -10650,7 +10650,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/notification.PrefsResponse"
+                            "$ref": "#/definitions/notifyhttp.PrefsResponse"
                         }
                     },
                     "400": {
@@ -17630,7 +17630,7 @@ const docTemplate = `{
                 }
             }
         },
-        "notification.PrefsRequest": {
+        "notifyhttp.PrefsRequest": {
             "type": "object",
             "properties": {
                 "comments_enabled": {
@@ -17647,7 +17647,7 @@ const docTemplate = `{
                 }
             }
         },
-        "notification.PrefsResponse": {
+        "notifyhttp.PrefsResponse": {
             "type": "object",
             "properties": {
                 "comments_enabled": {
@@ -17665,103 +17665,6 @@ const docTemplate = `{
                 },
                 "shares_enabled": {
                     "type": "boolean"
-                }
-            }
-        },
-        "notification.SMTPSettingsInput": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean",
-                    "example": true
-                },
-                "from": {
-                    "type": "string",
-                    "example": "platform@example.com"
-                },
-                "from_name": {
-                    "type": "string",
-                    "example": "Data Platform"
-                },
-                "host": {
-                    "type": "string",
-                    "example": "smtp.example.com"
-                },
-                "password": {
-                    "type": "string",
-                    "example": "app-password"
-                },
-                "port": {
-                    "type": "integer",
-                    "example": 587
-                },
-                "tls_mode": {
-                    "type": "string",
-                    "example": "starttls"
-                },
-                "username": {
-                    "type": "string",
-                    "example": "mailer@example.com"
-                }
-            }
-        },
-        "notification.SMTPSettingsView": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean",
-                    "example": true
-                },
-                "from": {
-                    "type": "string",
-                    "example": "platform@example.com"
-                },
-                "from_name": {
-                    "type": "string",
-                    "example": "Data Platform"
-                },
-                "host": {
-                    "type": "string",
-                    "example": "smtp.example.com"
-                },
-                "password_set": {
-                    "type": "boolean",
-                    "example": true
-                },
-                "port": {
-                    "type": "integer",
-                    "example": 587
-                },
-                "tls_mode": {
-                    "type": "string",
-                    "example": "starttls"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "updated_by": {
-                    "type": "string",
-                    "example": "admin@example.com"
-                },
-                "username": {
-                    "type": "string",
-                    "example": "mailer@example.com"
-                },
-                "warnings": {
-                    "description": "Warnings describes accepted-but-hazardous combinations in the stored\nconfiguration. They never block a save; they exist so the operator sees\nthe hazard at the surface where the setting was chosen.",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
-        },
-        "notification.TestEmailRequest": {
-            "type": "object",
-            "properties": {
-                "to": {
-                    "type": "string",
-                    "example": "admin@example.com"
                 }
             }
         },
@@ -19590,6 +19493,103 @@ const docTemplate = `{
                 "type": {
                     "type": "string",
                     "example": "about:blank"
+                }
+            }
+        },
+        "smtp.SettingsInput": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "from": {
+                    "type": "string",
+                    "example": "platform@example.com"
+                },
+                "from_name": {
+                    "type": "string",
+                    "example": "Data Platform"
+                },
+                "host": {
+                    "type": "string",
+                    "example": "smtp.example.com"
+                },
+                "password": {
+                    "type": "string",
+                    "example": "app-password"
+                },
+                "port": {
+                    "type": "integer",
+                    "example": 587
+                },
+                "tls_mode": {
+                    "type": "string",
+                    "example": "starttls"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "mailer@example.com"
+                }
+            }
+        },
+        "smtp.SettingsView": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "from": {
+                    "type": "string",
+                    "example": "platform@example.com"
+                },
+                "from_name": {
+                    "type": "string",
+                    "example": "Data Platform"
+                },
+                "host": {
+                    "type": "string",
+                    "example": "smtp.example.com"
+                },
+                "password_set": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "port": {
+                    "type": "integer",
+                    "example": 587
+                },
+                "tls_mode": {
+                    "type": "string",
+                    "example": "starttls"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "mailer@example.com"
+                },
+                "warnings": {
+                    "description": "Warnings describes accepted-but-hazardous combinations in the stored\nconfiguration. They never block a save; they exist so the operator sees\nthe hazard at the surface where the setting was chosen.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "smtp.TestEmailRequest": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "example": "admin@example.com"
                 }
             }
         },

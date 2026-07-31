@@ -14,29 +14,30 @@ import (
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
 
-// fakeSettings implements notification.SettingsStore.
+// fakeSettings implements smtp.SettingsStore.
 type fakeSettings struct {
-	settings *notification.SMTPSettings
+	settings *smtp.Settings
 	getErr   error
 	setErr   error
-	lastSet  *notification.SMTPSettings
+	lastSet  *smtp.Settings
 	author   string
 }
 
-func (f *fakeSettings) GetSMTP(context.Context) (*notification.SMTPSettings, error) {
+func (f *fakeSettings) Get(context.Context) (*smtp.Settings, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
 	if f.settings == nil {
-		return nil, notification.ErrNotFound
+		return nil, smtp.ErrNotFound
 	}
 	clone := *f.settings
 	return &clone, nil
 }
 
-func (f *fakeSettings) SetSMTP(_ context.Context, s notification.SMTPSettings, author string) error {
+func (f *fakeSettings) Set(_ context.Context, s smtp.Settings, author string) error {
 	if f.setErr != nil {
 		return f.setErr
 	}
@@ -128,20 +129,20 @@ func TestGetSMTP_Unconfigured(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d; want 200", res.Code)
 	}
-	var got notification.SMTPSettingsView
+	var got smtp.SettingsView
 	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Port != 587 || got.TLSMode != notification.TLSModeStartTLS || got.Enabled {
+	if got.Port != 587 || got.TLSMode != smtp.TLSModeStartTLS || got.Enabled {
 		t.Errorf("unconfigured defaults wrong: %+v", got)
 	}
 }
 
 func TestGetSMTP_NeverReturnsPassword(t *testing.T) {
 	t.Parallel()
-	store := &fakeSettings{settings: &notification.SMTPSettings{
+	store := &fakeSettings{settings: &smtp.Settings{
 		Enabled: true, Host: "smtp.example.com", Port: 587,
-		Password: "super-secret", From: "p@example.com", TLSMode: notification.TLSModeStartTLS,
+		Password: "super-secret", From: "p@example.com", TLSMode: smtp.TLSModeStartTLS,
 	}}
 	mux := testMux(Config{Settings: store, Mutable: true})
 
@@ -153,7 +154,7 @@ func TestGetSMTP_NeverReturnsPassword(t *testing.T) {
 	if strings.Contains(body, "super-secret") || strings.Contains(body, `"password"`) {
 		t.Errorf("response leaks the password: %s", body)
 	}
-	var got notification.SMTPSettingsView
+	var got smtp.SettingsView
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
 	}
@@ -176,9 +177,9 @@ func TestSetSMTP(t *testing.T) {
 	store := &fakeSettings{}
 	mux := testMux(Config{Settings: store, Mutable: true})
 
-	res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", notification.SMTPSettingsInput{
+	res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", smtp.SettingsInput{
 		Enabled: true, Host: "smtp.example.com", Port: 587,
-		Password: "s3cret", From: "p@example.com", TLSMode: notification.TLSModeStartTLS,
+		Password: "s3cret", From: "p@example.com", TLSMode: smtp.TLSModeStartTLS,
 	})
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d; want 200 (%s)", res.Code, res.Body.String())
@@ -198,13 +199,13 @@ func TestSetSMTP_Validation(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
-		req  notification.SMTPSettingsInput
+		req  smtp.SettingsInput
 	}{
-		{name: "bad tls mode", req: notification.SMTPSettingsInput{Port: 587, TLSMode: "ssl3"}},
-		{name: "port too high", req: notification.SMTPSettingsInput{Port: 70000}},
-		{name: "negative port", req: notification.SMTPSettingsInput{Port: -1}},
-		{name: "enabled without host", req: notification.SMTPSettingsInput{Enabled: true, Port: 587}},
-		{name: "enabled with bad from", req: notification.SMTPSettingsInput{Enabled: true, Host: "h", Port: 587, From: "nope"}},
+		{name: "bad tls mode", req: smtp.SettingsInput{Port: 587, TLSMode: "ssl3"}},
+		{name: "port too high", req: smtp.SettingsInput{Port: 70000}},
+		{name: "negative port", req: smtp.SettingsInput{Port: -1}},
+		{name: "enabled without host", req: smtp.SettingsInput{Enabled: true, Port: 587}},
+		{name: "enabled with bad from", req: smtp.SettingsInput{Enabled: true, Host: "h", Port: 587, From: "nope"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -225,27 +226,27 @@ func TestSetSMTP_PlaintextCredentialWarning(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
-		req  notification.SMTPSettingsInput
+		req  smtp.SettingsInput
 		warn bool
 	}{
 		{
 			name: "none with password",
-			req:  notification.SMTPSettingsInput{Enabled: true, Host: "relay.internal", Port: 25, Password: "s3cret", From: "p@example.com", TLSMode: notification.TLSModeNone},
+			req:  smtp.SettingsInput{Enabled: true, Host: "relay.internal", Port: 25, Password: "s3cret", From: "p@example.com", TLSMode: smtp.TLSModeNone},
 			warn: true,
 		},
 		{
 			name: "none with username only",
-			req:  notification.SMTPSettingsInput{Enabled: true, Host: "relay.internal", Port: 25, Username: "mailer", From: "p@example.com", TLSMode: notification.TLSModeNone},
+			req:  smtp.SettingsInput{Enabled: true, Host: "relay.internal", Port: 25, Username: "mailer", From: "p@example.com", TLSMode: smtp.TLSModeNone},
 			warn: true,
 		},
 		{
 			name: "none without credentials",
-			req:  notification.SMTPSettingsInput{Enabled: true, Host: "relay.internal", Port: 25, From: "p@example.com", TLSMode: notification.TLSModeNone},
+			req:  smtp.SettingsInput{Enabled: true, Host: "relay.internal", Port: 25, From: "p@example.com", TLSMode: smtp.TLSModeNone},
 			warn: false,
 		},
 		{
 			name: "starttls with password",
-			req:  notification.SMTPSettingsInput{Enabled: true, Host: "smtp.example.com", Port: 587, Username: "mailer", Password: "s3cret", From: "p@example.com", TLSMode: notification.TLSModeStartTLS},
+			req:  smtp.SettingsInput{Enabled: true, Host: "smtp.example.com", Port: 587, Username: "mailer", Password: "s3cret", From: "p@example.com", TLSMode: smtp.TLSModeStartTLS},
 			warn: false,
 		},
 	}
@@ -257,11 +258,11 @@ func TestSetSMTP_PlaintextCredentialWarning(t *testing.T) {
 			if res.Code != http.StatusOK {
 				t.Fatalf("status = %d; want 200 (%s)", res.Code, res.Body.String())
 			}
-			var got notification.SMTPSettingsView
+			var got smtp.SettingsView
 			if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
 				t.Fatal(err)
 			}
-			hasWarning := slices.Contains(got.Warnings, notification.PlaintextAuthWarning)
+			hasWarning := slices.Contains(got.Warnings, smtp.PlaintextAuthWarning)
 			if hasWarning != tc.warn {
 				t.Errorf("plaintext warning present = %v; want %v (warnings: %v)", hasWarning, tc.warn, got.Warnings)
 			}
@@ -275,24 +276,24 @@ func TestSetSMTP_PlaintextCredentialWarning(t *testing.T) {
 // credential is what goes out in the clear.
 func TestSetSMTP_WarningSurvivesUnchangedPassword(t *testing.T) {
 	t.Parallel()
-	store := &fakeSettings{settings: &notification.SMTPSettings{
+	store := &fakeSettings{settings: &smtp.Settings{
 		Enabled: true, Host: "relay.internal", Port: 587, Username: "mailer",
-		Password: "stored", From: "p@example.com", TLSMode: notification.TLSModeStartTLS,
+		Password: "stored", From: "p@example.com", TLSMode: smtp.TLSModeStartTLS,
 	}}
 	mux := testMux(Config{Settings: store, Mutable: true})
 
-	res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", notification.SMTPSettingsInput{
+	res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", smtp.SettingsInput{
 		Enabled: true, Host: "relay.internal", Port: 25, Username: "mailer",
-		From: "p@example.com", TLSMode: notification.TLSModeNone,
+		From: "p@example.com", TLSMode: smtp.TLSModeNone,
 	})
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d; want 200 (%s)", res.Code, res.Body.String())
 	}
-	var got notification.SMTPSettingsView
+	var got smtp.SettingsView
 	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(got.Warnings, notification.PlaintextAuthWarning) {
+	if !slices.Contains(got.Warnings, smtp.PlaintextAuthWarning) {
 		t.Errorf("warnings = %v; want the plaintext-credential warning", got.Warnings)
 	}
 }
@@ -315,7 +316,7 @@ func TestSetSMTP_DisableOnly(t *testing.T) {
 	mux := testMux(Config{Settings: store, Mutable: true})
 
 	// A minimal disable call omits port/host/from and must succeed.
-	res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", notification.SMTPSettingsInput{Enabled: false})
+	res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", smtp.SettingsInput{Enabled: false})
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d; want 200 (%s)", res.Code, res.Body.String())
 	}
@@ -327,8 +328,8 @@ func TestSetSMTP_DisableOnly(t *testing.T) {
 func TestSetSMTP_StoreError(t *testing.T) {
 	t.Parallel()
 	mux := testMux(Config{Settings: &fakeSettings{setErr: errors.New("boom")}, Mutable: true})
-	res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", notification.SMTPSettingsInput{
-		Port: 587, TLSMode: notification.TLSModeStartTLS,
+	res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", smtp.SettingsInput{
+		Port: 587, TLSMode: smtp.TLSModeStartTLS,
 	})
 	if res.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d; want 500", res.Code)
@@ -342,10 +343,10 @@ func TestReadOnlyMode(t *testing.T) {
 	if res := doJSON(t, mux, http.MethodGet, "/api/v1/admin/settings/smtp", nil); res.Code != http.StatusOK {
 		t.Errorf("GET in file mode = %d; want 200", res.Code)
 	}
-	if res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", notification.SMTPSettingsInput{Port: 587}); res.Code != http.StatusMethodNotAllowed {
+	if res := doJSON(t, mux, http.MethodPut, "/api/v1/admin/settings/smtp", smtp.SettingsInput{Port: 587}); res.Code != http.StatusMethodNotAllowed {
 		t.Errorf("PUT in file mode = %d; want 405", res.Code)
 	}
-	if res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", notification.TestEmailRequest{To: "a@b.io"}); res.Code != http.StatusMethodNotAllowed {
+	if res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", smtp.TestEmailRequest{To: "a@b.io"}); res.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST test in file mode = %d; want 405", res.Code)
 	}
 }
@@ -368,7 +369,7 @@ func TestSendTest(t *testing.T) {
 	}
 	mux := testMux(Config{Settings: &fakeSettings{}, SendTest: send, Mutable: true})
 
-	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", notification.TestEmailRequest{To: "admin@example.com"})
+	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", smtp.TestEmailRequest{To: "admin@example.com"})
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d; want 200 (%s)", res.Code, res.Body.String())
 	}
@@ -380,7 +381,7 @@ func TestSendTest(t *testing.T) {
 func TestSendTest_InvalidRecipient(t *testing.T) {
 	t.Parallel()
 	mux := testMux(Config{Settings: &fakeSettings{}, SendTest: func(context.Context, string) error { return nil }, Mutable: true})
-	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", notification.TestEmailRequest{To: "not an address"})
+	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", smtp.TestEmailRequest{To: "not an address"})
 	if res.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d; want 400", res.Code)
 	}
@@ -388,9 +389,9 @@ func TestSendTest_InvalidRecipient(t *testing.T) {
 
 func TestSendTest_SMTPNotConfigured(t *testing.T) {
 	t.Parallel()
-	send := func(context.Context, string) error { return notification.ErrSMTPNotConfigured }
+	send := func(context.Context, string) error { return smtp.ErrNotConfigured }
 	mux := testMux(Config{Settings: &fakeSettings{}, SendTest: send, Mutable: true})
-	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", notification.TestEmailRequest{To: "a@b.io"})
+	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", smtp.TestEmailRequest{To: "a@b.io"})
 	if res.Code != http.StatusConflict {
 		t.Fatalf("status = %d; want 409", res.Code)
 	}
@@ -400,7 +401,7 @@ func TestSendTest_DeliveryFailure(t *testing.T) {
 	t.Parallel()
 	send := func(context.Context, string) error { return errors.New("smtp refused") }
 	mux := testMux(Config{Settings: &fakeSettings{}, SendTest: send, Mutable: true})
-	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", notification.TestEmailRequest{To: "a@b.io"})
+	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", smtp.TestEmailRequest{To: "a@b.io"})
 	if res.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d; want 502", res.Code)
 	}
@@ -422,7 +423,7 @@ func TestSendTest_FailureResponseIsInvariant(t *testing.T) {
 	for i, failErr := range failures {
 		send := func(context.Context, string) error { return failErr }
 		mux := testMux(Config{Settings: &fakeSettings{}, SendTest: send, Mutable: true})
-		res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", notification.TestEmailRequest{To: "a@b.io"})
+		res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", smtp.TestEmailRequest{To: "a@b.io"})
 		if res.Code != http.StatusBadGateway {
 			t.Fatalf("failure %d: status = %d; want 502", i, res.Code)
 		}
@@ -445,7 +446,7 @@ func TestSendTest_Unavailable(t *testing.T) {
 	t.Parallel()
 	// With no SendTest wired the test route is never registered.
 	mux := testMux(Config{Settings: &fakeSettings{}, Mutable: true})
-	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", notification.TestEmailRequest{To: "a@b.io"})
+	res := doJSON(t, mux, http.MethodPost, "/api/v1/admin/settings/smtp/test", smtp.TestEmailRequest{To: "a@b.io"})
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("status = %d; want 404", res.Code)
 	}

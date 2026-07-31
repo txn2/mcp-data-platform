@@ -1,7 +1,13 @@
-// Package notifydelivery assembles the email-notification substrate
-// (pkg/notification) into one startable handle: the settings, preference,
-// and queue stores, the trigger-side enqueuer, and the send worker with its
-// LISTEN/NOTIFY wakeup adapter.
+// Package notifydelivery assembles the email-notification substrate into one
+// startable handle: the settings, preference, and queue stores, the
+// trigger-side enqueuer, the renderer and SMTP sender, and the send worker
+// with its LISTEN/NOTIFY wakeup adapter.
+//
+// It is the only place that names every layer of the substrate at once. Each
+// layer is a package of its own (pkg/notification for the domain,
+// pkg/notification/smtp for the mail-server settings, internal/notification/*
+// for persistence, rendering, transport and the worker) and knows only the
+// layers below it; the composition happens here.
 //
 // The package must not import pkg/platform. The composition root (the HTTP
 // server, which owns the portal and admin surfaces the feature serves)
@@ -17,7 +23,13 @@ import (
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyprefs"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyqueue"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifysend"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyworker"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
 
 // logKeyError is the structured-logging key for an error value.
@@ -32,9 +44,9 @@ type Config struct {
 	DSN string
 	// Encryptor protects the SMTP password at rest. Required (may be a
 	// nil-wrapping passthrough when encryption is disabled).
-	Encryptor notification.StringEncryptor
+	Encryptor smtp.StringEncryptor
 	// Branding is the deployment identity emails render with.
-	Branding notification.Branding
+	Branding notifyrender.Branding
 	// DigestHourUTC is the UTC hour daily digests are scheduled for.
 	DigestHourUTC int
 	// UnsubscribeURL builds the no-login unsubscribe link for a recipient
@@ -51,13 +63,13 @@ type listenerControl interface {
 
 // Handle owns the running substrate.
 type Handle struct {
-	settings notification.SettingsStore
+	settings smtp.SettingsStore
 	prefs    notification.PrefsStore
 	queue    notification.QueueStore
 	enqueuer *notification.Enqueuer
-	renderer *notification.Renderer
-	sender   notification.Sender
-	worker   *notification.Worker
+	renderer *notifyrender.Renderer
+	sender   notifysend.Sender
+	worker   *notifyworker.Worker
 	listener listenerControl
 }
 
@@ -67,7 +79,7 @@ func New(cfg Config) (*Handle, error) {
 	if cfg.DB == nil {
 		return nil, nil //nolint:nilnil // nil handle = feature unavailable
 	}
-	renderer, err := notification.NewRenderer(cfg.Branding)
+	renderer, err := notifyrender.NewRenderer(cfg.Branding)
 	if err != nil {
 		return nil, fmt.Errorf("building notification renderer: %w", err)
 	}
@@ -75,21 +87,21 @@ func New(cfg Config) (*Handle, error) {
 		renderer.SetUnsubscribeURLFn(cfg.UnsubscribeURL)
 	}
 	h := &Handle{
-		settings: notification.NewPostgresSettingsStore(cfg.DB, cfg.Encryptor),
-		prefs:    notification.NewPostgresPrefsStore(cfg.DB),
-		queue:    notification.NewPostgresQueueStore(cfg.DB),
+		settings: smtp.NewPostgresStore(cfg.DB, cfg.Encryptor),
+		prefs:    notifyprefs.NewPostgresStore(cfg.DB),
+		queue:    notifyqueue.NewPostgresStore(cfg.DB),
 		renderer: renderer,
-		sender:   notification.NewSMTPSender(),
+		sender:   notifysend.NewSMTPSender(),
 	}
 	h.enqueuer = notification.NewEnqueuer(h.prefs, h.queue, cfg.DigestHourUTC)
-	h.worker = notification.NewWorker(notification.WorkerConfig{
+	h.worker = notifyworker.New(notifyworker.Config{
 		Queue:    h.queue,
 		Settings: h.settings,
 		Renderer: renderer,
 		Sender:   h.sender,
 	})
 	if cfg.DSN != "" {
-		h.listener = notification.NewListener(cfg.DSN, h.worker)
+		h.listener = notifyqueue.NewListener(cfg.DSN, h.worker)
 	}
 	return h, nil
 }
@@ -142,7 +154,7 @@ func (h *Handle) Prefs() notification.PrefsStore {
 }
 
 // Settings returns the settings store, or nil when the feature is unavailable.
-func (h *Handle) Settings() notification.SettingsStore {
+func (h *Handle) Settings() smtp.SettingsStore {
 	if h == nil {
 		return nil
 	}
@@ -176,16 +188,16 @@ func (h *Handle) SendGuestLink(ctx context.Context, to, link string) error {
 
 // smtpSettings loads the stored SMTP settings, refusing when the feature is
 // unconfigured or disabled. Shared by the direct (non-queued) send paths.
-func (h *Handle) smtpSettings(ctx context.Context) (*notification.SMTPSettings, error) {
-	settings, err := h.settings.GetSMTP(ctx)
-	if errors.Is(err, notification.ErrNotFound) {
-		return nil, notification.ErrSMTPNotConfigured
+func (h *Handle) smtpSettings(ctx context.Context) (*smtp.Settings, error) {
+	settings, err := h.settings.Get(ctx)
+	if errors.Is(err, smtp.ErrNotFound) {
+		return nil, smtp.ErrNotConfigured
 	}
 	if err != nil {
 		return nil, fmt.Errorf("loading smtp settings: %w", err)
 	}
 	if !settings.Enabled || settings.Host == "" {
-		return nil, notification.ErrSMTPNotConfigured
+		return nil, smtp.ErrNotConfigured
 	}
 	return settings, nil
 }
@@ -203,11 +215,11 @@ func (h *Handle) SendTest(ctx context.Context, to string) error {
 	}
 	// Mirror the worker's deliverability gate: a disabled or hostless
 	// configuration refuses the test instead of sending around the switch.
-	// ErrSMTPNotConfigured is a configuration state the API reports verbatim,
+	// smtp.ErrNotConfigured is a configuration state the API reports verbatim,
 	// not a failure to investigate, so it is returned unlogged.
 	settings, err := h.smtpSettings(ctx)
 	if err != nil {
-		if !errors.Is(err, notification.ErrSMTPNotConfigured) {
+		if !errors.Is(err, smtp.ErrNotConfigured) {
 			slog.Error("notification: test send failed", "recipient", to, logKeyError, err)
 		}
 		return err
@@ -226,7 +238,7 @@ func (h *Handle) SendTest(ctx context.Context, to string) error {
 }
 
 // deliverTest renders and delivers the test email through settings.
-func (h *Handle) deliverTest(ctx context.Context, settings notification.SMTPSettings, to string) error {
+func (h *Handle) deliverTest(ctx context.Context, settings smtp.Settings, to string) error {
 	email, err := h.renderer.RenderTest(to)
 	if err != nil {
 		return fmt.Errorf("rendering test email: %w", err)

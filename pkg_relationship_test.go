@@ -362,6 +362,20 @@ func cohesionAllowlist() map[string]cohesionExemption {
 // reliably catches fragmentation where islands share nothing; it is a heuristic
 // backstop, not a proof (the exact direction gates are the un-gameable half).
 // See CONTRIBUTING.md, gate 5 "Known blind spot".
+//
+// The blind spot was measured and left in place (#1080). The candidate
+// refinement — discount a connection that survives only through one shared
+// declaration, i.e. flag a package whose graph splits into two significant
+// clusters when a single cut vertex is removed — flags 50 of the 158 first-party
+// packages that are green today, among them pkg/platform, pkg/auth,
+// pkg/middleware and most toolkits. In nearly every case the cut vertex is the
+// package's central type (Handler, Toolkit, Store, Config) and the "split" is
+// its own methods separating from the free functions around it, which is the
+// cohesive shape the shared-identifier edge was added to admit. A rule with that
+// false-positive rate would be turned off rather than obeyed, so the gate keeps
+// the heuristic and this comment records why. Weighting edges by referenced-symbol
+// kind (a shared named type counting for more than an incidental value) remains
+// the open avenue; it was not attempted here.
 func TestPackageCohesion(t *testing.T) {
 	pkgs := firstPartyPackages(t)
 	allow := cohesionAllowlist()

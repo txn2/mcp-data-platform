@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"net/mail"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/notifyhttp"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
-	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
@@ -25,7 +26,7 @@ func buildNotifications(p *platform.Platform) *notifydelivery.Handle {
 		DB:        p.DB(),
 		DSN:       p.Config().Database.DSN,
 		Encryptor: p.RestEncryptor(),
-		Branding: notification.Branding{
+		Branding: notifyrender.Branding{
 			Name:            portalBrandName(p),
 			BaseURL:         p.Config().Portal.PublicBaseURL,
 			ImplementorName: p.Config().Portal.Implementor.Name,
@@ -138,7 +139,7 @@ func wirePortalNotifications(deps *portal.Deps, p *platform.Platform, notify *no
 		deps.Notifier = bridge
 		wireFeedbackToolNotifications(p, bridge)
 	}
-	prefsAPI := &notification.PrefsAPI{
+	prefsAPI := &notifyhttp.PrefsAPI{
 		Store: notify.Prefs(),
 		// Backs delivery_available: the settings page states plainly when no
 		// SMTP path exists rather than offering live controls over a

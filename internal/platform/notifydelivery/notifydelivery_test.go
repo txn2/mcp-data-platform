@@ -10,11 +10,11 @@ import (
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
-
-	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
 
-// passthroughEncryptor satisfies notification.StringEncryptor.
+// passthroughEncryptor satisfies smtp.StringEncryptor.
 type passthroughEncryptor struct{}
 
 func (passthroughEncryptor) Encrypt(s string) (string, error) { return s, nil }
@@ -22,28 +22,28 @@ func (passthroughEncryptor) Decrypt(s string) (string, error) { return s, nil }
 
 // fakeSettings serves canned SMTP settings.
 type fakeSettings struct {
-	settings *notification.SMTPSettings
+	settings *smtp.Settings
 	err      error
 }
 
-func (f *fakeSettings) GetSMTP(context.Context) (*notification.SMTPSettings, error) {
+func (f *fakeSettings) Get(context.Context) (*smtp.Settings, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.settings, nil
 }
 
-func (*fakeSettings) SetSMTP(context.Context, notification.SMTPSettings, string) error {
+func (*fakeSettings) Set(context.Context, smtp.Settings, string) error {
 	return nil
 }
 
 // captureSender records the last email.
 type captureSender struct {
-	sent []notification.Email
+	sent []notifyrender.Email
 	err  error
 }
 
-func (c *captureSender) Send(_ context.Context, _ notification.SMTPSettings, e notification.Email) error {
+func (c *captureSender) Send(_ context.Context, _ smtp.Settings, e notifyrender.Email) error {
 	if c.err != nil {
 		return c.err
 	}
@@ -70,7 +70,7 @@ func TestNew_WithDB(t *testing.T) {
 
 	h, err := New(Config{
 		DB: db, Encryptor: passthroughEncryptor{},
-		Branding: notification.Branding{Name: "Test"}, DigestHourUTC: 13,
+		Branding: notifyrender.Branding{Name: "Test"}, DigestHourUTC: 13,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -193,9 +193,9 @@ func TestStartStop_NoListener(t *testing.T) {
 	h.Stop()
 }
 
-func testRenderer(t *testing.T) *notification.Renderer {
+func testRenderer(t *testing.T) *notifyrender.Renderer {
 	t.Helper()
-	r, err := notification.NewRenderer(notification.Branding{Name: "Test"})
+	r, err := notifyrender.NewRenderer(notifyrender.Branding{Name: "Test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func testRenderer(t *testing.T) *notification.Renderer {
 func TestSendTest(t *testing.T) {
 	sender := &captureSender{}
 	h := &Handle{
-		settings: &fakeSettings{settings: &notification.SMTPSettings{
+		settings: &fakeSettings{settings: &smtp.Settings{
 			Enabled: true, Host: "smtp.example.com", Port: 587, From: "p@example.com",
 		}},
 		renderer: testRenderer(t),
@@ -233,7 +233,7 @@ func TestSendTest_SettingsError(t *testing.T) {
 
 func TestSendTest_SendError(t *testing.T) {
 	h := &Handle{
-		settings: &fakeSettings{settings: &notification.SMTPSettings{Enabled: true, Host: "smtp.example.com"}},
+		settings: &fakeSettings{settings: &smtp.Settings{Enabled: true, Host: "smtp.example.com"}},
 		renderer: testRenderer(t),
 		sender:   &captureSender{err: errors.New("smtp down")},
 	}
@@ -273,7 +273,7 @@ func TestSendTest_SendErrorIsLogged(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	h := &Handle{
-		settings: &fakeSettings{settings: &notification.SMTPSettings{
+		settings: &fakeSettings{settings: &smtp.Settings{
 			Enabled: true, Host: "smtp.example.com", Port: 2525,
 		}},
 		renderer: testRenderer(t),
@@ -300,7 +300,7 @@ func TestSendTest_LoggedHostIsSanitized(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	h := &Handle{
-		settings: &fakeSettings{settings: &notification.SMTPSettings{
+		settings: &fakeSettings{settings: &smtp.Settings{
 			Enabled: true, Host: "evil\nlevel=ERROR msg=\"forged\"", Port: 25,
 		}},
 		renderer: testRenderer(t),
@@ -329,7 +329,7 @@ func TestSendTest_SettingsErrorIsLogged(t *testing.T) {
 		wantLog bool
 	}{
 		{name: "store failure", err: errors.New("db down"), wantLog: true},
-		{name: "not configured", err: notification.ErrNotFound, wantLog: false},
+		{name: "not configured", err: smtp.ErrNotFound, wantLog: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -358,18 +358,18 @@ func TestSendTest_DisabledOrUnconfigured(t *testing.T) {
 		name     string
 		settings *fakeSettings
 	}{
-		{name: "never configured", settings: &fakeSettings{err: notification.ErrNotFound}},
-		{name: "disabled", settings: &fakeSettings{settings: &notification.SMTPSettings{
+		{name: "never configured", settings: &fakeSettings{err: smtp.ErrNotFound}},
+		{name: "disabled", settings: &fakeSettings{settings: &smtp.Settings{
 			Enabled: false, Host: "smtp.example.com",
 		}}},
-		{name: "no host", settings: &fakeSettings{settings: &notification.SMTPSettings{Enabled: true}}},
+		{name: "no host", settings: &fakeSettings{settings: &smtp.Settings{Enabled: true}}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			sender := &captureSender{}
 			h := &Handle{settings: tc.settings, renderer: testRenderer(t), sender: sender}
 			err := h.SendTest(context.Background(), "a@b.io")
-			if !errors.Is(err, notification.ErrSMTPNotConfigured) {
+			if !errors.Is(err, smtp.ErrNotConfigured) {
 				t.Fatalf("err = %v; want ErrSMTPNotConfigured", err)
 			}
 			if len(sender.sent) != 0 {

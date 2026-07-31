@@ -1,4 +1,4 @@
-package notification
+package notifyrender
 
 import (
 	"testing"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
 func TestRenderGuestLink(t *testing.T) {
@@ -34,12 +35,12 @@ func TestRenderIncludesUnsubscribeFooter(t *testing.T) {
 		return "https://platform.example.com/portal/notifications/unsubscribe?tok=TOK-" + email
 	})
 
-	email, err := r.Render([]Notification{{
+	email, err := r.Render([]notification.Notification{{
 		Recipient: "bob@example.com",
-		Category:  CategoryShare,
+		Category:  notification.CategoryShare,
 		CreatedAt: time.Now(),
-		Payload: Payload{
-			Kind: KindAsset, ItemID: "a1", ItemTitle: "Report",
+		Payload: notification.Payload{
+			Kind: notification.KindAsset, ItemID: "a1", ItemTitle: "Report",
 			Actor: "alice@example.com", Link: "https://platform.example.com/portal/view/tok1",
 		},
 	}})
@@ -56,10 +57,10 @@ func TestRenderOmitsUnsubscribeFooterWithoutBuilder(t *testing.T) {
 	r, err := NewRenderer(Branding{Name: "ACME Data"})
 	require.NoError(t, err)
 
-	email, err := r.Render([]Notification{{
+	email, err := r.Render([]notification.Notification{{
 		Recipient: "bob@example.com",
-		Category:  CategoryShare,
-		Payload:   Payload{Kind: KindAsset, ItemTitle: "Report", Actor: "alice@example.com"},
+		Category:  notification.CategoryShare,
+		Payload:   notification.Payload{Kind: notification.KindAsset, ItemTitle: "Report", Actor: "alice@example.com"},
 	}})
 	require.NoError(t, err)
 	assert.NotContains(t, email.HTML, "unsubscribe")

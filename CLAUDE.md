@@ -186,7 +186,7 @@ mcp-data-platform/
 │   ├── mcpcontext/                 # Context helpers for MCP session state
 │   ├── memory/                     # Persistent memory storage for agent/analyst sessions
 │   ├── middleware/                 # MCP protocol middleware chain (auth, authz, enrichment, audit, rules)
-│   ├── notification/               # Email notifications: SMTP settings, user prefs, queue, send worker, branded templates
+│   ├── notification/               # Email-notification domain: event/preference model, store contracts, enqueue path (smtp/ = admin mail-server settings, validation and store; delivery layers live under internal/notification/) — decomposed by #1080
 │   ├── oauth/                      # OAuth 2.1 authorization server (postgres/ = storage implementation)
 │   ├── observability/              # OpenTelemetry metrics (proxy/ = authenticated PromQL query proxy)
 │   ├── oidcdiscovery/              # Shared OIDC discovery-document fetch/parse (used by auth JWKS + oauth broker)
@@ -222,7 +222,8 @@ mcp-data-platform/
 ├── internal/                       # Non-exported implementation (not part of the supported library surface)
 │   ├── admin/                      # Admin-API seams built only by pkg/admin: auditapi/ (events + metrics), catalogapi/ (OpenAPI spec bundles + embedding jobs), connoauthapi/ (connection OAuth, unified + legacy per-kind), settingsapi/ (SMTP settings REST) — extracted by #1078
 │   ├── httpjson/                   # RFC 9457 Problem Details responder + admin list-query param parsing, shared by the admin/portal decomposition seams (#1078)
-│   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, datahubapi/, gatewayhttp/, health/, httpauth/, mentionhttp/, sources/, versionhttp/ (#1076)
+│   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, datahubapi/, gatewayhttp/, health/, httpauth/, mentionhttp/, notifyhttp/ (self-scoped notification prefs), sources/, unsubhttp/ (no-login unsubscribe + its tokens), versionhttp/ (#1076, #1080)
+│   ├── notification/               # Notification delivery layers built only by internal/platform/notifydelivery, extracted by #1080: notifyprefs/ (preference persistence), notifyqueue/ (queue persistence + LISTEN wakeup), notifyrender/ (branded templates), notifysend/ (SMTP transport), notifyworker/ (send worker)
 │   ├── platform/                   # Facade-internal seams composed only by pkg/platform (mwchain, iam, sessionsync, oauthserver, the six indexjobs consumers, mcpapps, connbackfill, ... — moved out of the public surface by #894 and #1076)
 │   ├── portal/                     # Portal seams built only by pkg/portal, extracted by #1121: portaldomain/ (domain types, store contracts, validation — aliased back so portal.Asset etc. are unchanged), portalstore/ (PostgreSQL asset/share/collection stores + ranked search), portalversions/ (version history store), portalnoop/ (no-database stores), access/ (the authorization core + the User principal), feedbackapi/ (threads, activity, worklists, sign-off, validation, capture-as-insight), plus publicviewer/ (embedded public share templates + CSP), viewerlimit/, sharecache/
 │   └── server/                     # Server factory (server.go)

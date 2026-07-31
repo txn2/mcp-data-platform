@@ -467,8 +467,18 @@ one common options struct) are joined through it and read as cohesive. So the ga
 reliably catches fragmentation where the islands share nothing, but a determined
 author can evade it by threading one common reference through both halves. This is
 why cohesion is a heuristic backstop, not a proof; the exact direction gates (1
-and 4) are the un-gameable half. A future refinement could weight edges by the
-referenced symbol's kind (type vs. incidental value) to narrow the blind spot.
+and 4) are the un-gameable half.
+
+The obvious refinement was measured and rejected (#1080). Discounting a
+connection that survives only through one shared declaration — flag a package
+whose graph splits into two significant clusters once a single cut vertex is
+removed — flags **50 of the 158** first-party packages that are green today,
+including `pkg/platform`, `pkg/auth`, `pkg/middleware` and most toolkits. The cut
+vertex is almost always the package's central type (`Handler`, `Toolkit`,
+`Store`, `Config`) and the "split" is its methods separating from the free
+functions around it: precisely the cohesive shape the shared-identifier edge
+exists to admit. Weighting edges by the referenced symbol's kind (a shared named
+type counting for more than an incidental value) remains the open avenue.
 
 ### 6. Exported-surface budget (`TestPackageExportedSurfaceBudget`)
 

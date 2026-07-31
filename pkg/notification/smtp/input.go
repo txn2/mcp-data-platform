@@ -1,12 +1,12 @@
-package notification
+package smtp
 
 import (
 	"net/mail"
 	"time"
 )
 
-// defaultSMTPPort is the STARTTLS submission port applied when unset.
-const defaultSMTPPort = 587
+// defaultPort is the STARTTLS submission port applied when unset.
+const defaultPort = 587
 
 // implicitTLSPort is the SMTPS port. A server here expects a TLS handshake as
 // the first bytes on the connection and never emits a plaintext greeting.
@@ -15,9 +15,9 @@ const implicitTLSPort = 465
 // maxTCPPort is the highest valid TCP port number.
 const maxTCPPort = 65535
 
-// SMTPSettingsInput is the write shape for the admin SMTP configuration. An
+// SettingsInput is the write shape for the admin SMTP configuration. An
 // empty password keeps the currently stored one.
-type SMTPSettingsInput struct {
+type SettingsInput struct {
 	Enabled  bool   `json:"enabled" example:"true"`
 	Host     string `json:"host" example:"smtp.example.com"`
 	Port     int    `json:"port" example:"587"`
@@ -31,7 +31,7 @@ type SMTPSettingsInput struct {
 // Validate normalizes defaults in place and returns a non-empty message when
 // the input is invalid. Omitted fields take defaults (port 587, STARTTLS) so
 // a minimal `{"enabled": false}` disable call works.
-func (in *SMTPSettingsInput) Validate() string {
+func (in *SettingsInput) Validate() string {
 	if msg := in.normalizeTransport(); msg != "" {
 		return msg
 	}
@@ -39,7 +39,7 @@ func (in *SMTPSettingsInput) Validate() string {
 }
 
 // normalizeTransport defaults and validates tls_mode and port.
-func (in *SMTPSettingsInput) normalizeTransport() string {
+func (in *SettingsInput) normalizeTransport() string {
 	if in.TLSMode == "" {
 		in.TLSMode = TLSModeStartTLS
 	}
@@ -47,7 +47,7 @@ func (in *SMTPSettingsInput) normalizeTransport() string {
 		return "tls_mode must be starttls, implicit, or none"
 	}
 	if in.Port == 0 {
-		in.Port = defaultSMTPPort
+		in.Port = defaultPort
 	}
 	if in.Port < 0 || in.Port > maxTCPPort {
 		return "port must be between 1 and 65535"
@@ -63,7 +63,7 @@ func (in *SMTPSettingsInput) normalizeTransport() string {
 }
 
 // validateSender checks the fields required only for an enabled config.
-func (in *SMTPSettingsInput) validateSender() string {
+func (in *SettingsInput) validateSender() string {
 	if !in.Enabled {
 		return ""
 	}
@@ -82,9 +82,9 @@ func (in *SMTPSettingsInput) validateSender() string {
 const PlaintextAuthWarning = "TLS is disabled (tls_mode: none) while SMTP credentials are configured; " +
 	"the username and password are sent in cleartext. Use starttls or implicit unless the relay is on a closed network."
 
-// SMTPSettingsView is the read shape for the admin SMTP configuration. The
+// SettingsView is the read shape for the admin SMTP configuration. The
 // password is write-only: the view reports only whether one is stored.
-type SMTPSettingsView struct {
+type SettingsView struct {
 	Enabled     bool      `json:"enabled" example:"true"`
 	Host        string    `json:"host" example:"smtp.example.com"`
 	Port        int       `json:"port" example:"587"`
@@ -102,8 +102,8 @@ type SMTPSettingsView struct {
 }
 
 // View maps stored settings to the password-free read shape.
-func (s *SMTPSettings) View() SMTPSettingsView {
-	return SMTPSettingsView{
+func (s *Settings) View() SettingsView {
+	return SettingsView{
 		Enabled:     s.Enabled,
 		Host:        s.Host,
 		Port:        s.Port,
@@ -122,17 +122,17 @@ func (s *SMTPSettings) View() SMTPSettingsView {
 // the stored settings rather than the write input because an empty incoming
 // password keeps the stored one: judging the input alone would drop the
 // warning on every save that leaves the existing credential in place.
-func (s *SMTPSettings) warnings() []string {
+func (s *Settings) warnings() []string {
 	if s.TLSMode == TLSModeNone && (s.Username != "" || s.Password != "") {
 		return []string{PlaintextAuthWarning}
 	}
 	return nil
 }
 
-// UnconfiguredSMTPView is the read shape served before SMTP has ever been
+// UnconfiguredView is the read shape served before SMTP has ever been
 // configured: disabled, with the transport defaults prefilled.
-func UnconfiguredSMTPView() SMTPSettingsView {
-	return SMTPSettingsView{Port: defaultSMTPPort, TLSMode: TLSModeStartTLS}
+func UnconfiguredView() SettingsView {
+	return SettingsView{Port: defaultPort, TLSMode: TLSModeStartTLS}
 }
 
 // TestEmailRequest is the body for the admin send-test-email action.
@@ -149,8 +149,8 @@ func (r *TestEmailRequest) Validate() string {
 }
 
 // Settings maps the validated input to store settings.
-func (in *SMTPSettingsInput) Settings() SMTPSettings {
-	return SMTPSettings{
+func (in *SettingsInput) Settings() Settings {
+	return Settings{
 		Enabled:  in.Enabled,
 		Host:     in.Host,
 		Port:     in.Port,

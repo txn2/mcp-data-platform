@@ -1,4 +1,4 @@
-package notification
+package notifyqueue
 
 import (
 	"context"
@@ -9,18 +9,19 @@ import (
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
-func newMockQueueStore(t *testing.T) (*PostgresQueueStore, sqlmock.Sqlmock, func()) {
+func newMockQueueStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewPostgresQueueStore(db), mock, func() { _ = db.Close() }
+	return NewPostgresStore(db), mock, func() { _ = db.Close() }
 }
 
-func notificationRows(t *testing.T, ns ...Notification) *sqlmock.Rows {
+func notificationRows(t *testing.T, ns ...notification.Notification) *sqlmock.Rows {
 	t.Helper()
 	rows := sqlmock.NewRows([]string{
 		"id", "recipient", "category", "payload", "digest",
@@ -51,7 +52,7 @@ func TestQueueStore_Enqueue(t *testing.T) {
 		store, mock, done := newMockQueueStore(t)
 		defer done()
 
-		payload, err := json.Marshal(Payload{Kind: KindAsset, ItemTitle: "Report"})
+		payload, err := json.Marshal(notification.Payload{Kind: notification.KindAsset, ItemTitle: "Report"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -59,15 +60,15 @@ func TestQueueStore_Enqueue(t *testing.T) {
 		// stamp the row with the database clock. Passing a Go-side timestamp
 		// here would reintroduce the host/DB clock skew the nil exists to avoid.
 		mock.ExpectExec(enqueueInsert).
-			WithArgs("a@b.io", CategoryShare, payload, false, nil).
+			WithArgs("a@b.io", notification.CategoryShare, payload, false, nil).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 		mock.ExpectExec("SELECT pg_notify").
 			WithArgs(NotifyChannel).
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		if err := store.Enqueue(context.Background(), Notification{
-			Recipient: "a@b.io", Category: CategoryShare,
-			Payload: Payload{Kind: KindAsset, ItemTitle: "Report"},
+		if err := store.Enqueue(context.Background(), notification.Notification{
+			Recipient: "a@b.io", Category: notification.CategoryShare,
+			Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "Report"},
 		}); err != nil {
 			t.Fatalf("Enqueue: %v", err)
 		}
@@ -81,21 +82,21 @@ func TestQueueStore_Enqueue(t *testing.T) {
 		defer done()
 
 		when := time.Date(2026, 7, 29, 13, 0, 0, 0, time.UTC)
-		payload, err := json.Marshal(Payload{Kind: KindAsset, ItemTitle: "Digest"})
+		payload, err := json.Marshal(notification.Payload{Kind: notification.KindAsset, ItemTitle: "Digest"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		mock.ExpectExec(enqueueInsert).
-			WithArgs("a@b.io", CategoryShare, payload, true, when).
+			WithArgs("a@b.io", notification.CategoryShare, payload, true, when).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 		mock.ExpectExec("SELECT pg_notify").
 			WithArgs(NotifyChannel).
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		if err := store.Enqueue(context.Background(), Notification{
-			Recipient: "a@b.io", Category: CategoryShare, Digest: true,
+		if err := store.Enqueue(context.Background(), notification.Notification{
+			Recipient: "a@b.io", Category: notification.CategoryShare, Digest: true,
 			ScheduledFor: when,
-			Payload:      Payload{Kind: KindAsset, ItemTitle: "Digest"},
+			Payload:      notification.Payload{Kind: notification.KindAsset, ItemTitle: "Digest"},
 		}); err != nil {
 			t.Fatalf("Enqueue: %v", err)
 		}
@@ -114,7 +115,7 @@ func TestQueueStore_Enqueue_NotifyFailureIgnored(t *testing.T) {
 	mock.ExpectExec("SELECT pg_notify").
 		WillReturnError(errors.New("notify unavailable"))
 
-	if err := store.Enqueue(context.Background(), Notification{Recipient: "a@b.io"}); err != nil {
+	if err := store.Enqueue(context.Background(), notification.Notification{Recipient: "a@b.io"}); err != nil {
 		t.Fatalf("Enqueue must succeed despite notify failure: %v", err)
 	}
 }
@@ -126,7 +127,7 @@ func TestQueueStore_Enqueue_InsertError(t *testing.T) {
 	mock.ExpectExec("INSERT INTO notifications").
 		WillReturnError(errors.New("insert failed"))
 
-	if err := store.Enqueue(context.Background(), Notification{Recipient: "a@b.io"}); err == nil {
+	if err := store.Enqueue(context.Background(), notification.Notification{Recipient: "a@b.io"}); err == nil {
 		t.Fatal("expected insert error")
 	}
 }
@@ -135,10 +136,10 @@ func TestQueueStore_ClaimImmediate(t *testing.T) {
 	store, mock, done := newMockQueueStore(t)
 	defer done()
 
-	n := Notification{
-		ID: 7, Recipient: "a@b.io", Category: CategoryShare,
-		Status: StatusSending, Attempts: 1, ScheduledFor: time.Now(), CreatedAt: time.Now(),
-		Payload: Payload{Kind: KindAsset, ItemTitle: "Report"},
+	n := notification.Notification{
+		ID: 7, Recipient: "a@b.io", Category: notification.CategoryShare,
+		Status: notification.StatusSending, Attempts: 1, ScheduledFor: time.Now(), CreatedAt: time.Now(),
+		Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "Report"},
 	}
 	mock.ExpectQuery("UPDATE notifications").
 		WithArgs(120).
@@ -160,8 +161,8 @@ func TestQueueStore_ClaimImmediate_NoWork(t *testing.T) {
 	mock.ExpectQuery("UPDATE notifications").
 		WillReturnRows(notificationRows(t))
 
-	if _, err := store.ClaimImmediate(context.Background(), time.Minute); !errors.Is(err, ErrNoWork) {
-		t.Fatalf("expected ErrNoWork, got %v", err)
+	if _, err := store.ClaimImmediate(context.Background(), time.Minute); !errors.Is(err, notification.ErrNoWork) {
+		t.Fatalf("expected notification.ErrNoWork, got %v", err)
 	}
 }
 
@@ -169,8 +170,8 @@ func TestQueueStore_ClaimDigest(t *testing.T) {
 	store, mock, done := newMockQueueStore(t)
 	defer done()
 
-	a := Notification{ID: 1, Recipient: "a@b.io", Digest: true, ScheduledFor: time.Now(), CreatedAt: time.Now()}
-	b := Notification{ID: 2, Recipient: "a@b.io", Digest: true, ScheduledFor: time.Now(), CreatedAt: time.Now()}
+	a := notification.Notification{ID: 1, Recipient: "a@b.io", Digest: true, ScheduledFor: time.Now(), CreatedAt: time.Now()}
+	b := notification.Notification{ID: 2, Recipient: "a@b.io", Digest: true, ScheduledFor: time.Now(), CreatedAt: time.Now()}
 	mock.ExpectQuery("UPDATE notifications").
 		WithArgs(60).
 		WillReturnRows(notificationRows(t, a, b))
@@ -203,8 +204,8 @@ func TestQueueStore_Claim_BadPayload(t *testing.T) {
 		"id", "recipient", "category", "payload", "digest",
 		"status", "attempts", "last_error", "scheduled_for", "sent_at", "created_at",
 	}).
-		AddRow(1, "a@b.io", CategoryShare, []byte("{bad"), false,
-			StatusSending, 1, "", time.Now(), nil, time.Now())
+		AddRow(1, "a@b.io", notification.CategoryShare, []byte("{bad"), false,
+			notification.StatusSending, 1, "", time.Now(), nil, time.Now())
 	mock.ExpectQuery("UPDATE notifications").WillReturnRows(rows)
 
 	if _, err := store.ClaimImmediate(context.Background(), time.Minute); err == nil {
@@ -278,7 +279,7 @@ func TestQueueStore_PurgeOld(t *testing.T) {
 		WithArgs(int((30 * 24 * time.Hour).Seconds()), int((7 * 24 * time.Hour).Seconds())).
 		WillReturnResult(sqlmock.NewResult(0, 3))
 
-	n, err := store.PurgeOld(context.Background(), DefaultResolvedRetention, DefaultPendingTTL)
+	n, err := store.PurgeOld(context.Background(), 30*24*time.Hour, 7*24*time.Hour)
 	if err != nil {
 		t.Fatalf("PurgeOld: %v", err)
 	}

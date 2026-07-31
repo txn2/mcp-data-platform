@@ -11,7 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyworker"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -135,34 +138,34 @@ func (*dailyPrefs) Set(_ context.Context, email string, _ notification.PrefsUpda
 // enabledSettings serves enabled SMTP settings to the worker.
 type enabledSettings struct{}
 
-func (enabledSettings) GetSMTP(context.Context) (*notification.SMTPSettings, error) {
-	return &notification.SMTPSettings{
+func (enabledSettings) Get(context.Context) (*smtp.Settings, error) {
+	return &smtp.Settings{
 		Enabled: true, Host: "smtp.example.com", Port: 587,
-		From: "platform@example.com", TLSMode: notification.TLSModeStartTLS,
+		From: "platform@example.com", TLSMode: smtp.TLSModeStartTLS,
 	}, nil
 }
 
-func (enabledSettings) SetSMTP(context.Context, notification.SMTPSettings, string) error {
+func (enabledSettings) Set(context.Context, smtp.Settings, string) error {
 	return nil
 }
 
 // smtpSink captures delivered emails in place of a real SMTP server.
 type smtpSink struct {
 	mu   sync.Mutex
-	sent []notification.Email
+	sent []notifyrender.Email
 }
 
-func (s *smtpSink) Send(_ context.Context, _ notification.SMTPSettings, e notification.Email) error {
+func (s *smtpSink) Send(_ context.Context, _ smtp.Settings, e notifyrender.Email) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sent = append(s.sent, e)
 	return nil
 }
 
-func (s *smtpSink) emails() []notification.Email {
+func (s *smtpSink) emails() []notifyrender.Email {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]notification.Email(nil), s.sent...)
+	return append([]notifyrender.Email(nil), s.sent...)
 }
 
 // shareInsertOK accepts every share insert.
@@ -182,13 +185,13 @@ func userMiddleware(user *portal.User) func(http.Handler) http.Handler {
 // startTestWorker runs the real send worker over the queue into the sink.
 func startTestWorker(t *testing.T, queue notification.QueueStore, sink *smtpSink) {
 	t.Helper()
-	renderer, err := notification.NewRenderer(notification.Branding{
+	renderer, err := notifyrender.NewRenderer(notifyrender.Branding{
 		Name: "ACME Data Platform", BaseURL: "https://data.example.com",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	worker := notification.NewWorker(notification.WorkerConfig{
+	worker := notifyworker.New(notifyworker.Config{
 		Queue: queue, Settings: enabledSettings{}, Renderer: renderer, Sender: sink,
 		PollEvery: 10 * time.Millisecond,
 	})
@@ -196,7 +199,7 @@ func startTestWorker(t *testing.T, queue notification.QueueStore, sink *smtpSink
 	t.Cleanup(worker.Stop)
 }
 
-func awaitEmails(sink *smtpSink, want int) []notification.Email {
+func awaitEmails(sink *smtpSink, want int) []notifyrender.Email {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) && len(sink.emails()) < want {
 		time.Sleep(5 * time.Millisecond)

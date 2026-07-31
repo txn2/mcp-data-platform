@@ -1,8 +1,10 @@
-package notification
+package notifyrender
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
 // footerBranding is the configured help/about footer most tests render with.
@@ -35,9 +37,9 @@ func TestRender_FooterOnAllMailTypes(t *testing.T) {
 
 	renderAll := map[string]func() (*Email, error){
 		"notification": func() (*Email, error) {
-			return r.Render([]Notification{{
+			return r.Render([]notification.Notification{{
 				Recipient: "a@b.io",
-				Payload:   Payload{Kind: KindAsset, ItemTitle: "T", Actor: "x@y.z"},
+				Payload:   notification.Payload{Kind: notification.KindAsset, ItemTitle: "T", Actor: "x@y.z"},
 			}})
 		},
 		"guest link": func() (*Email, error) {
@@ -199,45 +201,5 @@ func TestRender_ReplyToStamped(t *testing.T) {
 	}
 	if plain.ReplyTo != "" {
 		t.Errorf("unconfigured branding must leave ReplyTo empty, got %q", plain.ReplyTo)
-	}
-}
-
-// TestBuildMessage_ReplyTo proves the rendered Reply-To reaches the wire and
-// that an unset one leaves the header off entirely (#1023).
-func TestBuildMessage_ReplyTo(t *testing.T) {
-	email := Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>h</p>", ReplyTo: "support@example.com"}
-
-	msg, err := buildMessage(SMTPSettings{From: "p@example.com"}, email)
-	if err != nil {
-		t.Fatalf("buildMessage: %v", err)
-	}
-	var out strings.Builder
-	if _, err := msg.WriteTo(&out); err != nil {
-		t.Fatalf("WriteTo: %v", err)
-	}
-	if !strings.Contains(out.String(), "Reply-To: <support@example.com>") {
-		t.Errorf("message missing Reply-To header:\n%s", out.String())
-	}
-
-	email.ReplyTo = ""
-	msg, err = buildMessage(SMTPSettings{From: "p@example.com"}, email)
-	if err != nil {
-		t.Fatalf("buildMessage: %v", err)
-	}
-	out.Reset()
-	if _, err := msg.WriteTo(&out); err != nil {
-		t.Fatalf("WriteTo: %v", err)
-	}
-	if strings.Contains(out.String(), "Reply-To") {
-		t.Error("unset reply_to must emit no Reply-To header")
-	}
-}
-
-func TestBuildMessage_InvalidReplyTo(t *testing.T) {
-	_, err := buildMessage(
-		SMTPSettings{From: "p@example.com"},
-		Email{To: "a@b.io", Subject: "s", Text: "t", HTML: "<p>h</p>", ReplyTo: "not an address"})
-	if err == nil {
-		t.Fatal("expected error for invalid reply-to")
 	}
 }

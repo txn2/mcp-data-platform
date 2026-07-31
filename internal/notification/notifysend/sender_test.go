@@ -1,4 +1,4 @@
-package notification
+package notifysend
 
 import (
 	"bufio"
@@ -8,11 +8,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
 
 func TestBuildMessage(t *testing.T) {
-	settings := SMTPSettings{From: "p@example.com", FromName: "Data Platform"}
-	email := Email{To: "a@b.io", Subject: "Hello", Text: "plain body", HTML: "<p>html body</p>"}
+	settings := smtp.Settings{From: "p@example.com", FromName: "Data Platform"}
+	email := notifyrender.Email{To: "a@b.io", Subject: "Hello", Text: "plain body", HTML: "<p>html body</p>"}
 
 	msg, err := buildMessage(settings, email)
 	if err != nil {
@@ -38,13 +41,13 @@ func TestBuildMessage(t *testing.T) {
 // with no matching part is a broken image in every client.
 func TestBuildMessage_EmbedsLogo(t *testing.T) {
 	logo := []byte("\x89PNG\r\n\x1a\nfake-raster-bytes")
-	email := Email{
+	email := notifyrender.Email{
 		To: "a@b.io", Subject: "Hello", Text: "plain",
-		HTML:    `<img src="cid:` + logoContentID + `">`,
+		HTML:    `<img src="cid:` + notifyrender.LogoContentID + `">`,
 		LogoPNG: logo,
 	}
 
-	msg, err := buildMessage(SMTPSettings{From: "p@example.com"}, email)
+	msg, err := buildMessage(smtp.Settings{From: "p@example.com"}, email)
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
 	}
@@ -53,7 +56,7 @@ func TestBuildMessage_EmbedsLogo(t *testing.T) {
 		t.Fatalf("WriteTo: %v", err)
 	}
 	raw := out.String()
-	for _, want := range []string{logoContentID, "multipart/related", base64.StdEncoding.EncodeToString(logo)} {
+	for _, want := range []string{notifyrender.LogoContentID, "multipart/related", base64.StdEncoding.EncodeToString(logo)} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("message missing %q; got:\n%s", want, raw)
 		}
@@ -63,8 +66,8 @@ func TestBuildMessage_EmbedsLogo(t *testing.T) {
 // TestBuildMessage_NoLogoNoRelatedPart pins the unconfigured default: no
 // attachment machinery when no logo is set.
 func TestBuildMessage_NoLogoNoRelatedPart(t *testing.T) {
-	msg, err := buildMessage(SMTPSettings{From: "p@example.com"},
-		Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>"})
+	msg, err := buildMessage(smtp.Settings{From: "p@example.com"},
+		notifyrender.Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>"})
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
 	}
@@ -72,7 +75,7 @@ func TestBuildMessage_NoLogoNoRelatedPart(t *testing.T) {
 	if _, err := msg.WriteTo(&out); err != nil {
 		t.Fatalf("WriteTo: %v", err)
 	}
-	if strings.Contains(out.String(), logoContentID) {
+	if strings.Contains(out.String(), notifyrender.LogoContentID) {
 		t.Error("no logo configured, yet the message carries a logo part")
 	}
 }
@@ -82,8 +85,8 @@ func TestBuildMessage_NoLogoNoRelatedPart(t *testing.T) {
 // require them for bulk senders; the in-body link alone does not qualify.
 func TestBuildMessage_ListUnsubscribeHeaders(t *testing.T) {
 	unsub := "https://platform.example.com/portal/notifications/unsubscribe?tok=abc"
-	msg, err := buildMessage(SMTPSettings{From: "p@example.com"},
-		Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>", UnsubURL: unsub})
+	msg, err := buildMessage(smtp.Settings{From: "p@example.com"},
+		notifyrender.Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>", UnsubURL: unsub})
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
 	}
@@ -108,8 +111,8 @@ func TestBuildMessage_ListUnsubscribeHeaders(t *testing.T) {
 // URI but not the one-click POST header, which the RFC restricts to https.
 func TestBuildMessage_NonHTTPSUnsubURLNoOneClick(t *testing.T) {
 	unsub := "http://internal.example.com/portal/notifications/unsubscribe?tok=abc"
-	msg, err := buildMessage(SMTPSettings{From: "p@example.com"},
-		Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>", UnsubURL: unsub})
+	msg, err := buildMessage(smtp.Settings{From: "p@example.com"},
+		notifyrender.Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>", UnsubURL: unsub})
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
 	}
@@ -130,8 +133,8 @@ func TestBuildMessage_NonHTTPSUnsubURLNoOneClick(t *testing.T) {
 // recipient-requested mail (guest links, admin tests) carries no unsubscribe
 // headers, mirroring its footer.
 func TestBuildMessage_NoUnsubURLNoHeaders(t *testing.T) {
-	msg, err := buildMessage(SMTPSettings{From: "p@example.com"},
-		Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>"})
+	msg, err := buildMessage(smtp.Settings{From: "p@example.com"},
+		notifyrender.Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>"})
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
 	}
@@ -148,8 +151,8 @@ func TestBuildMessage_NoUnsubURLNoHeaders(t *testing.T) {
 // side is the From domain, not the local hostname a containerized deployment
 // would otherwise leak.
 func TestBuildMessage_MessageIDUsesFromDomain(t *testing.T) {
-	msg, err := buildMessage(SMTPSettings{From: "p@example.com"},
-		Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>"})
+	msg, err := buildMessage(smtp.Settings{From: "p@example.com"},
+		notifyrender.Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>"})
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
 	}
@@ -160,7 +163,7 @@ func TestBuildMessage_MessageIDUsesFromDomain(t *testing.T) {
 	if !strings.HasSuffix(id, "@example.com>") {
 		t.Errorf("Message-ID domain must come from the From address: %q", id)
 	}
-	other, err := buildMessage(SMTPSettings{From: "p@example.com"}, Email{To: "a@b.io"})
+	other, err := buildMessage(smtp.Settings{From: "p@example.com"}, notifyrender.Email{To: "a@b.io"})
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
 	}
@@ -187,7 +190,7 @@ func TestMessageIDDomain(t *testing.T) {
 }
 
 func TestBuildMessage_NoFromName(t *testing.T) {
-	msg, err := buildMessage(SMTPSettings{From: "p@example.com"}, Email{To: "a@b.io"})
+	msg, err := buildMessage(smtp.Settings{From: "p@example.com"}, notifyrender.Email{To: "a@b.io"})
 	if err != nil {
 		t.Fatalf("buildMessage: %v", err)
 	}
@@ -201,13 +204,13 @@ func TestBuildMessage_NoFromName(t *testing.T) {
 }
 
 func TestBuildMessage_InvalidAddresses(t *testing.T) {
-	if _, err := buildMessage(SMTPSettings{From: "not-an-address"}, Email{To: "a@b.io"}); err == nil {
+	if _, err := buildMessage(smtp.Settings{From: "not-an-address"}, notifyrender.Email{To: "a@b.io"}); err == nil {
 		t.Error("expected invalid from error")
 	}
-	if _, err := buildMessage(SMTPSettings{From: "not-an-address", FromName: "X"}, Email{To: "a@b.io"}); err == nil {
+	if _, err := buildMessage(smtp.Settings{From: "not-an-address", FromName: "X"}, notifyrender.Email{To: "a@b.io"}); err == nil {
 		t.Error("expected invalid from error (with name)")
 	}
-	if _, err := buildMessage(SMTPSettings{From: "p@example.com"}, Email{To: "bad recipient"}); err == nil {
+	if _, err := buildMessage(smtp.Settings{From: "p@example.com"}, notifyrender.Email{To: "bad recipient"}); err == nil {
 		t.Error("expected invalid recipient error")
 	}
 }
@@ -215,21 +218,21 @@ func TestBuildMessage_InvalidAddresses(t *testing.T) {
 func TestBuildClient(t *testing.T) {
 	tests := []struct {
 		name     string
-		settings SMTPSettings
+		settings smtp.Settings
 	}{
-		{name: "starttls with auth", settings: SMTPSettings{
+		{name: "starttls with auth", settings: smtp.Settings{
 			Host: "smtp.example.com",
-			Port: 587, TLSMode: TLSModeStartTLS, Username: "u", Password: "p",
+			Port: 587, TLSMode: smtp.TLSModeStartTLS, Username: "u", Password: "p",
 		}},
-		{name: "implicit tls", settings: SMTPSettings{
+		{name: "implicit tls", settings: smtp.Settings{
 			Host: "smtp.example.com",
-			Port: 465, TLSMode: TLSModeImplicit,
+			Port: 465, TLSMode: smtp.TLSModeImplicit,
 		}},
-		{name: "plaintext relay", settings: SMTPSettings{
+		{name: "plaintext relay", settings: smtp.Settings{
 			Host: "relay.internal",
-			Port: 25, TLSMode: TLSModeNone,
+			Port: 25, TLSMode: smtp.TLSModeNone,
 		}},
-		{name: "default tls mode", settings: SMTPSettings{Host: "smtp.example.com", Port: 587}},
+		{name: "default tls mode", settings: smtp.Settings{Host: "smtp.example.com", Port: 587}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -245,7 +248,7 @@ func TestBuildClient(t *testing.T) {
 }
 
 func TestBuildClient_EmptyHost(t *testing.T) {
-	if _, err := buildClient(SMTPSettings{Port: 587}); err == nil {
+	if _, err := buildClient(smtp.Settings{Port: 587}); err == nil {
 		t.Error("expected error for empty host")
 	}
 }
@@ -327,9 +330,9 @@ func TestSMTPSender_Send_EndToEnd(t *testing.T) {
 	port, dataCh := startFakeSMTPServer(t, false)
 	s := NewSMTPSender()
 
-	err := s.Send(context.Background(), SMTPSettings{
-		Host: "127.0.0.1", Port: port, From: "p@example.com", TLSMode: TLSModeNone,
-	}, Email{To: "a@b.io", Subject: "Wire test", Text: "plain", HTML: "<p>html</p>"})
+	err := s.Send(context.Background(), smtp.Settings{
+		Host: "127.0.0.1", Port: port, From: "p@example.com", TLSMode: smtp.TLSModeNone,
+	}, notifyrender.Email{To: "a@b.io", Subject: "Wire test", Text: "plain", HTML: "<p>html</p>"})
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -350,10 +353,10 @@ func TestSMTPSender_Send_AutoDiscoverAuth(t *testing.T) {
 	port, dataCh := startFakeSMTPServer(t, true)
 	s := NewSMTPSender()
 
-	err := s.Send(context.Background(), SMTPSettings{
-		Host: "127.0.0.1", Port: port, From: "p@example.com", TLSMode: TLSModeNone,
+	err := s.Send(context.Background(), smtp.Settings{
+		Host: "127.0.0.1", Port: port, From: "p@example.com", TLSMode: smtp.TLSModeNone,
 		Username: "mailer", Password: "secret",
-	}, Email{To: "a@b.io", Subject: "Auth wire test", Text: "plain", HTML: "<p>html</p>"})
+	}, notifyrender.Email{To: "a@b.io", Subject: "Auth wire test", Text: "plain", HTML: "<p>html</p>"})
 	if err != nil {
 		t.Fatalf("Send with negotiated auth: %v", err)
 	}
@@ -370,7 +373,7 @@ func TestSMTPSender_Send_AutoDiscoverAuth(t *testing.T) {
 
 func TestSMTPSender_Send_BadMessage(t *testing.T) {
 	s := NewSMTPSender()
-	err := s.Send(context.Background(), SMTPSettings{From: "bad"}, Email{To: "a@b.io"})
+	err := s.Send(context.Background(), smtp.Settings{From: "bad"}, notifyrender.Email{To: "a@b.io"})
 	if err == nil {
 		t.Fatal("expected message build error")
 	}
@@ -379,7 +382,7 @@ func TestSMTPSender_Send_BadMessage(t *testing.T) {
 func TestSMTPSender_Send_BadClient(t *testing.T) {
 	s := NewSMTPSender()
 	err := s.Send(context.Background(),
-		SMTPSettings{From: "p@example.com", Port: 587}, Email{To: "a@b.io"})
+		smtp.Settings{From: "p@example.com", Port: 587}, notifyrender.Email{To: "a@b.io"})
 	if err == nil {
 		t.Fatal("expected client build error for empty host")
 	}

@@ -1,4 +1,4 @@
-package notification
+package notifyworker
 
 import (
 	"context"
@@ -8,27 +8,32 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifysend"
+	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
 
 // fakeSettingsStore serves canned SMTP settings.
 type fakeSettingsStore struct {
-	settings *SMTPSettings
+	settings *smtp.Settings
 	err      error
 	setErr   error
 }
 
-func (f *fakeSettingsStore) GetSMTP(context.Context) (*SMTPSettings, error) {
+func (f *fakeSettingsStore) Get(context.Context) (*smtp.Settings, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	if f.settings == nil {
-		return nil, ErrNotFound
+		return nil, smtp.ErrNotFound
 	}
 	clone := *f.settings
 	return &clone, nil
 }
 
-func (f *fakeSettingsStore) SetSMTP(_ context.Context, s SMTPSettings, _ string) error {
+func (f *fakeSettingsStore) Set(_ context.Context, s smtp.Settings, _ string) error {
 	if f.setErr != nil {
 		return f.setErr
 	}
@@ -39,12 +44,12 @@ func (f *fakeSettingsStore) SetSMTP(_ context.Context, s SMTPSettings, _ string)
 // fakeSender captures sent emails or fails on demand.
 type fakeSender struct {
 	mu    sync.Mutex
-	sent  []Email
+	sent  []notifyrender.Email
 	fails int // fail this many sends before succeeding
 	err   error
 }
 
-func (f *fakeSender) Send(_ context.Context, _ SMTPSettings, email Email) error {
+func (f *fakeSender) Send(_ context.Context, _ smtp.Settings, email notifyrender.Email) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fails > 0 {
@@ -58,40 +63,40 @@ func (f *fakeSender) Send(_ context.Context, _ SMTPSettings, email Email) error 
 	return nil
 }
 
-func (f *fakeSender) sentCopy() []Email {
+func (f *fakeSender) sentCopy() []notifyrender.Email {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]Email(nil), f.sent...)
+	return append([]notifyrender.Email(nil), f.sent...)
 }
 
-func enabledSettings() *SMTPSettings {
-	return &SMTPSettings{
+func enabledSettings() *smtp.Settings {
+	return &smtp.Settings{
 		Enabled: true, Host: "smtp.example.com", Port: 587,
-		From: "p@example.com", TLSMode: TLSModeStartTLS,
+		From: "p@example.com", TLSMode: smtp.TLSModeStartTLS,
 	}
 }
 
-func testWorker(t *testing.T, queue QueueStore, settings SettingsStore, sender Sender) *Worker {
+func testWorker(t *testing.T, queue notification.QueueStore, settings smtp.SettingsStore, sender notifysend.Sender) *Worker {
 	t.Helper()
-	r, err := NewRenderer(Branding{Name: "Test Platform"})
+	r, err := notifyrender.NewRenderer(notifyrender.Branding{Name: "Test Platform"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewWorker(WorkerConfig{Queue: queue, Settings: settings, Renderer: r, Sender: sender})
+	return New(Config{Queue: queue, Settings: settings, Renderer: r, Sender: sender})
 }
 
 func TestNewWorker_Defaults(t *testing.T) {
-	w := NewWorker(WorkerConfig{})
+	w := New(Config{})
 	if w.cfg.PollEvery != DefaultPollEvery || w.cfg.Lease != DefaultLease || w.cfg.MaxAttempts != DefaultMaxAttempts {
 		t.Errorf("defaults not applied: %+v", w.cfg)
 	}
 }
 
 func TestWorker_Drain_SendsImmediate(t *testing.T) {
-	queue := &fakeQueueStore{immediate: [][]Notification{
+	queue := &fakeQueueStore{immediate: [][]notification.Notification{
 		{{
 			ID: 1, Recipient: "a@b.io", Attempts: 1,
-			Payload: Payload{Kind: KindAsset, ItemTitle: "R", Actor: "x@y.z"},
+			Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "R", Actor: "x@y.z"},
 		}},
 	}}
 	sender := &fakeSender{}
@@ -109,15 +114,15 @@ func TestWorker_Drain_SendsImmediate(t *testing.T) {
 }
 
 func TestWorker_Drain_SendsDigestBatch(t *testing.T) {
-	queue := &fakeQueueStore{digests: [][]Notification{
+	queue := &fakeQueueStore{digests: [][]notification.Notification{
 		{
 			{
 				ID: 1, Recipient: "a@b.io", Digest: true, Attempts: 1,
-				Payload: Payload{Kind: KindAsset, ItemTitle: "One", Actor: "x@y.z"},
+				Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "One", Actor: "x@y.z"},
 			},
 			{
 				ID: 2, Recipient: "a@b.io", Digest: true, Attempts: 1,
-				Payload: Payload{Kind: KindComment, ItemTitle: "Two", Actor: "q@y.z"},
+				Payload: notification.Payload{Kind: notification.KindComment, ItemTitle: "Two", Actor: "q@y.z"},
 			},
 		},
 	}}
@@ -136,7 +141,7 @@ func TestWorker_Drain_SendsDigestBatch(t *testing.T) {
 }
 
 func TestWorker_Drain_SMTPUnconfiguredLeavesRowsPending(t *testing.T) {
-	queue := &fakeQueueStore{immediate: [][]Notification{{{ID: 1, Recipient: "a@b.io"}}}}
+	queue := &fakeQueueStore{immediate: [][]notification.Notification{{{ID: 1, Recipient: "a@b.io"}}}}
 	sender := &fakeSender{}
 	w := testWorker(t, queue, &fakeSettingsStore{}, sender)
 
@@ -153,7 +158,7 @@ func TestWorker_Drain_SMTPUnconfiguredLeavesRowsPending(t *testing.T) {
 func TestWorker_Drain_SMTPDisabledLeavesRowsPending(t *testing.T) {
 	disabled := enabledSettings()
 	disabled.Enabled = false
-	queue := &fakeQueueStore{immediate: [][]Notification{{{ID: 1}}}}
+	queue := &fakeQueueStore{immediate: [][]notification.Notification{{{ID: 1}}}}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: disabled}, &fakeSender{})
 
 	w.drain()
@@ -164,7 +169,7 @@ func TestWorker_Drain_SMTPDisabledLeavesRowsPending(t *testing.T) {
 }
 
 func TestWorker_Drain_SettingsErrorLeavesRowsPending(t *testing.T) {
-	queue := &fakeQueueStore{immediate: [][]Notification{{{ID: 1}}}}
+	queue := &fakeQueueStore{immediate: [][]notification.Notification{{{ID: 1}}}}
 	w := testWorker(t, queue, &fakeSettingsStore{err: errors.New("db down")}, &fakeSender{})
 
 	w.drain()
@@ -175,8 +180,8 @@ func TestWorker_Drain_SettingsErrorLeavesRowsPending(t *testing.T) {
 }
 
 func TestWorker_Deliver_RetryOnSendFailure(t *testing.T) {
-	queue := &fakeQueueStore{immediate: [][]Notification{
-		{{ID: 5, Recipient: "a@b.io", Attempts: 2, Payload: Payload{Kind: KindAsset, ItemTitle: "R"}}},
+	queue := &fakeQueueStore{immediate: [][]notification.Notification{
+		{{ID: 5, Recipient: "a@b.io", Attempts: 2, Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "R"}}},
 	}}
 	sender := &fakeSender{fails: 1}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, sender)
@@ -192,10 +197,10 @@ func TestWorker_Deliver_RetryOnSendFailure(t *testing.T) {
 }
 
 func TestWorker_Deliver_FailAfterMaxAttempts(t *testing.T) {
-	queue := &fakeQueueStore{immediate: [][]Notification{
+	queue := &fakeQueueStore{immediate: [][]notification.Notification{
 		{{
 			ID: 6, Recipient: "a@b.io", Attempts: DefaultMaxAttempts,
-			Payload: Payload{Kind: KindAsset, ItemTitle: "R"},
+			Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "R"},
 		}},
 	}}
 	sender := &fakeSender{fails: 1}
@@ -212,7 +217,7 @@ func TestWorker_Deliver_FailAfterMaxAttempts(t *testing.T) {
 }
 
 func TestWorker_Deliver_EmptyBatchIsNoop(t *testing.T) {
-	// Claims never return empty batches (ErrNoWork instead); deliver guards
+	// Claims never return empty batches (notification.ErrNoWork instead); deliver guards
 	// the impossible case rather than panicking on batch[0].
 	queue := &fakeQueueStore{}
 	sender := &fakeSender{}
@@ -229,7 +234,7 @@ func TestWorker_Resolve_TerminalError(t *testing.T) {
 	queue := &fakeQueueStore{}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, &fakeSender{})
 
-	batch := []Notification{{ID: 8, Recipient: "a@b.io", Attempts: 1}}
+	batch := []notification.Notification{{ID: 8, Recipient: "a@b.io", Attempts: 1}}
 	w.resolve(context.Background(), batch, errors.New("deterministic"), true)
 
 	if len(queue.failed) != 1 || queue.failed[0][0] != 8 {
@@ -247,7 +252,7 @@ func TestWorker_Resolve_StoreErrorsLogged(t *testing.T) {
 	queue := &fakeQueueStore{opErr: errors.New("store down")}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, &fakeSender{})
 
-	batch := []Notification{{ID: 9, Recipient: "a@b.io", Attempts: 1}}
+	batch := []notification.Notification{{ID: 9, Recipient: "a@b.io", Attempts: 1}}
 	w.resolve(context.Background(), batch, errors.New("send failed"), false)
 	w.resolve(context.Background(), batch, errors.New("send failed"), true)
 
@@ -260,8 +265,8 @@ func TestWorker_Resolve_StoreErrorsLogged(t *testing.T) {
 }
 
 func TestWorker_Deliver_MarkSentError(t *testing.T) {
-	queue := &fakeQueueStore{opErr: errors.New("store down"), immediate: [][]Notification{
-		{{ID: 1, Recipient: "a@b.io", Attempts: 1, Payload: Payload{Kind: KindAsset, ItemTitle: "R"}}},
+	queue := &fakeQueueStore{opErr: errors.New("store down"), immediate: [][]notification.Notification{
+		{{ID: 1, Recipient: "a@b.io", Attempts: 1, Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "R"}}},
 	}}
 	sender := &fakeSender{}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, sender)
@@ -274,8 +279,8 @@ func TestWorker_Deliver_MarkSentError(t *testing.T) {
 }
 
 func TestWorker_StartStop(t *testing.T) {
-	queue := &fakeQueueStore{immediate: [][]Notification{
-		{{ID: 1, Recipient: "a@b.io", Attempts: 1, Payload: Payload{Kind: KindAsset, ItemTitle: "R"}}},
+	queue := &fakeQueueStore{immediate: [][]notification.Notification{
+		{{ID: 1, Recipient: "a@b.io", Attempts: 1, Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "R"}}},
 	}}
 	sender := &fakeSender{}
 	w := testWorker(t, queue, &fakeSettingsStore{settings: enabledSettings()}, sender)
@@ -354,7 +359,7 @@ func TestComputeBackoff(t *testing.T) {
 }
 
 func TestMaxAttempts(t *testing.T) {
-	batch := []Notification{{Attempts: 1}, {Attempts: 4}, {Attempts: 2}}
+	batch := []notification.Notification{{Attempts: 1}, {Attempts: 4}, {Attempts: 2}}
 	if got := maxAttempts(batch); got != 4 {
 		t.Errorf("maxAttempts = %d, want 4", got)
 	}
@@ -364,7 +369,7 @@ func TestMaxAttempts(t *testing.T) {
 }
 
 func TestIDs(t *testing.T) {
-	batch := []Notification{{ID: 3}, {ID: 9}}
+	batch := []notification.Notification{{ID: 3}, {ID: 9}}
 	got := ids(batch)
 	if len(got) != 2 || got[0] != 3 || got[1] != 9 {
 		t.Errorf("ids = %v", got)
@@ -376,13 +381,13 @@ func TestIDs(t *testing.T) {
 // delivered email carries the about/support footer in both body parts and
 // the Reply-To for the sender to emit.
 func TestWorker_Drain_FooterAndReplyToFromBranding(t *testing.T) {
-	queue := &fakeQueueStore{immediate: [][]Notification{
+	queue := &fakeQueueStore{immediate: [][]notification.Notification{
 		{{
 			ID: 1, Recipient: "a@b.io", Attempts: 1,
-			Payload: Payload{Kind: KindAsset, ItemTitle: "R", Actor: "x@y.z"},
+			Payload: notification.Payload{Kind: notification.KindAsset, ItemTitle: "R", Actor: "x@y.z"},
 		}},
 	}}
-	r, err := NewRenderer(Branding{
+	r, err := notifyrender.NewRenderer(notifyrender.Branding{
 		Name:           "Test Platform",
 		AboutText:      "The ACME data portal delivers curated datasets.",
 		SupportContact: "help@example.com",
@@ -392,7 +397,7 @@ func TestWorker_Drain_FooterAndReplyToFromBranding(t *testing.T) {
 		t.Fatal(err)
 	}
 	sender := &fakeSender{}
-	w := NewWorker(WorkerConfig{
+	w := New(Config{
 		Queue: queue, Settings: &fakeSettingsStore{settings: enabledSettings()},
 		Renderer: r, Sender: sender,
 	})
