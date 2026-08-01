@@ -154,6 +154,39 @@ Without (1), the IdP rejects the authorization request with
 `offline_access` from your `oauth_scope` until you've added it to the
 client's assignable scope set.
 
+## Endpoint URL validation
+
+`oauth_token_url` and `oauth_authorization_url` are checked before a
+connection is accepted. Both must be:
+
+- absolute, with an explicit `http` or `https` scheme
+- addressed to a host (`https://` alone is rejected)
+- free of embedded credentials — use `oauth_client_id` and
+  `oauth_client_secret`, not `https://user:pass@idp/token`
+- free of a URL fragment
+
+A rejected value comes back as a `400` from the admin API naming the
+offending config key, and the connection is not stored. The same check
+runs when an existing connection is loaded, so a row written before the
+check cannot drive a token request either.
+
+The **host is deliberately unconstrained**. A self-hosted IdP on
+loopback or an RFC1918 address (Keycloak in-cluster, a dev realm on
+`localhost`) is a supported deployment, so no private-address block or
+allowlist is applied.
+
+A cleartext `http` endpoint is allowed for exactly that reason, but the
+client secret and the authorization code cross the wire unencrypted, so
+the platform logs one warning per connection endpoint:
+
+```
+WARN connoauth: oauth endpoint uses cleartext http; the client secret
+and authorization code are sent unencrypted kind=mcp name=internal
+config_key=oauth_token_url endpoint_host=keycloak.identity.svc:8080
+```
+
+Prefer `https` for any endpoint that leaves the cluster.
+
 ## Token storage
 
 | Table | Holds | Encryption |

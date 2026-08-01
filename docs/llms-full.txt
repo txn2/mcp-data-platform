@@ -3161,6 +3161,12 @@ For `offline_access` to be granted, two things must be true:
 
 Without (1), the IdP rejects the authorization request with `invalid_scope: Invalid scopes: ... offline_access`. Drop `offline_access` from your `oauth_scope` until you've added it to the client's assignable scope set.
 
+## Endpoint URL validation
+
+`oauth_token_url` and `oauth_authorization_url` must each be an absolute `http`/`https` URL with a host, carrying no embedded credentials (`https://user:pass@idp/token` is refused — use `oauth_client_id` and `oauth_client_secret`) and no URL fragment. A rejected value returns a `400` from the admin API naming the offending config key and the connection is not stored; the same check runs when an existing connection is loaded, so a row written before the check cannot drive a token request either.
+
+The host is deliberately unconstrained: a self-hosted IdP on loopback or an RFC1918 address (Keycloak in-cluster, a dev realm on `localhost`) is a supported deployment, so no private-address block or allowlist is applied. Cleartext `http` is allowed for that reason but logs one warning per connection endpoint, because the client secret and the authorization code cross the wire unencrypted. Prefer `https` for any endpoint that leaves the cluster.
+
 ## Storage
 
 - `gateway_oauth_tokens` — access_token, refresh_token, expires_at, authenticated_by. AES-256-GCM via `ENCRYPTION_KEY`.

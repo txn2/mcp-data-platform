@@ -108,10 +108,18 @@ var deprecationWarned sync.Map // map[string]struct{} keyed by kind + "/" + name
 // connection's TLS config (a non-OAuth concern) and is layered on by
 // the caller.
 //
-// kind and name identify the connection solely for the deduped
-// deprecation warning emitted when any legacy key is the source value.
-// A nil or empty config returns the zero Config and no error; the
-// caller validates required fields for the chosen grant.
+// Both endpoint URLs are validated before the Config is returned: each
+// must be an absolute http/https URL with a host, no embedded
+// credentials and no fragment (see validateEndpointURL). A present but
+// malformed endpoint is an ErrInvalidConfig, which reaches the operator
+// as a 400 at connection-save time through
+// registry.ValidateConnectionConfig and refuses the connection on the
+// runtime paths for a row that predates the check.
+//
+// kind and name identify the connection for the deduped deprecation and
+// cleartext-endpoint warnings. A nil or empty config returns the zero
+// Config and no error; the caller validates required fields for the
+// chosen grant.
 func ParseConfig(kind, name string, cfg map[string]any) (Config, error) {
 	if cfg == nil {
 		return Config{}, nil
@@ -150,6 +158,9 @@ func ParseConfig(kind, name string, cfg map[string]any) (Config, error) {
 		Scopes:            scopes,
 		EndpointAuthStyle: authStyle,
 		Prompt:            pick(ConfigKeyPrompt, legacyKeyPrompt),
+	}
+	if err := validateEndpoints(kind, name, out); err != nil {
+		return Config{}, err
 	}
 	if legacy {
 		warnLegacyOnce(kind, name)

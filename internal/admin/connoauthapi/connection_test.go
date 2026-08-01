@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -36,6 +37,13 @@ type fakeOAuthKindHandler struct {
 	// simulate a non-OAuth (bearer / api_key) connection in a list
 	// alongside OAuth ones, without standing up a second fake.
 	parseErrForAuthMode string
+	// invalidConfigForAuthMode refuses connections whose auth_mode
+	// matches, with an error wrapping connoauth.ErrInvalidConfig --
+	// the shape a real kind handler returns for an OAuth connection
+	// whose OAuth config does not validate (malformed endpoint URL,
+	// unknown grant), as opposed to a connection that is simply not
+	// OAuth at all.
+	invalidConfigForAuthMode string
 	// captured args from AfterConnect for assertions:
 	afterCalled bool
 	afterName   string
@@ -48,6 +56,12 @@ func (f *fakeOAuthKindHandler) ParseOAuthConfig(raw map[string]any) (connoauth.C
 	if f.parseErrForAuthMode != "" {
 		if mode, _ := raw["auth_mode"].(string); mode == f.parseErrForAuthMode {
 			return connoauth.Config{}, errors.New("connection is not configured for authorization_code OAuth")
+		}
+	}
+	if f.invalidConfigForAuthMode != "" {
+		if mode, _ := raw["auth_mode"].(string); mode == f.invalidConfigForAuthMode {
+			return connoauth.Config{}, fmt.Errorf("config key %s must not embed credentials in the URL: %w",
+				connoauth.ConfigKeyTokenURL, connoauth.ErrInvalidConfig)
 		}
 	}
 	return f.parseCfg, nil
@@ -1019,4 +1033,52 @@ func TestConnectionOAuthCallbackAfterConnectFailureLogsSanitizedNames(t *testing
 		"a failed AfterConnect must not fail the Connect: the token is persisted")
 
 	assertLogAttrsSingleLine(t, snapshot(), logKeyName)
+}
+
+// TestConnectionsOAuthHealth_InvalidOAuthConfigKeepsBadge guards the
+// regression the endpoint validation could have introduced: a stored
+// OAuth connection whose config no longer validates must keep its row
+// badge and report needs_reauth, NOT silently drop to has_oauth=false.
+//
+// A connection written before the endpoint check (say, an
+// oauth_token_url carrying embedded credentials) is exactly the row an
+// operator needs to see in the list. Reporting it as "not an OAuth
+// connection" would erase the only first-line signal that it stopped
+// refreshing, leaving a broken connection looking like a plain
+// bearer-auth one.
+func TestConnectionsOAuthHealth_InvalidOAuthConfigKeepsBadge(t *testing.T) {
+	t.Parallel()
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	fx.connStore.instances = []platform.ConnectionInstance{
+		{Kind: connoauth.KindMCP, Name: "broken", Config: map[string]any{
+			"endpoint":        "http://upstream/mcp",
+			"auth_mode":       "oauth",
+			"oauth_grant":     "authorization_code",
+			"oauth_token_url": "https://svc:s3cr3t@idp.example/token",
+		}},
+		{Kind: connoauth.KindMCP, Name: "notoauth", Config: map[string]any{"auth_mode": "bearer"}},
+	}
+	fx.kind.invalidConfigForAuthMode = "oauth"
+	fx.kind.parseErrForAuthMode = "bearer"
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/connections/oauth-health", http.NoBody)
+	w := httptest.NewRecorder()
+	fx.handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+	var resp connectionsOAuthHealthResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	byName := map[string]connectionOAuthHealthSummary{}
+	for _, c := range resp.Connections {
+		byName[c.Name] = c
+	}
+	assert.True(t, byName["broken"].HasOAuth,
+		"an OAuth connection with an invalid OAuth config must keep has_oauth=true; "+
+			"has_oauth=false hides the broken row from the operator")
+	assert.True(t, byName["broken"].NeedsReauth,
+		"an unusable OAuth config needs operator action")
+	assert.False(t, byName["notoauth"].HasOAuth,
+		"a genuinely non-OAuth connection must still report has_oauth=false")
 }
