@@ -1,11 +1,11 @@
 {
   "title": "Does a Semantic Knowledge Layer Make an Agent Measurably Better? A Reproducible Benchmark of the mcp-data-platform Knowledge Layer",
-  "description": "A neutral, reproducible evaluation of the mcp-data-platform semantic knowledge layer. A single-shot four-arm ablation isolates cross-enrichment, search, and the memory/apply_knowledge lifecycle, and a cold-start study teaches facts one at a time and re-evaluates after each promotion. Every statistic is recomputed from raw run data committed under bench/results/ by the notebook bench/report/report.ipynb, with no network access and no API key. This archives the report (docs/reference/benchmark-report.md) together with the bench/results/ dataset it recomputes from.",
+  "description": "A neutral, reproducible evaluation of the mcp-data-platform semantic knowledge layer. A single-shot four-arm ablation isolates cross-enrichment, search, and the memory/apply_knowledge lifecycle, and a cold-start study teaches facts one at a time and re-evaluates after each promotion. Every statistic is recomputed from raw run data committed under bench/results/ by the notebook bench/reports/knowledge-layer/report.ipynb, with no network access and no API key. This archives the report (docs/reference/benchmark-report.md) together with the bench/results/ dataset it recomputes from.",
   "upload_type": "publication",
   "publication_type": "report",
-  "doi": "10.5281/zenodo.21438045",
-  "publication_date": "2026-07-18",
-  "version": "1.0",
+  "doi": "10.5281/zenodo.21438044",
+  "publication_date": "2026-07-19",
+  "version": "1.1",
   "access_right": "open",
   "license": "cc-by-4.0",
   "creators": [
@@ -35,6 +35,11 @@
       "identifier": "https://mcp-data-platform.txn2.com/reference/benchmark-report/",
       "relation": "isIdenticalTo",
       "scheme": "url"
+    },
+    {
+      "identifier": "10.5281/zenodo.21438045",
+      "relation": "isNewVersionOf",
+      "scheme": "doi"
     }
   ]
 }

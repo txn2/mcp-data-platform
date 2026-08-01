@@ -33,10 +33,58 @@ func TestServeSetsHardeningHeaders(t *testing.T) {
 	}, "")
 	defer func() { _ = res.Body.Close() }()
 
+	require.Equal(t, "default-src 'none'; sandbox", res.Header.Get("Content-Security-Policy"))
 	require.Equal(t, "nosniff", res.Header.Get("X-Content-Type-Options"))
 	require.Equal(t, "application/json", res.Header.Get("Content-Type"))
 	require.Equal(t, "bytes", res.Header.Get("Accept-Ranges"))
 	require.Equal(t, `inline; filename="results.json"`, res.Header.Get("Content-Disposition"))
+}
+
+// TestServeAlwaysSetsSandboxCSP is the invariant that keeps this path safe when
+// the type classification is wrong or absent: whatever the family, the bytes
+// reach the browser under a policy that denies script and gives the document an
+// opaque origin, so it cannot act as the signed-in viewer.
+func TestServeAlwaysSetsSandboxCSP(t *testing.T) {
+	t.Parallel()
+
+	const want = "default-src 'none'; sandbox"
+
+	tests := []struct {
+		name string
+		ct   string
+		data []byte
+	}{
+		{"inert text", "text/plain", []byte("hello")},
+		{"image", "image/png", []byte{0x89, 'P', 'N', 'G'}},
+		{"pdf", "application/pdf", []byte("%PDF-1.4")},
+		{"audio", "audio/mpeg", []byte{0xff, 0xfb}},
+		{"active html", "text/html", []byte("<script>alert(1)</script>")},
+		{"active svg", "image/svg+xml", []byte("<svg/>")},
+		{"xhtml", "application/xhtml+xml", []byte("<html xmlns='http://www.w3.org/1999/xhtml'/>")},
+		{"xml", "application/xml", []byte("<?xml version='1.0'?><a/>")},
+		{"unclassifiable type", "application/vnd.acme.unknown", []byte("x")},
+		{"empty content type", "", []byte("x")},
+		{"unparseable content type", "not a media type", []byte("x")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			res := serve(t, blobserve.Options{Name: "blob", ContentType: tt.ct, Data: tt.data}, "")
+			defer func() { _ = res.Body.Close() }()
+			require.Equal(t, want, res.Header.Get("Content-Security-Policy"))
+		})
+	}
+
+	t.Run("range response", func(t *testing.T) {
+		t.Parallel()
+		res := serve(t, blobserve.Options{
+			Name: "clip.mp4", ContentType: "video/mp4", Data: []byte("0123456789"),
+		}, "bytes=2-5")
+		defer func() { _ = res.Body.Close() }()
+		require.Equal(t, http.StatusPartialContent, res.StatusCode)
+		require.Equal(t, want, res.Header.Get("Content-Security-Policy"))
+	})
 }
 
 func TestServeSanitizesContentType(t *testing.T) {
@@ -65,13 +113,18 @@ func TestServeSanitizesContentType(t *testing.T) {
 	}
 }
 
-// TestServeForcesAttachmentForActiveTypes is the serving half of the
-// active-type rule: HTML, JSX, SVG and JavaScript must never be offered for
-// inline rendering on the platform's own origin.
-func TestServeForcesAttachmentForActiveTypes(t *testing.T) {
+// TestServeForcesAttachmentForScriptableDocuments is the serving half of the
+// scriptable-document rule: a family a browser turns into a live markup
+// document must never be offered for inline rendering on the platform's own
+// origin. The XHTML and XML entries matter most — nosniff does not help there,
+// because the declared type genuinely is a document type.
+func TestServeForcesAttachmentForScriptableDocuments(t *testing.T) {
 	t.Parallel()
 
-	for _, ct := range []string{"text/html", "text/jsx", "image/svg+xml", "application/javascript"} {
+	for _, ct := range []string{
+		"text/html", "text/jsx", "image/svg+xml", "application/javascript",
+		"application/xhtml+xml", "application/xml", "text/xml", "application/rss+xml",
+	} {
 		t.Run(ct, func(t *testing.T) {
 			t.Parallel()
 			res := serve(t, blobserve.Options{Name: "page", ContentType: ct, Data: []byte("<b>x</b>")}, "")
@@ -188,4 +241,112 @@ func TestServeEmptyData(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, res.StatusCode)
 	require.Equal(t, "0", res.Header.Get("Content-Length"))
+}
+
+// TestServeDefaultsToPrivateCache is the caching half of the same guarantee the
+// sandbox CSP gives: every endpoint reaching this package authorizes its caller
+// first, and a response with no directive at all is heuristically storable by a
+// shared cache, which would let one authorized fetch answer for every later
+// request to the URL.
+func TestServeDefaultsToPrivateCache(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		opts blobserve.Options
+	}{
+		{"text", blobserve.Options{Name: "notes.txt", ContentType: "text/plain", Data: []byte("x")}},
+		{"image", blobserve.Options{Name: "thumb.png", ContentType: "image/png", Data: []byte{0x89}}},
+		{"with modtime", blobserve.Options{
+			Name: "doc.pdf", ContentType: "application/pdf", Data: []byte("%PDF"),
+			ModTime: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		}},
+		{"empty", blobserve.Options{Name: "empty.bin", Data: nil}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			res := serve(t, tt.opts, "")
+			defer func() { _ = res.Body.Close() }()
+			require.Equal(t, "private", res.Header.Get("Cache-Control"))
+		})
+	}
+}
+
+// TestServeKeepsCallerCacheControl covers the one endpoint family that serves
+// genuinely anonymous bytes — a fully public share's thumbnail — where the
+// handler knows the object has no audience to protect and says so.
+func TestServeKeepsCallerCacheControl(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/thumbnail", http.NoBody)
+	rec := httptest.NewRecorder()
+	rec.Header().Set("Cache-Control", "public, max-age=3600")
+
+	blobserve.Serve(rec, req, blobserve.Options{Name: "t.png", ContentType: "image/png", Data: []byte("png")})
+
+	res := rec.Result()
+	defer func() { _ = res.Body.Close() }()
+	require.Equal(t, "public, max-age=3600", res.Header.Get("Cache-Control"))
+}
+
+// TestHeadersCarriesTheRenderingDecisionOnly pins what a surface that does not
+// answer through an http.ResponseWriter gets from the contract: the four
+// headers that decide how a browser treats the bytes, and nothing that belongs
+// to the body or to the caller's own cache policy.
+func TestHeadersCarriesTheRenderingDecisionOnly(t *testing.T) {
+	t.Parallel()
+
+	h := blobserve.Headers(blobserve.Options{
+		Name:        `re"port.html`,
+		ContentType: `text/html; charset=utf-8"><script>`,
+	})
+
+	require.Equal(t, "default-src 'none'; sandbox", h.Get("Content-Security-Policy"))
+	require.Equal(t, "nosniff", h.Get("X-Content-Type-Options"))
+	require.Equal(t, "text/html", h.Get("Content-Type"))
+	require.Equal(t, `attachment; filename="re_port.html"`, h.Get("Content-Disposition"))
+	require.Empty(t, h.Get("Cache-Control"), "Cache-Control is a caller-overridable default, not part of the returned set")
+	require.Empty(t, h.Get("Accept-Ranges"), "range support belongs to the body writer, not the header contract")
+}
+
+// TestHeadersUnknownTypeIsOpaque pins that a response whose type the platform
+// cannot parse is named application/octet-stream rather than left for the
+// browser to guess at.
+func TestHeadersUnknownTypeIsOpaque(t *testing.T) {
+	t.Parallel()
+
+	h := blobserve.Headers(blobserve.Options{Name: "blob.bin", ContentType: "not a media type"})
+
+	require.Equal(t, "application/octet-stream", h.Get("Content-Type"))
+	require.Equal(t, `inline; filename="blob.bin"`, h.Get("Content-Disposition"))
+}
+
+// TestCachePrivate pins the pairing the helper exists for: an endpoint that
+// authorized its caller gets both the directive that keeps shared caches out
+// and the key that stops one that stores it anyway from answering a second
+// caller.
+func TestCachePrivate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		maxAge time.Duration
+		want   string
+	}{
+		{"hour", time.Hour, "private, max-age=3600"},
+		{"minute", time.Minute, "private, max-age=60"},
+		{"zero", 0, "private, max-age=0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			blobserve.CachePrivate(rec, tt.maxAge)
+			require.Equal(t, tt.want, rec.Header().Get("Cache-Control"))
+			require.Equal(t, "Cookie", rec.Header().Get("Vary"))
+		})
+	}
 }

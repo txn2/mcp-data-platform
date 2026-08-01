@@ -27,12 +27,15 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/browserauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/completionlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
+	"github.com/txn2/mcp-data-platform/internal/platform/connbackfill"
+	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
 	"github.com/txn2/mcp-data-platform/internal/platform/exportadapters"
 	"github.com/txn2/mcp-data-platform/internal/platform/iam"
 	"github.com/txn2/mcp-data-platform/internal/platform/indexqueue"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/listchanged"
+	"github.com/txn2/mcp-data-platform/internal/platform/mcpapps"
 	"github.com/txn2/mcp-data-platform/internal/platform/memorylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/internal/platform/oauthserver"
@@ -54,12 +57,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	configpostgres "github.com/txn2/mcp-data-platform/pkg/configstore/postgres"
-	"github.com/txn2/mcp-data-platform/pkg/connbackfill"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
-	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
@@ -382,7 +383,8 @@ func (p *Platform) initDataInfra(opts *Options) error {
 	p.initPersonaStore()
 	p.initAPIKeyStore()
 	p.initUserStore()
-	return p.initConfigStore()
+	p.initConfigStore()
+	return nil
 }
 
 // initExtensions initializes optional extension toolkits and apps.
@@ -880,11 +882,20 @@ func (p *Platform) initAPIKeyStore() {
 // configured. The embedding provider and portal share lister are bound later
 // (finalizeSetup), once those subsystems exist.
 func (p *Platform) initPromptStore() {
+	// The overview prompt is worth registering when a description exists now
+	// or could be authored later through the admin API; its text is resolved
+	// per request. Without a config store and without a file description
+	// there is nothing to describe, so it stays unregistered.
+	var describe func(context.Context) string
+	if p.configStore != nil || p.config.Server.Description != "" {
+		describe = p.config.ServerDescription
+	}
+
 	p.prompts = promptlayer.New(promptlayer.Config{
 		DB:                p.db,
 		PromptsDir:        p.config.Tuning.PromptsDir,
 		ServerName:        p.config.Server.Name,
-		ServerDescription: p.config.Server.Description,
+		ServerDescription: describe,
 		AdminPersona:      p.config.Admin.Persona,
 		OperatorPrompts:   promptSpecsFromConfig(p.config.Server.Prompts),
 		BuiltinPrompts:    p.config.Server.BuiltinPrompts,
@@ -952,32 +963,30 @@ func decodeEncryptionKey(keyStr string) []byte {
 	return []byte(keyStr)
 }
 
-// initConfigStore initializes the config store. When a database is available,
-// DB entries override file config for whitelisted keys with hot-reload support.
-func (p *Platform) initConfigStore() error {
-	// Capture file defaults before any DB overlay.
+// initConfigStore initializes the config store. When a database is available it
+// becomes the authority for the overridable keys, consulted on every read.
+//
+// Nothing is copied into the live Config here. An earlier design loaded the
+// entries once at startup and patched the struct in place on each admin write,
+// which meant a change reached only the replica that served it and every other
+// replica served the pre-change value until restart (issue #1106).
+func (p *Platform) initConfigStore() {
+	// File defaults back the read-through fallback and the no-database store.
 	p.fileDefaults = p.buildConfigEntryMap()
 
 	if p.db != nil {
 		store := configpostgres.New(p.db)
-		entries, err := store.List(context.Background())
-		if err != nil {
-			return fmt.Errorf("loading config entries from database: %w", err)
-		}
-		for _, e := range entries {
-			p.applyConfigEntry(e.Key, e.Value)
-		}
 		p.configStore = store
-		if len(entries) > 0 {
-			slog.Info("config store: applied database overrides", logKeyCount, len(entries))
-		}
+		p.config.BindOverrideStore(store)
+		slog.Info("config store: database overrides resolved at read time")
 	} else {
 		p.configStore = configstore.NewFileStore(p.fileDefaults)
 	}
-	return nil
 }
 
-// buildConfigEntryMap extracts the current whitelisted config values as a key/value map.
+// buildConfigEntryMap extracts the file-config values for the whitelisted keys
+// as a key/value map. These are the defaults an override falls back to, and the
+// backing data for the no-database file store.
 // Encodes tools.deny as a JSON array so it round-trips through the
 // string-valued config_entries store.
 func (p *Platform) buildConfigEntryMap() map[string]string {
@@ -991,11 +1000,6 @@ func (p *Platform) buildConfigEntryMap() map[string]string {
 		}
 	}
 	return m
-}
-
-// applyConfigEntry updates a live config field for a whitelisted key.
-func (p *Platform) applyConfigEntry(key, value string) {
-	p.config.ApplyConfigEntry(key, value)
 }
 
 // oauthSigningKeys bundles the active OAuth JWT signing key with the verify-only
@@ -1649,6 +1653,7 @@ func (p *Platform) initSearch() error {
 		EmbedTimeout:       p.config.Knowledge.SearchEmbedTimeout,    // 0 keeps the default
 		CatalogEnabled:     p.config.Semantic.Provider == kindDataHub,
 		SemanticProvider:   p.semanticProvider,
+		CatalogIndex:       datasetindex.Searcher(p.db, p.config.Knowledge.CatalogIndex),
 		MemoryStore:        p.memory.MemoryStore(),
 		InsightStore:       p.knowledge.InsightStore(),
 		KnowledgePageStore: p.portalStore.KnowledgePageStore(),
@@ -1660,6 +1665,7 @@ func (p *Platform) initSearch() error {
 		ResourceBucket:     p.config.Resources.Managed.S3Bucket,
 		ResourceReads:      p.resources.ReadRecorder(),
 		PersonasForRoles:   personasForRolesFunc(p.personaRegistry),
+		ConnectionScope:    connectionScopeFor(p.personaRegistry, p.connectionSources, p.toolkitRegistry),
 		Registry:           p.toolkitRegistry,
 		Embedding:          p.embeddingProv,
 	})
@@ -2388,9 +2394,12 @@ func (p *Platform) addSessionHandleSchemaMiddleware() {
 // so agents only see tools they're authorized to use.
 func (p *Platform) addToolVisibilityMiddleware() {
 	cfg := middleware.ToolVisibilityConfig{
-		GlobalAllow:   p.config.Tools.Allow,
-		GlobalDeny:    p.config.Tools.Deny,
-		Authenticator: p.authenticator,
+		GlobalAllow: p.config.ToolsAllowSnapshot(),
+		// Resolved per call, not captured here: tools.deny is admin-editable,
+		// and a slice captured at registration would pin every replica to the
+		// boot-time value for the life of the process (issue #1106).
+		ResolveGlobalDeny: p.config.ToolsDenySnapshot,
+		Authenticator:     p.authenticator,
 	}
 
 	// Wire persona-based filtering via the authorizer. The same
@@ -2429,23 +2438,15 @@ func (p *Platform) addPromptVisibilityMiddleware() {
 // (loaded from the file or the database-backed config_entries store) can
 // customize or extend them.
 //
-// The dynamic variant re-resolves the override map on every tools/list call
-// so admin-API edits to tool.<name>.description take effect immediately,
-// without a platform restart. The cost is a tiny map allocation per
-// tools/list — negligible compared to the surrounding RPC.
+// The override map is re-resolved on every tools/list call so an admin-API
+// edit to tool.<name>.description takes effect on the next listing in every
+// replica, without a restart.
+//
+// Registered unconditionally: the built-in overrides are always present, and
+// a stored one can be authored at any time after startup.
 func (p *Platform) addDescriptionOverrideMiddleware() {
-	// Snapshot through the runtime lock on every tools/list call so admin
-	// API edits to tool.<name>.description take effect immediately AND
-	// concurrent writes don't race the iteration in MergedDescriptionOverrides.
-	getOverrides := func() map[string]string {
-		return middleware.MergedDescriptionOverrides(p.config.ToolDescriptionOverridesSnapshot())
-	}
-	if len(getOverrides()) == 0 {
-		// No defaults and no overrides configured at startup. The map can
-		// later be populated via admin API, but skipping the middleware
-		// here matches the prior behavior for the empty-config case.
-		// Re-evaluate on the next platform restart.
-		return
+	getOverrides := func(ctx context.Context) map[string]string {
+		return middleware.MergedDescriptionOverrides(p.config.ToolDescriptionOverridesSnapshot(ctx))
 	}
 	p.mcpServer.AddReceivingMiddleware(middleware.MCPDescriptionOverrideMiddlewareDynamic(getOverrides))
 }
@@ -2598,12 +2599,7 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 			return src.DataHubSourceName, src.CatalogMapping
 		}
 		cfg.ConnectionsForURN = func(urn string) []string {
-			sources := p.connectionSources.ConnectionsForURN(urn)
-			names := make([]string, len(sources))
-			for i, s := range sources {
-				names[i] = s.Name
-			}
-			return names
+			return connectionNamesForURN(p.connectionSources, p.toolkitRegistry.All(), urn)
 		}
 	}
 
@@ -2783,10 +2779,6 @@ func (p *Platform) loadPersonas() error {
 		if err := p.personaRegistry.Register(personaDef); err != nil {
 			return fmt.Errorf("registering persona %s: %w", name, err)
 		}
-	}
-
-	if p.config.Personas.DefaultPersona != "" {
-		p.personaRegistry.SetDefault(p.config.Personas.DefaultPersona)
 	}
 
 	return nil

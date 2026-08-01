@@ -48,20 +48,20 @@ func TestPlatformContext(t *testing.T) {
 		}
 	})
 
-	t.Run("MustGetPlatformContext panics", func(t *testing.T) {
+	t.Run("mustGetPlatformContext panics", func(t *testing.T) {
 		defer func() {
 			if r := recover(); r == nil {
-				t.Error("MustGetPlatformContext() expected panic")
+				t.Error("mustGetPlatformContext() expected panic")
 			}
 		}()
 		ctx := context.Background()
-		MustGetPlatformContext(ctx)
+		mustGetPlatformContext(ctx)
 	})
 
-	t.Run("MustGetPlatformContext succeeds", func(t *testing.T) {
+	t.Run("mustGetPlatformContext succeeds", func(t *testing.T) {
 		pc := NewPlatformContext("req-789")
 		ctx := WithPlatformContext(context.Background(), pc)
-		got := MustGetPlatformContext(ctx)
+		got := mustGetPlatformContext(ctx)
 		if got.RequestID != "req-789" {
 			t.Errorf("RequestID = %q, want %q", got.RequestID, "req-789")
 		}
@@ -332,15 +332,15 @@ func TestServerSessionContext(t *testing.T) {
 		// We can't construct a real ServerSession (private fields), but we can
 		// verify nil handling and type safety of the context helpers.
 		ctx := context.Background()
-		got := GetServerSession(ctx)
+		got := getServerSession(ctx)
 		if got != nil {
 			t.Error("expected nil for empty context")
 		}
 	})
 
 	t.Run("nil session stored", func(t *testing.T) {
-		ctx := WithServerSession(context.Background(), (*mcp.ServerSession)(nil))
-		got := GetServerSession(ctx)
+		ctx := withServerSession(context.Background(), (*mcp.ServerSession)(nil))
+		got := getServerSession(ctx)
 		if got != nil {
 			t.Error("expected nil for nil *ServerSession stored in context")
 		}
@@ -349,33 +349,33 @@ func TestServerSessionContext(t *testing.T) {
 
 func TestProgressTokenContext(t *testing.T) {
 	t.Run("round-trip string token", func(t *testing.T) {
-		ctx := WithProgressToken(context.Background(), "tok-123")
-		got := GetProgressToken(ctx)
+		ctx := withProgressToken(context.Background(), "tok-123")
+		got := getProgressToken(ctx)
 		if got != "tok-123" {
-			t.Errorf("GetProgressToken() = %v, want %q", got, "tok-123")
+			t.Errorf("getProgressToken() = %v, want %q", got, "tok-123")
 		}
 	})
 
 	t.Run("round-trip int token", func(t *testing.T) {
-		ctx := WithProgressToken(context.Background(), 42)
-		got := GetProgressToken(ctx)
+		ctx := withProgressToken(context.Background(), 42)
+		got := getProgressToken(ctx)
 		if got != 42 {
-			t.Errorf("GetProgressToken() = %v, want %d", got, 42)
+			t.Errorf("getProgressToken() = %v, want %d", got, 42)
 		}
 	})
 
 	t.Run("not set returns nil", func(t *testing.T) {
-		got := GetProgressToken(context.Background())
+		got := getProgressToken(context.Background())
 		if got != nil {
-			t.Errorf("GetProgressToken() = %v, want nil", got)
+			t.Errorf("getProgressToken() = %v, want nil", got)
 		}
 	})
 
 	t.Run("nil token stored", func(t *testing.T) {
-		ctx := WithProgressToken(context.Background(), nil)
-		got := GetProgressToken(ctx)
+		ctx := withProgressToken(context.Background(), nil)
+		got := getProgressToken(ctx)
 		if got != nil {
-			t.Errorf("GetProgressToken() = %v, want nil", got)
+			t.Errorf("getProgressToken() = %v, want nil", got)
 		}
 	})
 }

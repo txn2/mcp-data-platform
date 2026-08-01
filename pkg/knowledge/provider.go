@@ -75,15 +75,21 @@ type Caller struct {
 	// it narrows persona-targeted content.
 	Persona string
 	// Personas is every persona the caller BELONGS TO, derived from their roles.
-	// It is deliberately distinct from Persona: the resolved persona falls back to
-	// the configured default_persona when a caller's roles match none, so it says
-	// "which persona is this request acting as", not "which personas is this caller
-	// a member of". A provider whose visibility rule is membership (managed
-	// resources, whose persona scope grants access to a persona's material) must
-	// use this set, or a caller who belongs to no persona at all inherits the
-	// default persona's material. Empty when no resolver is wired, which is the
-	// same fallback the resources middleware applies.
+	// It is deliberately distinct from Persona: Persona says "which persona is
+	// this request acting as" and can be set explicitly on the request, while
+	// this set says "which personas is this caller a member of". A provider whose
+	// visibility rule is membership (managed resources, whose persona scope grants
+	// access to a persona's material) must use this set rather than Persona.
+	// Empty when no resolver is wired, which is the same fallback the resources
+	// middleware applies.
 	Personas []string
+
+	// conn is the persona connection boundary for this arm, set by the Router
+	// (never by an external caller, hence unexported): it answers whether the
+	// caller may see material belonging to a given connection and accumulates the
+	// count of candidates that boundary removed. Nil leaves discovery unfiltered,
+	// which is what a deployment with no connection scope wired gets.
+	conn *connGate
 }
 
 // Anonymous reports whether the caller carries no identity at all. The Router

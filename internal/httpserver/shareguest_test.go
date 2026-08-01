@@ -12,6 +12,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/unsubhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -150,7 +151,7 @@ func TestUnsubscribeURLFn(t *testing.T) {
 	// handler uses.
 	tok := strings.TrimPrefix(link, "https://platform.example.com/portal/notifications/unsubscribe?tok=")
 	key := deriveUnsubKey(p)
-	email, ok := notification.VerifyUnsubToken(key, tok)
+	email, ok := unsubhttp.VerifyUnsubToken(key, tok)
 	if !ok || email != "bob@example.com" {
 		t.Errorf("footer token must verify at the endpoint: ok=%v email=%q", ok, email)
 	}

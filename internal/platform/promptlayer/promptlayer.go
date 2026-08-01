@@ -32,6 +32,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/notifystore"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -76,10 +77,14 @@ type Config struct {
 	// PromptsDir is the directory the tuning prompt manager loads file prompts
 	// from (empty is valid: the manager loads nothing).
 	PromptsDir string
-	// ServerName / ServerDescription title and seed the auto-generated
-	// platform-overview prompt (an empty description skips it).
-	ServerName        string
-	ServerDescription string
+	// ServerName titles the auto-generated platform-overview prompt.
+	ServerName string
+	// ServerDescription supplies that prompt's body text. It is a function
+	// because the description is admin-editable and database-backed, so the
+	// text must be resolved when the prompt is served rather than baked in
+	// at registration. Nil skips the prompt entirely; the caller passes nil
+	// when no description exists and none can appear later.
+	ServerDescription func(ctx context.Context) string
 	// AdminPersona is the persona name that grants admin authority over prompts
 	// at every scope; matched against the caller's persona in each command.
 	AdminPersona string
@@ -107,7 +112,7 @@ type Handle struct {
 	registry      ToolkitRegistry
 
 	serverName        string
-	serverDescription string
+	serverDescription func(ctx context.Context) string
 	adminPersona      string
 	operatorPrompts   []PromptSpec
 	builtinPrompts    map[string]bool
@@ -167,12 +172,11 @@ func New(cfg Config) *Handle {
 		// Wrap the backing store so every write path (manage_prompt tool,
 		// admin/portal REST, knowledge add_prompt) fires prompts/list_changed
 		// through the one shared instance — no per-handler emission to keep in
-		// sync. wrapStore preserves the store's search capability; the notifier
-		// is bound later via SetListChangedNotifier.
-		// wrapStore preserves the store's capability extensions (search,
-		// versioning), so version writes that change what is served fire
-		// list_changed like every other write.
-		h.store = wrapStore(base, h.notifyListChanged, h.guardAttachmentScope)
+		// sync. The wrapper preserves the store's capability extensions
+		// (search, versioning), so version writes that change what is served
+		// fire list_changed like every other write; the notifier is bound
+		// later via SetListChangedNotifier.
+		h.store = notifystore.Wrap(base, h.notifyListChanged, h.guardAttachmentScope)
 	}
 	return h
 }

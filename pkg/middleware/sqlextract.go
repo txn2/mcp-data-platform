@@ -9,8 +9,8 @@ import (
 // table function expansion.
 const catalogElasticsearch = "elasticsearch"
 
-// TableRef represents an extracted table reference from SQL.
-type TableRef struct {
+// tableRef represents an extracted table reference from SQL.
+type tableRef struct {
 	Catalog  string
 	Schema   string
 	Table    string
@@ -18,11 +18,11 @@ type TableRef struct {
 	Source   string // "FROM", "JOIN", "TABLE_FUNCTION"
 }
 
-// ExtractTablesFromSQL extracts all table references from SQL.
+// extractTablesFromSQL extracts all table references from SQL.
 // Uses regex for Trino-specific functions and standard table patterns.
 // Combines ES raw_query indices with regular table references (e.g., JOINs).
 // Filters out CTE references to only return physical tables.
-func ExtractTablesFromSQL(sql string) []TableRef {
+func extractTablesFromSQL(sql string) []tableRef {
 	cteNames := extractCTENames(sql)
 	collector := newTableCollector(cteNames)
 
@@ -37,7 +37,7 @@ func ExtractTablesFromSQL(sql string) []TableRef {
 
 // tableCollector deduplicates table refs and filters out CTEs.
 type tableCollector struct {
-	refs     []TableRef
+	refs     []tableRef
 	seen     map[string]bool
 	cteNames map[string]bool
 }
@@ -49,13 +49,13 @@ func newTableCollector(cteNames map[string]bool) *tableCollector {
 	}
 }
 
-func (c *tableCollector) addAll(refs []TableRef) {
+func (c *tableCollector) addAll(refs []tableRef) {
 	for _, ref := range refs {
 		c.add(ref)
 	}
 }
 
-func (c *tableCollector) add(ref TableRef) {
+func (c *tableCollector) add(ref tableRef) {
 	if c.isCTE(ref) || c.seen[ref.FullPath] {
 		return
 	}
@@ -63,7 +63,7 @@ func (c *tableCollector) add(ref TableRef) {
 	c.refs = append(c.refs, ref)
 }
 
-func (c *tableCollector) isCTE(ref TableRef) bool {
+func (c *tableCollector) isCTE(ref tableRef) bool {
 	return ref.Catalog == "" && ref.Schema == "" && c.cteNames[ref.Table]
 }
 
@@ -97,14 +97,14 @@ var (
 )
 
 // extractTablesWithRegex extracts table references using regex.
-func extractTablesWithRegex(sql string) []TableRef {
+func extractTablesWithRegex(sql string) []tableRef {
 	matches := tableRefPattern.FindAllStringSubmatch(sql, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 
 	seen := make(map[string]bool)
-	tables := make([]TableRef, 0, len(matches))
+	tables := make([]tableRef, 0, len(matches))
 
 	for _, match := range matches {
 		if len(match) < 2 {
@@ -128,10 +128,10 @@ func extractTablesWithRegex(sql string) []TableRef {
 // tableNamePartsCount is the expected number of parts in a fully-qualified table name (catalog.schema.table).
 const tableNamePartsCount = 3
 
-// parseTablePath parses a dot-separated table path into TableRef.
-func parseTablePath(path string) TableRef {
+// parseTablePath parses a dot-separated table path into tableRef.
+func parseTablePath(path string) tableRef {
 	parts := strings.Split(path, ".")
-	ref := TableRef{FullPath: path}
+	ref := tableRef{FullPath: path}
 
 	switch len(parts) {
 	case tableNamePartsCount:
@@ -149,7 +149,7 @@ func parseTablePath(path string) TableRef {
 }
 
 // extractESRawQuery extracts index references from Elasticsearch raw_query.
-func extractESRawQuery(sql string) []TableRef {
+func extractESRawQuery(sql string) []tableRef {
 	if !rawQueryPattern.MatchString(sql) {
 		return nil
 	}
@@ -167,14 +167,14 @@ func extractESRawQuery(sql string) []TableRef {
 	}
 
 	indices := strings.Split(indexMatch[1], ",")
-	refs := make([]TableRef, 0, len(indices))
+	refs := make([]tableRef, 0, len(indices))
 
 	for _, idx := range indices {
 		idx = strings.TrimSpace(idx)
 		if idx == "" {
 			continue
 		}
-		refs = append(refs, TableRef{
+		refs = append(refs, tableRef{
 			Catalog:  catalogElasticsearch,
 			Schema:   schema,
 			Table:    idx,

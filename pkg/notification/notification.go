@@ -1,9 +1,20 @@
-// Package notification is the platform's email-notification substrate: a
-// typed admin SMTP settings store, per-user notification preferences, a
-// durable delivery queue, and the enqueue path consulted by share and
-// thread-comment triggers. Delivery (worker + SMTP send + branded
-// rendering) also lives here; the platform wires it through the
-// internal/platform/notifydelivery seam.
+// Package notification is the domain of the platform's email notifications:
+// the event model, the preference model, the two store contracts that persist
+// them, and the enqueue path share and thread-comment triggers call.
+//
+// It is the vocabulary every other layer of the substrate is written in, and
+// depends on none of them:
+//
+//	pkg/notification/smtp                     admin-configured mail server settings
+//	internal/notification/notifyprefs         preference persistence
+//	internal/notification/notifyqueue         queue persistence + LISTEN wakeup
+//	internal/notification/notifyrender        branded email rendering
+//	internal/notification/notifysend          SMTP transport
+//	internal/notification/notifyworker        the send worker that drains the queue
+//	internal/httpserver/notifyhttp            self-scoped preference REST
+//	internal/httpserver/unsubhttp             no-login unsubscribe endpoint
+//
+// internal/platform/notifydelivery assembles them into one startable handle.
 package notification
 
 import (
@@ -11,17 +22,9 @@ import (
 	"time"
 )
 
-// Sentinel errors returned by the stores in this package.
-var (
-	// ErrNotFound is returned when a requested row does not exist.
-	ErrNotFound = errors.New("notification: not found")
-	// ErrNoWork is returned by claim methods when no due row is available.
-	ErrNoWork = errors.New("notification: no work available")
-	// ErrSMTPNotConfigured is returned by delivery actions when SMTP is
-	// absent, disabled, or missing a host; the caller should surface it as
-	// a configuration conflict, not a delivery failure.
-	ErrSMTPNotConfigured = errors.New("notification: smtp is disabled or not configured")
-)
+// ErrNoWork is returned by QueueStore claim methods when no due row is
+// available.
+var ErrNoWork = errors.New("notification: no work available")
 
 // Notification categories. A category maps to a per-user preference toggle
 // and an email template family.
@@ -35,6 +38,13 @@ const (
 	// chatter still leaves a person reachable when someone addresses them
 	// directly.
 	CategoryMention = "mention"
+	// CategoryReviewQueue covers the operator alert raised when the knowledge
+	// review queue crosses its staleness threshold (#803). Unlike the three
+	// above it carries no per-user toggle: the operator names its recipients
+	// in the admin settings, so removing an address there is the way to stop
+	// sending it. A recipient still opts out for themselves with ModeOff,
+	// including through the no-login unsubscribe link every email carries.
+	CategoryReviewQueue = "review_queue"
 )
 
 // Delivery modes for user preferences.
@@ -73,7 +83,31 @@ const (
 	KindFeedback = "feedback"
 	// KindMention marks a comment that named the recipient.
 	KindMention = "mention"
+	// KindReviewQueue marks a knowledge review-queue staleness alert (#803).
+	// Its payload carries a Review rollup instead of an item reference.
+	KindReviewQueue = "review_queue"
 )
+
+// ReviewQueue is the pending-review rollup a KindReviewQueue notification
+// carries. The renderer turns it into the alert's subject and body, so the
+// queued row holds the numbers rather than a sentence about them.
+//
+// The values are the queue as the check saw it. A daily-digest recipient
+// therefore reads what actually tripped the threshold, not a re-measurement
+// taken when the digest happened to go out.
+type ReviewQueue struct {
+	// Pending is the total number of insights awaiting review.
+	Pending int `json:"pending"`
+	// OldestAgeDays is the age in days of the oldest pending insight.
+	OldestAgeDays int `json:"oldest_age_days"`
+	// StaleCount is how many pending insights are at least StaleAfterDays
+	// old -- the accumulating review debt.
+	StaleCount int `json:"stale_count"`
+	// StaleAfterDays is the age at which a pending insight counts toward
+	// StaleCount. The email states it rather than assuming the reader knows
+	// the platform's staleness window.
+	StaleAfterDays int `json:"stale_after_days"`
+}
 
 // Payload carries the event details a template needs to render an email.
 // It is stored as the queue row's JSONB payload.
@@ -90,6 +124,9 @@ type Payload struct {
 	Message string `json:"message,omitempty"`
 	// Link is the absolute portal deep link for the item.
 	Link string `json:"link,omitempty"`
+	// Review carries the review-queue rollup of a KindReviewQueue alert and
+	// is nil for every other kind.
+	Review *ReviewQueue `json:"review,omitempty"`
 }
 
 // Notification is one queued delivery.

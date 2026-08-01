@@ -8,7 +8,8 @@
 // handles/stores (memory store, knowledge insight store, portal
 // knowledge-page/asset/thread stores, prompt store, managed resource store), the semantic.Provider plus
 // a catalog-enabled flag, the *registry.Registry, the shared embedding.Provider,
-// the resolved search-timeout values, and the toolkit instance name — performs
+// the resolved search-timeout values, the persona connection boundary discovery
+// enforces, and the toolkit instance name — performs
 // the per-source provider selection (each source gated on existing and
 // implementing the relevant searcher interface), builds the DataHub
 // LineageExpander and the knowledge.Router, and constructs the search toolkit.
@@ -69,6 +70,13 @@ type Config struct {
 	// entity lookup.
 	SemanticProvider semantic.Provider
 
+	// CatalogIndex ranks the platform's own index of catalog dataset text on the
+	// catalog provider's text path (#1131), so a fact applied to a description is
+	// reachable from a topical query naming no entity. Nil (no database, or the
+	// index disabled) leaves the catalog ranked by DataHub's keyword search
+	// alone.
+	CatalogIndex knowledge.CatalogIndexSearcher
+
 	// Source stores federated into the corpus. Each is gated on being non-nil and
 	// implementing the relevant searcher interface, so a source that is absent (or
 	// whose implementation is not searchable) contributes no provider.
@@ -97,6 +105,13 @@ type Config struct {
 	// configured default persona for a caller whose roles match none. Nil leaves
 	// the caller carrying only the resolved persona.
 	PersonasForRoles func(roles []string) []string
+
+	// ConnectionScope is the persona connection boundary the topology sources
+	// (catalog, connections, endpoints) apply to discovery, so a caller never sees
+	// material belonging to a connection their persona could not reach (#1108).
+	// Nil leaves those sources unfiltered, which is what a deployment with no
+	// persona registry gets.
+	ConnectionScope knowledge.ConnectionScope
 
 	// Registry backs the registry-federated sources (API endpoints +
 	// connections). Required: New walks it for endpoint searchers and connections
@@ -142,6 +157,7 @@ func New(cfg Config) *Handle {
 	router := knowledge.NewRouter(cfg.Embedding, lineage, providers...)
 	router.SetProviderTimeout(cfg.ProviderTimeout) // 0 keeps the default
 	router.SetEmbedTimeout(cfg.EmbedTimeout)       // 0 keeps the default
+	router.SetConnectionScope(cfg.ConnectionScope) // nil leaves discovery unfiltered
 
 	tk := searchkit.New(cfg.ToolkitName, router)
 	tk.SetPersonasForRoles(cfg.PersonasForRoles)
@@ -174,7 +190,11 @@ func storeProviders(cfg Config) []knowledge.Provider {
 	// provider is configured (the noop fallback would add an always-empty
 	// provider).
 	if cfg.CatalogEnabled && cfg.SemanticProvider != nil {
-		providers = append(providers, knowledge.NewCatalogProvider(cfg.SemanticProvider))
+		catalog := knowledge.NewCatalogProvider(cfg.SemanticProvider)
+		// The platform's own index of dataset text, when one is wired, leads the
+		// catalog text path; DataHub's keyword search stays behind it.
+		catalog.SetIndexSearcher(cfg.CatalogIndex)
+		providers = append(providers, catalog)
 		// Context documents: a distinct search source (#692), present only when the
 		// real catalog exposes document search.
 		if ds, ok := semantic.DocumentSearcherFrom(cfg.SemanticProvider); ok {

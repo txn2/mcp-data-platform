@@ -260,12 +260,19 @@ type Filter struct {
 	SinkClass string
 	Category  string
 	Status    string
-	Source    string
-	EntityURN string
-	Since     *time.Time
-	Until     *time.Time
-	Limit     int
-	Offset    int
+	// InsightStatus restricts to one exact insight review status (pending,
+	// approved, applied, ...) read from the record's insight overlay metadata,
+	// which is finer than Status: pending, approved and applied all store as
+	// StatusActive. Empty means no insight-status predicate. Only
+	// knowledge-dimension records carry the overlay, so a non-empty value on
+	// another dimension matches nothing.
+	InsightStatus string
+	Source        string
+	EntityURN     string
+	Since         *time.Time
+	Until         *time.Time
+	Limit         int
+	Offset        int
 	// SortBy overrides the default ordering column (created_at). It must
 	// be a key of ValidSortColumns; unknown columns fall back to the
 	// default. ORDER BY cannot be parameterized, so the column is spliced

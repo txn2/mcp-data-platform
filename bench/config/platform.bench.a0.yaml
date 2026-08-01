@@ -34,7 +34,8 @@ auth:
       # the gate for every later attempt. The harness rotates through these
       # (-identity-keys must match the pool size). Sized to the phase-2 task
       # set at k=3 (87 tasks x 3 = 261). Flow style keeps the pool compact;
-      # regenerate with the snippet in bench/README.md if tasks or k grow.
+      # regenerate with the snippet in bench/docs/knowledge-layer-protocol.md
+      # ("Measurement") if tasks or k grow.
       - {key: "${API_KEY_ADMIN}-001", name: "bench-agent-001", roles: ["admin"]}
       - {key: "${API_KEY_ADMIN}-002", name: "bench-agent-002", roles: ["admin"]}
       - {key: "${API_KEY_ADMIN}-003", name: "bench-agent-003", roles: ["admin"]}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
+	"github.com/txn2/mcp-data-platform/bench/internal/capture"
 )
 
 // sampleResults builds a two-lesson curve: a baseline where nothing is
@@ -159,6 +160,93 @@ func TestAuditReadFailuresWarn(t *testing.T) {
 	}
 	if !strings.Contains(res.HumanSummary(), "WARNING: 2 episode(s) lost their audit read-back") {
 		t.Errorf("summary missing the audit-read-back coverage warning\n%s", res.HumanSummary())
+	}
+}
+
+// TestCaptureRateIsHeadlineAndAttributed is the issue #1136 acceptance
+// criterion for the cold-start suite: capture is reported as a rate with a
+// confidence interval and an attempted/landed split, and every miss is
+// attributed to exactly one cause — on the run's summary and on the lesson that
+// missed. A capture miss keeps its lesson off the curve for good, so a bare
+// "captured 5 of 6" cannot say which layer to fix.
+func TestCaptureRateIsHeadlineAndAttributed(t *testing.T) {
+	res := sampleResults()
+	res.Lessons = append(res.Lessons,
+		// never reached capture, budget spent on discovery
+		LessonRecord{LessonID: "cs-starved", Captured: new(false), CaptureAttempted: new(false), BudgetExhausted: new(true)},
+		// capture ran; no linked insight landed
+		LessonRecord{LessonID: "cs-misfiled", Captured: new(false), CaptureAttempted: new(true), BudgetExhausted: new(false)},
+		// never called capture with budget to spare
+		LessonRecord{LessonID: "cs-untried", Captured: new(false), CaptureAttempted: new(false), BudgetExhausted: new(false)},
+		// claude-cli path: budget exhaustion is not observable
+		LessonRecord{LessonID: "cs-cli", Captured: new(false), CaptureAttempted: new(false)},
+	)
+	// The first two lessons predate the attempt signal in this fixture; they
+	// captured, so they carry no miss and only widen the rate's denominator.
+	res.Aggregate()
+	m := res.Metrics
+
+	if m.CaptureRate.Num != 2 || m.CaptureRate.Den != 6 {
+		t.Fatalf("capture rate = %d/%d, want 2/6", m.CaptureRate.Num, m.CaptureRate.Den)
+	}
+	if m.CaptureRate.CILow == m.CaptureRate.CIHigh {
+		t.Errorf("capture rate CI = [%v, %v], want a non-degenerate interval on a mixed run",
+			m.CaptureRate.CILow, m.CaptureRate.CIHigh)
+	}
+	if m.Capture.AttemptRate.Num != 1 || m.Capture.AttemptRate.Den != 4 {
+		t.Errorf("capture attempted = %d/%d, want 1/4 (the two lessons with no attempt signal are excluded)",
+			m.Capture.AttemptRate.Num, m.Capture.AttemptRate.Den)
+	}
+	if m.Capture.GivenAttempted.Num != 0 || m.Capture.GivenAttempted.Den != 1 {
+		t.Errorf("landed given attempt = %d/%d, want 0/1", m.Capture.GivenAttempted.Num, m.Capture.GivenAttempted.Den)
+	}
+	want := capture.Misses{Total: 4, AttemptedFailed: 1, BudgetStarved: 1, NeverAttempted: 1, BudgetUnobservable: 1}
+	if m.Capture.Misses != want {
+		t.Errorf("capture misses = %+v, want %+v", m.Capture.Misses, want)
+	}
+	// LessonsCaptured stays the plain count it always was, consistent with the rate.
+	if m.LessonsCaptured != m.CaptureRate.Num {
+		t.Errorf("lessons captured = %d, disagrees with the capture rate numerator %d", m.LessonsCaptured, m.CaptureRate.Num)
+	}
+
+	out := res.HumanSummary()
+	for _, w := range []string{
+		"capture rate", "capture attempted", "landed given attempt", "capture misses (4)",
+		"cs-starved: not captured (" + capture.CauseBudgetStarved.String() + ")",
+		"cs-misfiled: not captured (" + capture.CauseAttemptedFailed.String() + ")",
+		"cs-cli: not captured (" + capture.CauseBudgetUnobservable.String() + ")",
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("summary missing %q\n%s", w, out)
+		}
+	}
+}
+
+// TestCaptureMissWithoutAttemptSignal covers a results file written before the
+// attempt signal existed: the miss is reported as unattributed rather than
+// silently counted as one of the real causes.
+func TestCaptureMissWithoutAttemptSignal(t *testing.T) {
+	res := &Results{Lessons: []LessonRecord{{LessonID: "cs-legacy", Captured: new(false)}}}
+	res.Aggregate()
+	if got := res.Metrics.Capture.Misses; got.Total != 1 || got.Unattributed != 1 {
+		t.Errorf("misses = %+v, want 1 unattributed", got)
+	}
+	if res.Metrics.Capture.AttemptRate.Den != 0 {
+		t.Errorf("attempt denominator = %d, want 0 — a record with no signal must not count as not-attempted",
+			res.Metrics.Capture.AttemptRate.Den)
+	}
+	if !strings.Contains(res.HumanSummary(), "cs-legacy: not captured ("+capture.CauseUnattributed.String()+")") {
+		t.Errorf("summary did not mark the legacy miss unattributed\n%s", res.HumanSummary())
+	}
+	if !strings.Contains(res.HumanSummary(), "WARNING: 1 capture miss(es) carry no attempt signal") {
+		t.Errorf("summary did not warn about the unattributed miss\n%s", res.HumanSummary())
+	}
+	// A lesson whose capture outcome was never graded carries no cause at all,
+	// and must not be rendered with an empty parenthetical.
+	ungraded := &Results{Lessons: []LessonRecord{{LessonID: "cs-ungraded"}}}
+	ungraded.Aggregate()
+	if !strings.Contains(ungraded.HumanSummary(), "cs-ungraded: not captured\n") {
+		t.Errorf("ungraded lesson should render bare\n%s", ungraded.HumanSummary())
 	}
 }
 

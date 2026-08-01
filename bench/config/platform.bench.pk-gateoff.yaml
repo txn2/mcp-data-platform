@@ -28,7 +28,7 @@ auth:
       # because the search-first gate keys discovery on the authenticated
       # identity. RQ4's cross-identity propagation also needs distinct
       # identities to propagate between. Regenerate with the snippet in
-      # bench/README.md if the cell count grows past this.
+      # bench/docs/knowledge-layer-protocol.md if the cell count grows past this.
       - {key: "${API_KEY_ADMIN}-001", name: "bench-agent-001", roles: ["admin"]}
       - {key: "${API_KEY_ADMIN}-002", name: "bench-agent-002", roles: ["admin"]}
       - {key: "${API_KEY_ADMIN}-003", name: "bench-agent-003", roles: ["admin"]}

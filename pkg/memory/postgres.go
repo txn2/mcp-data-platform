@@ -53,6 +53,23 @@ const (
 	colEmbedTextHash  = "embedding_text_hash"
 )
 
+// insightStatusExpr is the SQL equivalent of the Go resolveInsightStatus
+// precedence in pkg/toolkits/knowledge: the insight review status is
+// metadata.insight_status, falling back to metadata.legacy_status for rows
+// migrated from knowledge_insights (migration 000031), falling back to the
+// coarse status column. The column fallback is deliberately omitted here: it
+// maps active to "pending" and can never yield "approved" or "applied", so an
+// expression over the two metadata keys alone is exact for every status a
+// caller can filter on that the column does not already carry. It MUST stay
+// byte-identical to the expression migration 000095 indexes, or the planner
+// will not use that index.
+//
+// This lives in pkg/memory rather than the knowledge toolkit because the
+// metadata keys it reads are declared here (MetaKeyInsightStatus,
+// MetaKeyLegacyStatus) as the single source of truth for the insight overlay.
+const insightStatusExpr = "COALESCE(NULLIF(" + colMetadata + "->>'" + MetaKeyInsightStatus + "', ''), " +
+	"NULLIF(" + colMetadata + "->>'" + MetaKeyLegacyStatus + "', ''))"
+
 // psq is the PostgreSQL statement builder with dollar placeholders.
 var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
@@ -419,10 +436,19 @@ func archivedExclusion(status string) string {
 // the portal's per-user security boundary; excludeDimension and excludeStatuses
 // are the negative complements of dimension/status (drop rather than restrict).
 type scope struct {
-	createdBy        string
-	dimension        string
-	persona          string
-	status           string
+	createdBy string
+	dimension string
+	persona   string
+	status    string
+	// insightStatus restricts to one exact insight review status via
+	// insightStatusExpr. It is not a column, so it cannot ride the plain
+	// column=value loop in scopeFilters. It exists because the status column is
+	// coarser than the insight status (pending, approved and applied all store
+	// as active): without it the cross-owner insight search would rank the
+	// top-k over every owner's active insights and only then drop the
+	// non-applied ones in Go, so other owners' pending captures would crowd the
+	// applied ones out of the k (#980 B2).
+	insightStatus    string
 	excludeDimension string
 	excludeStatuses  []string
 }
@@ -446,6 +472,11 @@ func scopeFilters(s scope, startIdx int) (clause string, args []any) {
 		}
 		clause += fmt.Sprintf(" AND %s = $%d", f.col, idx)
 		args = append(args, f.val)
+		idx++
+	}
+	if s.insightStatus != "" {
+		clause += fmt.Sprintf(" AND %s = $%d", insightStatusExpr, idx)
+		args = append(args, s.insightStatus)
 		idx++
 	}
 	if s.excludeDimension != "" {
@@ -474,7 +505,8 @@ func (s *postgresStore) HybridSearch(ctx context.Context, query HybridQuery) ([]
 	limit := clampStoreLimit(query.Limit)
 	filterClause, filterArgs := scopeFilters(scope{
 		createdBy: query.CreatedBy, dimension: query.Dimension, persona: query.Persona,
-		status: query.Status, excludeDimension: query.ExcludeDimension,
+		status: query.Status, insightStatus: query.InsightStatus,
+		excludeDimension: query.ExcludeDimension,
 	}, hybridFilterStartParam)
 	archived := archivedExclusion(query.Status)
 	args := make([]any, 0, 2+len(filterArgs))
@@ -522,7 +554,8 @@ func (s *postgresStore) LexicalSearch(ctx context.Context, query LexicalQuery) (
 	limit := clampStoreLimit(query.Limit)
 	filterClause, filterArgs := scopeFilters(scope{
 		createdBy: query.CreatedBy, dimension: query.Dimension, persona: query.Persona,
-		status: query.Status, excludeDimension: query.ExcludeDimension,
+		status: query.Status, insightStatus: query.InsightStatus,
+		excludeDimension: query.ExcludeDimension,
 	}, lexicalFilterStartParam)
 	args := make([]any, 0, 1+len(filterArgs))
 	args = append(args, query.QueryText)
@@ -844,6 +877,9 @@ func applyFilter(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
 	}
 	if filter.Status != "" {
 		qb = qb.Where(sq.Eq{colStatus: filter.Status})
+	}
+	if filter.InsightStatus != "" {
+		qb = qb.Where(sq.Expr(insightStatusExpr+" = ?", filter.InsightStatus))
 	}
 	if filter.Source != "" {
 		qb = qb.Where(sq.Eq{colSource: filter.Source})

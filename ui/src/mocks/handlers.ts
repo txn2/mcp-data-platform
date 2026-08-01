@@ -693,13 +693,109 @@ const smtpSettings = {
   tls_mode: "starttls",
   updated_by: "sarah.chen@example.com",
   updated_at: "2026-04-10T15:30:00Z",
+  warnings: [] as string[],
 };
+
+// smtpWarnings mirrors the server's hazard check on the STORED settings
+// (#1072): credentials plus tls_mode none means the username and password
+// cross the wire in the clear.
+function smtpWarnings(): string[] {
+  if (smtpSettings.tls_mode !== "none") return [];
+  if (smtpSettings.username === "" && !smtpSettings.password_set) return [];
+  return [
+    "TLS is disabled (tls_mode: none) while SMTP credentials are configured; " +
+      "the username and password are sent in cleartext. Use starttls or implicit unless the relay is on a closed network.",
+  ];
+}
+
+// reviewQueueAlert is the knowledge review-queue staleness alert settings
+// (#803). The fixture is a configured alert so the settings screenshot shows
+// the section doing its job rather than an empty form.
+const reviewQueueAlert = {
+  enabled: true,
+  pending_threshold: 25,
+  oldest_pending_days: 30,
+  cooldown_hours: 24,
+  recipients: ["sarah.chen@example.com"],
+  updated_by: "sarah.chen@example.com",
+  updated_at: "2026-07-28T09:15:00Z",
+  warnings: [] as string[],
+};
+
+// reviewQueueAlertWarnings mirrors the server's check for a configuration that
+// saves cleanly and delivers nothing.
+function reviewQueueAlertWarnings(): string[] {
+  if (!reviewQueueAlert.enabled) return [];
+  const out: string[] = [];
+  if (reviewQueueAlert.recipients.length === 0) {
+    out.push(
+      "no recipients are configured, so no alert will be delivered; add at least one address",
+    );
+  }
+  if (reviewQueueAlert.pending_threshold <= 0 && reviewQueueAlert.oldest_pending_days <= 0) {
+    out.push(
+      "both thresholds are 0, so nothing can cross; set a pending count, an age in days, or both",
+    );
+  }
+  return out;
+}
+
+// mockNotificationRows backs both delivery-history surfaces: the admin
+// monitoring tab reads them whole, the user's own screen reads the subset a
+// recipient sees. One fixture keeps the two screenshots telling one story.
+const mockNotificationRows = [
+  {
+    id: 5121,
+    recipient: "marcus.johnson@example.com",
+    category: "share",
+    subject: 'lisa.chang@example.com shared the asset "Q3 Revenue by Region" with you',
+    digest: false,
+    status: "failed",
+    attempts: 5,
+    last_error: "dial tcp 10.24.0.31:587: connect: connection refused",
+    item_title: "Q3 Revenue by Region",
+    actor: "lisa.chang@example.com",
+    scheduled_for: "2026-07-29T14:02:00Z",
+    created_at: "2026-07-29T14:01:00Z",
+  },
+  {
+    id: 5120,
+    recipient: "marcus.johnson@example.com",
+    category: "mention",
+    subject: 'lisa.chang@example.com mentioned you on "Warehouse Cost Review"',
+    digest: false,
+    status: "sent",
+    attempts: 1,
+    item_title: "Warehouse Cost Review",
+    actor: "lisa.chang@example.com",
+    link: "https://platform.example.com/portal/assets/ast-3",
+    scheduled_for: "2026-07-29T09:15:00Z",
+    sent_at: "2026-07-29T09:15:04Z",
+    created_at: "2026-07-29T09:15:00Z",
+  },
+  {
+    id: 5119,
+    recipient: "marcus.johnson@example.com",
+    category: "comment",
+    subject: "3 updates in your daily digest",
+    digest: true,
+    status: "pending",
+    attempts: 0,
+    item_title: "Customer Churn Analysis",
+    actor: "priya.patel@example.com",
+    scheduled_for: "2026-07-30T13:00:00Z",
+    created_at: "2026-07-29T16:40:00Z",
+  },
+];
 
 const notificationPrefs = {
   mode: "immediate",
   shares_enabled: true,
   comments_enabled: true,
   mentions_enabled: true,
+  // Server-computed from the stored SMTP settings; the mock SMTP section is
+  // enabled with a host, so delivery is available here.
+  delivery_available: true,
 };
 
 function parseDuration(s: string): number {
@@ -2779,6 +2875,7 @@ export const handlers = [
   // =========================================================================
 
   http.get(`${ADMIN_BASE}/settings/smtp`, () => {
+    smtpSettings.warnings = smtpWarnings();
     return HttpResponse.json(smtpSettings);
   }),
 
@@ -2797,6 +2894,7 @@ export const handlers = [
     smtpSettings.tls_mode = String(body.tls_mode ?? "starttls");
     smtpSettings.updated_by = "sarah.chen@example.com";
     smtpSettings.updated_at = new Date().toISOString();
+    smtpSettings.warnings = smtpWarnings();
     return HttpResponse.json(smtpSettings);
   }),
 
@@ -2819,6 +2917,30 @@ export const handlers = [
       );
     }
     return HttpResponse.json({ status: "sent", to: String(body.to ?? "") });
+  }),
+
+  // =========================================================================
+  // Admin: Settings (knowledge review-queue alert, #803)
+  // =========================================================================
+
+  http.get(`${ADMIN_BASE}/settings/review-queue-alert`, () => {
+    reviewQueueAlert.warnings = reviewQueueAlertWarnings();
+    return HttpResponse.json(reviewQueueAlert);
+  }),
+
+  http.put(`${ADMIN_BASE}/settings/review-queue-alert`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    reviewQueueAlert.enabled = Boolean(body.enabled);
+    reviewQueueAlert.pending_threshold = Number(body.pending_threshold ?? 0);
+    reviewQueueAlert.oldest_pending_days = Number(body.oldest_pending_days ?? 0);
+    reviewQueueAlert.cooldown_hours = Number(body.cooldown_hours ?? 24);
+    // The server normalizes recipients to the bare, lowercased address.
+    reviewQueueAlert.recipients = (Array.isArray(body.recipients) ? body.recipients : [])
+      .map((r) => String(r).trim().toLowerCase());
+    reviewQueueAlert.updated_by = "sarah.chen@example.com";
+    reviewQueueAlert.updated_at = new Date().toISOString();
+    reviewQueueAlert.warnings = reviewQueueAlertWarnings();
+    return HttpResponse.json(reviewQueueAlert);
   }),
 
   // =========================================================================
@@ -2898,6 +3020,45 @@ export const handlers = [
       notificationPrefs.comments_enabled = body.comments_enabled;
     }
     return HttpResponse.json(notificationPrefs);
+  }),
+
+  // =========================================================================
+  // Portal + Admin: Notification delivery history (#1016)
+  // =========================================================================
+
+  // The portal endpoint is self-scoped server-side: it takes no recipient, so
+  // the mock returns the same rows regardless of who asks.
+  http.get(`${PORTAL_BASE}/notifications`, () => {
+    return HttpResponse.json({
+      data: mockNotificationRows.map(
+        ({ recipient: _recipient, attempts: _attempts, last_error: _lastError, scheduled_for: _scheduled, ...item }) =>
+          item,
+      ),
+      total: mockNotificationRows.length,
+      page: 1,
+      per_page: 20,
+      retention_days: 30,
+    });
+  }),
+
+  http.get(`${ADMIN_BASE}/notifications`, ({ request }) => {
+    const params = new URL(request.url).searchParams;
+    const status = params.get("status");
+    const rows = status
+      ? mockNotificationRows.filter((n) => n.status === status)
+      : mockNotificationRows;
+    return HttpResponse.json({ data: rows, total: rows.length, page: 1, per_page: 20 });
+  }),
+
+  http.get(`${ADMIN_BASE}/notifications/stats`, () => {
+    return HttpResponse.json({
+      pending: 2,
+      sending: 0,
+      sent: 128,
+      failed: 3,
+      total: 133,
+      retention_days: 30,
+    });
   }),
 
   // =========================================================================

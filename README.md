@@ -22,9 +22,13 @@ mcp-data-platform fixes that. It is a single MCP server that connects AI assista
 
 It is a platform, not just a bridge. The same endpoint gives agents persistent memory and a governed path to write knowledge back to the catalog, proxies third-party MCP servers and REST APIs through one authentication, persona, and audit pipeline, and ships a web portal where AI-generated assets are saved, organized into collections, and shared with teammates.
 
+---
+
+## Do you need DataHub? Only for cross-enrichment
+
 Cross-enrichment is what [DataHub](https://datahubproject.io/) is for: point the platform at it as the semantic layer, then add [Trino](https://trino.io/) for SQL and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack.](https://mcp-data-platform.txn2.com/concepts/components/)
 
-No data warehouse and no catalog? The gateways, knowledge layer, memory, portal, and `search`/`fetch` are database-backed and run without DataHub or Trino, on PostgreSQL alone. See [Deployment Shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) for what each shape gives you.
+**Everything else runs without it.** DataHub is an adapter behind a provider interface, not a substrate the platform is built on. Omit the `semantic:` block and the semantic provider resolves to a noop, the server starts normally, and the gateways, knowledge layer, memory, portal, and `search`/`fetch` run on PostgreSQL alone. What you give up is cross-enrichment and the `datahub_*` tools, not the platform: `semantic:`, `query:`, `storage:`, and `toolkits:` are independent config blocks, so Trino and S3 stay available on their own terms and simply stop being enriched. See [Deployment Shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) for exactly what each shape includes and leaves out.
 
 ---
 
@@ -89,7 +93,7 @@ The platform intercepts tool responses at the protocol level and enriches them w
 
 The knowledge layer is not just a design claim; it is benchmarked. On knowledge-trap questions, the ones an agent answers plausibly but wrongly without business context, connecting the agent to the platform's semantic knowledge layer lifts accuracy from **42.7% (raw data tools) to 98.7%**, a **+56-point** gain (95% CI +44 to +67). On plain lookups and arithmetic, where no business context is needed, the platform and bare tools are statistically tied, so the gain is specific to knowledge-gated questions, not a blanket accuracy boost.
 
-This is an **arm-vs-arm** result on a single pinned model (same model, same tasks, only the platform configuration changes). It measures the **knowledge layer** specifically, that is cross-enrichment, `search`, and the memory/`apply_knowledge` lifecycle, not the whole platform. Every number is recomputed from committed raw data by a notebook that needs no API key. See the full, citable [Benchmark Report](https://mcp-data-platform.txn2.com/reference/benchmark-report/) (four-arm ablation, cold-start learning curve, lifecycle scorecard, threats to validity) and the [operator manual](bench/README.md).
+This is an **arm-vs-arm** result on a single pinned model (same model, same tasks, only the platform configuration changes). It measures the **knowledge layer** specifically, that is cross-enrichment, `search`, and the memory/`apply_knowledge` lifecycle, not the whole platform. Every number is recomputed from committed raw data by a notebook that needs no API key. See the full, citable [Benchmark Report](https://mcp-data-platform.txn2.com/reference/benchmark-report/) (four-arm ablation, cold-start learning curve, lifecycle scorecard, threats to validity) and the [benchmark report series](bench/README.md), which indexes every study's protocol, toolchain, and archived run data.
 
 ## Features
 
@@ -131,17 +135,17 @@ Each feature links to its full documentation.
 | Feature | Description |
 |---------|-------------|
 | [Authentication](https://mcp-data-platform.txn2.com/auth/overview/) | Fail-closed model: OIDC (Keycloak, Auth0, Okta, Azure AD) and API keys for service accounts |
-| [OAuth 2.1 server](https://mcp-data-platform.txn2.com/auth/oauth-server/) | Built-in authorization server with PKCE and Dynamic Client Registration; Claude signs in through your IdP |
+| [OAuth 2.1 server](https://mcp-data-platform.txn2.com/auth/oauth-server/) | A broker, [not an identity provider](#a-broker-not-an-identity-provider): authorization server with PKCE and Dynamic Client Registration toward MCP clients, delegating every human login upstream to your IdP |
 | [Outbound OAuth](https://mcp-data-platform.txn2.com/auth/oauth-gateway/) | OAuth to upstream MCPs and APIs with encrypted refresh tokens that survive restarts |
-| [Personas](https://mcp-data-platform.txn2.com/personas/overview/) | Role-mapped allow/deny tool and connection filtering, default-deny |
+| [Personas](https://mcp-data-platform.txn2.com/personas/overview/) | Role-mapped allow/deny tool and connection filtering, default-deny; roles that match no persona reach nothing, in the portal as well as over MCP |
 | [Audit logging](https://mcp-data-platform.txn2.com/server/audit/) | Every tool call logged to PostgreSQL with identity, persona, sanitized parameters, and timing |
 | [Observability](https://mcp-data-platform.txn2.com/server/observability/) | Prometheus metrics and optional OpenTelemetry distributed tracing |
 | [Session externalization](https://mcp-data-platform.txn2.com/server/session-externalization/) | PostgreSQL-backed sessions for zero-downtime restarts, horizontal scaling, and live tool-inventory updates |
 | [Explicit session handles](https://mcp-data-platform.txn2.com/server/configuration/#explicit-session-handles) | `platform_info` mints a `session_id` the agent threads on every call, making orientation unskippable and readying the platform for the sessionless MCP 2026-07-28 protocol |
 | [Multi-provider](https://mcp-data-platform.txn2.com/server/multi-provider/) | Multiple instances of each service behind one endpoint, with isolated failure domains |
-| [Operating modes](https://mcp-data-platform.txn2.com/server/operating-modes/) | Standalone (no database) or file + database with hot-reloaded config overrides |
+| [Operating modes](https://mcp-data-platform.txn2.com/server/operating-modes/) | Standalone (no database) or file + database with live config overrides resolved per read |
 | [Deployment shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) | Which backends you need: the semantic stack for cross-enrichment, PostgreSQL alone for the gateways and knowledge layer, or both |
-| [Email notifications](https://mcp-data-platform.txn2.com/server/notifications/) | Branded emails for shares and feedback: admin-configured SMTP, per-user preferences (immediate, daily digest, or off), durable queue with retries |
+| [Email notifications](https://mcp-data-platform.txn2.com/server/notifications/) | Branded emails for shares and feedback: admin-configured SMTP, per-user preferences (immediate, daily digest, or off), durable queue with retries, a per-share notify toggle and optional plain-text note, and delivery history for admins and for each recipient |
 
 ## The Portal
 
@@ -214,7 +218,7 @@ toolkits:
 
 [Deployment Shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) covers the full configuration, what each shape includes, and what it leaves out.
 
-For a hosted deployment, run `--transport http` and enable the built-in OAuth 2.1 server so Claude and other MCP clients sign in through your identity provider. See [Configuration](https://mcp-data-platform.txn2.com/server/configuration/), [Deployment](https://mcp-data-platform.txn2.com/server/deployment/) (Docker Compose, Kubernetes), and the [OAuth 2.1 Server guide](https://mcp-data-platform.txn2.com/auth/oauth-server/).
+For a hosted deployment, run `--transport http` and enable the built-in OAuth 2.1 server so Claude and other MCP clients sign in through your identity provider. That server is a [broker, not an identity provider](#a-broker-not-an-identity-provider): it hands every human login to your IdP. See [Configuration](https://mcp-data-platform.txn2.com/server/configuration/), [Deployment](https://mcp-data-platform.txn2.com/server/deployment/) (Docker Compose, Kubernetes), and the [OAuth 2.1 Server guide](https://mcp-data-platform.txn2.com/auth/oauth-server/).
 
 ## Security
 
@@ -224,6 +228,30 @@ The platform implements a **fail-closed** security model: missing or invalid cre
 |-----------|----------------|-----|
 | **stdio** | Not required (local execution) | N/A |
 | **HTTP** | Required (Bearer token or API key) | Strongly recommended |
+
+### A broker, not an identity provider
+
+**mcp-data-platform is an OAuth 2.1 broker, not an identity provider.** No person authenticates to it: there is no login form, no user password to verify, and no MFA. A human's identity comes from your existing IdP (Keycloak, Auth0, Okta, Azure AD) over OIDC. `/authorize` redirects the browser there and refuses the flow outright when no upstream IdP is configured, and the roles and email that person is authorized against are the ones the IdP asserts. Service accounts authenticate with API keys instead, and their roles come from local configuration.
+
+It stores no human passwords, and no migration in the tree defines a password column. The secrets it does hold are machine credentials, held the way an auditor would want: API keys and the client secrets Dynamic Client Registration issues to MCP client software are bcrypt hashes, the authorization codes and tokens the platform itself issues are SHA-256 digests, and refresh tokens for upstream services are encrypted at rest (AES-256-GCM when `ENCRYPTION_KEY` is set; the server warns loudly at startup when it is not).
+
+The platform presents an authorization server toward MCP clients because the MCP specification requires a discoverable authorization server supporting Dynamic Client Registration, which upstream IdPs generally do not expose. The broker shape is what the spec requires, not a decision to reimplement identity.
+
+The parts an auditor reaches for first:
+
+| Concern | Implementation |
+|---|---|
+| `redirect_uri` matching | Exact match for non-loopback; RFC 8252 section 7.3 handling for loopback (`pkg/oauth/storage.go`) |
+| DCR abuse | Plain HTTP to non-loopback hosts refused regardless of configuration; private-use schemes excluded from `AllowAllRedirectURIs`, so the unauthenticated registration endpoint never hands out scheme hijacking by default (`pkg/oauth/dcr.go`) |
+| Brute force and registration flood | Per-IP token-bucket limits on `/token` and `/register`, applied before the bcrypt work they would otherwise burn (`pkg/oauth/ratelimit.go`) |
+| Authorization | Deny-before-allow, default deny, fail-closed on unresolved persona (`pkg/persona/filter.go`) |
+| Prompt injection carried in catalog metadata | Untrusted descriptions, tags, and owner notes are sanitized before they reach the model, and detected attempts are logged (`pkg/semantic/sanitize.go`, `pkg/semantic/injection_logger.go`) |
+
+### Engineering posture
+
+More than 1.25 lines of test code per line of production Go, with the security-critical packages carrying the highest ratios in the tree: `pkg/oauth` and `pkg/middleware` are both above 2:1. Fuzz suites cover `pkg/oauth`, `pkg/auth`, `pkg/platform`, and `pkg/middleware`. Every PR passes race-detector tests, `golangci-lint`, `gosec`, and Semgrep and CodeQL SAST, under a coverage floor enforced in CI. Release artifacts are Cosign-signed with GitHub build-provenance attestations, and supply-chain posture is tracked by [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/txn2/mcp-data-platform).
+
+Those ratios are claims a reader can check, so they are kept true mechanically rather than by hand: `make posture-check` recomputes them and fails when the tree crosses a stated line.
 
 ## Ecosystem
 
@@ -264,6 +292,15 @@ The React admin portal lives under [`ui/`](ui/README.md). Its CI job runs
 Go gates (`complexity <= 10` ≈ `gocyclo <= 10`, `cognitive-complexity <= 15` ≈
 `gocognit <= 15`) plus an import-cycle rule. See [`ui/README.md`](ui/README.md)
 for the thresholds and the ratchet baseline.
+
+One browser suite also lives outside `make verify`:
+`make frontend-e2e-public-viewer` renders the public share viewer's
+client-rendered content families — HTML, JSX, markdown, SVG and a collection
+item — against a live stack and fails on anything the viewer's
+Content-Security-Policy blocks. It needs `make frontend-build`, a running
+server (`make dev`) and network egress to esm.sh, so it is run on demand
+rather than per commit — see
+[`ui/e2e/public-viewer/README.md`](ui/e2e/public-viewer/README.md).
 
 Two measurement harnesses live outside `make verify` (each is its own Go
 module): [`test/load`](test/load/README.md) measures throughput and resource

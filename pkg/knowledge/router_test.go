@@ -146,8 +146,15 @@ func TestRouter_PerUserQueriedWithIdentity(t *testing.T) {
 	if !perUser.called {
 		t.Fatal("per-user provider should be queried when the caller has identity")
 	}
-	if !reflect.DeepEqual(perUser.gotCaller, caller) {
-		t.Errorf("provider got caller %+v, want %+v", perUser.gotCaller, caller)
+	// The Router attaches its own connection gate to the caller it passes down, so
+	// compare the identity the provider scopes on rather than the whole struct.
+	got := perUser.gotCaller
+	got.conn = nil
+	if !reflect.DeepEqual(got, caller) {
+		t.Errorf("provider got caller %+v, want %+v", got, caller)
+	}
+	if perUser.gotCaller.conn == nil {
+		t.Error("Router should attach a connection gate to every provider arm")
 	}
 }
 
@@ -350,7 +357,7 @@ func TestFanOut_RunsProvidersConcurrentlyInRegistrationOrder(t *testing.T) {
 	}
 	r := NewRouter(nil, nil, providers...)
 
-	done := make(chan [][]Hit, 1)
+	done := make(chan []sourceResult, 1)
 	go func() {
 		pp, _, _ := r.fanOut(context.Background(), Query{Intent: "x"})
 		done <- pp
@@ -363,7 +370,7 @@ func TestFanOut_RunsProvidersConcurrentlyInRegistrationOrder(t *testing.T) {
 		}
 		// Despite concurrent, nondeterministic completion, output keeps registration order.
 		for i := range n {
-			if got := pp[i][0].Ref; got != fmt.Sprintf("r%d", i) {
+			if got := pp[i].hits[0].Ref; got != fmt.Sprintf("r%d", i) {
 				t.Errorf("perProvider[%d] ref = %q, want r%d (registration order not preserved)", i, got, i)
 			}
 		}
@@ -395,7 +402,7 @@ func TestFanOut_RecoversProviderPanicWithoutBlankingSearch(t *testing.T) {
 	}
 	// The healthy provider's hits still surface: one panicking provider blanks neither
 	// the search nor the server.
-	if len(pp) != 1 || len(pp[0]) != 1 || pp[0][0].Ref != "g1" {
+	if len(pp) != 1 || len(pp[0].hits) != 1 || pp[0].hits[0].Ref != "g1" {
 		t.Errorf("perProvider = %+v, want only the good hit g1", pp)
 	}
 }

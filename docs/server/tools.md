@@ -364,8 +364,8 @@ Additional parameters vary by `what` value — see the [mcp-datahub documentatio
 
 | `what` | `action` | Description |
 |--------|----------|-------------|
-| `description` | — | Set entity description |
-| `column_description` | — | Set schema field description |
+| `description` | — | Set entity description from `value` |
+| `column_description` | — | Set schema field description from `value` |
 | `tag` | add/remove | Add or remove a tag |
 | `glossary_term` | add/remove | Add or remove a glossary term |
 | `link` | add/remove | Add or remove a link |
@@ -602,6 +602,33 @@ the default persona's material.
 A caller with no identity still sees shared sources but no per-user data. API
 endpoints and connections are in the default corpus, not behind an opt-in.
 
+**Connection boundary.** The three topology sources (catalog, connections,
+endpoints) are additionally narrowed to the connections the caller's persona is
+granted by its `connections.allow` rules — the same predicate that authorizes a
+tool call, so what a caller can find and what a caller can call never disagree.
+A catalog dataset is attributed to a connection through its DataHub platform
+name; a dataset that maps to no configured connection stays visible, and one
+reachable through any granted connection stays visible. Removals are reported,
+never silent: each `coverage` entry carries a `withheld` count and the response
+carries a `withheld_notice` naming the persona and the remedy, so a shortened
+result set reads as "present, but not yours to see" rather than "does not
+exist". See [Persona Connection Access](../personas/overview.md#connection-access-control).
+
+**Catalog descriptions are semantically searchable.** The catalog source ranks
+two ways. The platform keeps its own index of every catalog dataset's text (name,
+description, tags, domain) and ranks the query against it first; DataHub's own
+keyword search follows as the recall tail, covering the fields the index does not
+carry (column names, glossary terms, ownership). This is what makes a fact written
+into a dataset's description — by `apply_knowledge`, or by a steward in DataHub —
+reachable from a topical query that shares none of its words and names none of its
+entities. A dataset both find is shown once. The index is refreshed on a schedule
+(`knowledge.catalog_index.sync_interval`, default 30m) by a background index job
+and appears on the admin Indexing dashboard as the `catalog-datasets` kind; it
+holds a discardable copy of catalog text, so every hit is still dereferenced
+against DataHub itself. It needs a DataHub semantic provider, a database, and an
+embedding provider; without them the catalog is ranked by DataHub's keyword search
+alone, exactly as before.
+
 **Resource links.** A hit backed by an uploaded file additionally carries an MCP
 `resource_link` content block with the resource's canonical `mcp://` URI, name,
 description, and MIME type, so a client with native resource support can attach the
@@ -626,7 +653,9 @@ lexical-only otherwise; an entity-only query reports ranking `entity`. The
 response carries a `ranking` field, a `count` (total hits shown), a `groups`
 array (each `{source, hits[]}` where every hit pairs the matched `text` with its
 `source`, a `ref`, a relevance `score`, and where present `status`, `entity_urns`,
-and `dimension`), and a `coverage` array (`{source, matched, shown}`).
+and `dimension`), and a `coverage` array (`{source, matched, shown, withheld}`,
+where `withheld` is present only when the persona connection boundary removed
+matches, alongside a top-level `withheld_notice`).
 
 **Parameters:**
 
@@ -708,7 +737,10 @@ insights) are read only for the identity that owns the record, a
 persona/personal-scoped prompt only for the matching caller, and a managed resource
 only for a caller whose visible scopes include it, so `fetch` never
 returns content the same caller could not have
-found with `search`. A reference outside the caller's scope is reported as
+found with `search`. The connection boundary applies here too: a dataset URN or
+connection reference belonging to a connection the caller's persona is not granted
+is reported as not-found, so a citation cannot read around what `search` omitted.
+A reference outside the caller's scope is reported as
 not-found, indistinguishable from a missing one, so existence does not leak.
 
 **Parameters:**
@@ -882,7 +914,7 @@ Save AI-generated content to the asset portal as a versioned asset. Automaticall
 |-----------|------|----------|---------|-------------|
 | `name` | string | Yes | - | Display name for the asset (max 255 chars) |
 | `content` | string | Yes | - | The asset content (JSX, HTML, SVG, Markdown, etc.) |
-| `content_type` | string | Yes | - | MIME type: text/html, text/jsx, image/svg+xml, text/markdown, application/json, text/csv |
+| `content_type` | string | Yes | - | MIME type the asset is stored under. One of `application/json`, `application/octet-stream`, `application/sql`, `application/x-ndjson`, `application/xml`, `application/yaml`, `image/svg+xml`, `text/css`, `text/csv`, `text/html`, `text/javascript`, `text/jsx`, `text/markdown`, `text/plain`, `text/tab-separated-values`, `text/x-python`; anything else is refused (see [Accepted types](content-viewers.md#accepted-types)) |
 | `description` | string | No | - | Description of the asset (max 2000 chars) |
 | `tags` | array | No | [] | Tags for categorization (max 20 tags, each max 100 chars) |
 
@@ -908,7 +940,7 @@ List, retrieve, update, or delete saved assets, and edit an asset's content in p
 | `name` | string | No | - | New name (for update) |
 | `description` | string | No | - | New description (for update) |
 | `tags` | array | No | - | New tags (for update) |
-| `content_type` | string | No | - | New content type (for update, only when replacing content) |
+| `content_type` | string | No | - | New content type (for update, only when replacing content). Same accepted set as `save_asset`; omit it to keep the type the asset already carries |
 | `change_summary` | string | No | - | Summary recorded on the new version (update and patch) |
 | `query` | string | Conditional | - | Free-text relevance query (required for search) |
 | `limit` | integer | No | 50 | Max results for list (max 200); ranked search defaults to 20 (max 100) |
@@ -1153,7 +1185,7 @@ This is discovery, not routing: the agent still chooses which returned tool to c
 
 ### manage_prompt
 
-`manage_prompt` manages database-stored prompts (create, update, delete, list, get) and resolves any prompt to run with the `use` command. `list` supports a ranked free-text `query` over the caller's visible approved prompts (hybrid semantic + lexical when an embedding provider is configured, lexical otherwise).
+`manage_prompt` manages database-stored prompts (create, update, delete, list, get) and resolves any prompt to run with the `use` command. `list` supports a ranked free-text `query` over the caller's visible prompts, the same rule browsing applies: approved shared prompts plus every prompt the caller owns at any status, and everything for admins (hybrid semantic + lexical when an embedding provider is configured, lexical otherwise).
 
 **Editing without resending.** `manage_prompt` carries the same content verbs as `manage_asset` (`patch`, `locate`, `get_content`, `outline`, `stats`, `diff`) with the identical grammar documented in [Editing content in place](#editing-content-in-place). Renaming a step in a long operating procedure is one `patch` call whose arguments are the size of the change. A patch routes through the same review gate as any other content edit: patching an approved global or persona prompt produces a pending draft version and the approved snapshot keeps being served until an admin approves it. `diff` with no versions named compares the newest pending draft against the version currently being served, which is the question a reviewer actually has.
 
@@ -1166,7 +1198,7 @@ This is discovery, not routing: the agent still chooses which returned tool to c
 
 A single confident match returns `status: "resolved"` with the prompt content (argument values passed in `args` are substituted), its argument specs, any required arguments still missing, and provenance (scope, status, version, approver, owner, reference) so the agent can confirm what it is about to run: "running Daily Sales Report v4, approved by jane@example.com". An ambiguous handle returns `status: "ambiguous"` with a short ranked candidate list to disambiguate, never an error and never a silent first-match. Operator, workflow, and toolkit prompts resolve through `use` as well (they remain read-only to the management commands); the auto-generated `platform-overview` prompt is served only on the native prompts surface.
 
-Non-admins manage only their own personal prompts; admins manage every scope. On the native MCP prompts surface, database prompts are presented under per-viewer scope-prefixed names (see [Configuration: Prompts](configuration.md#prompts)); `use` insulates users from those presented names entirely.
+Non-admins manage only their own personal prompts; admins manage every scope. An admin creating a global or persona prompt is its approver: the prompt lands `approved` (and therefore searchable) with the approval stamped, rather than sitting in draft. `create` and `update` also accept `collection_id` to place the prompt in a shared collection (an id from the `collections` array `list` returns; an empty string clears the placement; collections themselves are created in the portal). On the native MCP prompts surface, database prompts are presented under per-viewer scope-prefixed names (see [Configuration: Prompts](configuration.md#prompts)); `use` insulates users from those presented names entirely.
 
 **Versioning and review.** Every mutation of a prompt's content, display name, description, arguments, or tags snapshots an immutable version with its author; approval stamps bind to the specific version approved. Editing the content or arguments of an **approved global or persona** prompt does not apply immediately: `update` returns `status: "pending_approval"` with the draft's `pending_version`, and every caller keeps being served the approved snapshot until an admin approves the draft (in the admin portal, or `POST /api/v1/admin/prompts/{id}/versions/{version}/approve`). A gated content edit cannot be combined with scope/status/other non-versioned changes in one call; submit them separately. Personal prompts and never-approved drafts version silently. `get` and `list` also report `run_count` and `last_run_at` per prompt, aggregated from prompt-serve audit events (each `prompts/get` and resolved `use` counts as a serve), and `list` results include the shared `collections` list (the portal's organization model) when the store supports collections.
 

@@ -1021,7 +1021,10 @@ func TestGetAdminThumbnailSuccess(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
-	assert.Equal(t, "public, max-age=3600", w.Header().Get("Cache-Control"))
+	// Admin-authenticated bytes: the caller's browser may keep them for the
+	// hour, a shared cache may not store them at all (#1070).
+	assert.Equal(t, "private, max-age=3600", w.Header().Get("Cache-Control"))
+	assert.Equal(t, "Cookie", w.Header().Get("Vary"))
 	assert.Equal(t, "PNG-DATA", w.Body.String())
 }
 

@@ -2,10 +2,14 @@ package lifecycle
 
 import (
 	"context"
+	"maps"
+	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/capture"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
+	"github.com/txn2/mcp-data-platform/bench/internal/stats"
 )
 
 // TestAggregateDecomposition verifies the transfer-gap and capture-budget
@@ -41,6 +45,96 @@ func TestAggregateDecomposition(t *testing.T) {
 	// Capture misses are runs d and e; only d was budget-starved before capture.
 	if m.CaptureBudgetStarved.Num != 1 || m.CaptureBudgetStarved.Den != 2 {
 		t.Errorf("capture budget-starved = %d/%d, want 1/2", m.CaptureBudgetStarved.Num, m.CaptureBudgetStarved.Den)
+	}
+}
+
+// TestCaptureSplitAttribution is the issue #1136 acceptance criterion on the S5
+// scorecard: capture is reported with an attempted/landed split over the same
+// denominator as the headline rate, and every capture miss in the run is
+// attributed to exactly one cause.
+func TestCaptureSplitAttribution(t *testing.T) {
+	res := &Results{
+		Manifest: Manifest{K: 1},
+		Runs: []ProtocolRun{
+			{ProtocolID: "a", Captured: new(true), CaptureAttempted: new(true), TeachBudgetExhausted: new(false)},
+			{ProtocolID: "b", Captured: new(true), CaptureAttempted: new(true), TeachBudgetExhausted: new(false)},
+			// miss: capture ran, the insight did not land (the capture path itself)
+			{ProtocolID: "c", Captured: new(false), CaptureAttempted: new(true), TeachBudgetExhausted: new(false)},
+			// miss: never reached capture, budget spent on discovery (the harness budget)
+			{ProtocolID: "d", Captured: new(false), CaptureAttempted: new(false), TeachBudgetExhausted: new(true)},
+			// miss: never called capture with budget to spare (the model or its steering)
+			{ProtocolID: "e", Captured: new(false), CaptureAttempted: new(false), TeachBudgetExhausted: new(false)},
+			// miss on the claude-cli path: budget exhaustion is not observable
+			{ProtocolID: "f", Captured: new(false), CaptureAttempted: new(false)},
+			// harness failure: excluded from every capture denominator
+			{ProtocolID: "g", Error: "teach: connect refused"},
+		},
+	}
+	res.Aggregate()
+	m := res.Metrics
+
+	if m.CaptureRate.Num != 2 || m.CaptureRate.Den != 6 {
+		t.Errorf("capture rate = %d/%d, want 2/6", m.CaptureRate.Num, m.CaptureRate.Den)
+	}
+	if m.Capture.AttemptRate.Num != 3 || m.Capture.AttemptRate.Den != 6 {
+		t.Errorf("capture attempted = %d/%d, want 3/6 (same denominator as the capture rate)",
+			m.Capture.AttemptRate.Num, m.Capture.AttemptRate.Den)
+	}
+	if m.Capture.GivenAttempted.Num != 2 || m.Capture.GivenAttempted.Den != 3 {
+		t.Errorf("landed given attempt = %d/%d, want 2/3", m.Capture.GivenAttempted.Num, m.Capture.GivenAttempted.Den)
+	}
+	misses := m.Capture.Misses
+	want := capture.Misses{Total: 4, AttemptedFailed: 1, BudgetStarved: 1, NeverAttempted: 1, BudgetUnobservable: 1}
+	if misses != want {
+		t.Errorf("capture misses = %+v, want %+v", misses, want)
+	}
+	if sum := misses.AttemptedFailed + misses.BudgetStarved + misses.NeverAttempted + misses.BudgetUnobservable + misses.Unattributed; sum != misses.Total {
+		t.Errorf("cause buckets sum to %d of %d misses — a miss was left unattributed", sum, misses.Total)
+	}
+	// The breakdown must agree with the #964 starvation rate it decomposes: both
+	// count the same starved miss, over the three misses whose budget is observable.
+	if m.CaptureBudgetStarved.Num != misses.BudgetStarved || m.CaptureBudgetStarved.Den != 3 {
+		t.Errorf("capture budget-starved = %d/%d, want %d/3 (must agree with the miss breakdown)",
+			m.CaptureBudgetStarved.Num, m.CaptureBudgetStarved.Den, misses.BudgetStarved)
+	}
+	// The split carries the same uncertainty signal the headline rate does.
+	if m.Capture.AttemptRate.CILow == m.Capture.AttemptRate.CIHigh {
+		t.Errorf("capture attempt rate CI = [%v, %v], want a non-degenerate interval on a mixed sample",
+			m.Capture.AttemptRate.CILow, m.Capture.AttemptRate.CIHigh)
+	}
+
+	summary := res.HumanSummary()
+	for _, w := range []string{"capture rate", "capture attempted", "landed given attempt", "capture misses (4)"} {
+		if !strings.Contains(summary, w) {
+			t.Errorf("summary missing %q:\n%s", w, summary)
+		}
+	}
+}
+
+// TestCaptureRateCIsUnaffectedByTheSplit pins the reproducibility contract the
+// split had to preserve: the capture-split rates are filled from the shared RNG
+// LAST, so adding them left every previously reported interval identical.
+func TestCaptureRateCIsUnaffectedByTheSplit(t *testing.T) {
+	runs := []ProtocolRun{
+		{ProtocolID: "a", Captured: new(true), RecallCorrect: new(true), CaptureAttempted: new(true), TeachBudgetExhausted: new(false)},
+		{ProtocolID: "b", Captured: new(false), RecallCorrect: new(false), CaptureAttempted: new(false), TeachBudgetExhausted: new(true)},
+		{ProtocolID: "c", Captured: new(true), RecallCorrect: new(false), CaptureAttempted: new(true), TeachBudgetExhausted: new(false)},
+	}
+	withSplit := &Results{Manifest: Manifest{K: 1}, Runs: runs}
+	withSplit.Aggregate()
+
+	// The pre-#1136 fill order, reproduced exactly: the twelve scorecard rates in
+	// their original sequence, with no capture-split rates drawn from the RNG.
+	m := withSplit.Metrics
+	stats.FillCIs(stats.NewRNG(),
+		&m.CaptureRate, &m.PersonalRecall, &m.UnpromptedSurface,
+		&m.TransferRate, &m.TransferSurfaced, &m.TransferUsedGivenSurfaced,
+		&m.UpdateCorrectness, &m.UpdateCaptureRate, &m.DuplicateRate, &m.AbstentionRate,
+		&m.CaptureBudgetStarved, &m.PassK,
+	)
+	if m.CaptureRate != withSplit.Metrics.CaptureRate || m.PersonalRecall != withSplit.Metrics.PersonalRecall {
+		t.Errorf("adding the capture split shifted an existing interval:\n capture   %+v vs %+v\n recall    %+v vs %+v",
+			m.CaptureRate, withSplit.Metrics.CaptureRate, m.PersonalRecall, withSplit.Metrics.PersonalRecall)
 	}
 }
 
@@ -132,6 +226,76 @@ func TestCaptureBudgetStarvation(t *testing.T) {
 	if res.Metrics.CaptureBudgetStarved.Num != 1 || res.Metrics.CaptureBudgetStarved.Den != 1 {
 		t.Fatalf("capture budget-starved = %d/%d, want 1/1",
 			res.Metrics.CaptureBudgetStarved.Num, res.Metrics.CaptureBudgetStarved.Den)
+	}
+}
+
+// misfiledProtocol teaches with enough budget to reach capture; its script files
+// the insight against the wrong entity, so the capture executes but no linked
+// insight lands — the attempted-and-failed miss, which points at the capture
+// path rather than at the budget or the agent's willingness to try.
+func misfiledProtocol() protocol.Protocol {
+	p := okProtocol()
+	p.ID = "lc-misfile"
+	p.Transfer = nil
+	return p
+}
+
+func misfiledScript() map[string]llm.Script {
+	misfiled := llm.Step{ToolCalls: []llm.ToolCall{{Name: "memory_capture", Args: map[string]any{
+		"text": "net revenue fact", "entity_urns": []any{"urn:li:dataset:(urn:li:dataPlatform:trino,bench.other.table,PROD)"},
+		"category": "definition",
+	}}}}
+	return map[string]llm.Script{
+		"lc-misfile": {
+			StageTeach:   {misfiled, {FinalText: "saved"}},
+			StageRecall:  {searchStep(), {FinalText: "FINAL ANSWER: 999.99"}},
+			StageAbstain: {{FinalText: "FINAL ANSWER: INSUFFICIENT INFORMATION"}},
+		},
+	}
+}
+
+// TestCaptureMissAttributionEndToEnd drives the real runner over two protocols
+// that miss capture for different reasons and asserts the run attributes each
+// one to its own cause — the issue #1136 criterion that a miss is never just a
+// count. The two causes imply fixes in different layers, so conflating them
+// would misdirect any capture work that follows.
+func TestCaptureMissAttributionEndToEnd(t *testing.T) {
+	fp := newFakePlatform(t)
+	dir := t.TempDir()
+	writeProtocols(t, dir, starvedProtocol(), misfiledProtocol())
+	scripts := starvedScript()
+	maps.Copy(scripts, misfiledScript())
+	res, err := Run(context.Background(), runOptions(fp, dir, scriptFactory(scripts)))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	byProtocol := map[string]ProtocolRun{}
+	for _, r := range res.Runs {
+		if r.Error != "" {
+			t.Fatalf("%s: unexpected harness error: %s", r.ProtocolID, r.Error)
+		}
+		byProtocol[r.ProtocolID] = r
+	}
+	starved, misfiled := byProtocol["lc-starve"], byProtocol["lc-misfile"]
+	assertFalse(t, "starved captured", starved.Captured)
+	assertFalse(t, "starved capture attempted", starved.CaptureAttempted)
+	assertFalse(t, "misfiled captured", misfiled.Captured)
+	assertTrue(t, "misfiled capture attempted", misfiled.CaptureAttempted)
+
+	m := res.Metrics
+	if m.CaptureRate.Num != 0 || m.CaptureRate.Den != 2 {
+		t.Fatalf("capture rate = %d/%d, want 0/2", m.CaptureRate.Num, m.CaptureRate.Den)
+	}
+	if m.Capture.AttemptRate.Num != 1 || m.Capture.AttemptRate.Den != 2 {
+		t.Errorf("capture attempted = %d/%d, want 1/2", m.Capture.AttemptRate.Num, m.Capture.AttemptRate.Den)
+	}
+	if m.Capture.GivenAttempted.Num != 0 || m.Capture.GivenAttempted.Den != 1 {
+		t.Errorf("landed given attempt = %d/%d, want 0/1", m.Capture.GivenAttempted.Num, m.Capture.GivenAttempted.Den)
+	}
+	want := capture.Misses{Total: 2, AttemptedFailed: 1, BudgetStarved: 1}
+	if m.Capture.Misses != want {
+		t.Errorf("capture misses = %+v, want %+v", m.Capture.Misses, want)
 	}
 }
 

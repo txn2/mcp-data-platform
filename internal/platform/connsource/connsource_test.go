@@ -17,8 +17,8 @@ func TestPlatformFromURN(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := platformFromURN(tt.urn); got != tt.want {
-				t.Errorf("platformFromURN(%q) = %q, want %q", tt.urn, got, tt.want)
+			if got := PlatformFromURN(tt.urn); got != tt.want {
+				t.Errorf("PlatformFromURN(%q) = %q, want %q", tt.urn, got, tt.want)
 			}
 		})
 	}

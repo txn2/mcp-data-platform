@@ -8,6 +8,8 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
 // Common error messages for collection handlers.
@@ -32,7 +34,7 @@ type createCollectionRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createCollectionRequest  true  "Collection details"
-// @Success      201  {object}  Collection
+// @Success      201  {object}  portaldomain.Collection
 // @Failure      400  {object}  problemDetail
 // @Failure      401  {object}  problemDetail
 // @Failure      500  {object}  problemDetail
@@ -87,11 +89,11 @@ func (h *Handler) createCollection(w http.ResponseWriter, r *http.Request) {
 // --- List Collections ---
 
 type listCollectionsResponse struct {
-	Data           []Collection            `json:"data"`
-	Total          int                     `json:"total" example:"10"`
-	Limit          int                     `json:"limit" example:"20"`
-	Offset         int                     `json:"offset" example:"0"`
-	ShareSummaries map[string]ShareSummary `json:"share_summaries,omitempty"`
+	Data           []portaldomain.Collection `json:"data"`
+	Total          int                       `json:"total" example:"10"`
+	Limit          int                       `json:"limit" example:"20"`
+	Offset         int                       `json:"offset" example:"0"`
+	ShareSummaries map[string]ShareSummary   `json:"share_summaries,omitempty"`
 }
 
 // listCollections handles GET /api/v1/portal/collections.
@@ -160,9 +162,9 @@ func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 // --- Get Collection ---
 
 type getCollectionResponse struct {
-	Collection
-	IsOwner         bool            `json:"is_owner" example:"true"`
-	SharePermission SharePermission `json:"share_permission,omitempty" example:"viewer"`
+	portaldomain.Collection
+	IsOwner         bool                         `json:"is_owner" example:"true"`
+	SharePermission portaldomain.SharePermission `json:"share_permission,omitempty" example:"viewer"`
 }
 
 // getCollection handles GET /api/v1/portal/collections/{id}.
@@ -228,20 +230,13 @@ func (h *Handler) getCollection(w http.ResponseWriter, r *http.Request) {
 
 // collectionSharePermission returns the highest share permission for a user on a collection.
 func (h *Handler) collectionSharePermission(r *http.Request, collectionID string, user *User) SharePermission {
-	perm, err := h.deps.ShareStore.GetUserCollectionPermission(r.Context(), collectionID, user.UserID, user.Email)
-	if err != nil {
-		return ""
-	}
-	return perm
+	return h.access.CollectionSharePermission(r.Context(), collectionID, user)
 }
 
 // userCanViewCollection reports whether the user may view the collection (owner or
 // any share), without writing an HTTP response.
 func (h *Handler) userCanViewCollection(r *http.Request, c *Collection, user *User) bool {
-	if c.OwnerID == user.UserID {
-		return true
-	}
-	return h.collectionSharePermission(r, c.ID, user) != ""
+	return h.access.CanViewCollection(r.Context(), c, user)
 }
 
 // --- Update Collection ---
@@ -260,7 +255,7 @@ type updateCollectionRequest struct {
 // @Produce      json
 // @Param        id    path  string                    true  "Collection ID"
 // @Param        body  body  updateCollectionRequest    true  "Fields to update"
-// @Success      200  {object}  Collection
+// @Success      200  {object}  portaldomain.Collection
 // @Failure      400  {object}  problemDetail
 // @Failure      401  {object}  problemDetail
 // @Failure      403  {object}  problemDetail
@@ -386,8 +381,8 @@ func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
 // @Accept       json
 // @Produce      json
 // @Param        id    path  string            true  "Collection ID"
-// @Param        body  body  CollectionConfig  true  "Configuration object"
-// @Success      200  {object}  Collection
+// @Param        body  body  portaldomain.CollectionConfig  true  "Configuration object"
+// @Success      200  {object}  portaldomain.Collection
 // @Failure      400  {object}  problemDetail
 // @Failure      401  {object}  problemDetail
 // @Failure      403  {object}  problemDetail
@@ -459,7 +454,7 @@ type itemInput struct {
 // @Produce      json
 // @Param        id    path  string              true  "Collection ID"
 // @Param        body  body  setSectionsRequest  true  "Sections with items"
-// @Success      200  {object}  Collection
+// @Success      200  {object}  portaldomain.Collection
 // @Failure      400  {object}  problemDetail
 // @Failure      401  {object}  problemDetail
 // @Failure      403  {object}  problemDetail
@@ -727,7 +722,11 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	h.notifyShare(r.Context(), &share, "collection", coll.ID, coll.Name)
+	if req.wantsNotify() {
+		h.notifyShare(r.Context(), &share, ShareEvent{
+			Kind: "collection", ItemID: coll.ID, ItemTitle: coll.Name, Message: req.Message,
+		})
+	}
 
 	resp := shareResponse{Share: share}
 	if h.deps.PublicBaseURL != "" {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,6 +23,7 @@ type mockPromptStore struct {
 	createErr  error
 	updateErr  error
 	getByIDErr error
+	listErr    error
 }
 
 func newMockPromptStore() *mockPromptStore {
@@ -97,12 +99,27 @@ func (m *mockPromptStore) DeleteByID(_ context.Context, id string) error {
 }
 
 func (m *mockPromptStore) List(_ context.Context, f prompt.ListFilter) ([]prompt.Prompt, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
 	var result []prompt.Prompt
 	for _, p := range m.prompts {
 		if f.Scope != "" && p.Scope != f.Scope {
 			continue
 		}
 		if f.OwnerEmail != "" && p.OwnerEmail != f.OwnerEmail {
+			continue
+		}
+		if f.Enabled != nil && p.Enabled != *f.Enabled {
+			continue
+		}
+		if f.Status != "" && p.Status != f.Status {
+			continue
+		}
+		if len(f.Personas) > 0 && !personasOverlap(p.Personas, f.Personas) {
+			continue
+		}
+		if f.ExcludeSource != "" && p.Source == f.ExcludeSource {
 			continue
 		}
 		result = append(result, *p)
@@ -112,6 +129,16 @@ func (m *mockPromptStore) List(_ context.Context, f prompt.ListFilter) ([]prompt
 
 func (m *mockPromptStore) Count(_ context.Context, _ prompt.ListFilter) (int, error) {
 	return len(m.prompts), nil
+}
+
+// personasOverlap mirrors the real store's `personas && $n` array-overlap match.
+func personasOverlap(have, want []string) bool {
+	for _, w := range want {
+		if slices.Contains(have, w) {
+			return true
+		}
+	}
+	return false
 }
 
 var _ PromptStore = (*mockPromptStore)(nil)
@@ -134,7 +161,7 @@ func (m *mockPromptRegistrar) UnregisterRuntimePrompt(name string) {
 var _ PromptRegistrar = (*mockPromptRegistrar)(nil)
 
 func withUser(r *http.Request, email string, roles ...string) *http.Request {
-	ctx := context.WithValue(r.Context(), portalUserKey, &User{
+	ctx := ContextWithUser(r.Context(), &User{
 		UserID: "user-123",
 		Email:  email,
 		Roles:  roles,
@@ -149,7 +176,7 @@ func newTestPortalPromptHandler() (*Handler, *mockPromptStore, *mockPromptRegist
 		PromptStore:     store,
 		PromptRegistrar: registrar,
 		AdminRoles:      []string{"admin"},
-		AssetStore:      &noopAssetStore{},
+		AssetStore:      NewNoopAssetStore(),
 	}, nil)
 	return h, store, registrar
 }
@@ -166,9 +193,11 @@ func TestPortalListPrompts_Authenticated(t *testing.T) {
 	h, store, _ := newTestPortalPromptHandler()
 	store.prompts["my-prompt"] = &prompt.Prompt{
 		ID: "uuid-1", Name: "my-prompt", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com",
+		Enabled: true, Status: prompt.StatusDraft,
 	}
 	store.prompts["global-prompt"] = &prompt.Prompt{
 		ID: "uuid-2", Name: "global-prompt", Scope: prompt.ScopeGlobal,
+		Enabled: true, Status: prompt.StatusApproved,
 	}
 
 	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts", http.NoBody), "alice@example.com")
@@ -179,6 +208,96 @@ func TestPortalListPrompts_Authenticated(t *testing.T) {
 	var resp portalPromptListResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.GreaterOrEqual(t, len(resp.Personal)+len(resp.Available), 1)
+}
+
+// TestPortalListPrompts_MineIsOwnershipLibraryIsApproved locks the #1124
+// bucket semantics: Personal ("My Prompts") is every prompt the caller owns at
+// any scope and never another owner's personal prompt; Available (the Library)
+// is the approved shared set, so a draft shared prompt is not browseable.
+func TestPortalListPrompts_MineIsOwnershipLibraryIsApproved(t *testing.T) {
+	h, store, _ := newTestPortalPromptHandler()
+	store.prompts["mine-personal"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "mine-personal", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com",
+		Enabled: true, Status: prompt.StatusDraft,
+	}
+	store.prompts["mine-global"] = &prompt.Prompt{
+		ID: "uuid-2", Name: "mine-global", Scope: prompt.ScopeGlobal, OwnerEmail: "alice@example.com",
+		Enabled: true, Status: prompt.StatusApproved,
+	}
+	store.prompts["bob-personal"] = &prompt.Prompt{
+		ID: "uuid-3", Name: "bob-personal", Scope: prompt.ScopePersonal, OwnerEmail: "bob@example.com",
+		Enabled: true, Status: prompt.StatusDraft,
+	}
+	store.prompts["draft-global"] = &prompt.Prompt{
+		ID: "uuid-4", Name: "draft-global", Scope: prompt.ScopeGlobal, OwnerEmail: "bob@example.com",
+		Enabled: true, Status: prompt.StatusDraft,
+	}
+
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts", http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp portalPromptListResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+
+	mine := make([]string, 0, len(resp.Personal))
+	for _, p := range resp.Personal {
+		mine = append(mine, p.Name)
+	}
+	assert.ElementsMatch(t, []string{"mine-personal", "mine-global"}, mine)
+
+	library := make([]string, 0, len(resp.Available))
+	for _, p := range resp.Available {
+		library = append(library, p.Name)
+	}
+	assert.Equal(t, []string{"mine-global"}, library)
+}
+
+// TestPortalListPrompts_PersonaBucketApprovedOnly: the Library's persona
+// section applies the same approved-only rule as the global section (#1124).
+func TestPortalListPrompts_PersonaBucketApprovedOnly(t *testing.T) {
+	store := newMockPromptStore()
+	h := NewHandler(Deps{
+		PromptStore: store,
+		AdminRoles:  []string{"admin"},
+		AssetStore:  NewNoopAssetStore(),
+		PersonaResolver: func(_ []string) *PersonaInfo {
+			return &PersonaInfo{Name: "analyst"}
+		},
+	}, nil)
+	store.prompts["persona-approved"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "persona-approved", Scope: prompt.ScopePersona, Personas: []string{"analyst"},
+		Enabled: true, Status: prompt.StatusApproved,
+	}
+	store.prompts["persona-draft"] = &prompt.Prompt{
+		ID: "uuid-2", Name: "persona-draft", Scope: prompt.ScopePersona, Personas: []string{"analyst"},
+		Enabled: true, Status: prompt.StatusDraft,
+	}
+
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts", http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp portalPromptListResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	names := make([]string, 0, len(resp.Available))
+	for _, p := range resp.Available {
+		names = append(names, p.Name)
+	}
+	assert.Equal(t, []string{"persona-approved"}, names)
+}
+
+func TestPortalListPrompts_StoreError(t *testing.T) {
+	h, store, _ := newTestPortalPromptHandler()
+	store.listErr = errors.New("pq: down")
+
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts", http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestPortalCreatePrompt_Success(t *testing.T) {
@@ -392,7 +511,7 @@ func newTestPortalPromptShareHandler() (*Handler, *mockPromptStore, *mockShareSt
 		PromptStore: pstore,
 		ShareStore:  sstore,
 		AdminRoles:  []string{"admin"},
-		AssetStore:  &noopAssetStore{},
+		AssetStore:  NewNoopAssetStore(),
 	}, nil)
 	return h, pstore, sstore
 }
@@ -645,7 +764,7 @@ func TestRevokePromptShare_NoPromptStore(t *testing.T) {
 	sstore := &mockShareStore{getByIDShare: &Share{ID: "s1", PromptID: "p1", CreatedBy: "alice@example.com"}}
 	h := NewHandler(Deps{
 		ShareStore: sstore,
-		AssetStore: &noopAssetStore{},
+		AssetStore: NewNoopAssetStore(),
 		AdminRoles: []string{"admin"},
 	}, nil)
 	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/portal/shares/s1", http.NoBody), "alice@example.com")
@@ -709,7 +828,7 @@ func newVersionedPortalPromptHandler() (*Handler, *mockVersionPromptStore, *mock
 		PromptStore:     store,
 		PromptRegistrar: registrar,
 		AdminRoles:      []string{"admin"},
-		AssetStore:      &noopAssetStore{},
+		AssetStore:      NewNoopAssetStore(),
 	}, nil)
 	return h, store, registrar
 }

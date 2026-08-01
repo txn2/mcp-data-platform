@@ -108,9 +108,13 @@ export async function uploadThumbnail(
  * postMessage notifier with a longer delay for async esm.sh loads.
  */
 export function buildJsxThumbnailHtml(content: string): string {
+  // The same policy JsxRenderer gives the live frame, 'unsafe-eval' omitted
+  // for the same reason: the capture has to run the artifact under exactly
+  // what the renderer runs it under, or the thumbnail stops matching what a
+  // viewer sees.
   const CSP = [
     "default-src 'none'",
-    "script-src 'unsafe-eval' 'unsafe-inline' https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
+    "script-src 'unsafe-inline' https://esm.sh https://fonts.googleapis.com https://fonts.gstatic.com",
     "style-src 'unsafe-inline' https://fonts.googleapis.com",
     "img-src data: blob:",
     "font-src data: https://fonts.gstatic.com",

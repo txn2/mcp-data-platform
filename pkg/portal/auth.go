@@ -1,7 +1,6 @@
 package portal
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,34 +11,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
-
-// contextKey is a private type for portal context keys.
-type contextKey string
-
-const portalUserKey contextKey = "portal_user"
-
-// User holds information about the authenticated portal user.
-type User struct {
-	UserID string
-	Email  string
-	Roles  []string
-	// FromCookie is true for browser-session (cookie) auth; only such requests
-	// are CSRF-enforced (API-key / Bearer auth is exempt).
-	FromCookie bool
-}
-
-// GetUser returns the User from context, or nil if not set.
-func GetUser(ctx context.Context) *User {
-	u, _ := ctx.Value(portalUserKey).(*User)
-	return u
-}
-
-// ContextWithUser returns a copy of ctx carrying the authenticated user, the
-// value GetUser reads. Exported so handlers split into sibling packages (e.g.
-// pkg/portal/datahubapi) can be exercised with an authenticated principal.
-func ContextWithUser(ctx context.Context, user *User) context.Context {
-	return context.WithValue(ctx, portalUserKey, user)
-}
 
 // Authenticator wraps the platform's middleware.Authenticator chain
 // for HTTP portal requests. Unlike the admin authenticator, it does not
@@ -140,7 +111,7 @@ func RequirePortalAuth(auth *Authenticator) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), portalUserKey, user)
+			ctx := ContextWithUser(r.Context(), user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

@@ -192,6 +192,11 @@ func TestEnqueuer_Notify_Drops(t *testing.T) {
 			name: "comments disabled", recipient: "a@b.io", category: CategoryComment,
 			prefs: map[string]Prefs{"a@b.io": {Mode: ModeImmediate, SharesEnabled: true, CommentsEnabled: false}},
 		},
+		{
+			name:      "review queue alert to a recipient who muted everything",
+			recipient: "off@b.io", category: CategoryReviewQueue,
+			prefs: map[string]Prefs{"off@b.io": {Mode: ModeOff}},
+		},
 		{name: "unknown category", recipient: "a@b.io", category: "carrier-pigeon"},
 	}
 	for _, tc := range tests {
@@ -205,6 +210,32 @@ func TestEnqueuer_Notify_Drops(t *testing.T) {
 				t.Errorf("expected drop, got enqueue")
 			}
 		})
+	}
+}
+
+// TestEnqueuer_Notify_ReviewQueueHasNoPerCategoryToggle pins the one category
+// gated by Mode alone (#803): the operator's recipient list decides who gets
+// an operator alert, so muting shares, comments, and mentions must not silence
+// it. Turning notifications off entirely still does; that case is in
+// TestEnqueuer_Notify_Drops.
+func TestEnqueuer_Notify_ReviewQueueHasNoPerCategoryToggle(t *testing.T) {
+	queue := &fakeQueueStore{}
+	e := NewEnqueuer(&fakePrefsStore{prefs: map[string]Prefs{
+		"ops@b.io": {Mode: ModeImmediate, SharesEnabled: false, CommentsEnabled: false, MentionsEnabled: false},
+	}}, queue, 13)
+	defer e.Close()
+
+	queued, err := e.Notify(context.Background(), "ops@b.io", CategoryReviewQueue,
+		Payload{Kind: KindReviewQueue, Review: &ReviewQueue{Pending: 9}})
+	if err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if !queued {
+		t.Fatal("the review-queue alert must reach a recipient who muted the item categories")
+	}
+	rows := queue.enqueuedCopy()
+	if len(rows) != 1 || rows[0].Payload.Review == nil || rows[0].Payload.Review.Pending != 9 {
+		t.Fatalf("rollup did not survive the enqueue: %+v", rows)
 	}
 }
 

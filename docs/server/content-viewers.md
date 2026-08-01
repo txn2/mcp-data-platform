@@ -44,6 +44,44 @@ When detection replaces a declaration, the original is recorded in the asset's
 provenance as `declared_content_type`, so a stored type that disagrees with its
 source is explainable after the fact.
 
+### Accepted types
+
+Detection settles what a payload *is*. What the platform will *store* is a
+separate question, and the answer differs by what the door carries.
+
+**Doors that carry content as a string** — `POST /api/v1/portal/assets` (inline
+create), `save_asset`, and `manage_asset action=update` — accept one list:
+`text/markdown`, `text/plain`, `text/html`, `text/jsx`, `text/csv`,
+`text/tab-separated-values`, `image/svg+xml`, `application/json`,
+`application/x-ndjson`, `application/xml`, `application/yaml`,
+`text/javascript`, `text/css`, `text/x-python`, `application/sql` and
+`application/octet-stream`. Aliases normalize first, so declaring `text/json` or
+`text/xml` works, and membership is exact: `text/*` is not a wildcard, because
+it would admit every `text/x-*` type a caller cares to invent. A refused write
+names the accepted types rather than failing silently.
+
+The list is textual because these doors are. Content reaches them inside a JSON
+document, so a binary family has no way through in the first place; the list
+costs no capability. `application/xhtml+xml` is deliberately absent — a browser
+renders XHTML natively and runs the script inside it.
+
+A content update may keep whatever type its asset already carries, including one
+no door would accept today: an asset written by `api_export` from an upstream
+response, or one that predates the list. Changing the type is a new declaration
+and goes through the same check as a create.
+
+**The resource upload door carries bytes and keeps a denylist**, refusing the
+executable MIME types and `application/xhtml+xml`, alongside a denylist of
+executable file extensions. A resource is human-uploaded reference material —
+report templates, brand files, CAD exports, sample documents — so the long tail
+of formats has to get through, and an allowlist there would refuse the library's
+purpose to buy little: every stored byte is already served under the sandbox CSP
+and disposition rules below, whatever its type.
+
+`api_export` is not gated either: it stores the upstream response's own type,
+which is neither caller-declared nor carried as a string. `trino_export` sets its
+type from its own formatter.
+
 ### The active-type rule
 
 Detection may reclassify content **into passive families only**: JSON, images,
@@ -104,23 +142,57 @@ The inline preview limit is per family, not global:
 
 Every raw-content endpoint (portal assets, asset versions, thumbnails, public
 share content, managed resources) writes through one shared code path, so the
-guarantees below hold on all of them:
+guarantees below hold on all of them. The API gateway's raw passthrough route
+answers under the same contract: it does not store the bytes it serves, but it
+does reproduce an upstream's bytes on the platform's own origin, so the type,
+disposition, `nosniff` and CSP decisions are made in the same place rather than
+forwarded from the upstream. Byte-range support and the cache default are the
+two items scoped differently there: the passthrough serves no ranges of its own
+(it relays the upstream's partial response, `Content-Range` included, when the
+caller asks the upstream for one), and an upstream that states its own
+`Cache-Control` keeps it.
 
+- **`Content-Security-Policy: default-src 'none'; sandbox`**, on every response
+  regardless of type. `default-src 'none'` denies the document every fetch it
+  could make and, because `script-src` falls back to it, kills inline script,
+  event handler attributes and `javascript:` URLs; `sandbox` with no `allow-`
+  tokens puts the document in an opaque origin with scripting off. The header is
+  unconditional on purpose: stored content has no legitimate need for
+  same-origin script here, and a conditional header would make the guarantee
+  depend on the type classification below staying complete.
 - **`X-Content-Type-Options: nosniff`**, so a browser cannot decide for itself
   that a `text/plain` response is really HTML and run it.
 - **A parsed, parameter-free `Content-Type`**, so a stored value cannot smuggle
   anything into the header.
-- **`Content-Disposition: attachment` for active types** (HTML, JSX, SVG,
-  JavaScript), which never render inline on the platform's own origin, and
-  `inline` for the passive families a viewer embeds.
+- **`Content-Disposition: attachment` for scriptable document types** (HTML,
+  XHTML, JSX, SVG, JavaScript, XML and any `+xml` dialect), which never render
+  inline on the platform's own origin, and `inline` for the passive families a
+  viewer embeds.
 - **Byte-range support**, so audio and video elements seek by requesting the
   range they need instead of downloading the whole object first.
+- **`Cache-Control: private` by default**, so an endpoint that authorized its
+  caller does not hand the bytes to a shared cache by saying nothing: a response
+  carrying no directive at all is heuristically storable, and a CDN or ingress
+  cache in front of the platform would then answer later requests for the same
+  URL from one authorized fetch. This one is a default rather than an override —
+  a fully public share's thumbnail is genuinely anonymous and sets `public,
+  max-age=3600` deliberately.
+
+The scriptable set is wider than the set of types the sniffer refuses to
+promote. XML is safe to name from content, and a viewer shows it as inert text,
+but a browser navigating to `application/xml` builds a document and honors an
+`<?xml-stylesheet?>` processing instruction, so it is served as a download.
+`nosniff` is no help for XHTML or XML: it enforces the declared type, and the
+declared type genuinely is a document type.
 
 The PDF viewer deliberately carries no iframe `sandbox`: Chrome refuses to
 instantiate its PDF plugin inside any sandboxed frame, with or without
 `allow-scripts`, so a sandboxed PDF frame shows a broken-plugin icon rather than
-the document. Containment for PDFs comes from the serving guarantees above plus
-the `object-src 'self'` directive in the public viewer's CSP.
+the document. The response-level sandbox CSP above is a different mechanism and
+does not have that effect — a PDF served under it still renders in Chrome's
+viewer through `<object>`. Containment for PDFs comes from the serving
+guarantees above plus the `object-src 'self'` directive in the public viewer's
+CSP.
 
 Binary content is served from these endpoints rather than embedded in the
 viewer page. The public viewer embeds text content in the page as a JSON string,
@@ -130,3 +202,56 @@ content URL instead.
 The public viewer's Content-Security-Policy carries `media-src` and `object-src`
 for the audio, video and PDF sources. Active types keep their existing sandboxed
 iframe and DOMPurify treatment.
+
+### The public viewer's policy
+
+One policy governs two documents, which is what bounds how narrow it can be: the
+viewer page, and the untrusted HTML and JSX assets it renders in `blob:` URL
+iframes, which inherit the creating document's policy. The page is served with:
+
+```
+default-src 'none'; script-src 'unsafe-inline' blob: https:; style-src 'unsafe-inline' https:;
+img-src * data: blob:; media-src 'self' blob: data:; object-src 'self';
+font-src * data:; connect-src 'self' https:;
+```
+
+plus `frame-src blob: data: 'self'` for a single asset, or `frame-src 'self'
+blob: data:` for a collection, whose items open in a same-origin iframe.
+
+- `script-src 'unsafe-inline'` is required by both documents: the page's theme,
+  expiry and modal handlers and the embedded content-viewer bundle are inline,
+  and a stored HTML asset's own `<script>` blocks are the artifact. A
+  per-response nonce would cover the page and blank every HTML asset, since the
+  inherited policy would reject script the server never saw. What isolates an
+  artifact is the frame — `sandbox="allow-scripts"` without
+  `allow-same-origin`, so artifact script runs in an opaque origin.
+- `script-src https:` is required because assets legitimately load third-party
+  script: the JSX renderer resolves react, react-dom, recharts and lucide-react
+  from esm.sh through an import map, and stored HTML artifacts reference CDN
+  libraries directly. Plain `http:` is not permitted — an https page blocks it
+  as mixed content anyway, so allowing it only widened the policy for plaintext
+  deployments.
+- `script-src blob:` stays because `worker-src` falls back through `child-src`
+  to it, so dropping it would refuse an artifact its own web worker. It widens
+  nothing: a blob URL can only be minted by script that is already running,
+  which `'unsafe-inline'` has already permitted.
+- `'unsafe-eval'` is not granted. Sucrase transforms JSX in the parent page and
+  the frame runs the result as a module, so no viewer path evaluates source at
+  runtime. An artifact that calls `eval` or `new Function` is refused.
+- `style-src`, `img-src` and `font-src` stay permissive for artifacts that style
+  themselves inline and pull images and webfonts from arbitrary hosts. All three
+  are passive.
+- `connect-src` is there for artifacts. No viewer path issues a request it
+  governs — content URLs are handed to elements, which answer to `img-src`,
+  `media-src` and `object-src` instead.
+
+The policy is enforced by the browser and by nothing else, so a change to it is
+verified by rendering each family under it rather than by reading the header.
+`make frontend-e2e-public-viewer` drives HTML, JSX, markdown, SVG and a
+collection item against a live stack and fails on any blocked resource. It is
+not part of `make verify`: it needs the content-viewer bundle built
+(`make frontend-build`, which the binary embeds at compile time), a running
+server (`make dev`) and network egress to esm.sh, which the JSX family resolves
+its imports from. The families served from a content URL — image, audio, video,
+PDF, the ones `media-src` and `object-src` exist for — have no public share in
+the dev seed and are covered by the Go tests instead.

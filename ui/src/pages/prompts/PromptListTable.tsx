@@ -1,8 +1,9 @@
 import { ChevronDown, ChevronUp, ChevronsUpDown, FolderOpen, Users } from "lucide-react";
 import type { Prompt, PromptCollection, PromptUsage } from "@/api/admin/types";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 import { PromptStatusBadge } from "./PromptStatusBadge";
-import { formatLastRun, isInactive, staleAfterDays } from "./promptUsage";
+import { formatLastRun, usageBadge, type UsageBadgeInfo } from "./promptUsage";
 import type { Row, SortDir, SortKey } from "./promptList";
 
 // PromptListTable renders one prompt table for the library page (#1010):
@@ -133,11 +134,11 @@ function PromptRow({
   onOpen: (p: Prompt) => void;
 }) {
   const p = row.prompt;
-  const inactive = usageReady && isInactive(usage);
+  const badge = usageReady ? usageBadge(usage, p.created_at) : null;
   return (
     <tr className="hover:bg-muted/30 cursor-pointer" onClick={() => onOpen(p)}>
       <td className="px-4 py-2 align-top">
-        <NameBadges row={row} showStatus={showStatus} inactive={inactive} />
+        <NameBadges row={row} showStatus={showStatus} badge={badge} />
         {row.sharedBy && (
           <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
             <Users className="h-3 w-3" /> Shared by {row.sharedBy}
@@ -156,7 +157,7 @@ function PromptRow({
         </td>
       )}
       <td className="px-4 py-2 align-top text-muted-foreground">
-        <div className="break-words whitespace-normal">{p.description}</div>
+        <div className="break-words whitespace-normal">{markdownToPlainText(p.description)}</div>
       </td>
       <td className="px-4 py-2 align-top text-right tabular-nums text-muted-foreground">
         {usageReady ? (usage?.run_count ?? 0) : "–"}
@@ -168,25 +169,41 @@ function PromptRow({
   );
 }
 
-function NameBadges({ row, showStatus, inactive }: { row: Row; showStatus: boolean; inactive: boolean }) {
+// ScopeChip names a shared prompt's scope. My Prompts holds prompts of any
+// scope the caller owns (#1124), so a shared prompt is labeled there; personal
+// prompts carry no chip.
+function ScopeChip({ prompt }: { prompt: Prompt }) {
+  if (prompt.scope !== "global" && prompt.scope !== "persona") return null;
+  const label =
+    prompt.scope === "global" ? "global" : prompt.personas?.length ? prompt.personas.join(", ") : "persona";
+  return (
+    <span className="inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-400">
+      {label}
+    </span>
+  );
+}
+
+function NameBadges({ row, showStatus, badge }: { row: Row; showStatus: boolean; badge: UsageBadgeInfo | null }) {
   const p = row.prompt;
+  const ownBadges = showStatus && !row.sharedBy;
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className={cn("font-medium break-words", inactive && "text-muted-foreground")}>
+      <span className={cn("font-medium break-words", badge && "text-muted-foreground")}>
         {p.display_name || p.name}
       </span>
-      {showStatus && p.scope !== "system" && !row.sharedBy && <PromptStatusBadge status={p.status} />}
+      {ownBadges && <ScopeChip prompt={p} />}
+      {ownBadges && p.scope !== "system" && <PromptStatusBadge status={p.status} />}
       {p.review_requested && (
         <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-400">
           promotion requested
         </span>
       )}
-      {inactive && (
+      {badge && (
         <span
           className="inline-flex items-center rounded-full border border-zinc-500/30 bg-zinc-500/10 px-2 py-0.5 text-[11px] font-medium text-zinc-400"
-          title={`Never run, or last run more than ${staleAfterDays} days ago`}
+          title={badge.title}
         >
-          inactive
+          {badge.label}
         </span>
       )}
     </div>

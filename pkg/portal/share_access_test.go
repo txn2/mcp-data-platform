@@ -191,6 +191,117 @@ func TestPublicRoutesAdmitAnonymousOnPublicShare(t *testing.T) {
 	}
 }
 
+// --- Cache policy ---
+
+// wantCacheControl is the directive a public route must carry for a share in
+// the given mode.
+//
+// Thumbnails are the only responses that opt into shared caching, and only for
+// a fully public share: they are the og:image a link preview fetches, so the
+// hit matters and there is no audience to protect. Everything else is at most
+// the caller's to keep. The viewer pages carry no directive on a public share —
+// nothing about them is per-caller then, so the platform makes no claim and the
+// cache applies its own heuristic.
+func wantCacheControl(path string, mode ShareAccessMode) string {
+	publicShare := mode == AccessModePublic
+	switch path {
+	case "/portal/view/tok1/thumbnail",
+		"/portal/view/tok1/collection-thumbnail",
+		"/portal/view/tok1/items/a1/thumbnail":
+		if publicShare {
+			return "public, max-age=3600"
+		}
+		return "private, max-age=3600"
+	case "/portal/view/tok1/content", "/portal/view/tok1/items/a1/content":
+		return "private"
+	default:
+		if publicShare {
+			return ""
+		}
+		return "private"
+	}
+}
+
+// TestPublicRoutesCachePolicyFollowsAccessMode is the caching counterpart of
+// the gate matrix above (#1070). For every mode but public the gate's verdict
+// is a property of the caller's cookie, not of the URL, so no response on the
+// surface may be marked publicly cacheable: a CDN or ingress cache keyed on the
+// URL alone would populate on the first authorized fetch and answer every later
+// holder of the token without the gate ever running.
+//
+// The empty mode is included because it is what rows written before the mode
+// column carry, and Authorize resolves it to its shape's default rather than to
+// public. The cache policy has to fail closed the same way.
+func TestPublicRoutesCachePolicyFollowsAccessMode(t *testing.T) {
+	recipient := &User{UserID: "u-bob", Email: "bob@example.com"}
+	gated := []ShareAccessMode{AccessModeRestricted, AccessModeAuthenticated, ShareAccessMode("")}
+
+	for _, mode := range gated {
+		for _, path := range publicRoutes() {
+			t.Run(string(mode)+" "+path, func(t *testing.T) {
+				h := shareGateHandler(shareForRoute(path, mode), recipient)
+				w := requestRoute(h, path, true)
+
+				require.Equal(t, http.StatusOK, w.Code)
+				assert.Equal(t, wantCacheControl(path, mode), w.Header().Get("Cache-Control"))
+				assert.NotContains(t, w.Header().Get("Cache-Control"), "public")
+				assert.Equal(t, "Cookie", w.Header().Get("Vary"))
+			})
+		}
+	}
+
+	for _, path := range publicRoutes() {
+		t.Run("public "+path, func(t *testing.T) {
+			h := shareGateHandler(shareForRoute(path, AccessModePublic), nil)
+			w := requestRoute(h, path, false)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, wantCacheControl(path, AccessModePublic), w.Header().Get("Cache-Control"))
+			assert.Equal(t, "Cookie", w.Header().Get("Vary"))
+		})
+	}
+}
+
+// TestPublicThumbnailCacheWindowEndsWithTheShare drives sharecache's expiry
+// clamp through the real route, where the directive a shared cache reads is
+// written. A share that expires in ten minutes must not license an hour of
+// storage, or the link-preview crawler's cookieless fetch keeps answering
+// strangers for fifty minutes after the token stopped resolving.
+func TestPublicThumbnailCacheWindowEndsWithTheShare(t *testing.T) {
+	expiring := assetShare(AccessModePublic)
+	soon := time.Now().Add(10 * time.Minute)
+	expiring.ExpiresAt = &soon
+
+	w := requestRoute(shareGateHandler(expiring, nil), "/portal/view/tok1/thumbnail", false)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	// Seconds, not the flat 3600 an unclamped hour would write.
+	assert.Regexp(t, `^public, max-age=(59[0-9]|600)$`, w.Header().Get("Cache-Control"))
+}
+
+// TestPublicShareGateRefusalsAreNotCacheable covers the direction the gate must
+// also not lose to a cache: a stored refusal keyed on the URL would answer for
+// the recipient the share was made for. A 410 is cacheable by default, so the
+// directive has to be explicit.
+func TestPublicShareGateRefusalsAreNotCacheable(t *testing.T) {
+	t.Run("unauthorized", func(t *testing.T) {
+		h := shareGateHandler(assetShare(AccessModeRestricted), nil)
+		w := requestRoute(h, "/portal/view/tok1", false)
+
+		require.Equal(t, http.StatusForbidden, w.Code)
+		assert.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	})
+
+	t.Run("revoked public share", func(t *testing.T) {
+		revoked := assetShare(AccessModePublic)
+		revoked.Revoked = true
+		w := requestRoute(shareGateHandler(revoked, nil), "/portal/view/tok1", false)
+
+		require.Equal(t, http.StatusGone, w.Code)
+		assert.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	})
+}
+
 // TestPublicContentRouteIsGatedIndependently pins the failure mode #999
 // describes: /content reads S3 without going through the page handler, so a
 // gate applied only to the page would leave the bytes readable.

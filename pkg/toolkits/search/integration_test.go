@@ -80,27 +80,40 @@ func (s *scopedMemoryStore) Get(_ context.Context, id string) (*memory.Record, e
 	return nil, fmt.Errorf("memory record not found: %s: %w", id, memory.ErrRecordNotFound)
 }
 
-// scopedInsightStore returns only insights whose CapturedBy matches the query.
+// scopedInsightStore returns only insights whose CapturedBy matches the query,
+// or, when the query sets Shared, every capturer's applied insights. That is the
+// override the real memory-backed adapter performs in sharedInsightScope: the
+// two predicates move together, so no query reaches across capturers without
+// pinning the applied status.
 type scopedInsightStore struct {
 	insights []knowledgekit.Insight
+}
+
+// visibleTo applies the store's owner scope: the shared arm sees applied
+// insights from anyone, the owner arm sees one capturer's at any status.
+func visibleTo(in knowledgekit.Insight, capturedBy string, shared bool) bool {
+	if shared {
+		return in.Status == knowledgekit.StatusApplied
+	}
+	return in.CapturedBy == capturedBy
 }
 
 func (s *scopedInsightStore) Search(_ context.Context, q knowledgekit.InsightSearchQuery) ([]knowledgekit.ScoredInsight, error) {
 	var out []knowledgekit.ScoredInsight
 	for _, in := range s.insights {
-		if in.CapturedBy == q.CapturedBy {
+		if visibleTo(in, q.CapturedBy, q.Shared) {
 			out = append(out, knowledgekit.ScoredInsight{Insight: in, Score: 0.5})
 		}
 	}
 	return out, nil
 }
 
-// List is the entity-keyed path: insights owned by the caller and linked to the
-// requested URN, mirroring the real adapter's owner + entity_urns filter.
+// List is the entity-keyed path: insights in scope and linked to the requested
+// URN, mirroring the real adapter's owner + entity_urns filter.
 func (s *scopedInsightStore) List(_ context.Context, f knowledgekit.InsightFilter) ([]knowledgekit.Insight, int, error) {
 	var out []knowledgekit.Insight
 	for _, in := range s.insights {
-		if in.CapturedBy != f.CapturedBy {
+		if !visibleTo(in, f.CapturedBy, f.Shared) {
 			continue
 		}
 		if f.EntityURN != "" && !slices.Contains(in.EntityURNs, f.EntityURN) {
@@ -246,7 +259,11 @@ func assembledToolkit() *Toolkit {
 		{ID: "m-alice", CreatedBy: userAEmail, Content: "alice memory", Dimension: memory.DimensionPreference, Status: memory.StatusActive},
 	}}
 	ins := &scopedInsightStore{insights: []knowledgekit.Insight{
+		// Approved but not applied: reviewed, not yet promoted, so still private.
 		{ID: "i-alice", CapturedBy: userAEmail, InsightText: "alice insight", Status: knowledgekit.StatusApproved},
+		// Applied: promoted to a canonical sink, so it is organization knowledge
+		// and reaches every identified caller (#980 B2).
+		{ID: "i-alice-applied", CapturedBy: userAEmail, InsightText: "alice applied insight", Status: knowledgekit.StatusApplied},
 	}}
 	assets := &scopedAssetStore{assets: []portal.Asset{
 		{ID: "a-alice", OwnerID: userAID, Name: "alice asset"},
@@ -541,6 +558,54 @@ func TestAC2_PerUserIsolationBetweenIdentities(t *testing.T) {
 	bRefs := refSet(bOut)
 	if !bRefs["g-catalog"] || !bRefs["g-prompt"] || !bRefs["g-page"] {
 		t.Errorf("user B should see shared content; got refs %v", bRefs)
+	}
+}
+
+// TestAppliedInsightsCrossIdentity is the #980 B2 acceptance test on the real
+// assembled read path: the search tool resolves user B from the platform
+// context, the Router carries that identity into the insights adapter, and user
+// B receives user A's applied insight while everything user A has not promoted
+// stays private. The benchmark measured the missing half of this as a
+// cross-identity transfer gap against a much higher personal-recall rate.
+func TestAppliedInsightsCrossIdentity(t *testing.T) {
+	tk := assembledToolkit()
+
+	bRefs := refSet(callSearch(ctxFor(userBID, userBEmail), t, tk, "anything"))
+	if !bRefs["i-alice-applied"] {
+		t.Errorf("user B did not receive user A's applied insight; got refs %v", bRefs)
+	}
+	if bRefs["i-alice"] {
+		t.Errorf("LEAK: user B received user A's approved-but-unapplied insight; got refs %v", bRefs)
+	}
+
+	// The owner still sees both, and the applied one exactly once: the owner arm
+	// runs first and the shared arm must not re-add it.
+	aHits := hitsOf(callSearch(ctxFor(userAID, userAEmail), t, tk, "anything"))
+	applied := 0
+	for _, h := range aHits {
+		if h.Ref == "i-alice-applied" {
+			applied++
+		}
+	}
+	if applied != 1 {
+		t.Errorf("owner saw their applied insight %d times, want exactly 1", applied)
+	}
+}
+
+// TestFetchAppliedInsightCrossIdentity proves the reference search hands out is
+// dereferenceable by the caller that received it: a search hit whose fetch
+// returned not-found would be a dead citation.
+func TestFetchAppliedInsightCrossIdentity(t *testing.T) {
+	tk := assembledToolkit()
+
+	bRefs := refSet(callSearch(ctxFor(userBID, userBEmail), t, tk, "anything"))
+	if !bRefs["i-alice-applied"] {
+		t.Fatalf("precondition failed: user B did not receive the applied insight; got %v", bRefs)
+	}
+
+	out := callFetch(ctxFor(userBID, userBEmail), t, tk, knowledgepage.InsightRef("i-alice-applied"))
+	if !out.Found || out.Document == nil || out.Document.Body != "alice applied insight" {
+		t.Errorf("fetch of a shared insight returned %+v, want the insight body", out)
 	}
 }
 

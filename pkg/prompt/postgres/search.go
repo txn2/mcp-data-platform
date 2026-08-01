@@ -63,11 +63,14 @@ const (
 	lexicalMatchAbsent  = 0.0
 )
 
-// Search ranks approved prompts by relevance to the query within the caller's
-// visibility. A non-nil q.Embedding selects hybrid (semantic + lexical)
-// ranking; a nil embedding selects the lexical-only fallback used when no
-// embedding provider is configured. Visibility is applied in SQL before
-// ranking, so a prompt the caller cannot read is never returned.
+// Search ranks prompts by relevance to the query within the caller's
+// visibility: everything for admins, approved shared prompts plus every
+// prompt the caller owns for non-admins (see promptVisibilityClause). A
+// non-nil q.Embedding selects
+// hybrid (semantic + lexical) ranking; a nil embedding selects the
+// lexical-only fallback used when no embedding provider is configured.
+// Visibility is applied in SQL before ranking, so a prompt the caller cannot
+// read is never returned.
 func (s *Store) Search(ctx context.Context, q prompt.SearchQuery) ([]prompt.ScoredPrompt, error) {
 	if len(q.Embedding) > 0 {
 		return s.searchHybrid(ctx, q)
@@ -86,7 +89,7 @@ func (s *Store) Search(ctx context.Context, q prompt.SearchQuery) ([]prompt.Scor
 func (s *Store) searchHybrid(ctx context.Context, q prompt.SearchQuery) ([]prompt.ScoredPrompt, error) {
 	limit := q.EffectiveLimit()
 	vis, visArgs, _ := promptVisibilityClause(q, hybridVisibilityStart)
-	base := "status = 'approved' AND enabled = true" + vis
+	base := "enabled = true" + vis
 
 	args := make([]any, 0, 2+len(visArgs))
 	args = append(args, pgvector.NewVector(q.Embedding), q.QueryText)
@@ -155,7 +158,7 @@ func collectHybridScored(rows *sql.Rows) ([]prompt.ScoredPrompt, error) {
 	return scored, nil
 }
 
-// searchLexical ranks visible approved prompts by full-text relevance only. It
+// searchLexical ranks the caller's visible prompts by full-text relevance only. It
 // is the graceful-degradation path used when no embedding provider is available:
 // it has no vector parameter, surfaces NULL-embedding rows, and orders by a
 // length-normalized ts_rank_cd score (lexRankNormalization) so single-match
@@ -167,7 +170,7 @@ func (s *Store) searchLexical(ctx context.Context, q prompt.SearchQuery) ([]prom
 	// normalization bitmask is a sanitized int.
 	query := fmt.Sprintf(
 		"SELECT %s, ts_rank_cd(%s, %s, %d) AS lex_rank "+
-			"FROM prompts WHERE status = 'approved' AND enabled = true "+
+			"FROM prompts WHERE enabled = true "+
 			"AND %s @@ %s%s ORDER BY lex_rank DESC LIMIT %d",
 		promptColumns, promptFTSExpr, promptFTSQueryLexical, lexRankNormalization,
 		promptFTSExpr, promptFTSQueryLexical, vis, q.EffectiveLimit())
@@ -214,9 +217,13 @@ func fuseHybridScore(cosineSim float64, lexMatch bool) float64 {
 
 // promptVisibilityClause builds the SQL fragment (starting with " AND ...") and
 // parameters that restrict ranking to prompts the caller may read, beginning at
-// parameter index startIdx. An admin sees every approved prompt; a non-admin
-// sees global prompts, persona prompts matching q.Persona, and their own
-// personal prompts. An explicit q.Scope narrows the set further for either.
+// parameter index startIdx. Visibility is the same rule the browse surfaces
+// apply (#1124). An admin ranks across everything, any owner and any status
+// (admin browse is unrestricted, so admin search must be too). A non-admin
+// sees approved global prompts, approved persona prompts matching q.Persona,
+// and every prompt they own — any scope, any status: the publication gate
+// applies to other people's shared prompts, never to your own work. An
+// explicit q.Scope narrows the set further for either caller.
 func promptVisibilityClause(q prompt.SearchQuery, startIdx int) (clause string, args []any, nextIdx int) {
 	idx := startIdx
 	var conds []string
@@ -228,8 +235,12 @@ func promptVisibilityClause(q prompt.SearchQuery, startIdx int) (clause string, 
 	}
 
 	if !q.IsAdmin {
+		conds = append(conds, fmt.Sprintf("(status = 'approved' OR owner_email = $%d)", idx))
+		args = append(args, q.OwnerEmail)
+		idx++
+
 		or := []string{"scope = 'global'"}
-		or = append(or, fmt.Sprintf("(scope = 'personal' AND owner_email = $%d)", idx))
+		or = append(or, fmt.Sprintf("owner_email = $%d", idx))
 		args = append(args, q.OwnerEmail)
 		idx++
 		if q.Persona != "" {

@@ -31,7 +31,7 @@ func TestGetUserNil(t *testing.T) {
 
 func TestGetUserFromContext(t *testing.T) {
 	u := &User{UserID: "test", Roles: []string{"analyst"}}
-	ctx := context.WithValue(context.Background(), portalUserKey, u)
+	ctx := ContextWithUser(context.Background(), u)
 	got := GetUser(ctx)
 	require.NotNil(t, got)
 	assert.Equal(t, "test", got.UserID)

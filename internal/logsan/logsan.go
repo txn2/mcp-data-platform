@@ -12,7 +12,10 @@
 // sanitizers here ensures a single behavior that cannot drift.
 package logsan
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // SanitizeForLog strips ASCII control characters (including CR, LF, tab,
 // and DEL) from s so a hostile or malformed value cannot forge log lines
@@ -34,6 +37,29 @@ func SanitizeForLog(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// Excerpt returns at most limit bytes of s, sanitized, with "..." marking a
+// truncation. It is the form every upstream-supplied response body takes
+// before it reaches a log field or an error message: an upstream chooses both
+// the length and the bytes, so the excerpt has to be bounded and stripped in
+// one place rather than at each call site.
+//
+// Sanitizing happens before the cut, because it can lengthen the string:
+// strings.Map re-encodes each byte that is not valid UTF-8 as U+FFFD, three
+// bytes for one. Capping first would leave the caller with up to three times
+// the bound it asked for. The cut then falls back to the nearest rune
+// boundary so a truncated excerpt is still valid UTF-8.
+func Excerpt(s string, limit int) string {
+	s = SanitizeForLog(s)
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 // asciiSpace and asciiDel bound the printable ASCII range: any rune

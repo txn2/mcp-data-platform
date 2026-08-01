@@ -1,5 +1,6 @@
 import { MessageSquare } from "lucide-react";
 import type { KnowledgePage } from "@/api/portal/types";
+import { markdownToPlainText } from "@/lib/markdownText";
 
 export function PageCard({
   page,
@@ -28,7 +29,9 @@ export function PageCard({
         )}
       </span>
       {page.summary && (
-        <span className="mt-1 line-clamp-3 text-sm text-muted-foreground">{page.summary}</span>
+        <span className="mt-1 line-clamp-3 text-sm text-muted-foreground">
+          {markdownToPlainText(page.summary)}
+        </span>
       )}
       {page.tags.length > 0 && (
         <span className="mt-3 flex flex-wrap gap-1">

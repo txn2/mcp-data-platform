@@ -1,5 +1,14 @@
 # MCP Gateway — Live End-to-End Test Report
 
+!!! warning "Working paper — not product documentation"
+    This page is an engineering working paper reflecting what was known on
+    **2026-04-24**. It records a one-off verification run against a
+    then-unmerged branch, including defects found and fixed during that run, and
+    it is not guidance for deploying or operating the platform. Its conclusions
+    may have been superseded by later work. For product documentation, start at
+    the [Overview](../server/overview.md). Papers in this directory are kept as
+    dated records rather than revised in place.
+
 **Date:** 2026-04-24
 **Branch:** `feat/gateway-toolkit-338`
 **Author:** end-to-end live test conducted in response to "all just code and simple unit tests" pushback on the unverified PR.

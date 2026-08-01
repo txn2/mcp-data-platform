@@ -10,9 +10,11 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"go.uber.org/goleak"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/resourceindex"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
-	"github.com/txn2/mcp-data-platform/pkg/resource/resourceindex"
+	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 )
@@ -332,4 +334,51 @@ func TestBootstrapToolsIndex(t *testing.T) {
 
 	// No-op when not wired (no store / no tools store).
 	(&Handle{}).bootstrapToolsIndex(context.Background())
+}
+
+// stubCatalogLister satisfies datasetindex.Lister for registration tests; the
+// registration path never calls it.
+type stubCatalogLister struct{}
+
+func (stubCatalogLister) SearchTables(context.Context, semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	return nil, nil
+}
+
+// The catalog-dataset consumer registers when a real catalog is configured and
+// the index is enabled, and stays out of the registry otherwise — so a
+// deployment with no catalog never sweeps for a corpus that does not exist.
+func TestNew_CatalogDatasetsConsumerGating(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	h := New(Config{
+		DB: db, Embedder: testEmbedder(), ModelName: "m",
+		Consumers:     Consumers{CatalogDatasets: true},
+		CatalogLister: stubCatalogLister{},
+	})
+	if h == nil {
+		t.Fatal("New must return a handle")
+	}
+	if !slices.Contains(h.registry.Kinds(), datasetindex.SourceKind) {
+		t.Errorf("kinds = %v; want the catalog-datasets consumer registered", h.registry.Kinds())
+	}
+
+	// Gated off by config.
+	off := New(Config{DB: db, Embedder: testEmbedder(), ModelName: "m", CatalogLister: stubCatalogLister{}})
+	if slices.Contains(off.registry.Kinds(), datasetindex.SourceKind) {
+		t.Errorf("kinds = %v; catalog datasets must not register when gated off", off.registry.Kinds())
+	}
+
+	// Enabled but no lister (no semantic provider): nothing could enumerate the
+	// corpus, so the consumer stays unregistered rather than failing every sweep.
+	noLister := New(Config{
+		DB: db, Embedder: testEmbedder(), ModelName: "m",
+		Consumers: Consumers{CatalogDatasets: true},
+	})
+	if slices.Contains(noLister.registry.Kinds(), datasetindex.SourceKind) {
+		t.Errorf("kinds = %v; catalog datasets must not register without a lister", noLister.registry.Kinds())
+	}
 }

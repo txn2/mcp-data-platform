@@ -695,8 +695,8 @@ Additional parameters vary by `what` value — see the [mcp-datahub documentatio
 
 | `what` | `action` | Description |
 |--------|----------|-------------|
-| `description` | — | Set entity description |
-| `column_description` | — | Set schema field description |
+| `description` | — | Set entity description from `value` |
+| `column_description` | — | Set schema field description from `value` |
 | `tag` | add/remove | Add or remove a tag |
 | `glossary_term` | add/remove | Add or remove a glossary term |
 | `link` | add/remove | Add or remove a link |

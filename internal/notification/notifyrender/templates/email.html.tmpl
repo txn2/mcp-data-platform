@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Subject}}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f5f7;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7;">
+  <tr>
+    <td align="center" style="padding:32px 16px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:8px;border:1px solid #e2e4e8;">
+        <tr>
+          <td style="padding:24px 32px;border-bottom:1px solid #e2e4e8;">
+            {{if .LogoCID}}<img src="cid:{{.LogoCID}}" alt="{{.Brand.Name}}" height="32" style="display:block;height:32px;width:auto;max-width:220px;border:0;outline:none;text-decoration:none;margin:0 0 12px 0;">{{end}}
+            {{if .Brand.BaseURL}}<a href="{{.Brand.BaseURL}}" style="font-family:Helvetica,Arial,sans-serif;font-size:18px;font-weight:700;color:#1a1d21;text-decoration:none;">{{.Brand.Name}}</a>{{else}}<span style="font-family:Helvetica,Arial,sans-serif;font-size:18px;font-weight:700;color:#1a1d21;">{{.Brand.Name}}</span>{{end}}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px 32px 8px 32px;">
+            <p style="margin:0;font-family:Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;color:#1a1d21;">{{.Heading}}</p>
+          </td>
+        </tr>
+        {{range .Items}}
+        <tr>
+          <td style="padding:12px 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f9fa;border-radius:6px;border:1px solid #e9ebee;">
+              <tr>
+                <td style="padding:16px 20px;">
+                  {{if $.Digest}}<p style="margin:0 0 6px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#1a1d21;">{{.Detail}}</p>{{end}}
+                  {{if .Body}}<p style="margin:0 0 10px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#4a4f57;">{{.Body}}</p>{{end}}
+                  {{if .Message}}<p style="margin:0 0 10px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#4a4f57;font-style:italic;">&ldquo;{{.Message}}&rdquo;</p>{{end}}
+                  {{if .Link}}<a href="{{.Link}}" style="display:inline-block;font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;background-color:#2563eb;border-radius:6px;padding:8px 16px;text-decoration:none;">{{if .LinkText}}{{.LinkText}}{{else}}Open {{if .Title}}&ldquo;{{.Title}}&rdquo;{{else}}in portal{{end}}{{end}}</a>{{end}}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        {{end}}
+        <tr>
+          <td style="padding:20px 32px 28px 32px;">
+            {{if .PrefsURL}}<p style="margin:0;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">You are receiving this because of your notification preferences. <a href="{{.PrefsURL}}" style="color:#2563eb;">Manage preferences</a></p>{{end}}
+            {{if .UnsubURL}}<p style="margin:6px 0 0 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">No account or signed out? <a href="{{.UnsubURL}}" style="color:#2563eb;">Unsubscribe from these emails</a></p>{{end}}
+            {{if or .Brand.TermsURL .Brand.PrivacyURL}}<p style="margin:6px 0 0 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">{{if .Brand.TermsURL}}<a href="{{.Brand.TermsURL}}" style="color:#6b7280;">Terms of Service</a>{{end}}{{if and .Brand.TermsURL .Brand.PrivacyURL}} &middot; {{end}}{{if .Brand.PrivacyURL}}<a href="{{.Brand.PrivacyURL}}" style="color:#6b7280;">Privacy Policy</a>{{end}}</p>{{end}}{{if or .AboutText .SupportContact}}
+            <p style="margin:14px 0 0 0;padding-top:12px;border-top:1px solid #e9ebee;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">{{if .AboutText}}{{.AboutText}}{{end}}{{if and .AboutText .SupportContact}} {{end}}{{if .SupportContact}}Need help? Contact {{if .SupportHref}}<a href="{{.SupportHref}}" style="color:#2563eb;">{{.SupportContact}}</a>{{else}}{{.SupportContact}}{{end}}.{{end}}</p>{{end}}
+          </td>
+        </tr>
+      </table>
+      {{if .Brand.ImplementorName}}
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+        <tr>
+          <td align="center" style="padding:16px;">
+            <p style="margin:0;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#9ca3af;">Provided by {{if .Brand.ImplementorURL}}<a href="{{.Brand.ImplementorURL}}" style="color:#6b7280;">{{.Brand.ImplementorName}}</a>{{else}}{{.Brand.ImplementorName}}{{end}}</p>
+          </td>
+        </tr>
+      </table>
+      {{end}}
+    </td>
+  </tr>
+</table>
+</body>
+</html>

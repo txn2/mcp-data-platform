@@ -21,15 +21,16 @@ server:
 auth:
   allow_anonymous: true
 
-# Single admin persona with full access
+# Single admin persona with full access. A caller whose roles match no persona
+# has no access, so this persona lists the "anonymous" role the allowed-anonymous
+# identity above carries. Access is always something a persona names.
 personas:
   admin:
     display_name: "Developer"
-    roles: ["admin"]
+    roles: ["admin", "anonymous"]
     tools:
       allow: ["*"]
       deny: []
-  default_persona: admin
 
 # Trino connection (matches docker-compose.dev.yml)
 toolkits:

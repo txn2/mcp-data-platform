@@ -217,7 +217,7 @@ func (h *Handler) getPrompt(w http.ResponseWriter, r *http.Request) {
 // createPrompt creates a new prompt.
 //
 // @Summary      Create prompt
-// @Description  Creates a new prompt and registers it with the live MCP server when enabled.
+// @Description  Creates a new prompt and registers it with the live MCP server when enabled. A global or persona prompt created here lands approved, with the creating admin stamped as its approver.
 // @Tags         Prompts
 // @Accept       json
 // @Produce      json
@@ -240,6 +240,11 @@ func (h *Handler) createPrompt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
+
+	// Every caller of the admin API is an admin, and an admin creating a shared
+	// prompt is its approver: it lands approved rather than stuck in draft with
+	// no approve affordance on its own page (#1124).
+	p.ApproveOnAdminCreate(adminUserEmail(r), time.Now().UTC())
 
 	if err := h.deps.PromptStore.Create(r.Context(), p); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create prompt")

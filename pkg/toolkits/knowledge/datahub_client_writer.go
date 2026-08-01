@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/sync/errgroup"
 
@@ -323,23 +324,47 @@ func readAspect[T any](ctx context.Context, w *DataHubClientWriter, entityType, 
 	return parseAspect[T](body)
 }
 
-// parseAspect unmarshals a REST aspect GET response (a {"value": <aspect>} envelope)
-// into *T, returning a zero-valued *T when the aspect is absent (empty or null value).
+// parseAspect unmarshals a REST aspect GET response into *T, returning a
+// zero-valued *T when the aspect is absent (empty or null value).
+//
+// Two envelopes are in play. The OpenAPI v3 endpoint answers {"value": <aspect>};
+// the legacy Rest.li endpoint answers {"version":N,"aspect":{"<FQCN>": <aspect>}},
+// keyed by the aspect's fully-qualified PDL class name. Parsing only the v3 shape
+// made every Rest.li read-modify-write start from an empty merge base, so a write
+// replaced the stored aspect instead of merging into it: column descriptions, tags,
+// and glossary terms written by earlier calls were silently discarded (#1102).
+// Nothing sets APIVersion, so Rest.li is the path every deployment takes.
 func parseAspect[T any](body []byte) (*T, error) {
-	var aspectResp struct {
-		Value json.RawMessage `json:"value"`
+	var envelope struct {
+		Value  json.RawMessage            `json:"value"`
+		Aspect map[string]json.RawMessage `json:"aspect"`
 	}
-	if err := json.Unmarshal(body, &aspectResp); err != nil {
+	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, fmt.Errorf("unmarshal response: %w", err)
 	}
 	out := new(T)
-	if len(aspectResp.Value) == 0 || string(bytes.TrimSpace(aspectResp.Value)) == "null" {
+	value := envelope.Value
+	if isAbsentAspect(value) {
+		// The Rest.li "aspect" object holds exactly one entry; take its value
+		// whatever the class name is.
+		for _, raw := range envelope.Aspect {
+			value = raw
+			break
+		}
+	}
+	if isAbsentAspect(value) {
 		return out, nil
 	}
-	if err := json.Unmarshal(aspectResp.Value, out); err != nil {
+	if err := json.Unmarshal(value, out); err != nil {
 		return nil, fmt.Errorf("unmarshal aspect: %w", err)
 	}
 	return out, nil
+}
+
+// isAbsentAspect reports whether a raw aspect value carries no aspect.
+func isAbsentAspect(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) == 0 || string(trimmed) == "null"
 }
 
 // readEditableSchema reads the current editableSchemaMetadata aspect via REST.
@@ -398,7 +423,10 @@ func (w *DataHubClientWriter) postIngestProposal(ctx context.Context, entityType
 	var err error
 
 	if cfg.APIVersion == dhclient.APIVersionV3 {
-		reqURL = fmt.Sprintf("%s/openapi/v3/entity/%s/%s/%s",
+		// createIfNotExists=false forces UPSERT. DataHub defaults the OpenAPI v3
+		// aspect write to CREATE, which fails once the aspect exists; every write
+		// here is a read-modify-write, so create-only semantics are never wanted.
+		reqURL = fmt.Sprintf("%s/openapi/v3/entity/%s/%s/%s?createIfNotExists=false",
 			base, entityType, url.PathEscape(urn), aspectName)
 		jsonBody, err = json.Marshal(struct {
 			Value any `json:"value"`
@@ -425,7 +453,7 @@ func (w *DataHubClientWriter) postIngestProposal(ctx context.Context, entityType
 		proposal.Proposal.EntityURN = urn
 		proposal.Proposal.ChangeType = "UPSERT"
 		proposal.Proposal.AspectName = aspectName
-		proposal.Proposal.Aspect.Value = string(aspectJSON)
+		proposal.Proposal.Aspect.Value = escapeNonASCII(aspectJSON)
 		proposal.Proposal.Aspect.ContentType = "application/json"
 		jsonBody, err = json.Marshal(proposal)
 	}
@@ -457,6 +485,58 @@ func (w *DataHubClientWriter) postIngestProposal(ctx context.Context, entityType
 		return fmt.Errorf("rest post status %d: %s", resp.StatusCode, truncateBody(body))
 	}
 	return nil
+}
+
+// escapeNonASCII returns the JSON with every non-ASCII rune replaced by its
+// \uXXXX escape. The Rest.li GenericAspect.value field is typed as bytes and
+// encoded Avro-style, admitting U+0000-U+00FF only, so a description carrying a
+// curly quote, an em dash, or an accented name fails ingestProposal validation
+// when sent raw. Non-ASCII bytes in JSON can only occur inside string values, so
+// escaping every non-ASCII rune preserves the document.
+func escapeNonASCII(data []byte) string {
+	if isASCII(data) {
+		return string(data)
+	}
+	var buf strings.Builder
+	buf.Grow(len(data))
+	for i := 0; i < len(data); {
+		r, size := utf8.DecodeRune(data[i:])
+		switch {
+		case r <= maxASCIIRune:
+			_ = buf.WriteByte(data[i])
+		case r <= maxBMPRune:
+			// strings.Builder writes never fail.
+			_, _ = fmt.Fprintf(&buf, `\u%04x`, r)
+		default:
+			// Supplementary plane: emit the UTF-16 surrogate pair.
+			r -= supplementaryBase
+			_, _ = fmt.Fprintf(&buf, `\u%04x\u%04x`,
+				highSurrogateBase+(r>>surrogateShift), lowSurrogateBase+(r&surrogateMask))
+		}
+		i += size
+	}
+	return buf.String()
+}
+
+// UTF-16 escaping bounds used by escapeNonASCII.
+const (
+	maxASCIIRune      = 0x7F
+	maxBMPRune        = 0xFFFF
+	supplementaryBase = 0x10000
+	highSurrogateBase = 0xD800
+	lowSurrogateBase  = 0xDC00
+	surrogateShift    = 10
+	surrogateMask     = 0x3FF
+)
+
+// isASCII reports whether data holds only ASCII bytes.
+func isASCII(data []byte) bool {
+	for _, b := range data {
+		if b > maxASCIIRune {
+			return false
+		}
+	}
+	return true
 }
 
 const maxBodyTruncate = 200

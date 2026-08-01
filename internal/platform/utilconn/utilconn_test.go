@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/utilhandler"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/utilhandler"
 )
 
 type fakeEnqueuer struct {

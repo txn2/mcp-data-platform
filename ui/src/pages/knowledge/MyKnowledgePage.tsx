@@ -13,6 +13,7 @@ import type { Insight, MemoryRecord } from "@/api/portal/types";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { formatEntityUrn } from "@/lib/formatEntityUrn";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { useDebounced } from "@/lib/useDebounced";
 import { SINK_CLASSES, sinkClassLabel } from "@/lib/sinkClass";
 
@@ -135,7 +136,7 @@ function InsightCard({ insight }: { insight: Insight }) {
       )}
       {insight.review_notes && (
         <p className="text-xs text-muted-foreground italic">
-          Review: {insight.review_notes}
+          Review: {markdownToPlainText(insight.review_notes)}
         </p>
       )}
     </div>

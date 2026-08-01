@@ -47,7 +47,7 @@ The viewer provides:
 - **Actions** — Delete, Download, and Share buttons
 - **Owner display** — Shows the asset owner's email address
 
-The Share action opens a dialog to mint a link or a user-scoped share, with an optional expiration, a copy-once token, and a per-link access count. Every share carries an **access mode** that decides who the link opens for:
+The Share action opens a dialog to mint a link or a user-scoped share, with a copy-once token and a per-link access count. A link share takes an optional expiration; a share addressed to a person does not, because it grants that person access until the owner revokes it rather than for a span of time. Every share carries an **access mode** that decides who the link opens for:
 
 | Mode | Who can open the link |
 |---|---|
@@ -57,9 +57,13 @@ The Share action opens a dialog to mint a link or a user-scoped share, with an o
 
 Sharing with a person makes the share `restricted`: the link resolves only for that recipient, signed in, so forwarding the email or the URL grants nothing. The **Share by Link** section mints a link for any signed-in user by default; choosing **Anyone with the link** makes it `public` and shows a warning that the link opens without sign-in. A signed-in user who is not the recipient of a restricted share sees a branded page naming the account they are signed in as, with a sign-out-and-switch action, rather than a generic not-found.
 
-A recipient who opens a non-public share while signed out lands on a branded page with a **Sign in** action that returns them to the shared item after authenticating. When the share names an email address, the same page also offers **Email me a one-time view link** for recipients who have no platform account: a single-use link is emailed to the address the share names (never to an address the visitor types), expires in 15 minutes, and opens a view-only guest session scoped to that one share for the current browsing visit. Guests see the shared item (and, for collection shares, its items) with a "Viewing as guest" indicator; they can download but not edit, even when the share grants Editor, and they never gain portal access. A forwarded or replayed link is dead after its first use, and revoking the share cuts off existing guest sessions immediately. The recipient can request a fresh link for each viewing session, which keeps an email share strictly safer than a public URL. When the address the share names has opted out of notification emails, the same landing page shows a notice with a **Resume notification emails** action, so an opted-out recipient has a way back in without asking the sharer; opting back in takes one deliberate click and restores immediate delivery.
-
 ![Share asset](../images/screenshots/light/user-asset-share-light.webp#only-light)![Share asset](../images/screenshots/dark/user-asset-share-dark.webp#only-dark)
+
+Naming a recipient reveals two more controls. **Notify by email** is checked by default and can be cleared to share quietly — the share is created either way, only the email is suppressed. With notification on, an optional **Message** box attaches a short plain-text note to that email, quoted and attributed to the sharer; it travels only in the notification and is stored nowhere. The note takes text, not markup or links: a link inside a trusted platform email is a phishing vector, so one is refused rather than delivered. Addresses pasted in the `Example User <user@example.com>` form mail clients copy are reduced to the bare address as the field loses focus, so what is stored and mailed is what the sharer sees. See [Email Notifications](notifications.md) for what the recipient receives and how they control it.
+
+![Share with a recipient](../images/screenshots/light/user-asset-share-recipient-light.webp#only-light)![Share with a recipient](../images/screenshots/dark/user-asset-share-recipient-dark.webp#only-dark)
+
+A recipient who opens a non-public share while signed out lands on a branded page with a **Sign in** action that returns them to the shared item after authenticating. When the share names an email address, the same page also offers **Email me a one-time view link** for recipients who have no platform account: a single-use link is emailed to the address the share names (never to an address the visitor types), expires in 15 minutes, and opens a view-only guest session scoped to that one share for the current browsing visit. Guests see the shared item (and, for collection shares, its items) with a "Viewing as guest" indicator; they can download but not edit, even when the share grants Editor, and they never gain portal access. A forwarded or replayed link is dead after its first use, and revoking the share cuts off existing guest sessions immediately. The recipient can request a fresh link for each viewing session, which keeps an email share strictly safer than a public URL. When the address the share names has opted out of notification emails, the same landing page shows a notice with a **Resume notification emails** action, so an opted-out recipient has a way back in without asking the sharer; opting back in takes one deliberate click and restores immediate delivery.
 
 All content types are rendered inline:
 
@@ -143,7 +147,7 @@ An uploaded resource is also **discoverable through `search`**, the front door a
 
 ![Resources](../images/screenshots/light/user-resources-light.webp#only-light)![Resources](../images/screenshots/dark/user-resources-dark.webp#only-dark)
 
-Uploading opens a modal for the file plus its category, display name, description, and tags. The category says how the agent should treat the file and the dialog spells each one out as you pick it: `templates` are layouts a deliverable must be produced in, `playbooks` are procedures to follow rather than summarize, `samples` are examples to pattern-match against, and `references` are documents to consult. A custom category is accepted for anything that fits none of the four.
+Uploading opens a modal for the file plus its category, display name, description, and tags. The category says how the agent should treat the file and the dialog spells each one out as you pick it: `templates` are layouts a deliverable must be produced in, `playbooks` are procedures to follow rather than summarize, `samples` are examples to pattern-match against, and `references` are documents to consult. A custom category is accepted for anything that fits none of the four. The file itself may be any format the library needs — documents, spreadsheets, images, media, archives, CAD exports — apart from executables, which are refused by both extension and MIME type ([Accepted types](content-viewers.md#accepted-types)).
 
 ![Upload resource](../images/screenshots/light/user-resource-upload-light.webp#only-light)![Upload resource](../images/screenshots/dark/user-resource-upload-dark.webp#only-dark)
 
@@ -167,7 +171,7 @@ Opening a resource shows which prompts attach it as reference material. Deleting
 
 Every revision is recorded in **Version history** with its number, who uploaded it, when, and how large it was. Any version can be downloaded, and any prior version can be **restored** — which re-promotes that version's exact bytes as a new head revision rather than rewinding, so the trail stays append-only and the restored content is itself restorable. A restored revision is labeled with the version it came from.
 
-History is bounded: a resource keeps its most recent 10 revisions by default (`resources.managed.max_versions`), and a revision past the cap deletes the oldest version's stored file. The live content is never pruned.
+History is bounded: a resource keeps its most recent 10 revisions by default ([`resources.managed.max_versions`](configuration.md#managed-resources)), and a revision past the cap deletes the oldest version's stored file. The live content is never pruned.
 
 ### Seeing what is actually used
 
@@ -261,7 +265,7 @@ One query returns results grouped by source (catalog, knowledge pages, insights,
 
 ### Catalog
 
-The **Catalog** sub-tab brings the DataHub catalog into the portal: pick a DataHub connection, then browse or search its datasets and open one to see its description, tags, owners, glossary terms, domain, and columns. When your persona grants `datahub_update` and the connection is write-enabled, each metadata facet is editable inline (description, tags, owners, glossary terms, domain); otherwise the view is read-only with no edit controls. Tags, glossary terms, and domains are chosen through name-search pickers: type a display name (e.g. `Reven`) and select **Revenue**, and the URN is resolved for you. Owners are entered as a DataHub user or group URN (`urn:li:corpuser:<name>` or `urn:li:corpGroup:<name>`); an invalid value is rejected with a clearly visible inline error rather than silently failing. DataHub has no dataset create or delete (datasets originate in source systems), so this is metadata editing, not dataset lifecycle. The tab is URL-addressable at `/knowledge/catalog`.
+The **Catalog** sub-tab brings the DataHub catalog into the portal: pick a DataHub connection, then browse or search its datasets and open one to see its description, tags, owners, glossary terms, domain, and columns. When your persona grants `datahub_update` and the connection is write-enabled, each metadata facet is editable inline (description, tags, owners, glossary terms, domain); otherwise the view is read-only with no edit controls. Tags, glossary terms, and domains are chosen through name-search pickers: type a display name (e.g. `Reven`) and select **Revenue**, and the URN is resolved for you. Dataset and column descriptions are markdown: the entity view renders them formatted, and the description editor is the same split source/preview markdown editor used for knowledge pages and prompts. Owners are entered as a DataHub user or group URN (`urn:li:corpuser:<name>` or `urn:li:corpGroup:<name>`); an invalid value is rejected with a clearly visible inline error rather than silently failing. DataHub has no dataset create or delete (datasets originate in source systems), so this is metadata editing, not dataset lifecycle. The tab is URL-addressable at `/knowledge/catalog`.
 
 ### Context Docs
 
@@ -280,7 +284,7 @@ The review pipeline for insights, which are the only memories that cross between
 
 ### Memory
 
-Memory is personal: this tab is scoped to your own records. The only memory that crosses to other users is an insight, reviewed in the Insights tab.
+Memory is personal: this tab is scoped to your own records. The only memory that crosses to other users is an insight, reviewed in the Insights tab, and it crosses when it is applied: applying an insight writes it to a canonical sink and makes it findable by everyone through `search`, attributed to whoever captured it. An insight that is still pending or approved stays yours alone.
 
 - **Your memory** - The raw substrate captured from your sessions, classified by lifecycle **class** (`sink_class`): Preference, Event, Business knowledge, Operational rule, and Schema/entity. The class is why something is "just memory" versus a candidate for promotion
 
@@ -292,7 +296,7 @@ See [Knowledge Capture](../knowledge/overview.md) and [Memory Layer](../memory/o
 
 ## Prompts
 
-Prompts are reusable templates that guide AI agent behavior: the organization's SOP manual for agent-run procedures. The library presents two buckets: **My Prompts** (your personal prompts, plus prompts shared with you, each attributed to its sharer) and **Library** (the approved team prompts visible to you, grouped by collection). Scope and persona mechanics appear only inside the promote and admin flows.
+Prompts are reusable templates that guide AI agent behavior: the organization's SOP manual for agent-run procedures. The library presents two buckets: **My Prompts** (every prompt you own, whatever its scope — shared-scope prompts carry a scope badge — plus prompts shared with you, each attributed to its sharer) and **Library** (the approved team prompts visible to you, grouped by collection). Scope and persona mechanics appear only inside the promote and admin flows.
 
 ![Prompts](../images/screenshots/light/user-prompts-light.webp#only-light)![Prompts](../images/screenshots/dark/user-prompts-dark.webp#only-dark)
 
@@ -314,10 +318,10 @@ Opening a prompt shows its rendered content, arguments, actions (copy, save-as-a
 
 Features:
 
-- **Search**: Type a phrase to rank prompts by relevance to what you mean, not just literal substrings. Results span your prompts and the Library, are ranked best-first, and only include approved shared prompts; prompts shared with you are matched by name and description.
+- **Search**: Type a phrase to rank prompts by relevance to what you mean, not just literal substrings. Results span your prompts and the Library, ranked best-first: your own prompts match at any status, shared prompts once approved; prompts shared with you are matched by name and description.
 - **Collections**: Group prompts by team, domain, or workflow. Any user can create collections (the **Collections** button opens the manager); renaming and deleting are limited to the collection's creator or an admin. A prompt belongs to at most one collection: owners assign their own prompts, admins assign shared prompts, from the picker on the prompt page. Deleting a collection releases its prompts to the General group.
 - **Facets**: Narrow the list by collection, tag, status (My Prompts), owner (Library), and usage (recently used / never or long unused).
-- **Usage columns and sorting**: Every row shows its run count and last-run age, aggregated from prompt-serve audit events. Sort by name, runs, or last run; usage sorts default to most-active-first. Prompts never run, or not run in over 60 days, carry an **inactive** badge so dead prompts are identifiable at a glance.
+- **Usage columns and sorting**: Every row shows its run count and last-run age, aggregated from prompt-serve audit events. Sort by name, runs, or last run; usage sorts default to most-active-first. Dead prompts are flagged with a badge naming the exact condition — **never run**, or **unused 60d+** — and a prompt created within the last week carries no flag while it is still too new to judge.
 - **Status badges**: Lifecycle state on your own prompts: draft (gray), approved (emerald), deprecated (amber), superseded (rose)
 - **Tags**: Free-form, comma-separated labels for organizing prompts, set on create and edit
 - **New Prompt** — Create prompts with name, display name, description, content (supports `{arg}` placeholders), category, and tags
@@ -366,3 +370,13 @@ The **Notifications** section controls [email notifications](notifications.md):
 a delivery mode (Off, Immediate, or Daily digest) and per-category toggles
 for shares, comments/feedback, and mentions. Defaults are immediate delivery
 with all categories enabled; changes save as they are made.
+
+**Recent notifications** sits directly below and shows what the platform has
+actually sent you: the subject, category, and delivery status of each
+notification addressed to your account, newest first. It pairs with the
+preferences above because the two answer one question together — what should
+I be told, and what was I told. It shows recent activity rather than a full
+record: notifications are removed on a retention schedule, and the effective
+window is stated on the panel. A notification that never went out reads
+"Not delivered"; the reason belongs to the platform's mail configuration and
+is shown to admins, not here.

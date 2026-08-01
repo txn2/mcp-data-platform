@@ -70,42 +70,42 @@ whole loop end to end rather than a pre-seeded snapshot of it.
 
 The ablation compares four configurations of the same platform. The
 configurations differ only by configuration profile, not by code path; the
-config surface is the ablation mechanism (`bench/README.md:46`).
+config surface is the ablation mechanism (`bench/docs/knowledge-layer-protocol.md`, "Arms").
 
 | Arm | Name | What the agent is connected to |
 | --- | --- | --- |
-| a0 | raw tools | The underlying data tools directly (`trino_*`, `s3_*`); no semantic provider, no search, all cross-enrichment off (`bench/README.md:51`). |
-| a1 | enrichment | a0 plus semantic cross-enrichment: tool results carry DataHub context automatically, but the agent still has no `search` and no `datahub_*` tools (`bench/README.md:52`). |
-| a2 | knowledge | a1 plus the `search` tool, the search-first gate, and curated knowledge pages (`bench/README.md:53`). |
-| a3 | lifecycle | a2 plus the memory and `apply_knowledge` lifecycle (`bench/README.md:54`). |
+| a0 | raw tools | The underlying data tools directly (`trino_*`, `s3_*`); no semantic provider, no search, all cross-enrichment off (`bench/docs/knowledge-layer-protocol.md`, "Arms"). |
+| a1 | enrichment | a0 plus semantic cross-enrichment: tool results carry DataHub context automatically, but the agent still has no `search` and no `datahub_*` tools (`bench/docs/knowledge-layer-protocol.md`, "Arms"). |
+| a2 | knowledge | a1 plus the `search` tool, the search-first gate, and curated knowledge pages (`bench/docs/knowledge-layer-protocol.md`, "Arms"). |
+| a3 | lifecycle | a2 plus the memory and `apply_knowledge` lifecycle (`bench/docs/knowledge-layer-protocol.md`, "Arms"). |
 
 The arms without a discovery tool (a0, a1) disable the search-first gate, which
-is not persona-aware (`bench/README.md:56`).
+is not persona-aware (`bench/docs/knowledge-layer-protocol.md`, "Arms").
 
 ### 2.2 Task suites
 
-The phase-2 task set is 87 tasks across three suites (`bench/README.md:70`),
+The phase-2 task set is 87 tasks across three suites (`bench/docs/knowledge-layer-protocol.md`, "Seeded ground truth"),
 each run three times per arm, for 261 graded attempts per arm.
 
 - **S1, discovery (17 tasks).** "Which table answers X", graded by entity-alias
-  match. Some tasks are knowledge-dependent (`bench/README.md:72`).
+  match. Some tasks are knowledge-dependent (`bench/docs/knowledge-layer-protocol.md`, "Seeded ground truth").
 - **S2, analytical accuracy (45 tasks).** Exact numeric questions at
   BIRD-style tiers (single-table, join, temporal, cross-tab, top-N); four tasks
   emit SQL graded by execution-result comparison. S2 states monetary units
   explicitly, so it measures query formulation, not the units trap
-  (`bench/README.md:75`).
+  (`bench/docs/knowledge-layer-protocol.md`, "Seeded ground truth").
 - **S3, knowledge traps (25 tasks).** Each task is answerable plausibly but
   wrongly without the knowledge layer, across six seeded trap classes
-  (`bench/README.md:81`):
+  (`bench/docs/knowledge-layer-protocol.md`, "Seeded ground truth"):
 
   | Trap class | The fact the agent must know |
   | --- | --- |
-  | `units_cents` | Monetary columns are integer cents; divide by 100 (`bench/README.md:85`). |
-  | `net_revenue` | Revenue is `amount - discount` over completed orders only; the gross and net leaders differ by construction (`bench/README.md:87`). |
-  | `fiscal_calendar` | The fiscal year runs Feb 1 to Jan 31 (`bench/README.md:90`). |
-  | `freshness_cutoff` | The daily index stops at 2025-11-30; post-cutoff questions must use raw orders (`bench/README.md:92`). |
-  | `tier_boundary` | A "key account" is any plus- or enterprise-tier customer (`bench/README.md:94`). |
-  | `deprecated_table` | `legacy_orders` is a partial, deprecated extract (`bench/README.md:96`). |
+  | `units_cents` | Monetary columns are integer cents; divide by 100 (`bench/docs/knowledge-layer-protocol.md`, "Seeded ground truth"). |
+  | `net_revenue` | Revenue is `amount - discount` over completed orders only; the gross and net leaders differ by construction (`bench/docs/knowledge-layer-protocol.md`, "Seeded ground truth"). |
+  | `fiscal_calendar` | The fiscal year runs Feb 1 to Jan 31 (`bench/docs/knowledge-layer-protocol.md`, "Seeded ground truth"). |
+  | `freshness_cutoff` | The daily index stops at 2025-11-30; post-cutoff questions must use raw orders (`bench/docs/knowledge-layer-protocol.md`, "Seeded ground truth"). |
+  | `tier_boundary` | A "key account" is any plus- or enterprise-tier customer (`bench/docs/knowledge-layer-protocol.md`, "Seeded ground truth"). |
+  | `deprecated_table` | `legacy_orders` is a partial, deprecated extract (`bench/docs/knowledge-layer-protocol.md`, "Seeded ground truth"). |
 
 ### 2.3 Grading
 
@@ -122,7 +122,7 @@ multisets of rows compared by sorted cell values, so column aliasing and row or
 column ordering do not matter (`bench/internal/grade/execsql.go:76`). The
 reference and candidate queries execute through a dedicated admin-credentialed
 session, separate from the attempt's own session, so grading does not perturb
-the attempt's audit accounting (`bench/README.md:152`).
+the attempt's audit accounting (`bench/docs/knowledge-layer-protocol.md`, "Measurement").
 
 A pinned LLM judge (`claude-sonnet-5`, `bench/judge/rubric.yaml:14`) scores only
 the caveat items a deterministic grader cannot: whether an S3 answer carried the
@@ -130,7 +130,7 @@ required caveat that makes it trustworthy (`rubric.yaml:3`). The rubric is
 versioned and ships with a 30-item human-labeled calibration set
 (`bench/judge/calibration.yaml`), and `make bench-calibrate` computes the
 judge's human-agreement rate to be published alongside any judged result
-(`bench/README.md:160`). The S3 accuracy figures in this report are the
+(`bench/docs/knowledge-layer-protocol.md`, "Measurement"). The S3 accuracy figures in this report are the
 deterministic pass rates; the judge governs the separate caveat-quality axis.
 
 ### 2.4 Repeats, pass^k, and confidence intervals
@@ -158,9 +158,9 @@ The search-first gate keys discovery on the authenticated user, not the MCP
 session (`pkg/searchgate/searchgate.go:1`,
 `pkg/middleware/mcp_workflow_gate.go:11`), so every attempt authenticates as its
 own pool identity. The committed pool holds 264 keys, sized to the full phase-2
-task set at `k = 3` (`bench/README.md:124`). The lifecycle suite consumes two
+task set at `k = 3` (`bench/docs/knowledge-layer-protocol.md`, "Measurement"). The lifecycle suite consumes two
 identities per attempt (a teacher and a learner) so discovery scope never leaks
-between them (`bench/README.md:222`).
+between them (`bench/docs/knowledge-layer-protocol.md`, "S5 memory-insight-knowledge lifecycle (#944)").
 
 ### 2.6 Two client paths, never mixed
 
@@ -168,7 +168,7 @@ The ablation and lifecycle suites ran on the Anthropic API adapter; the
 cold-start study ran on the `claude-cli` adapter, which is subscription-funded.
 The two client paths are **not** accuracy-comparable: `claude -p` reinserts its
 own system prompt, tool policy, and retries, which shift across client releases
-(`bench/README.md:590`). The harness records
+(`bench/docs/knowledge-layer-protocol.md`, "claude-cli adapter (subscription, no API key)"). The harness records
 `client_version` and refuses to fold the two into one leaderboard. We follow the
 same rule: the ablation and cold-start results are complementary sub-studies,
 reported separately, and no cross-path accuracy comparison is drawn.
@@ -259,7 +259,7 @@ Adapter `claude-cli`, model `sonnet`, `k = 3`, platform build
 facts are taught one at a time; each captured insight is promoted to a sink (a
 DataHub aspect or a knowledge page), and the fixed 25-task S3 suite is re-run by
 a fresh, never-taught evaluator identity after each promotion. Checkpoint 0 is
-the empty-layer baseline (`bench/README.md:409`).
+the empty-layer baseline (`bench/docs/knowledge-layer-protocol.md`, "Cold-start knowledge growth (#963)").
 
 ### 4.1 The learning curve
 
@@ -418,7 +418,7 @@ matter for interpreting the cold-start trajectories:
    result (`pkg/middleware/memory_enrichment.go`). This delivers DataHub-sink facts, but only
    when the agent is already looking at the anchoring entity.
 2. **Search over knowledge pages.** Promoted knowledge pages are retrievable by
-   the `search` tool (`bench/README.md:53`). This delivers
+   the `search` tool (`bench/docs/knowledge-layer-protocol.md`, "Arms"). This delivers
    page-sink facts to any agent that searches the topic.
 3. **Persona-scoped captured memory.** Captured insights are surfaced through a
    persona-scoped memory channel regardless of which sink they were later
@@ -443,7 +443,7 @@ discovery conditions, which is future work.
 - **Two non-comparable client paths.** The ablation ran on the Anthropic API
   adapter and the cold-start on `claude-cli`. The injected client system prompt
   and per-release retry policy make the two paths non-comparable on absolute
-  accuracy (`bench/README.md:590`). No figure in this report places
+  accuracy (`bench/docs/knowledge-layer-protocol.md`, "claude-cli adapter (subscription, no API key)"). No figure in this report places
   them on one axis; the baseline floors of the two paths (47-48% API-adjacent
   cold-start versus the ablation's a0 that has a different task mix) are not
   compared.
@@ -515,9 +515,9 @@ notebook's recomputed value is a factual-integrity defect to be fixed in the
 prose, never in the data.
 
 To reproduce a cold-start run from scratch (a multi-hour job that mutates a live
-DataHub quickstart), the harness commands are documented in `bench/README.md`
-under the cold-start section; the committed runs above are the artifacts those
-commands produced.
+DataHub quickstart), the harness commands are documented in
+(`bench/docs/knowledge-layer-protocol.md`, "Cold-start knowledge growth (#963)");
+the committed runs above are the artifacts those commands produced.
 
 ## 9. Data availability
 
@@ -588,6 +588,16 @@ citation. Each archived version also carries its own version DOI (the v1.0
 snapshot is [10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045));
 cite a version DOI to pin an exact snapshot. The tagged repository permalink above
 remains valid for the source and the raw data.
+
+### Errata
+
+- **2026-07-29.** The harness citations throughout this report were repointed
+  from line numbers in `bench/README.md` to named sections of
+  `bench/docs/knowledge-layer-protocol.md`, which is where that protocol prose
+  now lives. Line-number targets into a file that keeps changing do not stay
+  valid; section names are checked mechanically by `TestHarnessCitationsResolve`.
+  No statistic, figure, table value, or conclusion changed, so the report
+  version is unchanged at 1.1 and the deposited snapshots are unaffected.
 
 ## 11. Related work
 

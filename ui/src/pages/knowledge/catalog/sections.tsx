@@ -12,6 +12,9 @@ import {
   type CatalogEntity,
   type EntityRef,
 } from "@/api/portal/datahub";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
+import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { useDebounced } from "@/lib/useDebounced";
 import { shortUrn, filterDomains, withRawUrn } from "./utils";
 import {
@@ -85,7 +88,17 @@ export function EntityBody({
                 {columns.map((c) => (
                   <tr key={c.name} className="border-t align-top">
                     <td className="px-3 py-2 font-mono text-xs">{c.name}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{c.description || "—"}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {c.description ? (
+                        // max-width on a <td> is ignored in auto table layout, so
+                        // the description column is bounded on an inner block.
+                        <div className="max-w-md">
+                          <CollapsibleMarkdown content={c.description} fadeFrom="from-background" />
+                        </div>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-3 py-2">
                       <span className="flex flex-wrap gap-1">
                         {c.is_pii && <Badge tone="amber">PII</Badge>}
@@ -138,11 +151,11 @@ function DescriptionEditor({
       </div>
       {editing ? (
         <div className="space-y-2">
-          <textarea
+          <MarkdownEditor
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={4}
-            className="w-full rounded-md border bg-background p-2 text-sm outline-none ring-ring focus:ring-2"
+            onChange={setDraft}
+            minHeight="240px"
+            placeholder="Describe this dataset in markdown…"
           />
           <MutationError mut={mut} />
           <div className="flex gap-2">
@@ -155,8 +168,10 @@ function DescriptionEditor({
             <CancelButton onClick={() => setEditing(false)} />
           </div>
         </div>
+      ) : value ? (
+        <MarkdownRenderer content={value} bare />
       ) : (
-        <p className="whitespace-pre-wrap text-sm text-muted-foreground">{value || "No description."}</p>
+        <p className="text-sm text-muted-foreground">No description.</p>
       )}
     </section>
   );

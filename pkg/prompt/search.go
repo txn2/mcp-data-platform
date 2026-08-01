@@ -43,11 +43,14 @@ func IndexText(p *Prompt) string {
 
 // SearchQuery describes a relevance ranking request over the prompt library.
 // Visibility is applied before ranking (you cannot rank a prompt you cannot
-// read): a non-admin caller sees global prompts, persona prompts matching
-// Persona, and their own personal prompts; an admin sees every approved prompt.
-// Only approved, enabled prompts are ever ranked. A nil Embedding selects
-// lexical-only ranking (the graceful-degradation path when no embedding
-// provider is configured); a non-nil Embedding selects hybrid ranking.
+// read), and it is the same rule the browse surfaces apply (#1124): an admin
+// ranks across everything (any owner, any status); a non-admin ranks over
+// approved global prompts, approved persona prompts matching Persona, and
+// every prompt they own at any scope and status — the publication gate
+// applies to other people's shared prompts, never to your own work. Only
+// enabled prompts are ever ranked. A nil Embedding selects lexical-only
+// ranking (the graceful-degradation path when no embedding provider is
+// configured); a non-nil Embedding selects hybrid ranking.
 type SearchQuery struct {
 	Embedding  []float32 // query vector; nil selects lexical-only ranking
 	QueryText  string    // raw query text for the lexical arm
@@ -73,7 +76,7 @@ type ScoredPrompt struct {
 	Score  float64 `json:"score"`
 }
 
-// Searcher ranks approved prompts by relevance to a query within the caller's
+// Searcher ranks prompts by relevance to a query within the caller's
 // visibility. It is a capability separate from Store: only a backing store that
 // can rank (the PostgreSQL store with pgvector) implements it, so the feature
 // degrades to absent rather than forcing every Store implementation to carry a

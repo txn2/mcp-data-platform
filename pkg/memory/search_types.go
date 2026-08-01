@@ -44,6 +44,11 @@ type HybridQuery struct {
 	ExcludeDimension string
 	Persona          string
 	Status           string
+	// InsightStatus restricts to one exact insight review status; see
+	// Filter.InsightStatus. It is applied in SQL, before the top-k cut, so a
+	// status-restricted search cannot be crowded out by higher-ranking rows of
+	// another status.
+	InsightStatus string
 }
 
 // LexicalQuery defines parameters for lexical-only recall, used as the
@@ -61,6 +66,9 @@ type LexicalQuery struct {
 	ExcludeDimension string
 	Persona          string
 	Status           string
+	// InsightStatus restricts to one exact insight review status; see
+	// HybridQuery.InsightStatus.
+	InsightStatus string
 }
 
 // ScoredRecord pairs a memory record with a similarity score.

@@ -120,7 +120,7 @@ func withAttachments(t *testing.T, links []prompt.Attachment) *Handle {
 	store := newMockPromptStore()
 	h := New(Config{Store: store, AdminPersona: "admin", Registry: registry.NewRegistry()})
 	pr := &prompt.Prompt{
-		ID: "p1", Name: "quarterly-review", Scope: prompt.ScopeGlobal, Enabled: true,
+		ID: "p1", Name: "quarterly-review", Scope: prompt.ScopeGlobal, Enabled: true, Status: prompt.StatusApproved,
 		Description: "Produce the quarterly review", Content: "Write the quarterly review.",
 	}
 	store.prompts["quarterly-review"] = pr
@@ -237,7 +237,7 @@ func TestPromptsGet_WithoutResolverIsUnchanged(t *testing.T) {
 	store := newMockPromptStore()
 	h := New(Config{Store: store, AdminPersona: "admin", Registry: registry.NewRegistry()})
 	store.prompts["quarterly-review"] = &prompt.Prompt{
-		ID: "p1", Name: "quarterly-review", Scope: prompt.ScopeGlobal, Enabled: true,
+		ID: "p1", Name: "quarterly-review", Scope: prompt.ScopeGlobal, Enabled: true, Status: prompt.StatusApproved,
 		Content: "Write the quarterly review.",
 	}
 	res := getPromptThroughServer(t, h)

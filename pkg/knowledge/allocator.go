@@ -44,19 +44,40 @@ type SourceGroup struct {
 // datasets matched, 3 shown"). Matched is the count of candidates the provider
 // returned for this query, capped at the per-source candidate fetch limit, not
 // a full-corpus count.
+//
+// Withheld is the separate, security-shaped gap: candidates that matched the
+// query and were then removed because they belong to a connection the caller's
+// persona may not reach (#1108). It is reported rather than silently subtracted
+// because search tells agents it is the one way to discover: a result set that
+// quietly shortens reads as "this does not exist" and sends the agent off to
+// re-derive it, while a withheld count reads as "present, but not yours to see",
+// which is an actionable state.
 type SourceCoverage struct {
-	Source  string `json:"source"`
-	Matched int    `json:"matched"`
-	Shown   int    `json:"shown"`
+	Source   string `json:"source"`
+	Matched  int    `json:"matched"`
+	Shown    int    `json:"shown"`
+	Withheld int    `json:"withheld,omitempty"`
 }
 
-// sourceState holds one source's normalized candidate list and how many of
-// those candidates the allocator has taken into the display set so far.
+// sourceResult is one provider arm's outcome: the candidates it returned after
+// the connection boundary was applied, and how many that boundary removed. The
+// withheld count travels beside the hits (rather than being derivable from them)
+// because a source can be filtered down to nothing and must still report why.
+type sourceResult struct {
+	source   string
+	hits     []Hit
+	withheld int
+}
+
+// sourceState holds one source's normalized candidate list, how many of those
+// candidates the allocator has taken into the display set so far, and the count
+// the connection boundary removed before allocation.
 type sourceState struct {
-	source  string
-	cands   []Hit // normalized to [0,1], sorted by descending score
-	matched int
-	taken   int
+	source   string
+	cands    []Hit // normalized to [0,1], sorted by descending score
+	matched  int
+	taken    int
+	withheld int
 }
 
 // allocate turns each provider's locally-scored candidate list into a balanced,
@@ -79,9 +100,12 @@ type sourceState struct {
 //
 // Coverage is reported for every source that returned at least one candidate,
 // including sources squeezed out of the display set (Shown == 0), because that
-// is exactly the breadth signal the agent would otherwise miss.
-func allocate(perProvider [][]Hit, budget int) ([]SourceGroup, []SourceCoverage) {
-	states := buildStates(perProvider)
+// is exactly the breadth signal the agent would otherwise miss. A source whose
+// every candidate was withheld by the connection boundary is reported too, with
+// Matched 0 and a non-zero Withheld: that is the difference between "nothing
+// matched" and "matches you may not see".
+func allocate(results []sourceResult, budget int) ([]SourceGroup, []SourceCoverage) {
+	states := buildStates(results)
 	if len(states) == 0 {
 		return nil, nil
 	}
@@ -95,33 +119,48 @@ func allocate(perProvider [][]Hit, budget int) ([]SourceGroup, []SourceCoverage)
 	return groupsFrom(states), coverageFrom(states)
 }
 
-// buildStates normalizes each non-empty provider candidate list, sorts it by
-// descending score, and orders the sources deterministically: by their top
-// candidate's score, then by source name. (After per-source min-max the top is
-// 1.0 for every source, so this is effectively source-name order; keeping the
-// score comparison makes the priority explicit if normalization ever changes.)
-func buildStates(perProvider [][]Hit) []*sourceState {
-	states := make([]*sourceState, 0, len(perProvider))
-	for _, hits := range perProvider {
-		if len(hits) == 0 {
+// buildStates normalizes each provider's candidate list, sorts it by descending
+// score, and orders the sources deterministically: by their top candidate's
+// score, then by source name. (After per-source min-max the top is 1.0 for every
+// source, so this is effectively source-name order; keeping the score comparison
+// makes the priority explicit if normalization ever changes.) A result with no
+// candidates still becomes a state when the connection boundary withheld some,
+// so coverage can report the withheld count; it sorts last (no top score) and
+// contributes no display slots.
+func buildStates(results []sourceResult) []*sourceState {
+	states := make([]*sourceState, 0, len(results))
+	for _, r := range results {
+		if len(r.hits) == 0 && r.withheld == 0 {
 			continue
 		}
-		norm := normalizeProvider(hits)
+		norm := normalizeProvider(r.hits)
 		sort.SliceStable(norm, func(i, j int) bool {
 			if norm[i].Score != norm[j].Score {
 				return norm[i].Score > norm[j].Score
 			}
 			return norm[i].Ref < norm[j].Ref
 		})
-		states = append(states, &sourceState{source: norm[0].Source, cands: norm, matched: len(norm)})
+		states = append(states, &sourceState{
+			source: r.source, cands: norm, matched: len(norm), withheld: r.withheld,
+		})
 	}
 	sort.SliceStable(states, func(i, j int) bool {
-		if states[i].cands[0].Score != states[j].cands[0].Score {
-			return states[i].cands[0].Score > states[j].cands[0].Score
+		if topScore(states[i]) != topScore(states[j]) {
+			return topScore(states[i]) > topScore(states[j])
 		}
 		return states[i].source < states[j].source
 	})
 	return states
+}
+
+// topScore is a state's leading candidate score, or -1 when it has no candidates
+// (a source the connection boundary emptied), which sorts it below every source
+// that returned something.
+func topScore(s *sourceState) float64 {
+	if len(s.cands) == 0 {
+		return -1
+	}
+	return s.cands[0].Score
 }
 
 // fillFloors gives each source floorPerSource display slots in priority order,
@@ -220,14 +259,18 @@ func groupsFrom(states []*sourceState) []SourceGroup {
 	return groups
 }
 
-// coverageFrom reports matched and shown counts for every source that returned
-// candidates, ordered by matched desc then source name. Sources squeezed out of
-// the display set (Shown == 0) are included on purpose: their match counts are
-// the breadth signal that keeps the agent from tunneling.
+// coverageFrom reports matched, shown, and withheld counts for every source that
+// returned candidates or had candidates withheld, ordered by matched desc then
+// source name. Sources squeezed out of the display set (Shown == 0) are included
+// on purpose: their match counts are the breadth signal that keeps the agent
+// from tunneling, and their withheld counts are what turns an absent source into
+// an explainable one.
 func coverageFrom(states []*sourceState) []SourceCoverage {
 	cov := make([]SourceCoverage, 0, len(states))
 	for _, s := range states {
-		cov = append(cov, SourceCoverage{Source: s.source, Matched: s.matched, Shown: s.taken})
+		cov = append(cov, SourceCoverage{
+			Source: s.source, Matched: s.matched, Shown: s.taken, Withheld: s.withheld,
+		})
 	}
 	sort.SliceStable(cov, func(i, j int) bool {
 		if cov[i].Matched != cov[j].Matched {

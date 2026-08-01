@@ -289,6 +289,7 @@ func TestSetConfigEntry(t *testing.T) {
 	t.Run("sets whitelisted key", func(t *testing.T) {
 		cs := &mockConfigStore{mode: "database"}
 		cfg := testConfig()
+		cfg.BindOverrideStore(cs)
 		h := NewHandler(Deps{ConfigStore: cs, Config: cfg}, nil)
 
 		body := `{"value":"My Platform"}`
@@ -299,8 +300,9 @@ func TestSetConfigEntry(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, 1, cs.setCalls)
-		// Verify hot-reload applied
-		assert.Equal(t, "My Platform", cfg.Server.Description)
+		// The saved value is what every replica now reads: the platform
+		// resolves the key from the store rather than from a local copy.
+		assert.Equal(t, "My Platform", cfg.ServerDescription(context.Background()))
 	})
 
 	t.Run("rejects non-whitelisted key", func(t *testing.T) {
@@ -339,7 +341,8 @@ func TestDeleteConfigEntry(t *testing.T) {
 			},
 		}
 		cfg := testConfig()
-		cfg.Server.Description = "overridden"
+		cfg.Server.Description = "file-default"
+		cfg.BindOverrideStore(cs)
 		h := NewHandler(Deps{
 			ConfigStore:  cs,
 			Config:       cfg,
@@ -352,8 +355,9 @@ func TestDeleteConfigEntry(t *testing.T) {
 		h.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusNoContent, w.Code)
-		// Should revert to file default
-		assert.Equal(t, "file-default", cfg.Server.Description)
+		// Removing the row is the revert: the next read falls through to
+		// the file default with no in-memory bookkeeping.
+		assert.Equal(t, "file-default", cfg.ServerDescription(context.Background()))
 	})
 
 	t.Run("returns 404 for missing entry", func(t *testing.T) {
@@ -807,6 +811,7 @@ func TestSetConfigEntry_ToolDescriptionOverride(t *testing.T) {
 	makeHandler := func() (*Handler, *platform.Config, *mockConfigStore) {
 		cs := &mockConfigStore{mode: "database"}
 		cfg := testConfig()
+		cfg.BindOverrideStore(cs)
 		reg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
 				{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
@@ -816,7 +821,7 @@ func TestSetConfigEntry_ToolDescriptionOverride(t *testing.T) {
 		return h, cfg, cs
 	}
 
-	t.Run("accepts tool.<known>.description and applies hot-reload", func(t *testing.T) {
+	t.Run("accepts tool.<known>.description and serves it on the next read", func(t *testing.T) {
 		h, cfg, cs := makeHandler()
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
 			"/api/v1/admin/config/entries/tool.trino_query.description",
@@ -827,8 +832,8 @@ func TestSetConfigEntry_ToolDescriptionOverride(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, 1, cs.setCalls)
-		require.NotNil(t, cfg.Tools.DescriptionOverrides)
-		assert.Equal(t, "custom desc", cfg.Tools.DescriptionOverrides["trino_query"])
+		assert.Equal(t, "custom desc",
+			cfg.ToolDescriptionOverridesSnapshot(context.Background())["trino_query"])
 	})
 
 	t.Run("rejects tool.<unknown>.description", func(t *testing.T) {
@@ -863,6 +868,7 @@ func TestSetConfigEntry_ToolDescriptionOverride(t *testing.T) {
 		// The whitelist must still accept their description-override keys.
 		cs := &mockConfigStore{mode: "database"}
 		cfg := testConfig()
+		cfg.BindOverrideStore(cs)
 		h := NewHandler(Deps{
 			ConfigStore: cs,
 			Config:      cfg,
@@ -881,7 +887,8 @@ func TestSetConfigEntry_ToolDescriptionOverride(t *testing.T) {
 		h.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Equal(t, "custom", cfg.Tools.DescriptionOverrides["platform_info"])
+		assert.Equal(t, "custom",
+			cfg.ToolDescriptionOverridesSnapshot(context.Background())["platform_info"])
 	})
 }
 
@@ -893,7 +900,7 @@ func TestDeleteConfigEntry_ToolDescriptionOverride(t *testing.T) {
 		},
 	}
 	cfg := testConfig()
-	cfg.Tools.DescriptionOverrides = map[string]string{"trino_query": "old"}
+	cfg.BindOverrideStore(cs)
 	reg := &mockToolkitRegistry{
 		allResult: []mockToolkit{
 			{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
@@ -908,8 +915,8 @@ func TestDeleteConfigEntry_ToolDescriptionOverride(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
-	_, exists := cfg.Tools.DescriptionOverrides["trino_query"]
-	assert.False(t, exists, "override should be removed from live config after delete")
+	_, exists := cfg.ToolDescriptionOverridesSnapshot(context.Background())["trino_query"]
+	assert.False(t, exists, "override should be gone from the next read after delete")
 }
 
 func TestExtractToolNameFromDescriptionKey(t *testing.T) {

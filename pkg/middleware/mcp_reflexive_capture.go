@@ -110,7 +110,7 @@ func (cfg ReflexiveCaptureConfig) observe(req mcp.Request, result mcp.Result, pc
 	if sql == "" {
 		return
 	}
-	refs := ExtractTablesFromSQL(sql)
+	refs := extractTablesFromSQL(sql)
 	if len(refs) == 0 {
 		return // must concern a physical dataset, not a table-less expression
 	}
@@ -145,7 +145,7 @@ func (cfg ReflexiveCaptureConfig) recordFailure(sessionID, sql, connection strin
 
 // resolveFailure pairs a successful query with the single best-matching prior
 // failure on the same connection and dispatches the correction asynchronously.
-func (cfg ReflexiveCaptureConfig) resolveFailure(pc *PlatformContext, connection, successSQL string, refs []TableRef) {
+func (cfg ReflexiveCaptureConfig) resolveFailure(pc *PlatformContext, connection, successSQL string, refs []tableRef) {
 	failed := cfg.Tracker.TakeResolved(pc.SessionID, connection, meaningfulIdentifiers(successSQL), normalizeSQLText(successSQL))
 	if failed == nil {
 		return
@@ -176,7 +176,7 @@ func (cfg ReflexiveCaptureConfig) resolveFailure(pc *PlatformContext, connection
 // buildCorrection assembles the CorrectionCapture for a failure/fix pair. Entity
 // URNs are keyed with the SUCCESS query's connection and tables (the corrected,
 // physically-real dataset), not the failed query's.
-func (cfg ReflexiveCaptureConfig) buildCorrection(pc *PlatformContext, failed FailedQuery, connection, successSQL string, refs []TableRef) CorrectionCapture {
+func (cfg ReflexiveCaptureConfig) buildCorrection(pc *PlatformContext, failed FailedQuery, connection, successSQL string, refs []tableRef) CorrectionCapture {
 	return CorrectionCapture{
 		SinkClass:  memstore.SinkSchemaEntity,
 		Category:   memstore.CategoryCorrection,
@@ -195,7 +195,7 @@ func (cfg ReflexiveCaptureConfig) buildCorrection(pc *PlatformContext, failed Fa
 // entityURNs builds best-effort dataset URNs for the fully-qualified tables in
 // refs, capped at the record limit. Returns nil when no builder is wired or no
 // ref carries a catalog+schema+table triple.
-func (cfg ReflexiveCaptureConfig) entityURNs(connection string, refs []TableRef) []string {
+func (cfg ReflexiveCaptureConfig) entityURNs(connection string, refs []tableRef) []string {
 	if cfg.URNBuilder == nil {
 		return nil
 	}
@@ -292,7 +292,7 @@ var sqlKeywords = map[string]bool{
 // (columns, tables, functions), lexed and lowercased, with SQL keywords removed.
 // Used to score how related a successful query is to a prior failure.
 func meaningfulIdentifiers(sql string) map[string]struct{} {
-	ids := ExtractIdentifiers(sql)
+	ids := extractIdentifiers(sql)
 	out := make(map[string]struct{}, len(ids))
 	for id := range ids {
 		if sqlKeywords[id] {

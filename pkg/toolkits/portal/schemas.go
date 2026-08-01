@@ -48,7 +48,7 @@ var saveAssetSchema = json.RawMessage(`{
     },
     "content_type": {
       "type": "string",
-      "description": "MIME type: text/html, text/jsx, image/svg+xml, text/markdown, application/json, text/csv"
+      "description": "MIME type the asset is stored under. One of: application/json, application/octet-stream, application/sql, application/x-ndjson, application/xml, application/yaml, image/svg+xml, text/css, text/csv, text/html, text/javascript, text/jsx, text/markdown, text/plain, text/tab-separated-values, text/x-python. Anything else is refused: content arrives here as a string, so binary families (PDF, images, audio, video) belong in a managed resource instead."
     },
     "description": {
       "type": "string",
@@ -103,7 +103,7 @@ var manageAssetSchemaBase = json.RawMessage(`{
     },
     "content_type": {
       "type": "string",
-      "description": "New content type (for update action, only when replacing content)"
+      "description": "New content type (for update action, only when replacing content). Accepts the same types as save_asset; omit it to keep the type the asset already carries."
     },
     "change_summary": {
       "type": "string",

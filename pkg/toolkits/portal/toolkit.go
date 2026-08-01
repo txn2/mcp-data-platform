@@ -460,8 +460,13 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 
 	// A generic declaration (text/plain, application/octet-stream) is replaced
 	// by the type detected from the content itself, so an agent that saved a
-	// JSON payload under a catch-all type still lands in the JSON viewer.
+	// JSON payload under a catch-all type still lands in the JSON viewer. The
+	// resolved type is checked as well as the declared one: detection over
+	// caller bytes is the other way a type reaches the store.
 	contentType := portal.ResolveContentType(input.ContentType, []byte(input.Content))
+	if err := portal.ValidateContentType(contentType); err != nil {
+		return toolkit.ErrorResult(err.Error()), nil, nil
+	}
 	s3Key := t.buildS3Key(userID, assetID, contentType)
 
 	if t.s3Client == nil {
@@ -712,6 +717,9 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 	// megabytes, so converting per call site would copy it twice.
 	data := []byte(content)
 	ct := portal.ResolveContentType(declared, data)
+	if err := portal.ValidateContentTypeChange(asset.ContentType, ct); err != nil {
+		return 0, fmt.Errorf("content type: %w", err)
+	}
 
 	versionID, err := generateID()
 	if err != nil {

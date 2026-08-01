@@ -4,18 +4,18 @@ import (
 	"net/http"
 	"slices"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
-	"github.com/txn2/mcp-data-platform/pkg/prompt/attachhttp"
-	"github.com/txn2/mcp-data-platform/pkg/prompt/versionhttp"
 )
 
 // This file holds the unit-testable identity adapters for the prompt
 // version-history / review / usage REST surface (#1009). The handlers live in
-// pkg/prompt/versionhttp (outside pkg/admin and pkg/portal, which sit at the
+// internal/httpserver/versionhttp (outside pkg/admin and pkg/portal, which sit at the
 // package-size budget); the mount functions live in dbmounts.go because their
 // bodies only run against a live Postgres (the versioning capability exists
 // only on the database-backed prompt store).
@@ -88,7 +88,14 @@ func adminAttachmentIdentity(pr *persona.Registry, adminPersona string) func(r *
 		if u == nil {
 			return nil
 		}
-		claims := buildResourceClaims(&portal.User{UserID: u.UserID, Email: adminEmail(r), Roles: u.Roles}, pr, adminPersona)
+		// buildResourceClaims refuses a caller belonging to no persona. It cannot
+		// happen here — admin.RequirePersona already resolved this caller to the
+		// admin persona — so a refusal means the surface was mounted without that
+		// gate, and no identity is the safe answer.
+		claims, err := buildResourceClaims(&portal.User{UserID: u.UserID, Email: adminEmail(r), Roles: u.Roles}, pr, adminPersona)
+		if err != nil {
+			return nil
+		}
 		claims.IsAdmin = true
 		return claims
 	}
@@ -103,6 +110,13 @@ func portalAttachmentIdentity(pr *persona.Registry, adminPersona string) func(r 
 		if user == nil {
 			return nil
 		}
-		return buildResourceClaims(user, pr, adminPersona)
+		// A caller belonging to no persona has no identity here. The portal's
+		// persona gate already refuses them before this runs; this is the second
+		// line of defense if these routes are ever mounted without it.
+		claims, err := buildResourceClaims(user, pr, adminPersona)
+		if err != nil {
+			return nil
+		}
+		return claims
 	}
 }

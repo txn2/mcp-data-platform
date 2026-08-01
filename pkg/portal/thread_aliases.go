@@ -1,11 +1,16 @@
 package portal
 
 // The thread data layer (types, Postgres store, filters, constants) lives in the
-// pkg/portal/threads sub-package; the HTTP handlers that drive it stay here in
-// portal (they are welded to the shared User/auth/HTTP foundation). These
-// aliases re-export the moved symbols under their original portal names so the
-// handlers and their tests compile unchanged. Decomposition gate (#594): keeping
-// the bulk data layer out of the portal package holds it under its size budget.
+// pkg/portal/threads sub-package, and the HTTP handlers that drive it live in
+// internal/portal/feedbackapi. These aliases bind the moved symbols to their
+// original portal names so out-of-package callers — the manage_feedback MCP
+// toolkit, the platform feedback bridge, the notification delivery bridge —
+// compile unchanged.
+//
+// An alias is exported only where a caller outside pkg/portal names it; the rest
+// are lowercase, because an exported alias with no external caller widens the
+// package's public API for nothing (#1077). Reach for threads.X directly rather
+// than adding an exported alias here.
 
 import "github.com/txn2/mcp-data-platform/pkg/portal/threads"
 
@@ -30,20 +35,10 @@ type ThreadStore = threads.ThreadStore
 // ValidationResponse is re-exported from pkg/portal/threads.
 type ValidationResponse = threads.ValidationResponse
 
-// Thread data-layer constructors and helpers.
+// Thread data-layer constructors.
 var (
-	NewPostgresThreadStore     = threads.NewPostgresThreadStore
-	NewThreadEventID           = threads.NewThreadEventID
-	newThreadID                = threads.NewThreadID
-	ValidThreadKind            = threads.ValidThreadKind
-	ValidThreadStatus          = threads.ValidThreadStatus
-	ValidThreadValidationState = threads.ValidThreadValidationState
-	deriveFirstEventType       = threads.DeriveFirstEventType
-)
-
-const (
-	defaultThreadLimit = threads.DefaultThreadLimit
-	maxThreadLimit     = threads.MaxThreadLimit
+	NewPostgresThreadStore = threads.NewPostgresThreadStore
+	NewThreadEventID       = threads.NewThreadEventID
 )
 
 // Thread kinds.
@@ -52,37 +47,19 @@ const (
 	ThreadKindQuestion   = threads.ThreadKindQuestion
 	ThreadKindCorrection = threads.ThreadKindCorrection
 	ThreadKindRating     = threads.ThreadKindRating
-	ThreadKindApproval   = threads.ThreadKindApproval
-	ThreadKindRejection  = threads.ThreadKindRejection
-	ThreadKindSuggestion = threads.ThreadKindSuggestion
 )
 
-// Thread statuses.
-const (
-	ThreadStatusOpen         = threads.ThreadStatusOpen
-	ThreadStatusAnswered     = threads.ThreadStatusAnswered
-	ThreadStatusResolved     = threads.ThreadStatusResolved
-	ThreadStatusWontFix      = threads.ThreadStatusWontFix
-	ThreadStatusAcknowledged = threads.ThreadStatusAcknowledged
-)
+// ThreadStatusResolved is re-exported from pkg/portal/threads.
+const ThreadStatusResolved = threads.ThreadStatusResolved
 
 // Thread event types.
 const (
-	EventTypeComment           = threads.EventTypeComment
-	EventTypeStatusChange      = threads.EventTypeStatusChange
-	EventTypeResolution        = threads.EventTypeResolution
-	EventTypeRating            = threads.EventTypeRating
-	EventTypeApproval          = threads.EventTypeApproval
-	EventTypeRejection         = threads.EventTypeRejection
-	EventTypeValidationRequest = threads.EventTypeValidationRequest
-	EventTypeValidationResult  = threads.EventTypeValidationResult
-	EventTypeInsightLinked     = threads.EventTypeInsightLinked
-	EventTypeChangesetLinked   = threads.EventTypeChangesetLinked
+	EventTypeComment       = threads.EventTypeComment
+	EventTypeInsightLinked = threads.EventTypeInsightLinked
 )
 
 // Validation states.
 const (
-	ValidationStateNone      = threads.ValidationStateNone
 	ValidationStatePending   = threads.ValidationStatePending
 	ValidationStateValidated = threads.ValidationStateValidated
 	ValidationStateDisputed  = threads.ValidationStateDisputed

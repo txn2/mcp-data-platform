@@ -19,9 +19,8 @@ import type {
   SharedAsset,
   PaginatedResponse,
   ShareResponse,
-  SharePermission,
-  ShareAccessMode,
   ScoredAsset,
+  CreateShareBody,
 } from "../types";
 
 // Re-exported so existing importers (assets.test.ts and page components) keep
@@ -270,16 +269,7 @@ export function useCreateShare() {
     mutationFn: ({
       assetId,
       ...body
-    }: {
-      assetId: string;
-      expires_in?: string;
-      shared_with_user_id?: string;
-      shared_with_email?: string;
-      hide_expiration?: boolean;
-      notice_text?: string;
-      permission?: SharePermission;
-      access_mode?: ShareAccessMode;
-    }) =>
+    }: CreateShareBody & { assetId: string }) =>
       apiFetch<ShareResponse>(`/assets/${assetId}/shares`, {
         method: "POST",
         body: JSON.stringify(body),

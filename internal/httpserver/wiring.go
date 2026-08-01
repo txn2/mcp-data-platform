@@ -9,6 +9,7 @@ import (
 
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/sources"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -16,7 +17,6 @@ import (
 	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/sources"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 

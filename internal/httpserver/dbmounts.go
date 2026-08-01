@@ -20,16 +20,16 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
-	"github.com/txn2/mcp-data-platform/pkg/portal/mentionhttp"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
-	"github.com/txn2/mcp-data-platform/pkg/prompt/attachhttp"
-	"github.com/txn2/mcp-data-platform/pkg/prompt/versionhttp"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -104,12 +104,19 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	// is present on this path (checked at the top of this function).
 	deps.ShareGuest = newShareGuestService(p, notify, p.PortalShareStore(), p.DB())
 
-	handler := portal.NewHandler(deps, portal.RequirePortalAuth(portalAuth))
+	// Authentication proves identity; the gate decides access. Every
+	// authenticated portal route runs through both, so an account the IdP will
+	// issue a token for but no persona claims reaches nothing. The public
+	// share viewer under /portal/view/ is deliberately outside this chain —
+	// Handler.ServeHTTP routes it to its own unauthenticated mux.
+	wrap := portalAuthChain(portalAuth, portalAccessGate(p, deps.PersonaResolver))
+
+	handler := portal.NewHandler(deps, wrap)
 	mux.Handle("/api/v1/portal/", handler)
 	mux.Handle("/portal/view/", handler)
-	mountPromptVersionPortalAPI(mux, p, portal.RequirePortalAuth(portalAuth), adminRoles)
-	mountMentionAPI(mux, p, portal.RequirePortalAuth(portalAuth), adminRoles)
-	log.Println("Portal API enabled on /api/v1/portal/")
+	mountPromptVersionPortalAPI(mux, p, wrap, adminRoles)
+	mountMentionAPI(mux, p, wrap, adminRoles)
+	log.Println("Portal API enabled on /api/v1/portal/ (persona required)")
 	return nil
 }
 
@@ -212,7 +219,7 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 		if user == nil {
 			return nil, errors.New("authentication required")
 		}
-		return buildResourceClaims(user, pr, adminPersona), nil
+		return buildResourceClaims(user, pr, adminPersona)
 	}
 
 	deps := resource.Deps{

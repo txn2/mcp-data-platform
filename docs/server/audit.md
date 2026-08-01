@@ -106,7 +106,7 @@ Tools on this platform are reachable through three entry points, all of which fi
 | `rest` | Gateway REST shim at `POST /api/v1/gateway/{connection}/invoke` | Apache NiFi, cronjobs, integrations, anything HTTP that wraps the platform |
 | `admin` | Admin REST API tool execution at `POST /api/v1/admin/tools/call` | Portal UI "test this tool" buttons, ops scripts |
 
-Both the gateway REST shim (`pkg/gatewayhttp/handler.go`) and the admin tool runner (`pkg/admin/tools.go`) open an in-memory MCP session against the assembled server and call the same `api_invoke_endpoint` (or other) tool that an agent would call. The handlers tag the context with `middleware.WithSource` before opening that session so the audit middleware records the originating caller class, not just "mcp".
+Both the gateway REST shim (`internal/httpserver/gatewayhttp/handler.go`) and the admin tool runner (`pkg/admin/tools.go`) open an in-memory MCP session against the assembled server and call the same `api_invoke_endpoint` (or other) tool that an agent would call. The handlers tag the context with `middleware.WithSource` before opening that session so the audit middleware records the originating caller class, not just "mcp".
 
 For an admin-source run the tool-call middleware additionally mints a distinct **portal session ID** (`dpp_` prefix) per request. A portal run drives a fresh in-memory session with no transport session ID, so without this it would record an empty `session_id` and its search-first gate, provenance, and dedup state would key on the operating admin's own user scope, letting a portal "test this tool" run pollute that operator's live agent session. The portal ID keeps portal runs attributable and isolated, and (like the gateway REST shim) they are exempt from the search-first and `SESSION_REQUIRED` gates, so a portal run of a query tool always executes.
 
@@ -361,7 +361,7 @@ Auth/Authz -> Audit -> Rules -> Enrichment -> Tool Handler
 
 1. **MCPToolCallMiddleware** (outermost) authenticates the user, resolves the persona, looks up toolkit metadata, and stores everything in a `PlatformContext` on the request context.
 2. **MCPAuditMiddleware** (inner to auth) receives the context with `PlatformContext` already set. It records the start time, calls the next handler, measures duration, then reads all fields from `PlatformContext` to build the audit event.
-3. The audit event is written **asynchronously** in a goroutine to avoid blocking the tool response. If the database write fails, the error is logged via `slog.Error` but the tool call still succeeds.
+3. The audit event is handed to the writer selected by `audit.delivery` (see [Delivery semantics](#delivery-semantics)). In the default `async` mode it is placed on a bounded in-memory queue that a single background goroutine drains, so the tool response is never blocked by store latency; a graceful shutdown drains that queue (bounded by a 10s deadline) before the store and database are closed. In `sync` mode it is written on the request goroutine. In either mode a failed store write is logged via `slog.Error` and counted in `audit_events_dropped_total`, and the tool call still succeeds.
 
 Unauthorized requests are rejected by MCPToolCallMiddleware before reaching the audit middleware, so they are not logged. Only authenticated, authorized tool calls appear in audit logs.
 

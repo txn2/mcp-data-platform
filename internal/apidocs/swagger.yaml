@@ -223,81 +223,6 @@ definitions:
       baseline:
         type: string
     type: object
-  admin.auditEventResponse:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/audit.Event'
-        type: array
-      page:
-        example: 1
-        type: integer
-      per_page:
-        example: 50
-        type: integer
-      total:
-        example: 196
-        type: integer
-    type: object
-  admin.auditFiltersResponse:
-    properties:
-      event_kinds:
-        example:
-        - mcp_tool_call
-        - apigateway_invoke
-        items:
-          type: string
-        type: array
-      sources:
-        example:
-        - mcp
-        - rest
-        - admin
-        items:
-          type: string
-        type: array
-      toolkit_kinds:
-        example:
-        - api
-        - datahub
-        - trino
-        - s3
-        - memory
-        items:
-          type: string
-        type: array
-      tools:
-        example:
-        - trino_query
-        - datahub_search
-        - s3_list_objects
-        items:
-          type: string
-        type: array
-      user_labels:
-        additionalProperties:
-          type: string
-        type: object
-      users:
-        example:
-        - marcus.johnson@example.com
-        - lisa.chang@example.com
-        items:
-          type: string
-        type: array
-    type: object
-  admin.auditStatsResponse:
-    properties:
-      failures:
-        example: 77
-        type: integer
-      success:
-        example: 1423
-        type: integer
-      total:
-        example: 1500
-        type: integer
-    type: object
   admin.authKeyCreateRequest:
     properties:
       description:
@@ -356,29 +281,6 @@ definitions:
         example: 3
         type: integer
     type: object
-  admin.catalogResponse:
-    properties:
-      created_at:
-        type: string
-      created_by:
-        type: string
-      description:
-        type: string
-      display_name:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      ref_count:
-        type: integer
-      spec_count:
-        type: integer
-      updated_at:
-        type: string
-      version:
-        type: string
-    type: object
   admin.changelogListResponse:
     properties:
       entries:
@@ -403,17 +305,6 @@ definitions:
       total:
         example: 8
         type: integer
-    type: object
-  admin.cloneCatalogRequest:
-    properties:
-      display_name:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      version:
-        type: string
     type: object
   admin.configModeResponse:
     properties:
@@ -459,41 +350,6 @@ definitions:
       total:
         example: 5
         type: integer
-    type: object
-  admin.connectionOAuthHealthSummary:
-    properties:
-      has_oauth:
-        type: boolean
-      idp_error_code:
-        type: string
-      kind:
-        type: string
-      name:
-        type: string
-      needs_reauth:
-        type: boolean
-      token_acquired:
-        type: boolean
-    type: object
-  admin.connectionsOAuthHealthResponse:
-    properties:
-      connections:
-        items:
-          $ref: '#/definitions/admin.connectionOAuthHealthSummary'
-        type: array
-    type: object
-  admin.createCatalogRequest:
-    properties:
-      description:
-        type: string
-      display_name:
-        type: string
-      id:
-        type: string
-      name:
-        type: string
-      version:
-        type: string
     type: object
   admin.dismissRequest:
     properties:
@@ -584,21 +440,6 @@ definitions:
         type: array
       updated_at:
         type: string
-    type: object
-  admin.embeddingHealthResponse:
-    properties:
-      catalog_id:
-        type: string
-      specs_failed:
-        type: integer
-      specs_indexed:
-        type: integer
-      specs_pending:
-        type: integer
-      specs_running:
-        type: integer
-      specs_total:
-        type: integer
     type: object
   admin.embeddingProviderStatusResponse:
     properties:
@@ -1009,113 +850,6 @@ definitions:
         example: Production data warehouse
         type: string
     type: object
-  admin.specListResponse:
-    properties:
-      specs:
-        items:
-          $ref: '#/definitions/admin.specResponse'
-        type: array
-    type: object
-  admin.specResponse:
-    properties:
-      base_path:
-        type: string
-      content:
-        type: string
-      created_at:
-        type: string
-      description:
-        type: string
-      embedding_attempts:
-        description: |-
-          EmbeddingAttempts is the most recent job's attempt count.
-          Rendered as "running (attempt N)" while in flight, useful
-          for operators trying to gauge whether a slow provider is
-          just slow or stuck retrying.
-        type: integer
-      embedding_count:
-        description: |-
-          EmbeddingCount is the count of persisted operation embedding
-          rows for this (catalog, spec). Equal to OperationCount when
-          the queue has fully drained for the spec; less while a job
-          is in flight or after a partial failure.
-        type: integer
-      embedding_last_error:
-        description: |-
-          EmbeddingLastError is the most recent job's last_error
-          column. Non-empty only when the most recent job failed or
-          is on a retry; rendered in a tooltip / detail row so the
-          operator can see "provider returned 502" without grepping
-          pod logs.
-        type: string
-      embedding_status:
-        description: |-
-          EmbeddingStatus reflects the most recent embedding job's
-          terminal or in-flight state: "" when no job has ever run
-          for the spec, "pending" while queued, "running" while a
-          worker is processing it, "succeeded" when current, "failed"
-          when retries are exhausted. The portal uses this for the
-          per-spec badge text and color.
-        type: string
-      etag:
-        type: string
-      last_fetched_at:
-        type: string
-      operation_count:
-        description: |-
-          OperationCount is the number of operations the spec content
-          parses to. Stored alongside the spec on every write so the
-          portal can render "N/M indexed" without re-parsing the
-          content on the client.
-        type: integer
-      source_kind:
-        type: string
-      source_url:
-        type: string
-      spec_name:
-        type: string
-      title:
-        description: |-
-          Title and Description are the operator-set per-spec summary
-          overrides. Empty means "derive from the spec's info.title /
-          info.description". See catalog.NormalizeSpecTitle /
-          NormalizeSpecDescription for the validation rules.
-        type: string
-      updated_at:
-        type: string
-    type: object
-  admin.startConnectionOAuthRequest:
-    properties:
-      return_url:
-        type: string
-    type: object
-  admin.startConnectionOAuthResponse:
-    properties:
-      authorization_url:
-        type: string
-      expires_at:
-        type: string
-      redirect_uri:
-        type: string
-      state:
-        type: string
-    type: object
-  admin.startGatewayOAuthRequest:
-    properties:
-      return_url:
-        type: string
-    type: object
-  admin.startGatewayOAuthResponse:
-    properties:
-      authorization_url:
-        type: string
-      expires_at:
-        type: string
-      redirect_uri:
-        type: string
-      state:
-        type: string
-    type: object
   admin.statusResponse:
     properties:
       status:
@@ -1343,32 +1077,6 @@ definitions:
         type: boolean
       tool_name:
         example: trino_admin_kill
-        type: string
-    type: object
-  admin.updateCatalogRequest:
-    properties:
-      description:
-        type: string
-      display_name:
-        type: string
-      name:
-        type: string
-      version:
-        type: string
-    type: object
-  admin.upsertCatalogSpecRequest:
-    properties:
-      base_path:
-        type: string
-      content:
-        type: string
-      description:
-        type: string
-      source_kind:
-        type: string
-      source_url:
-        type: string
-      title:
         type: string
     type: object
   admin.userCreateRequest:
@@ -1754,6 +1462,81 @@ definitions:
         example: 11
         type: integer
     type: object
+  auditapi.auditEventResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/audit.Event'
+        type: array
+      page:
+        example: 1
+        type: integer
+      per_page:
+        example: 50
+        type: integer
+      total:
+        example: 196
+        type: integer
+    type: object
+  auditapi.auditFiltersResponse:
+    properties:
+      event_kinds:
+        example:
+        - mcp_tool_call
+        - apigateway_invoke
+        items:
+          type: string
+        type: array
+      sources:
+        example:
+        - mcp
+        - rest
+        - admin
+        items:
+          type: string
+        type: array
+      toolkit_kinds:
+        example:
+        - api
+        - datahub
+        - trino
+        - s3
+        - memory
+        items:
+          type: string
+        type: array
+      tools:
+        example:
+        - trino_query
+        - datahub_search
+        - s3_list_objects
+        items:
+          type: string
+        type: array
+      user_labels:
+        additionalProperties:
+          type: string
+        type: object
+      users:
+        example:
+        - marcus.johnson@example.com
+        - lisa.chang@example.com
+        items:
+          type: string
+        type: array
+    type: object
+  auditapi.auditStatsResponse:
+    properties:
+      failures:
+        example: 77
+        type: integer
+      success:
+        example: 1423
+        type: integer
+      total:
+        example: 1500
+        type: integer
+    type: object
   auth.APIKeySummary:
     properties:
       description:
@@ -1848,6 +1631,169 @@ definitions:
     - TypeRefreshRotationPersistenceFailed
     - TypeTokenDeletedRevoked
     - TypeTokenDeletedAdmin
+  catalogapi.catalogResponse:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      ref_count:
+        type: integer
+      spec_count:
+        type: integer
+      updated_at:
+        type: string
+      version:
+        type: string
+    type: object
+  catalogapi.cloneCatalogRequest:
+    properties:
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  catalogapi.createCatalogRequest:
+    properties:
+      description:
+        type: string
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  catalogapi.embeddingHealthResponse:
+    properties:
+      catalog_id:
+        type: string
+      specs_failed:
+        type: integer
+      specs_indexed:
+        type: integer
+      specs_pending:
+        type: integer
+      specs_running:
+        type: integer
+      specs_total:
+        type: integer
+    type: object
+  catalogapi.specListResponse:
+    properties:
+      specs:
+        items:
+          $ref: '#/definitions/catalogapi.specResponse'
+        type: array
+    type: object
+  catalogapi.specResponse:
+    properties:
+      base_path:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      embedding_attempts:
+        description: |-
+          EmbeddingAttempts is the most recent job's attempt count.
+          Rendered as "running (attempt N)" while in flight, useful
+          for operators trying to gauge whether a slow provider is
+          just slow or stuck retrying.
+        type: integer
+      embedding_count:
+        description: |-
+          EmbeddingCount is the count of persisted operation embedding
+          rows for this (catalog, spec). Equal to OperationCount when
+          the queue has fully drained for the spec; less while a job
+          is in flight or after a partial failure.
+        type: integer
+      embedding_last_error:
+        description: |-
+          EmbeddingLastError is the most recent job's last_error
+          column. Non-empty only when the most recent job failed or
+          is on a retry; rendered in a tooltip / detail row so the
+          operator can see "provider returned 502" without grepping
+          pod logs.
+        type: string
+      embedding_status:
+        description: |-
+          EmbeddingStatus reflects the most recent embedding job's
+          terminal or in-flight state: "" when no job has ever run
+          for the spec, "pending" while queued, "running" while a
+          worker is processing it, "succeeded" when current, "failed"
+          when retries are exhausted. The portal uses this for the
+          per-spec badge text and color.
+        type: string
+      etag:
+        type: string
+      last_fetched_at:
+        type: string
+      operation_count:
+        description: |-
+          OperationCount is the number of operations the spec content
+          parses to. Stored alongside the spec on every write so the
+          portal can render "N/M indexed" without re-parsing the
+          content on the client.
+        type: integer
+      source_kind:
+        type: string
+      source_url:
+        type: string
+      spec_name:
+        type: string
+      title:
+        description: |-
+          Title and Description are the operator-set per-spec summary
+          overrides. Empty means "derive from the spec's info.title /
+          info.description". See catalog.NormalizeSpecTitle /
+          NormalizeSpecDescription for the validation rules.
+        type: string
+      updated_at:
+        type: string
+    type: object
+  catalogapi.updateCatalogRequest:
+    properties:
+      description:
+        type: string
+      display_name:
+        type: string
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  catalogapi.upsertCatalogSpecRequest:
+    properties:
+      base_path:
+        type: string
+      content:
+        type: string
+      description:
+        type: string
+      source_kind:
+        type: string
+      source_url:
+        type: string
+      title:
+        type: string
+    type: object
   configstore.ChangelogEntry:
     properties:
       action:
@@ -1997,6 +1943,60 @@ definitions:
           `refresh_expired`, or the generic `revoked` fallback).
         type: string
     type: object
+  connoauthapi.connectionOAuthHealthSummary:
+    properties:
+      has_oauth:
+        type: boolean
+      idp_error_code:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      needs_reauth:
+        type: boolean
+      token_acquired:
+        type: boolean
+    type: object
+  connoauthapi.connectionsOAuthHealthResponse:
+    properties:
+      connections:
+        items:
+          $ref: '#/definitions/connoauthapi.connectionOAuthHealthSummary'
+        type: array
+    type: object
+  connoauthapi.startConnectionOAuthRequest:
+    properties:
+      return_url:
+        type: string
+    type: object
+  connoauthapi.startConnectionOAuthResponse:
+    properties:
+      authorization_url:
+        type: string
+      expires_at:
+        type: string
+      redirect_uri:
+        type: string
+      state:
+        type: string
+    type: object
+  connoauthapi.startGatewayOAuthRequest:
+    properties:
+      return_url:
+        type: string
+    type: object
+  connoauthapi.startGatewayOAuthResponse:
+    properties:
+      authorization_url:
+        type: string
+      expires_at:
+        type: string
+      redirect_uri:
+        type: string
+      state:
+        type: string
+    type: object
   enrichment.Action:
     properties:
       operation:
@@ -2062,6 +2062,129 @@ definitions:
         type: string
       when_predicate:
         $ref: '#/definitions/enrichment.Predicate'
+    type: object
+  feedbackapi.appendEventRequest:
+    properties:
+      body:
+        type: string
+      event_type:
+        type: string
+      parent_event_id:
+        type: string
+      rating:
+        type: integer
+    type: object
+  feedbackapi.captureInsightRequest:
+    properties:
+      category:
+        type: string
+      confidence:
+        type: string
+      content:
+        type: string
+      entity_urns:
+        items:
+          type: string
+        type: array
+      sink_class:
+        type: string
+    type: object
+  feedbackapi.captureInsightResponse:
+    properties:
+      insight_id:
+        type: string
+      linked:
+        type: boolean
+      status:
+        type: string
+    type: object
+  feedbackapi.createThreadRequest:
+    properties:
+      anchor:
+        type: object
+      asset_id:
+        type: string
+      body:
+        type: string
+      collection_id:
+        type: string
+      kind:
+        type: string
+      knowledge_page_id:
+        type: string
+      prompt_id:
+        type: string
+      rating:
+        type: integer
+      requires_resolution:
+        type: boolean
+      target_type:
+        type: string
+      target_version:
+        type: integer
+      title:
+        type: string
+    type: object
+  feedbackapi.pagedResponse:
+    properties:
+      data: {}
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      total:
+        example: 42
+        type: integer
+    type: object
+  feedbackapi.respondValidationRequest:
+    properties:
+      reason:
+        type: string
+      result:
+        description: validated | disputed
+        type: string
+    type: object
+  feedbackapi.signoffSummary:
+    properties:
+      signed_off:
+        type: integer
+      stakeholders:
+        type: integer
+    type: object
+  feedbackapi.threadChainChangeset:
+    properties:
+      change_type:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      rolled_back:
+        type: boolean
+      target_urn:
+        type: string
+    type: object
+  feedbackapi.threadChainResponse:
+    properties:
+      changesets:
+        items:
+          $ref: '#/definitions/feedbackapi.threadChainChangeset'
+        type: array
+      insight_id:
+        type: string
+      thread_id:
+        type: string
+    type: object
+  feedbackapi.updateThreadRequest:
+    properties:
+      requires_resolution:
+        type: boolean
+      status:
+        type: string
+      validation_state:
+        type: string
     type: object
   gateway.ConnectionStatus:
     properties:
@@ -2171,6 +2294,27 @@ definitions:
           Usage is the audit-derived read activity of this resource. It is not a
           stored column: the detail read fills it from the audit rollup, and it is
           absent everywhere the rollup was not consulted.
+    type: object
+  httpjson.ProblemDetail:
+    properties:
+      detail:
+        example: resource not found
+        type: string
+      status:
+        example: 404
+        type: integer
+      title:
+        example: Not Found
+        type: string
+      type:
+        example: about:blank
+        type: string
+    type: object
+  httpjson.StatusResponse:
+    properties:
+      status:
+        example: ok
+        type: string
     type: object
   knowledge.Changeset:
     properties:
@@ -2536,7 +2680,130 @@ definitions:
         example: 42
         type: integer
     type: object
-  notification.PrefsRequest:
+  notifyapi.notificationListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/notifyapi.notificationRow'
+        type: array
+      page:
+        example: 1
+        type: integer
+      per_page:
+        example: 50
+        type: integer
+      total:
+        example: 196
+        type: integer
+    type: object
+  notifyapi.notificationRow:
+    properties:
+      actor:
+        example: alice@example.com
+        type: string
+      attempts:
+        example: 5
+        type: integer
+      category:
+        example: share
+        type: string
+      created_at:
+        type: string
+      digest:
+        example: false
+        type: boolean
+      id:
+        example: 4211
+        type: integer
+      item_title:
+        example: Q3 Revenue
+        type: string
+      last_error:
+        example: 'dial tcp: connection refused'
+        type: string
+      link:
+        example: https://platform.example.com/portal/assets/a1
+        type: string
+      recipient:
+        example: bob@example.com
+        type: string
+      scheduled_for:
+        type: string
+      sent_at:
+        type: string
+      status:
+        example: failed
+        type: string
+      subject:
+        example: alice@example.com shared the asset "Q3 Revenue" with you
+        type: string
+    type: object
+  notifyapi.notificationStatsResponse:
+    properties:
+      failed:
+        example: 7
+        type: integer
+      pending:
+        example: 3
+        type: integer
+      retention_days:
+        description: |-
+          RetentionDays is how long a resolved row survives before the worker
+          purges it. Zero means the deployment did not report a window.
+        example: 30
+        type: integer
+      sending:
+        example: 1
+        type: integer
+      sent:
+        example: 842
+        type: integer
+      total:
+        example: 853
+        type: integer
+    type: object
+  notifyhttp.HistoryItem:
+    properties:
+      actor:
+        type: string
+      category:
+        type: string
+      created_at:
+        type: string
+      digest:
+        type: boolean
+      id:
+        type: integer
+      item_title:
+        type: string
+      link:
+        type: string
+      sent_at:
+        type: string
+      status:
+        type: string
+      subject:
+        type: string
+    type: object
+  notifyhttp.HistoryResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/notifyhttp.HistoryItem'
+        type: array
+      page:
+        type: integer
+      per_page:
+        type: integer
+      retention_days:
+        description: |-
+          RetentionDays is the window this history covers. Zero means the
+          deployment did not report one.
+        type: integer
+      total:
+        type: integer
+    type: object
+  notifyhttp.PrefsRequest:
     properties:
       comments_enabled:
         type: boolean
@@ -2547,9 +2814,16 @@ definitions:
       shares_enabled:
         type: boolean
     type: object
-  notification.PrefsResponse:
+  notifyhttp.PrefsResponse:
     properties:
       comments_enabled:
+        type: boolean
+      delivery_available:
+        description: |-
+          DeliveryAvailable reports whether the platform currently has an SMTP
+          path that could deliver these notifications. False means stored
+          preferences describe an intent nothing can act on: triggers keep
+          queueing rows and those rows expire undelivered.
         type: boolean
       mentions_enabled:
         type: boolean
@@ -2557,71 +2831,6 @@ definitions:
         type: string
       shares_enabled:
         type: boolean
-    type: object
-  notification.SMTPSettingsInput:
-    properties:
-      enabled:
-        example: true
-        type: boolean
-      from:
-        example: platform@example.com
-        type: string
-      from_name:
-        example: Data Platform
-        type: string
-      host:
-        example: smtp.example.com
-        type: string
-      password:
-        example: app-password
-        type: string
-      port:
-        example: 587
-        type: integer
-      tls_mode:
-        example: starttls
-        type: string
-      username:
-        example: mailer@example.com
-        type: string
-    type: object
-  notification.SMTPSettingsView:
-    properties:
-      enabled:
-        example: true
-        type: boolean
-      from:
-        example: platform@example.com
-        type: string
-      from_name:
-        example: Data Platform
-        type: string
-      host:
-        example: smtp.example.com
-        type: string
-      password_set:
-        example: true
-        type: boolean
-      port:
-        example: 587
-        type: integer
-      tls_mode:
-        example: starttls
-        type: string
-      updated_at:
-        type: string
-      updated_by:
-        example: admin@example.com
-        type: string
-      username:
-        example: mailer@example.com
-        type: string
-    type: object
-  notification.TestEmailRequest:
-    properties:
-      to:
-        example: admin@example.com
-        type: string
     type: object
   persona.AccessSource:
     enum:
@@ -2658,7 +2867,7 @@ definitions:
     properties:
       collections:
         items:
-          $ref: '#/definitions/portal.AssetCollectionRef'
+          $ref: '#/definitions/portaldomain.AssetCollectionRef'
         type: array
       content_type:
         example: text/html
@@ -2689,7 +2898,7 @@ definitions:
         example: 550e8400-e29b-41d4-a716-446655440000
         type: string
       provenance:
-        $ref: '#/definitions/portal.Provenance'
+        $ref: '#/definitions/portaldomain.Provenance'
       s3_bucket:
         example: portal-assets
         type: string
@@ -2718,15 +2927,6 @@ definitions:
         example: assets/01HK7R8Z/thumb.png
         type: string
       updated_at:
-        type: string
-    type: object
-  portal.AssetCollectionRef:
-    properties:
-      id:
-        example: col_01HK7R8Z
-        type: string
-      name:
-        example: Q4 Performance Review
         type: string
     type: object
   portal.AssetVersion:
@@ -2761,134 +2961,6 @@ definitions:
         example: 2
         type: integer
     type: object
-  portal.Collection:
-    properties:
-      asset_tags:
-        items:
-          type: string
-        type: array
-      config:
-        $ref: '#/definitions/portal.CollectionConfig'
-      created_at:
-        type: string
-      deleted_at:
-        type: string
-      description:
-        example: Executive collection with revenue dashboards
-        type: string
-      id:
-        example: col_01HK7R8Z
-        type: string
-      name:
-        example: Q4 Performance Review
-        type: string
-      owner_email:
-        example: alice@example.com
-        type: string
-      owner_id:
-        example: 550e8400-e29b-41d4-a716-446655440000
-        type: string
-      sections:
-        items:
-          $ref: '#/definitions/portal.CollectionSection'
-        type: array
-      thumbnail_s3_key:
-        type: string
-      updated_at:
-        type: string
-    type: object
-  portal.CollectionConfig:
-    properties:
-      thumbnail_size:
-        description: '"large", "medium", "small", "none"'
-        example: medium
-        type: string
-    type: object
-  portal.CollectionItem:
-    properties:
-      asset_content_type:
-        example: text/html
-        type: string
-      asset_description:
-        example: Interactive revenue breakdown
-        type: string
-      asset_id:
-        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
-        type: string
-      asset_name:
-        example: Q4 Revenue Dashboard
-        type: string
-      asset_thumbnail_s3_key:
-        type: string
-      created_at:
-        type: string
-      id:
-        example: item_01HK7R9D
-        type: string
-      position:
-        example: 0
-        type: integer
-      section_id:
-        example: sec_01HK7R9C
-        type: string
-    type: object
-  portal.CollectionSection:
-    properties:
-      collection_id:
-        example: col_01HK7R8Z
-        type: string
-      created_at:
-        type: string
-      description:
-        example: High-level revenue and KPI snapshots
-        type: string
-      id:
-        example: sec_01HK7R9C
-        type: string
-      items:
-        items:
-          $ref: '#/definitions/portal.CollectionItem'
-        type: array
-      position:
-        example: 0
-        type: integer
-      title:
-        example: Overview
-        type: string
-    type: object
-  portal.Provenance:
-    properties:
-      declared_content_type:
-        description: |-
-          DeclaredContentType is the media type the writer declared, recorded only
-          when detection replaced it. It is the audit trail for a reclassified
-          asset: it answers "what did the upstream actually say" without which a
-          stored type that disagrees with the source is unexplainable.
-        example: text/plain
-        type: string
-      session_id:
-        example: sess_abc123
-        type: string
-      tool_calls:
-        items:
-          $ref: '#/definitions/portal.ProvenanceToolCall'
-        type: array
-      user_id:
-        example: 550e8400-e29b-41d4-a716-446655440000
-        type: string
-    type: object
-  portal.ProvenanceToolCall:
-    properties:
-      parameters:
-        additionalProperties: {}
-        type: object
-      timestamp:
-        example: "2026-04-15T14:30:00Z"
-        type: string
-      tool_name:
-        example: trino_query
-        type: string
-    type: object
   portal.SearchCoverage:
     properties:
       matched:
@@ -2897,6 +2969,8 @@ definitions:
         type: integer
       source:
         type: string
+      withheld:
+        type: integer
     type: object
   portal.SearchGroup:
     properties:
@@ -2933,7 +3007,7 @@ definitions:
         type: integer
       access_mode:
         allOf:
-        - $ref: '#/definitions/portal.ShareAccessMode'
+        - $ref: '#/definitions/portaldomain.ShareAccessMode'
         example: restricted
       asset_id:
         example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
@@ -2960,11 +3034,11 @@ definitions:
         type: string
       origin:
         allOf:
-        - $ref: '#/definitions/portal.ShareOrigin'
+        - $ref: '#/definitions/portaldomain.ShareOrigin'
         example: explicit
       permission:
         allOf:
-        - $ref: '#/definitions/portal.SharePermission'
+        - $ref: '#/definitions/portaldomain.SharePermission'
         example: viewer
       prompt_id:
         type: string
@@ -2980,32 +3054,6 @@ definitions:
         example: tk_a1b2c3d4e5f6
         type: string
     type: object
-  portal.ShareAccessMode:
-    enum:
-    - restricted
-    - authenticated
-    - public
-    type: string
-    x-enum-varnames:
-    - ModeRestricted
-    - ModeAuthenticated
-    - ModePublic
-  portal.ShareOrigin:
-    enum:
-    - explicit
-    - public_link_login
-    type: string
-    x-enum-varnames:
-    - OriginExplicit
-    - OriginPublicLinkLogin
-  portal.SharePermission:
-    enum:
-    - viewer
-    - editor
-    type: string
-    x-enum-varnames:
-    - PermissionViewer
-    - PermissionEditor
   portal.ShareSummary:
     properties:
       has_public_link:
@@ -3018,10 +3066,10 @@ definitions:
   portal.SharedCollection:
     properties:
       collection:
-        $ref: '#/definitions/portal.Collection'
+        $ref: '#/definitions/portaldomain.Collection'
       permission:
         allOf:
-        - $ref: '#/definitions/portal.SharePermission'
+        - $ref: '#/definitions/portaldomain.SharePermission'
         example: viewer
       share_id:
         example: share_01HK7R9E
@@ -3035,7 +3083,7 @@ definitions:
   portal.SharedPrompt:
     properties:
       permission:
-        $ref: '#/definitions/portal.SharePermission'
+        $ref: '#/definitions/portaldomain.SharePermission'
       prompt:
         $ref: '#/definitions/prompt.Prompt'
       share_id:
@@ -3045,94 +3093,11 @@ definitions:
       shared_by:
         type: string
     type: object
-  portal.Thread:
-    properties:
-      anchor:
-        type: object
-      asset_id:
-        type: string
-      author_email:
-        example: sme@example.com
-        type: string
-      author_id:
-        type: string
-      collection_id:
-        type: string
-      created_at:
-        type: string
-      deleted_at:
-        type: string
-      id:
-        example: thr_01HK7R8Z
-        type: string
-      insight_id:
-        type: string
-      kind:
-        example: correction
-        type: string
-      knowledge_page_id:
-        type: string
-      prompt_id:
-        type: string
-      requires_resolution:
-        type: boolean
-      status:
-        example: open
-        type: string
-      target_type:
-        example: asset
-        type: string
-      target_version:
-        type: integer
-      title:
-        type: string
-      updated_at:
-        type: string
-      validation_state:
-        example: none
-        type: string
-    type: object
-  portal.ThreadEvent:
-    properties:
-      author_email:
-        type: string
-      author_id:
-        type: string
-      body:
-        type: string
-      created_at:
-        type: string
-      event_type:
-        example: comment
-        type: string
-      id:
-        example: evt_01HK7R8Z
-        type: string
-      metadata:
-        type: object
-      parent_event_id:
-        type: string
-      rating:
-        type: integer
-      thread_id:
-        type: string
-    type: object
-  portal.appendEventRequest:
-    properties:
-      body:
-        type: string
-      event_type:
-        type: string
-      parent_event_id:
-        type: string
-      rating:
-        type: integer
-    type: object
   portal.assetResponse:
     properties:
       collections:
         items:
-          $ref: '#/definitions/portal.AssetCollectionRef'
+          $ref: '#/definitions/portaldomain.AssetCollectionRef'
         type: array
       content_type:
         example: text/html
@@ -3166,7 +3131,7 @@ definitions:
         example: 550e8400-e29b-41d4-a716-446655440000
         type: string
       provenance:
-        $ref: '#/definitions/portal.Provenance'
+        $ref: '#/definitions/portaldomain.Provenance'
       s3_bucket:
         example: portal-assets
         type: string
@@ -3178,7 +3143,7 @@ definitions:
         type: string
       share_permission:
         allOf:
-        - $ref: '#/definitions/portal.SharePermission'
+        - $ref: '#/definitions/portaldomain.SharePermission'
         example: viewer
       size_bytes:
         example: 4200
@@ -3207,30 +3172,6 @@ definitions:
         items:
           $ref: '#/definitions/knowledgepage.PageRef'
         type: array
-    type: object
-  portal.captureInsightRequest:
-    properties:
-      category:
-        type: string
-      confidence:
-        type: string
-      content:
-        type: string
-      entity_urns:
-        items:
-          type: string
-        type: array
-      sink_class:
-        type: string
-    type: object
-  portal.captureInsightResponse:
-    properties:
-      insight_id:
-        type: string
-      linked:
-        type: boolean
-      status:
-        type: string
     type: object
   portal.createAssetRequest:
     properties:
@@ -3270,16 +3211,37 @@ definitions:
         example: restricted
         type: string
       expires_in:
-        description: duration string, e.g. "24h"
+        description: |-
+          ExpiresIn is a duration string ("24h") bounding a link share's life. It
+          applies to link shares only: a share addressed to a person is access
+          granted to that person and is revoked, not timed out.
         example: 24h
         type: string
       hide_expiration:
         example: false
         type: boolean
+      message:
+        description: |-
+          Message is an optional plain-text note from the sharer, delivered in the
+          notification email and stored nowhere. Markup and links are rejected
+          (ValidateShareMessage) whatever the share's shape, so a malformed note
+          is reported rather than silently dropped; a note on a share that sends
+          no email is accepted and then goes nowhere.
+        example: Here's the Q3 revenue breakdown you asked about
+        type: string
       notice_text:
         description: nil = default, "" = hidden, custom = as-is
         example: Confidential
         type: string
+      notify:
+        description: |-
+          Notify controls whether a named recipient gets a "shared with you"
+          email. nil (omitted) means notify -- the default a share carries when
+          nobody says otherwise. false shares quietly. The recipient's own
+          notification preferences still apply when it is true; this only removes
+          the sharer's ability to force one.
+        example: true
+        type: boolean
       permission:
         description: '"viewer" (default) or "editor"'
         example: viewer
@@ -3291,33 +3253,6 @@ definitions:
         example: 550e8400-e29b-41d4-a716-446655440000
         type: string
     type: object
-  portal.createThreadRequest:
-    properties:
-      anchor:
-        type: object
-      asset_id:
-        type: string
-      body:
-        type: string
-      collection_id:
-        type: string
-      kind:
-        type: string
-      knowledge_page_id:
-        type: string
-      prompt_id:
-        type: string
-      rating:
-        type: integer
-      requires_resolution:
-        type: boolean
-      target_type:
-        type: string
-      target_version:
-        type: integer
-      title:
-        type: string
-    type: object
   portal.getCollectionResponse:
     properties:
       asset_tags:
@@ -3325,7 +3260,7 @@ definitions:
           type: string
         type: array
       config:
-        $ref: '#/definitions/portal.CollectionConfig'
+        $ref: '#/definitions/portaldomain.CollectionConfig'
       created_at:
         type: string
       deleted_at:
@@ -3350,11 +3285,11 @@ definitions:
         type: string
       sections:
         items:
-          $ref: '#/definitions/portal.CollectionSection'
+          $ref: '#/definitions/portaldomain.CollectionSection'
         type: array
       share_permission:
         allOf:
-        - $ref: '#/definitions/portal.SharePermission'
+        - $ref: '#/definitions/portaldomain.SharePermission'
         example: viewer
       thumbnail_s3_key:
         type: string
@@ -3454,7 +3389,7 @@ definitions:
     properties:
       data:
         items:
-          $ref: '#/definitions/portal.Collection'
+          $ref: '#/definitions/portaldomain.Collection'
         type: array
       limit:
         example: 20
@@ -3662,14 +3597,6 @@ definitions:
       urn:
         type: string
     type: object
-  portal.respondValidationRequest:
-    properties:
-      reason:
-        type: string
-      result:
-        description: validated | disputed
-        type: string
-    type: object
   portal.searchResponse:
     properties:
       count:
@@ -3688,6 +3615,8 @@ definitions:
         items:
           type: string
         type: array
+      withheld_notice:
+        type: string
     type: object
   portal.setEntityRefsRequest:
     properties:
@@ -3711,41 +3640,10 @@ definitions:
         example: https://platform.example.com/portal/view/abc123
         type: string
     type: object
-  portal.signoffSummary:
-    properties:
-      signed_off:
-        type: integer
-      stakeholders:
-        type: integer
-    type: object
   portal.statusResponse:
     properties:
       status:
         example: updated
-        type: string
-    type: object
-  portal.threadChainChangeset:
-    properties:
-      change_type:
-        type: string
-      created_at:
-        type: string
-      id:
-        type: string
-      rolled_back:
-        type: boolean
-      target_urn:
-        type: string
-    type: object
-  portal.threadChainResponse:
-    properties:
-      changesets:
-        items:
-          $ref: '#/definitions/portal.threadChainChangeset'
-        type: array
-      insight_id:
-        type: string
-      thread_id:
         type: string
     type: object
   portal.updateAssetRequest:
@@ -3773,15 +3671,169 @@ definitions:
         example: Updated Collection Name
         type: string
     type: object
-  portal.updateThreadRequest:
+  portaldomain.AssetCollectionRef:
     properties:
-      requires_resolution:
-        type: boolean
-      status:
+      id:
+        example: col_01HK7R8Z
         type: string
-      validation_state:
+      name:
+        example: Q4 Performance Review
         type: string
     type: object
+  portaldomain.Collection:
+    properties:
+      asset_tags:
+        items:
+          type: string
+        type: array
+      config:
+        $ref: '#/definitions/portaldomain.CollectionConfig'
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      description:
+        example: Executive collection with revenue dashboards
+        type: string
+      id:
+        example: col_01HK7R8Z
+        type: string
+      name:
+        example: Q4 Performance Review
+        type: string
+      owner_email:
+        example: alice@example.com
+        type: string
+      owner_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      sections:
+        items:
+          $ref: '#/definitions/portaldomain.CollectionSection'
+        type: array
+      thumbnail_s3_key:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  portaldomain.CollectionConfig:
+    properties:
+      thumbnail_size:
+        description: '"large", "medium", "small", "none"'
+        example: medium
+        type: string
+    type: object
+  portaldomain.CollectionItem:
+    properties:
+      asset_content_type:
+        example: text/html
+        type: string
+      asset_description:
+        example: Interactive revenue breakdown
+        type: string
+      asset_id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      asset_name:
+        example: Q4 Revenue Dashboard
+        type: string
+      asset_thumbnail_s3_key:
+        type: string
+      created_at:
+        type: string
+      id:
+        example: item_01HK7R9D
+        type: string
+      position:
+        example: 0
+        type: integer
+      section_id:
+        example: sec_01HK7R9C
+        type: string
+    type: object
+  portaldomain.CollectionSection:
+    properties:
+      collection_id:
+        example: col_01HK7R8Z
+        type: string
+      created_at:
+        type: string
+      description:
+        example: High-level revenue and KPI snapshots
+        type: string
+      id:
+        example: sec_01HK7R9C
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/portaldomain.CollectionItem'
+        type: array
+      position:
+        example: 0
+        type: integer
+      title:
+        example: Overview
+        type: string
+    type: object
+  portaldomain.Provenance:
+    properties:
+      declared_content_type:
+        description: |-
+          DeclaredContentType is the media type the writer declared, recorded only
+          when detection replaced it. It is the audit trail for a reclassified
+          asset: it answers "what did the upstream actually say" without which a
+          stored type that disagrees with the source is unexplainable.
+        example: text/plain
+        type: string
+      session_id:
+        example: sess_abc123
+        type: string
+      tool_calls:
+        items:
+          $ref: '#/definitions/portaldomain.ProvenanceToolCall'
+        type: array
+      user_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    type: object
+  portaldomain.ProvenanceToolCall:
+    properties:
+      parameters:
+        additionalProperties: {}
+        type: object
+      timestamp:
+        example: "2026-04-15T14:30:00Z"
+        type: string
+      tool_name:
+        example: trino_query
+        type: string
+    type: object
+  portaldomain.ShareAccessMode:
+    enum:
+    - restricted
+    - authenticated
+    - public
+    type: string
+    x-enum-varnames:
+    - ModeRestricted
+    - ModeAuthenticated
+    - ModePublic
+  portaldomain.ShareOrigin:
+    enum:
+    - explicit
+    - public_link_login
+    type: string
+    x-enum-varnames:
+    - OriginExplicit
+    - OriginPublicLinkLogin
+  portaldomain.SharePermission:
+    enum:
+    - viewer
+    - editor
+    type: string
+    x-enum-varnames:
+    - PermissionViewer
+    - PermissionEditor
   prompt.Argument:
     properties:
       description:
@@ -4105,6 +4157,59 @@ definitions:
           $ref: '#/definitions/resource.Version'
         type: array
     type: object
+  reviewalert.SettingsInput:
+    properties:
+      cooldown_hours:
+        example: 24
+        type: integer
+      enabled:
+        example: true
+        type: boolean
+      oldest_pending_days:
+        example: 30
+        type: integer
+      pending_threshold:
+        example: 25
+        type: integer
+      recipients:
+        example:
+        - data-admin@example.com
+        items:
+          type: string
+        type: array
+    type: object
+  reviewalert.SettingsView:
+    properties:
+      cooldown_hours:
+        example: 24
+        type: integer
+      enabled:
+        example: true
+        type: boolean
+      oldest_pending_days:
+        example: 30
+        type: integer
+      pending_threshold:
+        example: 25
+        type: integer
+      recipients:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      updated_by:
+        example: admin@example.com
+        type: string
+      warnings:
+        description: |-
+          Warnings describes a configuration that saves cleanly but delivers
+          nothing. They never block a save; they exist so the operator sees the
+          gap at the surface where the setting was chosen.
+        items:
+          type: string
+        type: array
+    type: object
   settingsapi.problemDetail:
     properties:
       detail:
@@ -4118,6 +4223,151 @@ definitions:
         type: string
       type:
         example: about:blank
+        type: string
+    type: object
+  smtp.SettingsInput:
+    properties:
+      enabled:
+        example: true
+        type: boolean
+      from:
+        example: platform@example.com
+        type: string
+      from_name:
+        example: Data Platform
+        type: string
+      host:
+        example: smtp.example.com
+        type: string
+      password:
+        example: app-password
+        type: string
+      port:
+        example: 587
+        type: integer
+      tls_mode:
+        example: starttls
+        type: string
+      username:
+        example: mailer@example.com
+        type: string
+    type: object
+  smtp.SettingsView:
+    properties:
+      enabled:
+        example: true
+        type: boolean
+      from:
+        example: platform@example.com
+        type: string
+      from_name:
+        example: Data Platform
+        type: string
+      host:
+        example: smtp.example.com
+        type: string
+      password_set:
+        example: true
+        type: boolean
+      port:
+        example: 587
+        type: integer
+      tls_mode:
+        example: starttls
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        example: admin@example.com
+        type: string
+      username:
+        example: mailer@example.com
+        type: string
+      warnings:
+        description: |-
+          Warnings describes accepted-but-hazardous combinations in the stored
+          configuration. They never block a save; they exist so the operator sees
+          the hazard at the surface where the setting was chosen.
+        items:
+          type: string
+        type: array
+    type: object
+  smtp.TestEmailRequest:
+    properties:
+      to:
+        example: admin@example.com
+        type: string
+    type: object
+  threads.Thread:
+    properties:
+      anchor:
+        type: object
+      asset_id:
+        type: string
+      author_email:
+        example: sme@example.com
+        type: string
+      author_id:
+        type: string
+      collection_id:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      id:
+        example: thr_01HK7R8Z
+        type: string
+      insight_id:
+        type: string
+      kind:
+        example: correction
+        type: string
+      knowledge_page_id:
+        type: string
+      prompt_id:
+        type: string
+      requires_resolution:
+        type: boolean
+      status:
+        example: open
+        type: string
+      target_type:
+        example: asset
+        type: string
+      target_version:
+        type: integer
+      title:
+        type: string
+      updated_at:
+        type: string
+      validation_state:
+        example: none
+        type: string
+    type: object
+  threads.ThreadEvent:
+    properties:
+      author_email:
+        type: string
+      author_id:
+        type: string
+      body:
+        type: string
+      created_at:
+        type: string
+      event_type:
+        example: comment
+        type: string
+      id:
+        example: evt_01HK7R8Z
+        type: string
+      metadata:
+        type: object
+      parent_event_id:
+        type: string
+      rating:
+        type: integer
+      thread_id:
         type: string
     type: object
   toolkit.ConnectionHealthWire:
@@ -4184,12 +4434,12 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/admin.catalogResponse'
+              $ref: '#/definitions/catalogapi.catalogResponse'
             type: array
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4206,26 +4456,26 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/admin.createCatalogRequest'
+          $ref: '#/definitions/catalogapi.createCatalogRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/admin.catalogResponse'
+            $ref: '#/definitions/catalogapi.catalogResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4248,19 +4498,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.statusResponse'
+            $ref: '#/definitions/httpjson.StatusResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4282,15 +4532,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.catalogResponse'
+            $ref: '#/definitions/catalogapi.catalogResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4313,30 +4563,30 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/admin.updateCatalogRequest'
+          $ref: '#/definitions/catalogapi.updateCatalogRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.catalogResponse'
+            $ref: '#/definitions/catalogapi.catalogResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4360,30 +4610,30 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/admin.cloneCatalogRequest'
+          $ref: '#/definitions/catalogapi.cloneCatalogRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/admin.catalogResponse'
+            $ref: '#/definitions/catalogapi.catalogResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4405,11 +4655,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.embeddingHealthResponse'
+            $ref: '#/definitions/catalogapi.embeddingHealthResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4445,7 +4695,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4473,7 +4723,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4496,11 +4746,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.specListResponse'
+            $ref: '#/definitions/catalogapi.specListResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4528,15 +4778,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.statusResponse'
+            $ref: '#/definitions/httpjson.StatusResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4563,15 +4813,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.specResponse'
+            $ref: '#/definitions/catalogapi.specResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4599,34 +4849,34 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/admin.upsertCatalogSpecRequest'
+          $ref: '#/definitions/catalogapi.upsertCatalogSpecRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.specResponse'
+            $ref: '#/definitions/catalogapi.specResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "413":
           description: Request Entity Too Large
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "502":
           description: Bad Gateway
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4659,11 +4909,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4691,27 +4941,27 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.specResponse'
+            $ref: '#/definitions/catalogapi.specResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "413":
           description: Request Entity Too Large
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "502":
           description: Bad Gateway
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4758,23 +5008,23 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.specResponse'
+            $ref: '#/definitions/catalogapi.specResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "413":
           description: Request Entity Too Large
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "415":
           description: Unsupported Media Type
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4799,26 +5049,26 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/admin.startGatewayOAuthRequest'
+          $ref: '#/definitions/connoauthapi.startGatewayOAuthRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.startGatewayOAuthResponse'
+            $ref: '#/definitions/connoauthapi.startGatewayOAuthResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -4853,7 +5103,7 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       summary: OAuth authorization-code callback for API gateway connections
       tags:
       - Connections
@@ -5355,11 +5605,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.auditEventResponse'
+            $ref: '#/definitions/auditapi.auditEventResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5385,11 +5635,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5415,11 +5665,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.auditFiltersResponse'
+            $ref: '#/definitions/auditapi.auditFiltersResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5463,11 +5713,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5500,7 +5750,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5534,7 +5784,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5567,7 +5817,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5600,7 +5850,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5639,11 +5889,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5689,11 +5939,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.auditStatsResponse'
+            $ref: '#/definitions/auditapi.auditStatsResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -5894,8 +6144,8 @@ paths:
       - Config
   /admin/config/entries/{key}:
     delete:
-      description: Removes a database-backed config override entry, reverting the
-        live config to the file default if one exists.
+      description: Removes a database-backed config override entry. Subsequent reads
+        on every replica fall through to the file-config default.
       parameters:
       - description: Config entry key
         in: path
@@ -5957,8 +6207,9 @@ paths:
     put:
       consumes:
       - application/json
-      description: Creates or updates a database-backed config override entry and
-        hot-reloads it into the live config.
+      description: Creates or updates a database-backed config override entry. The
+        stored value is authoritative and is in force on every replica from the next
+        read.
       parameters:
       - description: Config entry key
         in: path
@@ -6228,7 +6479,7 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -6258,26 +6509,26 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/admin.startConnectionOAuthRequest'
+          $ref: '#/definitions/connoauthapi.startConnectionOAuthRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.startConnectionOAuthResponse'
+            $ref: '#/definitions/connoauthapi.startConnectionOAuthResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -6307,11 +6558,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -6339,15 +6590,15 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "502":
           description: Bad Gateway
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -6365,7 +6616,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.connectionsOAuthHealthResponse'
+            $ref: '#/definitions/connoauthapi.connectionsOAuthHealthResponse'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -6613,26 +6864,26 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/admin.startGatewayOAuthRequest'
+          $ref: '#/definitions/connoauthapi.startGatewayOAuthRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.startGatewayOAuthResponse'
+            $ref: '#/definitions/connoauthapi.startGatewayOAuthResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -7304,6 +7555,80 @@ paths:
       summary: Get insight stats
       tags:
       - Knowledge
+  /admin/notifications:
+    get:
+      description: Returns paginated notification queue rows, newest first, with delivery
+        status, attempt count, and failure detail. Bounded by the queue's retention
+        window rather than being a full archive.
+      parameters:
+      - description: Filter by recipient email
+        in: query
+        name: recipient
+        type: string
+      - description: Filter by status (pending, sending, sent, failed)
+        in: query
+        name: status
+        type: string
+      - description: Filter by category (share, comment, mention)
+        in: query
+        name: category
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 50, max: 200)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notifyapi.notificationListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List notification deliveries
+      tags:
+      - Notifications
+  /admin/notifications/stats:
+    get:
+      description: Returns per-status notification counts and the retention window
+        they cover. The recipient and category filters apply; status does not, so
+        a status-filtered list still shows the full breakdown.
+      parameters:
+      - description: Filter by recipient email
+        in: query
+        name: recipient
+        type: string
+      - description: Filter by category (share, comment, mention)
+        in: query
+        name: category
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notifyapi.notificationStatsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get notification delivery stats
+      tags:
+      - Notifications
   /admin/oauth/callback:
     get:
       description: Public endpoint hit by the upstream OAuth provider after the operator
@@ -7335,7 +7660,7 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       summary: OAuth authorization-code callback
       tags:
       - Connections
@@ -7720,7 +8045,8 @@ paths:
       consumes:
       - application/json
       description: Creates a new prompt and registers it with the live MCP server
-        when enabled.
+        when enabled. A global or persona prompt created here lands approved, with
+        the creating admin stamped as its approver.
       parameters:
       - description: Prompt definition
         in: body
@@ -8179,6 +8505,54 @@ paths:
       summary: Prompt usage stats
       tags:
       - Prompts
+  /admin/settings/review-queue-alert:
+    get:
+      description: Returns the knowledge review-queue staleness alert configuration.
+        Before an operator has written one, the platform defaults are returned with
+        no recipients, and warnings state that nothing will be delivered.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/reviewalert.SettingsView'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get review-queue alert settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: 'Upserts the knowledge review-queue staleness alert configuration:
+        the pending-count and age thresholds, the re-alert cooldown, and the recipients
+        the digest is delivered to.'
+      parameters:
+      - description: Review-queue alert settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/reviewalert.SettingsInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/reviewalert.SettingsView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update review-queue alert settings
+      tags:
+      - Settings
   /admin/settings/smtp:
     get:
       description: Returns the stored SMTP configuration. The password is never returned;
@@ -8189,7 +8563,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/notification.SMTPSettingsView'
+            $ref: '#/definitions/smtp.SettingsView'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -8207,14 +8581,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/notification.SMTPSettingsInput'
+          $ref: '#/definitions/smtp.SettingsInput'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/notification.SMTPSettingsView'
+            $ref: '#/definitions/smtp.SettingsView'
         "400":
           description: Bad Request
           schema:
@@ -8265,7 +8639,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/notification.TestEmailRequest'
+          $ref: '#/definitions/smtp.TestEmailRequest'
       produces:
       - application/json
       responses:
@@ -9203,19 +9577,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.signoffSummary'
+            $ref: '#/definitions/feedbackapi.signoffSummary'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -9608,7 +9982,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/portal.Collection'
+            $ref: '#/definitions/portaldomain.Collection'
         "400":
           description: Bad Request
           schema:
@@ -9721,7 +10095,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.Collection'
+            $ref: '#/definitions/portaldomain.Collection'
         "400":
           description: Bad Request
           schema:
@@ -9765,14 +10139,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/portal.CollectionConfig'
+          $ref: '#/definitions/portaldomain.CollectionConfig'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.Collection'
+            $ref: '#/definitions/portaldomain.Collection'
         "400":
           description: Bad Request
           schema:
@@ -9823,7 +10197,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.Collection'
+            $ref: '#/definitions/portaldomain.Collection'
         "400":
           description: Bad Request
           schema:
@@ -9956,19 +10330,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.signoffSummary'
+            $ref: '#/definitions/feedbackapi.signoffSummary'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -10139,15 +10513,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.paginatedResponse'
+            $ref: '#/definitions/feedbackapi.pagedResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -10939,7 +11313,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/notification.PrefsResponse'
+            $ref: '#/definitions/notifyhttp.PrefsResponse'
         "401":
           description: Unauthorized
           schema:
@@ -10964,14 +11338,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/notification.PrefsRequest'
+          $ref: '#/definitions/notifyhttp.PrefsRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/notification.PrefsResponse'
+            $ref: '#/definitions/notifyhttp.PrefsResponse'
         "400":
           description: Bad Request
           schema:
@@ -10988,6 +11362,54 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update my notification preferences
+      tags:
+      - Notifications
+  /portal/notifications:
+    get:
+      description: 'Returns the calling user''s own notification history, newest first:
+        category, subject, delivery status, and send time. Server-side self-scoped
+        -- the caller''s address is the only recipient queried, and there is no parameter
+        to widen it. Bounded by the queue''s retention window.'
+      parameters:
+      - description: Filter by status (pending, sending, sent, failed)
+        in: query
+        name: status
+        type: string
+      - description: Filter by category (share, comment, mention)
+        in: query
+        name: category
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 50, max: 200)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notifyhttp.HistoryResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my notifications
       tags:
       - Notifications
   /portal/prompt-collections:
@@ -11185,8 +11607,8 @@ paths:
       - Prompts
   /portal/prompts:
     get:
-      description: Returns the user's personal prompts plus available global, persona,
-        and system prompts.
+      description: Returns the prompts the user owns (any scope) plus the approved
+        global, persona, and system prompts visible to them.
       produces:
       - application/json
       responses:
@@ -11763,11 +12185,12 @@ paths:
       - Prompts
   /portal/prompts/search:
     get:
-      description: Ranks approved prompts visible to the caller by relevance to q.
-        Uses hybrid (semantic + lexical) ranking when an embedding provider is configured,
-        falling back to lexical-only otherwise. Visibility (global, matching-persona,
-        and own personal prompts; all approved prompts for admins) is applied before
-        ranking.
+      description: 'Ranks prompts visible to the caller by relevance to q: approved
+        shared prompts plus the caller''s own prompts at any status, the same visibility
+        rule the browse lists apply. Uses hybrid (semantic + lexical) ranking when
+        an embedding provider is configured, falling back to lexical-only otherwise.
+        Visibility (global, matching-persona, and own personal prompts; every owner''s
+        prompts for admins) is applied before ranking.'
       parameters:
       - description: Search query
         in: query
@@ -12104,19 +12527,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.paginatedResponse'
+            $ref: '#/definitions/feedbackapi.pagedResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12134,30 +12557,30 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/portal.createThreadRequest'
+          $ref: '#/definitions/feedbackapi.createThreadRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/portal.Thread'
+            $ref: '#/definitions/threads.Thread'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12186,19 +12609,19 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12218,19 +12641,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.Thread'
+            $ref: '#/definitions/threads.Thread'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12254,34 +12677,34 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/portal.updateThreadRequest'
+          $ref: '#/definitions/feedbackapi.updateThreadRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.Thread'
+            $ref: '#/definitions/threads.Thread'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12304,19 +12727,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.threadChainResponse'
+            $ref: '#/definitions/feedbackapi.threadChainResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12340,21 +12763,21 @@ paths:
           schema:
             additionalProperties:
               items:
-                $ref: '#/definitions/portal.ThreadEvent'
+                $ref: '#/definitions/threads.ThreadEvent'
               type: array
             type: object
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12377,34 +12800,34 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/portal.appendEventRequest'
+          $ref: '#/definitions/feedbackapi.appendEventRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/portal.ThreadEvent'
+            $ref: '#/definitions/threads.ThreadEvent'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12427,34 +12850,34 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/portal.captureInsightRequest'
+          $ref: '#/definitions/feedbackapi.captureInsightRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/portal.captureInsightResponse'
+            $ref: '#/definitions/feedbackapi.captureInsightResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12478,34 +12901,34 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/portal.respondValidationRequest'
+          $ref: '#/definitions/feedbackapi.respondValidationRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.Thread'
+            $ref: '#/definitions/threads.Thread'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "403":
           description: Forbidden
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12540,15 +12963,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12638,15 +13061,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.paginatedResponse'
+            $ref: '#/definitions/feedbackapi.pagedResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -12663,15 +13086,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/portal.paginatedResponse'
+            $ref: '#/definitions/feedbackapi.pagedResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/portal.problemDetail'
+            $ref: '#/definitions/httpjson.ProblemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []

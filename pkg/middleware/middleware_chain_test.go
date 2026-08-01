@@ -1469,9 +1469,9 @@ func TestMiddlewareChain_EnrichmentAppliedInAudit(t *testing.T) {
 	// PlatformContext set-site inside enrichTrinoResult is reached
 	// through the real assembled middleware chain, not just exercised
 	// in isolation by the unit tests.
-	if trinoEvent.EnrichmentMatchKind != middleware.EnrichmentMatchURN {
+	if trinoEvent.EnrichmentMatchKind != "urn" {
 		t.Errorf("trino_describe_table: EnrichmentMatchKind = %q, want %q",
-			trinoEvent.EnrichmentMatchKind, middleware.EnrichmentMatchURN)
+			trinoEvent.EnrichmentMatchKind, "urn")
 	}
 
 	if infoEvent == nil {
@@ -1998,7 +1998,9 @@ func TestMiddlewareChain_ToolVisibility_DenyOnly(t *testing.T) {
 	}
 
 	// Deny s3_delete_* only
-	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(middleware.ToolVisibilityConfig{GlobalDeny: []string{"s3_delete_*"}}))
+	server.AddReceivingMiddleware(middleware.MCPToolVisibilityMiddleware(middleware.ToolVisibilityConfig{
+		ResolveGlobalDeny: func(context.Context) []string { return []string{"s3_delete_*"} },
+	}))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)
@@ -2383,7 +2385,7 @@ func TestDescriptionOverrides_ToolsList(t *testing.T) {
 
 	// Add description override middleware (uses built-in defaults)
 	overrides := middleware.MergedDescriptionOverrides(nil)
-	server.AddReceivingMiddleware(middleware.MCPDescriptionOverrideMiddleware(overrides))
+	server.AddReceivingMiddleware(middleware.MCPDescriptionOverrideMiddlewareDynamic(func(context.Context) map[string]string { return overrides }))
 
 	ctx := context.Background()
 	session, err := connectClientServer(ctx, server)

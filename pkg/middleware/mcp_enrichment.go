@@ -143,7 +143,7 @@ func applyEnrichment(
 	if len(enrichedResult.Content) > beforeLen {
 		pc.EnrichmentApplied = true
 		if pc.EnrichmentMode == "" {
-			pc.EnrichmentMode = EnrichmentModeFull
+			pc.EnrichmentMode = enrichmentModeFull
 		}
 	}
 

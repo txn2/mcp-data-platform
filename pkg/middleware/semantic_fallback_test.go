@@ -180,7 +180,7 @@ func TestTrySemanticFallback_EmptyQuerySkipsSearch(t *testing.T) {
 
 // TestAppendSemanticFallbackSuggestions_PayloadShape verifies the
 // shape of the appended content block: match_kind must equal
-// EnrichmentMatchSemantic so the model can distinguish the
+// enrichmentMatchSemantic so the model can distinguish the
 // suggestion from URN-resolved enrichment, and each suggested
 // match must carry urn+name at minimum.
 func TestAppendSemanticFallbackSuggestions_PayloadShape(t *testing.T) {
@@ -208,8 +208,8 @@ func TestAppendSemanticFallbackSuggestions_PayloadShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("payload missing semantic_fallback key: %s", text.Text)
 	}
-	if got := fallback["match_kind"]; got != EnrichmentMatchSemantic {
-		t.Errorf("match_kind = %v; want %q", got, EnrichmentMatchSemantic)
+	if got := fallback["match_kind"]; got != enrichmentMatchSemantic {
+		t.Errorf("match_kind = %v; want %q", got, enrichmentMatchSemantic)
 	}
 	if got := fallback["queried_table"]; got != table.String() {
 		t.Errorf("queried_table = %v; want %q", got, table.String())
@@ -242,7 +242,7 @@ func TestAppendSemanticFallbackSuggestions_EmptyIsNoOp(t *testing.T) {
 // end-to-end behavioral test for issue #444: a single-table
 // enrichment that misses on URN equality, with the fallback
 // enabled, produces a suggested-matches payload AND sets
-// pc.EnrichmentMatchKind to EnrichmentMatchSemantic so the audit
+// pc.EnrichmentMatchKind to enrichmentMatchSemantic so the audit
 // row records the heuristic match.
 func TestEnrichTrinoResult_FallbackOnURNMissSetsMatchKind(t *testing.T) {
 	provider := &mockSemanticProvider{
@@ -266,11 +266,11 @@ func TestEnrichTrinoResult_FallbackOnURNMissSetsMatchKind(t *testing.T) {
 	if len(enriched.Content) != 2 {
 		t.Fatalf("content len = %d; want 2 (original + suggested matches)", len(enriched.Content))
 	}
-	if pc.EnrichmentMatchKind != EnrichmentMatchSemantic {
-		t.Errorf("pc.EnrichmentMatchKind = %q; want %q", pc.EnrichmentMatchKind, EnrichmentMatchSemantic)
+	if pc.EnrichmentMatchKind != enrichmentMatchSemantic {
+		t.Errorf("pc.EnrichmentMatchKind = %q; want %q", pc.EnrichmentMatchKind, enrichmentMatchSemantic)
 	}
 	text, _ := enriched.Content[1].(*mcp.TextContent)
-	if !strings.Contains(text.Text, EnrichmentMatchSemantic) {
+	if !strings.Contains(text.Text, enrichmentMatchSemantic) {
 		t.Errorf("appended content missing match_kind marker: %s", text.Text)
 	}
 }
@@ -295,8 +295,8 @@ func TestEnrichTrinoResult_URNHitSetsMatchKindURN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enrichTrinoResult: %v", err)
 	}
-	if pc.EnrichmentMatchKind != EnrichmentMatchURN {
-		t.Errorf("pc.EnrichmentMatchKind = %q; want %q", pc.EnrichmentMatchKind, EnrichmentMatchURN)
+	if pc.EnrichmentMatchKind != enrichmentMatchURN {
+		t.Errorf("pc.EnrichmentMatchKind = %q; want %q", pc.EnrichmentMatchKind, enrichmentMatchURN)
 	}
 }
 

@@ -23,7 +23,7 @@ const defaultChangelogLimit = 50
 // other paginated store applies.
 const maxChangelogLimit = 200
 
-// Config key aliases for whitelisted, hot-reloadable platform settings.
+// Config key aliases for the whitelisted, database-overridable settings.
 // Source of truth lives in pkg/platform — these are local references so
 // the admin package depends on the same canonical wire-protocol keys
 // the platform reads (a rename on one side without the other would
@@ -186,8 +186,15 @@ func configToMap(v any) (map[string]any, error) {
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/config [get]
-func (h *Handler) getConfig(w http.ResponseWriter, _ *http.Request) {
-	configMap, err := configToMap(h.deps.Config)
+func (h *Handler) getConfig(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Config == nil {
+		writeError(w, http.StatusInternalServerError, "no config available")
+		return
+	}
+	// Serialized from the effective config, not the file config: the
+	// overridable keys live in the store, and rendering the YAML values here
+	// would hide every override an operator has authored.
+	configMap, err := configToMap(h.deps.Config.EffectiveCopy(r.Context()))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to process config")
 		return
@@ -241,7 +248,10 @@ func (h *Handler) exportConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	yamlBytes, err := yaml.Marshal(h.deps.Config)
+	// Exported from the effective config so a downloaded platform.yaml
+	// carries the operator's stored overrides rather than the pre-override
+	// file values.
+	yamlBytes, err := yaml.Marshal(h.deps.Config.EffectiveCopy(r.Context()))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to marshal config")
 		return
@@ -414,7 +424,7 @@ type setConfigEntryRequest struct {
 // setConfigEntry handles PUT /api/v1/admin/config/entries/{key}.
 //
 // @Summary      Set config entry
-// @Description  Creates or updates a database-backed config override entry and hot-reloads it into the live config.
+// @Description  Creates or updates a database-backed config override entry. The stored value is authoritative and is in force on every replica from the next read.
 // @Tags         Config
 // @Accept       json
 // @Produce      json
@@ -446,8 +456,9 @@ func (h *Handler) setConfigEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Hot-reload: apply to live config.
-	h.deps.Config.ApplyConfigEntry(key, req.Value)
+	// The store is the authority. Nothing is applied to an in-memory copy
+	// here: the platform resolves this key from the store on every read, so
+	// the write is live for every replica the moment it commits.
 
 	// Return the stored entry.
 	entry, err := h.deps.ConfigStore.Get(r.Context(), key)
@@ -461,7 +472,7 @@ func (h *Handler) setConfigEntry(w http.ResponseWriter, r *http.Request) {
 // deleteConfigEntry handles DELETE /api/v1/admin/config/entries/{key}.
 //
 // @Summary      Delete config entry
-// @Description  Removes a database-backed config override entry, reverting the live config to the file default if one exists.
+// @Description  Removes a database-backed config override entry. Subsequent reads on every replica fall through to the file-config default.
 // @Tags         Config
 // @Produce      json
 // @Param        key  path  string  true  "Config entry key"
@@ -490,13 +501,8 @@ func (h *Handler) deleteConfigEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Revert to file default if one exists; otherwise clear the live
-	// override (an empty value tells ApplyConfigEntry to remove it).
-	if fileVal, ok := h.deps.FileDefaults[key]; ok {
-		h.deps.Config.ApplyConfigEntry(key, fileVal)
-	} else {
-		h.deps.Config.ApplyConfigEntry(key, "")
-	}
+	// Removing the row is the whole revert. With the override gone, every
+	// replica's next read falls through to the file-config default.
 
 	w.WriteHeader(http.StatusNoContent)
 }

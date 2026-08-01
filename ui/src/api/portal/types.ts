@@ -82,6 +82,30 @@ export interface Share {
   notice_text?: string;
 }
 
+/**
+ * CreateShareBody is the share-creation request body, identical for assets,
+ * collections, and prompts because the server decodes all three with one
+ * type. It lives here rather than being restated per hook so the three
+ * cannot drift apart.
+ *
+ * `expires_in` is link-only: the server refuses it alongside a recipient,
+ * because a share addressed to a person ends when it is revoked, not on a
+ * clock.
+ */
+export interface CreateShareBody {
+  expires_in?: string;
+  shared_with_user_id?: string;
+  shared_with_email?: string;
+  hide_expiration?: boolean;
+  notice_text?: string;
+  permission?: SharePermission;
+  access_mode?: ShareAccessMode;
+  /** Omitted means notify; false shares without sending the recipient email. */
+  notify?: boolean;
+  /** Plain-text note from the sharer, delivered only in the notification email. */
+  message?: string;
+}
+
 export interface SharedAsset {
   asset: Asset;
   share_id: string;
@@ -539,17 +563,23 @@ export interface SearchGroup {
 }
 
 // SearchCoverage reports, per source, how many records matched vs how many are
-// shown, so breadth beyond the display set stays visible.
+// shown, so breadth beyond the display set stays visible. withheld counts the
+// matches the caller's persona hid because they belong to connections it is not
+// granted (#1108); it separates "nothing matched" from "matches you may not see".
 export interface SearchCoverage {
   source: string;
   matched: number;
   shown: number;
+  withheld?: number;
 }
 
-// SearchResponse is the GET /api/v1/portal/search envelope.
+// SearchResponse is the GET /api/v1/portal/search envelope. withheld_notice is
+// the one-line explanation of the coverage withheld counts (how many, why, and
+// how to get access); it is present only when something was withheld.
 export interface SearchResponse {
   groups: SearchGroup[];
   coverage: SearchCoverage[];
   count: number;
   ranking: string;
+  withheld_notice?: string;
 }

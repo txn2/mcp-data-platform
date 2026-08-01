@@ -20,6 +20,14 @@ GOLANGCI_LINT_VERSION := v2.11.4
 GOSEC_VERSION := v2.28.0
 GREMLINS_VERSION := v0.6.0
 
+# Total-coverage floor. This is the single source of truth for the project
+# coverage gate: .github/workflows/ci.yml, codecov.yml (project target) and
+# CONTRIBUTING.md must all state this same figure, and TestGateFiguresAgree
+# (pins_test.go) fails when they drift apart. Patch coverage (changed lines)
+# is a separate gate at PATCH_COVERAGE_MIN.
+COVERAGE_MIN := 82
+PATCH_COVERAGE_MIN := 80
+
 # Go commands
 GO := go
 GOTEST := $(GO) test
@@ -29,10 +37,11 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
+	tools-check dead-code mutate patch-coverage doc-check posture-check swagger swagger-check \
 	semgrep codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
+	frontend-e2e-public-viewer \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
 	dev dev-info dev-up dev-down mock-check \
 	preview-apps preview-platform-info
@@ -302,32 +311,36 @@ mutate:
 	@echo "Running mutation testing..."
 	gremlins unleash --workers 1 --timeout-coefficient 3 --threshold-efficacy 60 ./pkg/...
 
-## coverage-report: Print coverage summary (fails if total <80%)
+## coverage-report: Print coverage summary (fails below COVERAGE_MIN)
 coverage-report: test
 	@echo ""
 	@echo "=== Coverage Summary ==="
 	@$(GO) tool cover -func=coverage.out | tail -1
 	@echo ""
 	@TOTAL=$$($(GO) tool cover -func=coverage.out | tail -1 | awk '{gsub(/%/,"",$$3); print $$3}'); \
-	if [ "$$(echo "$$TOTAL < 80.0" | bc -l)" = "1" ]; then \
-		echo "FAIL: Total coverage $$TOTAL% is below 80% threshold"; \
+	if [ "$$(echo "$$TOTAL < $(COVERAGE_MIN).0" | bc -l)" = "1" ]; then \
+		echo "FAIL: Total coverage $$TOTAL% is below $(COVERAGE_MIN)% threshold"; \
 		exit 1; \
 	fi
 	@echo "Functions with 0% coverage:"
 	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 == 0 && $$1 != "total:") print $$0}' || true
 	@echo ""
-	@echo "Functions below 80% coverage:"
-	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 < 80.0 && $$3+0 > 0 && $$1 != "total:") print $$0}' || true
+	@echo "Functions below $(PATCH_COVERAGE_MIN)% coverage:"
+	@$(GO) tool cover -func=coverage.out | awk '{gsub(/%/,"",$$3); if ($$3+0 < $(PATCH_COVERAGE_MIN).0 && $$3+0 > 0 && $$1 != "total:") print $$0}' || true
 	@echo "=== End Coverage ==="
 
-## patch-coverage: Check coverage of changed lines vs main (fails if <80%)
+## patch-coverage: Check coverage of changed lines vs main (fails below PATCH_COVERAGE_MIN)
 patch-coverage:
 	@echo "Checking patch coverage..."
-	@./scripts/patch-coverage.sh
+	@PATCH_COVERAGE_THRESHOLD=$(PATCH_COVERAGE_MIN) ./scripts/patch-coverage.sh
 
 ## doc-check: Fail on orphaned docs or unregistered tool refs; warn on undocumented changes
 doc-check:
 	@./scripts/doc-check.sh
+
+## posture-check: Fail when README/llms.txt engineering-posture claims go stale
+posture-check:
+	@./scripts/posture-check.sh
 
 ## release-check: Validate build, Docker, and release config
 release-check:
@@ -533,6 +546,15 @@ frontend-lint:
 ## frontend-e2e: Run the interactive Playwright suite against the MSW-mocked dev server (mirrors CI's frontend-e2e job)
 frontend-e2e:
 	cd $(UI_DIR) && npx playwright install chromium && npm run test:e2e
+
+## frontend-e2e-public-viewer: Run the public share viewer suite against a live stack (needs `make dev`; not part of verify)
+frontend-e2e-public-viewer:
+	@echo "Public viewer suite needs a running stack (make dev) — the page, its"
+	@echo "content-viewer bundle and its CSP are served by the Go binary."
+	@if [ -f dev/.dev-ports.env ]; then . ./dev/.dev-ports.env; fi; \
+	cd $(UI_DIR) && npx playwright install chromium && \
+		PUBLIC_VIEWER_BASE_URL=$${PUBLIC_VIEWER_BASE_URL:-http://localhost:$${DEV_API_PORT:-8080}} \
+		npm run test:public-viewer
 
 ## build-with-ui: Build Go binary with embedded UI
 build-with-ui: frontend-build build
@@ -1294,11 +1316,11 @@ bench-compare:
 	if [ -z "$$files" ]; then echo "ERROR: no build/bench-results/results-*.json to compare"; exit 1; fi; \
 	$(BUILD_DIR)/benchrun -compare "$$files" -compare-out $(BENCH_COMPARE_OUT)
 
-## bench-report-pdf: Render the benchmark report to PDF + HTML in build/report/ (needs pandoc + tectonic; not part of verify)
-bench-report-pdf:
+## bench-report-knowledge-layer-pdf: Render the knowledge-layer benchmark report to PDF + HTML in build/report/ (needs pandoc + tectonic; not part of verify)
+bench-report-knowledge-layer-pdf:
 	@bash bench/reports/knowledge-layer/render-report.sh
 
-## bench-report-knowledge-use-pdf: Render benchmark report 2 (knowledge use) to PDF + HTML in build/report-knowledge-use/ (needs pandoc + tectonic; not part of verify)
+## bench-report-knowledge-use-pdf: Render the knowledge-use benchmark report to PDF + HTML in build/report-knowledge-use/ (needs pandoc + tectonic; not part of verify)
 bench-report-knowledge-use-pdf:
 	@bash bench/reports/knowledge-use/render-report.sh
 

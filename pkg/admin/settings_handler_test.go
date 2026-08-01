@@ -8,24 +8,25 @@ import (
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 )
 
-// fakeNotificationSettings implements notification.SettingsStore. The full
+// fakeNotificationSettings implements smtp.SettingsStore. The full
 // settings-route behavior suite lives with the implementation in
-// pkg/admin/settingsapi; the tests here cover the admin-side wiring only.
+// internal/admin/settingsapi; the tests here cover the admin-side wiring only.
 type fakeNotificationSettings struct {
-	settings *notification.SMTPSettings
+	settings *smtp.Settings
 }
 
-func (f *fakeNotificationSettings) GetSMTP(context.Context) (*notification.SMTPSettings, error) {
+func (f *fakeNotificationSettings) Get(context.Context) (*smtp.Settings, error) {
 	if f.settings == nil {
-		return nil, notification.ErrNotFound
+		return nil, smtp.ErrNotFound
 	}
 	clone := *f.settings
 	return &clone, nil
 }
 
-func (f *fakeNotificationSettings) SetSMTP(_ context.Context, s notification.SMTPSettings, _ string) error {
+func (f *fakeNotificationSettings) Set(_ context.Context, s smtp.Settings, _ string) error {
 	f.settings = &s
 	return nil
 }
@@ -87,7 +88,7 @@ func TestSettingsRoutesWiring(t *testing.T) {
 	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"opted_out":true`) {
 		t.Errorf("recipient-status = %d %s; want 200 with opted_out true", res.Code, res.Body.String())
 	}
-	res = doJSON(t, h, http.MethodPost, "/api/v1/admin/settings/smtp/test", notification.TestEmailRequest{To: "a@b.io"})
+	res = doJSON(t, h, http.MethodPost, "/api/v1/admin/settings/smtp/test", smtp.TestEmailRequest{To: "a@b.io"})
 	if res.Code != http.StatusOK {
 		t.Errorf("POST test = %d; want 200 (%s)", res.Code, res.Body.String())
 	}
@@ -102,7 +103,7 @@ func TestSettingsRoutesWiring_FileMode(t *testing.T) {
 	if res := doJSON(t, h, http.MethodGet, "/api/v1/admin/settings/smtp", nil); res.Code != http.StatusOK {
 		t.Errorf("GET in file mode = %d; want 200", res.Code)
 	}
-	if res := doJSON(t, h, http.MethodPut, "/api/v1/admin/settings/smtp", notification.SMTPSettingsInput{Port: 587}); res.Code != http.StatusMethodNotAllowed {
+	if res := doJSON(t, h, http.MethodPut, "/api/v1/admin/settings/smtp", smtp.SettingsInput{Port: 587}); res.Code != http.StatusMethodNotAllowed {
 		t.Errorf("PUT in file mode = %d; want 405", res.Code)
 	}
 }

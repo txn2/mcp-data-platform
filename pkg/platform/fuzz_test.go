@@ -94,7 +94,7 @@ func FuzzPeekVersion(f *testing.F) {
 
 	f.Fuzz(func(_ *testing.T, input string) {
 		// Should never panic
-		_ = PeekVersion([]byte(input))
+		_ = peekVersion([]byte(input))
 	})
 }
 
@@ -111,7 +111,7 @@ server:
 
 	f.Fuzz(func(_ *testing.T, input, target string) {
 		// Should never panic
-		_, _ = MigrateConfigBytes([]byte(input), target)
+		_, _ = migrateConfigBytes([]byte(input), target)
 	})
 }
 

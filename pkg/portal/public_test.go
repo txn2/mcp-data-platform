@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/txn2/mcp-data-platform/pkg/portal/publicviewer"
+	"github.com/txn2/mcp-data-platform/internal/portal/publicviewer"
 )
 
 // htmlNoticeText is the HTML-escaped default notice text for template assertions.
@@ -494,13 +494,14 @@ func TestPublicCSPUnified(t *testing.T) {
 	assert.Contains(t, csp, "default-src 'none'")
 	assert.Contains(t, csp, "frame-src blob:")
 	assert.Contains(t, csp, "script-src")
-	assert.Contains(t, csp, "'unsafe-eval'")
 	assert.Contains(t, csp, "'unsafe-inline'")
 	assert.Contains(t, csp, "https:")
 	assert.Contains(t, csp, "style-src")
 	assert.Contains(t, csp, "img-src")
 	assert.Contains(t, csp, "font-src")
 	assert.Contains(t, csp, "connect-src")
+	assert.NotContains(t, csp, "'unsafe-eval'",
+		"no viewer path evaluates source at runtime; see publicviewer.baseCSP")
 }
 
 // --- Content viewer bundle injection ---
@@ -1199,8 +1200,9 @@ func TestPublicCollectionCSP(t *testing.T) {
 	assert.Contains(t, csp, "default-src 'none'")
 	assert.Contains(t, csp, "frame-src 'self'")
 	assert.Contains(t, csp, "script-src")
-	assert.Contains(t, csp, "'unsafe-eval'")
 	assert.Contains(t, csp, "'unsafe-inline'")
+	assert.NotContains(t, csp, "'unsafe-eval'",
+		"no viewer path evaluates source at runtime; see publicviewer.baseCSP")
 	assert.Contains(t, csp, "style-src")
 	assert.Contains(t, csp, "img-src")
 	assert.Contains(t, csp, "font-src")

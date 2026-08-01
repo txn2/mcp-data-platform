@@ -412,7 +412,6 @@ func TestUpdateDenyList(t *testing.T) {
 func TestSetToolVisibility(t *testing.T) {
 	makeHandler := func(initial []string) (*Handler, *mockConfigStore, *platform.Config) {
 		cfg := testConfig()
-		cfg.Tools.Deny = append([]string(nil), initial...)
 		cs := &mockConfigStore{mode: "database"}
 		if len(initial) > 0 {
 			buf, _ := json.Marshal(initial)
@@ -420,6 +419,7 @@ func TestSetToolVisibility(t *testing.T) {
 				"tools.deny": {Key: "tools.deny", Value: string(buf)},
 			}
 		}
+		cfg.BindOverrideStore(cs)
 		reg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
 				{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query", "trino_execute"}},
@@ -434,7 +434,7 @@ func TestSetToolVisibility(t *testing.T) {
 		return h, cs, cfg
 	}
 
-	t.Run("hidden=true adds to deny list and applies live config", func(t *testing.T) {
+	t.Run("hidden=true adds to deny list and is served on the next read", func(t *testing.T) {
 		h, cs, cfg := makeHandler(nil)
 		body := `{"hidden":true}`
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
@@ -447,7 +447,7 @@ func TestSetToolVisibility(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 		assert.True(t, resp.Hidden)
 		assert.Equal(t, []string{"trino_query"}, resp.Deny)
-		assert.Equal(t, []string{"trino_query"}, cfg.Tools.Deny)
+		assert.Equal(t, []string{"trino_query"}, cfg.ToolsDenySnapshot(context.Background()))
 
 		stored := cs.entries["tools.deny"]
 		require.NotNil(t, stored)
@@ -469,7 +469,7 @@ func TestSetToolVisibility(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 		assert.False(t, resp.Hidden)
 		assert.Equal(t, []string{"trino_execute"}, resp.Deny)
-		assert.Equal(t, []string{"trino_execute"}, cfg.Tools.Deny)
+		assert.Equal(t, []string{"trino_execute"}, cfg.ToolsDenySnapshot(context.Background()))
 	})
 
 	t.Run("404 for unknown tool", func(t *testing.T) {

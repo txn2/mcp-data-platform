@@ -39,14 +39,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/admin.catalogResponse"
+                                "$ref": "#/definitions/catalogapi.catalogResponse"
                             }
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -78,7 +78,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/admin.createCatalogRequest"
+                            "$ref": "#/definitions/catalogapi.createCatalogRequest"
                         }
                     }
                 ],
@@ -86,25 +86,25 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/admin.catalogResponse"
+                            "$ref": "#/definitions/catalogapi.catalogResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -141,19 +141,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.catalogResponse"
+                            "$ref": "#/definitions/catalogapi.catalogResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -192,7 +192,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/admin.updateCatalogRequest"
+                            "$ref": "#/definitions/catalogapi.updateCatalogRequest"
                         }
                     }
                 ],
@@ -200,31 +200,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.catalogResponse"
+                            "$ref": "#/definitions/catalogapi.catalogResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -259,25 +259,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.statusResponse"
+                            "$ref": "#/definitions/httpjson.StatusResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -318,7 +318,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/admin.cloneCatalogRequest"
+                            "$ref": "#/definitions/catalogapi.cloneCatalogRequest"
                         }
                     }
                 ],
@@ -326,31 +326,31 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/admin.catalogResponse"
+                            "$ref": "#/definitions/catalogapi.catalogResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -387,13 +387,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.embeddingHealthResponse"
+                            "$ref": "#/definitions/catalogapi.embeddingHealthResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -449,7 +449,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -493,7 +493,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -530,13 +530,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.specListResponse"
+                            "$ref": "#/definitions/catalogapi.specListResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -580,19 +580,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.specResponse"
+                            "$ref": "#/definitions/catalogapi.specResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -638,7 +638,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/admin.upsertCatalogSpecRequest"
+                            "$ref": "#/definitions/catalogapi.upsertCatalogSpecRequest"
                         }
                     }
                 ],
@@ -646,37 +646,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.specResponse"
+                            "$ref": "#/definitions/catalogapi.specResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "413": {
                         "description": "Request Entity Too Large",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -718,19 +718,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.statusResponse"
+                            "$ref": "#/definitions/httpjson.StatusResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -781,13 +781,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -831,37 +831,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.specResponse"
+                            "$ref": "#/definitions/catalogapi.specResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "413": {
                         "description": "Request Entity Too Large",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -933,31 +933,31 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.specResponse"
+                            "$ref": "#/definitions/catalogapi.specResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "413": {
                         "description": "Request Entity Too Large",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "415": {
                         "description": "Unsupported Media Type",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -997,7 +997,7 @@ const docTemplate = `{
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/admin.startGatewayOAuthRequest"
+                            "$ref": "#/definitions/connoauthapi.startGatewayOAuthRequest"
                         }
                     }
                 ],
@@ -1005,25 +1005,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.startGatewayOAuthResponse"
+                            "$ref": "#/definitions/connoauthapi.startGatewayOAuthResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -1067,7 +1067,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -1864,13 +1864,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.auditEventResponse"
+                            "$ref": "#/definitions/auditapi.auditEventResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -1912,13 +1912,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.auditFiltersResponse"
+                            "$ref": "#/definitions/auditapi.auditFiltersResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -1961,13 +1961,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2037,13 +2037,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2097,7 +2097,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2151,7 +2151,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2205,7 +2205,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2259,7 +2259,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2322,13 +2322,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2400,13 +2400,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.auditStatsResponse"
+                            "$ref": "#/definitions/auditapi.auditStatsResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -2777,7 +2777,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates or updates a database-backed config override entry and hot-reloads it into the live config.",
+                "description": "Creates or updates a database-backed config override entry. The stored value is authoritative and is in force on every replica from the next read.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2836,7 +2836,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Removes a database-backed config override entry, reverting the live config to the file default if one exists.",
+                "description": "Removes a database-backed config override entry. Subsequent reads on every replica fall through to the file-config default.",
                 "produces": [
                     "application/json"
                 ],
@@ -3242,7 +3242,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.connectionsOAuthHealthResponse"
+                            "$ref": "#/definitions/connoauthapi.connectionsOAuthHealthResponse"
                         }
                     }
                 }
@@ -3294,7 +3294,7 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -3341,7 +3341,7 @@ const docTemplate = `{
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/admin.startConnectionOAuthRequest"
+                            "$ref": "#/definitions/connoauthapi.startConnectionOAuthRequest"
                         }
                     }
                 ],
@@ -3349,25 +3349,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.startConnectionOAuthResponse"
+                            "$ref": "#/definitions/connoauthapi.startConnectionOAuthResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -3416,13 +3416,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -3468,19 +3468,19 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -3874,7 +3874,7 @@ const docTemplate = `{
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/admin.startGatewayOAuthRequest"
+                            "$ref": "#/definitions/connoauthapi.startGatewayOAuthRequest"
                         }
                     }
                 ],
@@ -3882,25 +3882,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.startGatewayOAuthResponse"
+                            "$ref": "#/definitions/connoauthapi.startGatewayOAuthResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -4921,6 +4921,120 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/notifications": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated notification queue rows, newest first, with delivery status, attempt count, and failure detail. Bounded by the queue's retention window rather than being a full archive.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "List notification deliveries",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by recipient email",
+                        "name": "recipient",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by status (pending, sending, sent, failed)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by category (share, comment, mention)",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 50, max: 200)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notifyapi.notificationListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/notifications/stats": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns per-status notification counts and the retention window they cover. The recipient and category filters apply; status does not, so a status-filtered list still shows the full breakdown.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Get notification delivery stats",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by recipient email",
+                        "name": "recipient",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by category (share, comment, mention)",
+                        "name": "category",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notifyapi.notificationStatsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/oauth/callback": {
             "get": {
                 "description": "Public endpoint hit by the upstream OAuth provider after the operator authenticates. Exchanges the code for tokens and stores them. Renders an HTML page on error so a stranded browser tab still gives a useful message.",
@@ -4965,7 +5079,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -5574,7 +5688,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a new prompt and registers it with the live MCP server when enabled.",
+                "description": "Creates a new prompt and registers it with the live MCP server when enabled. A global or persona prompt created here lands approved, with the creating admin stamped as its approver.",
                 "consumes": [
                     "application/json"
                 ],
@@ -6288,6 +6402,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/settings/review-queue-alert": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the knowledge review-queue staleness alert configuration. Before an operator has written one, the platform defaults are returned with no recipients, and warnings state that nothing will be delivered.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get review-queue alert settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsView"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upserts the knowledge review-queue staleness alert configuration: the pending-count and age thresholds, the re-alert cooldown, and the recipients the digest is delivered to.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update review-queue alert settings",
+                "parameters": [
+                    {
+                        "description": "Review-queue alert settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/smtp": {
             "get": {
                 "security": [
@@ -6310,7 +6498,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/notification.SMTPSettingsView"
+                            "$ref": "#/definitions/smtp.SettingsView"
                         }
                     }
                 }
@@ -6342,7 +6530,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/notification.SMTPSettingsInput"
+                            "$ref": "#/definitions/smtp.SettingsInput"
                         }
                     }
                 ],
@@ -6350,7 +6538,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/notification.SMTPSettingsView"
+                            "$ref": "#/definitions/smtp.SettingsView"
                         }
                     },
                     "400": {
@@ -6434,7 +6622,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/notification.TestEmailRequest"
+                            "$ref": "#/definitions/smtp.TestEmailRequest"
                         }
                     }
                 ],
@@ -7983,25 +8171,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.signoffSummary"
+                            "$ref": "#/definitions/feedbackapi.signoffSummary"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -8538,7 +8726,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/portal.Collection"
+                            "$ref": "#/definitions/portaldomain.Collection"
                         }
                     },
                     "400": {
@@ -8737,7 +8925,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Collection"
+                            "$ref": "#/definitions/portaldomain.Collection"
                         }
                     },
                     "400": {
@@ -8861,7 +9049,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/portal.CollectionConfig"
+                            "$ref": "#/definitions/portaldomain.CollectionConfig"
                         }
                     }
                 ],
@@ -8869,7 +9057,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Collection"
+                            "$ref": "#/definitions/portaldomain.Collection"
                         }
                     },
                     "400": {
@@ -8948,7 +9136,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Collection"
+                            "$ref": "#/definitions/portaldomain.Collection"
                         }
                     },
                     "400": {
@@ -9156,25 +9344,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.signoffSummary"
+                            "$ref": "#/definitions/feedbackapi.signoffSummary"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -9360,19 +9548,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.paginatedResponse"
+                            "$ref": "#/definitions/feedbackapi.pagedResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -10601,7 +10789,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/notification.PrefsResponse"
+                            "$ref": "#/definitions/notifyhttp.PrefsResponse"
                         }
                     },
                     "401": {
@@ -10642,7 +10830,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/notification.PrefsRequest"
+                            "$ref": "#/definitions/notifyhttp.PrefsRequest"
                         }
                     }
                 ],
@@ -10650,7 +10838,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/notification.PrefsResponse"
+                            "$ref": "#/definitions/notifyhttp.PrefsResponse"
                         }
                     },
                     "400": {
@@ -10664,6 +10852,78 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/notifications": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the calling user's own notification history, newest first: category, subject, delivery status, and send time. Server-side self-scoped -- the caller's address is the only recipient queried, and there is no parameter to widen it. Bounded by the queue's retention window.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "List my notifications",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by status (pending, sending, sent, failed)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by category (share, comment, mention)",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 50, max: 200)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notifyhttp.HistoryResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -10983,7 +11243,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns the user's personal prompts plus available global, persona, and system prompts.",
+                "description": "Returns the prompts the user owns (any scope) plus the approved global, persona, and system prompts visible to them.",
                 "produces": [
                     "application/json"
                 ],
@@ -11081,7 +11341,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Ranks approved prompts visible to the caller by relevance to q. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Visibility (global, matching-persona, and own personal prompts; all approved prompts for admins) is applied before ranking.",
+                "description": "Ranks prompts visible to the caller by relevance to q: approved shared prompts plus the caller's own prompts at any status, the same visibility rule the browse lists apply. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Visibility (global, matching-persona, and own personal prompts; every owner's prompts for admins) is applied before ranking.",
                 "produces": [
                     "application/json"
                 ],
@@ -12397,25 +12657,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.paginatedResponse"
+                            "$ref": "#/definitions/feedbackapi.pagedResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12447,7 +12707,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/portal.createThreadRequest"
+                            "$ref": "#/definitions/feedbackapi.createThreadRequest"
                         }
                     }
                 ],
@@ -12455,31 +12715,31 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/portal.Thread"
+                            "$ref": "#/definitions/threads.Thread"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12532,19 +12792,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12580,25 +12840,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Thread"
+                            "$ref": "#/definitions/threads.Thread"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12642,25 +12902,25 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12699,7 +12959,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/portal.updateThreadRequest"
+                            "$ref": "#/definitions/feedbackapi.updateThreadRequest"
                         }
                     }
                 ],
@@ -12707,37 +12967,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Thread"
+                            "$ref": "#/definitions/threads.Thread"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12774,25 +13034,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.threadChainResponse"
+                            "$ref": "#/definitions/feedbackapi.threadChainResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12833,7 +13093,7 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "array",
                                 "items": {
-                                    "$ref": "#/definitions/portal.ThreadEvent"
+                                    "$ref": "#/definitions/threads.ThreadEvent"
                                 }
                             }
                         }
@@ -12841,19 +13101,19 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12892,7 +13152,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/portal.appendEventRequest"
+                            "$ref": "#/definitions/feedbackapi.appendEventRequest"
                         }
                     }
                 ],
@@ -12900,37 +13160,37 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/portal.ThreadEvent"
+                            "$ref": "#/definitions/threads.ThreadEvent"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -12970,7 +13230,7 @@ const docTemplate = `{
                         "name": "body",
                         "in": "body",
                         "schema": {
-                            "$ref": "#/definitions/portal.captureInsightRequest"
+                            "$ref": "#/definitions/feedbackapi.captureInsightRequest"
                         }
                     }
                 ],
@@ -12978,37 +13238,37 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/portal.captureInsightResponse"
+                            "$ref": "#/definitions/feedbackapi.captureInsightResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -13049,7 +13309,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/portal.respondValidationRequest"
+                            "$ref": "#/definitions/feedbackapi.respondValidationRequest"
                         }
                     }
                 ],
@@ -13057,37 +13317,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.Thread"
+                            "$ref": "#/definitions/threads.Thread"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -13229,19 +13489,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.paginatedResponse"
+                            "$ref": "#/definitions/feedbackapi.pagedResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -13269,19 +13529,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/portal.paginatedResponse"
+                            "$ref": "#/definitions/feedbackapi.pagedResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/portal.problemDetail"
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -14353,112 +14613,6 @@ const docTemplate = `{
                 }
             }
         },
-        "admin.auditEventResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/audit.Event"
-                    }
-                },
-                "page": {
-                    "type": "integer",
-                    "example": 1
-                },
-                "per_page": {
-                    "type": "integer",
-                    "example": 50
-                },
-                "total": {
-                    "type": "integer",
-                    "example": 196
-                }
-            }
-        },
-        "admin.auditFiltersResponse": {
-            "type": "object",
-            "properties": {
-                "event_kinds": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "mcp_tool_call",
-                        "apigateway_invoke"
-                    ]
-                },
-                "sources": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "mcp",
-                        "rest",
-                        "admin"
-                    ]
-                },
-                "toolkit_kinds": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "api",
-                        "datahub",
-                        "trino",
-                        "s3",
-                        "memory"
-                    ]
-                },
-                "tools": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "trino_query",
-                        "datahub_search",
-                        "s3_list_objects"
-                    ]
-                },
-                "user_labels": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "users": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "marcus.johnson@example.com",
-                        "lisa.chang@example.com"
-                    ]
-                }
-            }
-        },
-        "admin.auditStatsResponse": {
-            "type": "object",
-            "properties": {
-                "failures": {
-                    "type": "integer",
-                    "example": 77
-                },
-                "success": {
-                    "type": "integer",
-                    "example": 1423
-                },
-                "total": {
-                    "type": "integer",
-                    "example": 1500
-                }
-            }
-        },
         "admin.authKeyCreateRequest": {
             "type": "object",
             "properties": {
@@ -14542,41 +14696,6 @@ const docTemplate = `{
                 }
             }
         },
-        "admin.catalogResponse": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "created_by": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "display_name": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "ref_count": {
-                    "type": "integer"
-                },
-                "spec_count": {
-                    "type": "integer"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
-                }
-            }
-        },
         "admin.changelogListResponse": {
             "type": "object",
             "properties": {
@@ -14611,23 +14730,6 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 8
-                }
-            }
-        },
-        "admin.cloneCatalogRequest": {
-            "type": "object",
-            "properties": {
-                "display_name": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },
@@ -14693,60 +14795,6 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 5
-                }
-            }
-        },
-        "admin.connectionOAuthHealthSummary": {
-            "type": "object",
-            "properties": {
-                "has_oauth": {
-                    "type": "boolean"
-                },
-                "idp_error_code": {
-                    "type": "string"
-                },
-                "kind": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "needs_reauth": {
-                    "type": "boolean"
-                },
-                "token_acquired": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "admin.connectionsOAuthHealthResponse": {
-            "type": "object",
-            "properties": {
-                "connections": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/admin.connectionOAuthHealthSummary"
-                    }
-                }
-            }
-        },
-        "admin.createCatalogRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "display_name": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
                 }
             }
         },
@@ -14876,29 +14924,6 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
-                }
-            }
-        },
-        "admin.embeddingHealthResponse": {
-            "type": "object",
-            "properties": {
-                "catalog_id": {
-                    "type": "string"
-                },
-                "specs_failed": {
-                    "type": "integer"
-                },
-                "specs_indexed": {
-                    "type": "integer"
-                },
-                "specs_pending": {
-                    "type": "integer"
-                },
-                "specs_running": {
-                    "type": "integer"
-                },
-                "specs_total": {
-                    "type": "integer"
                 }
             }
         },
@@ -15437,126 +15462,6 @@ const docTemplate = `{
                 }
             }
         },
-        "admin.specListResponse": {
-            "type": "object",
-            "properties": {
-                "specs": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/admin.specResponse"
-                    }
-                }
-            }
-        },
-        "admin.specResponse": {
-            "type": "object",
-            "properties": {
-                "base_path": {
-                    "type": "string"
-                },
-                "content": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "embedding_attempts": {
-                    "description": "EmbeddingAttempts is the most recent job's attempt count.\nRendered as \"running (attempt N)\" while in flight, useful\nfor operators trying to gauge whether a slow provider is\njust slow or stuck retrying.",
-                    "type": "integer"
-                },
-                "embedding_count": {
-                    "description": "EmbeddingCount is the count of persisted operation embedding\nrows for this (catalog, spec). Equal to OperationCount when\nthe queue has fully drained for the spec; less while a job\nis in flight or after a partial failure.",
-                    "type": "integer"
-                },
-                "embedding_last_error": {
-                    "description": "EmbeddingLastError is the most recent job's last_error\ncolumn. Non-empty only when the most recent job failed or\nis on a retry; rendered in a tooltip / detail row so the\noperator can see \"provider returned 502\" without grepping\npod logs.",
-                    "type": "string"
-                },
-                "embedding_status": {
-                    "description": "EmbeddingStatus reflects the most recent embedding job's\nterminal or in-flight state: \"\" when no job has ever run\nfor the spec, \"pending\" while queued, \"running\" while a\nworker is processing it, \"succeeded\" when current, \"failed\"\nwhen retries are exhausted. The portal uses this for the\nper-spec badge text and color.",
-                    "type": "string"
-                },
-                "etag": {
-                    "type": "string"
-                },
-                "last_fetched_at": {
-                    "type": "string"
-                },
-                "operation_count": {
-                    "description": "OperationCount is the number of operations the spec content\nparses to. Stored alongside the spec on every write so the\nportal can render \"N/M indexed\" without re-parsing the\ncontent on the client.",
-                    "type": "integer"
-                },
-                "source_kind": {
-                    "type": "string"
-                },
-                "source_url": {
-                    "type": "string"
-                },
-                "spec_name": {
-                    "type": "string"
-                },
-                "title": {
-                    "description": "Title and Description are the operator-set per-spec summary\noverrides. Empty means \"derive from the spec's info.title /\ninfo.description\". See catalog.NormalizeSpecTitle /\nNormalizeSpecDescription for the validation rules.",
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "admin.startConnectionOAuthRequest": {
-            "type": "object",
-            "properties": {
-                "return_url": {
-                    "type": "string"
-                }
-            }
-        },
-        "admin.startConnectionOAuthResponse": {
-            "type": "object",
-            "properties": {
-                "authorization_url": {
-                    "type": "string"
-                },
-                "expires_at": {
-                    "type": "string"
-                },
-                "redirect_uri": {
-                    "type": "string"
-                },
-                "state": {
-                    "type": "string"
-                }
-            }
-        },
-        "admin.startGatewayOAuthRequest": {
-            "type": "object",
-            "properties": {
-                "return_url": {
-                    "type": "string"
-                }
-            }
-        },
-        "admin.startGatewayOAuthResponse": {
-            "type": "object",
-            "properties": {
-                "authorization_url": {
-                    "type": "string"
-                },
-                "expires_at": {
-                    "type": "string"
-                },
-                "redirect_uri": {
-                    "type": "string"
-                },
-                "state": {
-                    "type": "string"
-                }
-            }
-        },
         "admin.statusResponse": {
             "type": "object",
             "properties": {
@@ -15873,46 +15778,6 @@ const docTemplate = `{
                 "tool_name": {
                     "type": "string",
                     "example": "trino_admin_kill"
-                }
-            }
-        },
-        "admin.updateCatalogRequest": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "display_name": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
-                }
-            }
-        },
-        "admin.upsertCatalogSpecRequest": {
-            "type": "object",
-            "properties": {
-                "base_path": {
-                    "type": "string"
-                },
-                "content": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "source_kind": {
-                    "type": "string"
-                },
-                "source_url": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
                 }
             }
         },
@@ -16421,6 +16286,112 @@ const docTemplate = `{
                 }
             }
         },
+        "auditapi.auditEventResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/audit.Event"
+                    }
+                },
+                "page": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "per_page": {
+                    "type": "integer",
+                    "example": 50
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 196
+                }
+            }
+        },
+        "auditapi.auditFiltersResponse": {
+            "type": "object",
+            "properties": {
+                "event_kinds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "mcp_tool_call",
+                        "apigateway_invoke"
+                    ]
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "mcp",
+                        "rest",
+                        "admin"
+                    ]
+                },
+                "toolkit_kinds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "api",
+                        "datahub",
+                        "trino",
+                        "s3",
+                        "memory"
+                    ]
+                },
+                "tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "trino_query",
+                        "datahub_search",
+                        "s3_list_objects"
+                    ]
+                },
+                "user_labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "marcus.johnson@example.com",
+                        "lisa.chang@example.com"
+                    ]
+                }
+            }
+        },
+        "auditapi.auditStatsResponse": {
+            "type": "object",
+            "properties": {
+                "failures": {
+                    "type": "integer",
+                    "example": 77
+                },
+                "success": {
+                    "type": "integer",
+                    "example": 1423
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 1500
+                }
+            }
+        },
         "auth.APIKeySummary": {
             "type": "object",
             "properties": {
@@ -16526,6 +16497,211 @@ const docTemplate = `{
                 "TypeTokenDeletedRevoked",
                 "TypeTokenDeletedAdmin"
             ]
+        },
+        "catalogapi.catalogResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "ref_count": {
+                    "type": "integer"
+                },
+                "spec_count": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "catalogapi.cloneCatalogRequest": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "catalogapi.createCatalogRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "catalogapi.embeddingHealthResponse": {
+            "type": "object",
+            "properties": {
+                "catalog_id": {
+                    "type": "string"
+                },
+                "specs_failed": {
+                    "type": "integer"
+                },
+                "specs_indexed": {
+                    "type": "integer"
+                },
+                "specs_pending": {
+                    "type": "integer"
+                },
+                "specs_running": {
+                    "type": "integer"
+                },
+                "specs_total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "catalogapi.specListResponse": {
+            "type": "object",
+            "properties": {
+                "specs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/catalogapi.specResponse"
+                    }
+                }
+            }
+        },
+        "catalogapi.specResponse": {
+            "type": "object",
+            "properties": {
+                "base_path": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "embedding_attempts": {
+                    "description": "EmbeddingAttempts is the most recent job's attempt count.\nRendered as \"running (attempt N)\" while in flight, useful\nfor operators trying to gauge whether a slow provider is\njust slow or stuck retrying.",
+                    "type": "integer"
+                },
+                "embedding_count": {
+                    "description": "EmbeddingCount is the count of persisted operation embedding\nrows for this (catalog, spec). Equal to OperationCount when\nthe queue has fully drained for the spec; less while a job\nis in flight or after a partial failure.",
+                    "type": "integer"
+                },
+                "embedding_last_error": {
+                    "description": "EmbeddingLastError is the most recent job's last_error\ncolumn. Non-empty only when the most recent job failed or\nis on a retry; rendered in a tooltip / detail row so the\noperator can see \"provider returned 502\" without grepping\npod logs.",
+                    "type": "string"
+                },
+                "embedding_status": {
+                    "description": "EmbeddingStatus reflects the most recent embedding job's\nterminal or in-flight state: \"\" when no job has ever run\nfor the spec, \"pending\" while queued, \"running\" while a\nworker is processing it, \"succeeded\" when current, \"failed\"\nwhen retries are exhausted. The portal uses this for the\nper-spec badge text and color.",
+                    "type": "string"
+                },
+                "etag": {
+                    "type": "string"
+                },
+                "last_fetched_at": {
+                    "type": "string"
+                },
+                "operation_count": {
+                    "description": "OperationCount is the number of operations the spec content\nparses to. Stored alongside the spec on every write so the\nportal can render \"N/M indexed\" without re-parsing the\ncontent on the client.",
+                    "type": "integer"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "source_url": {
+                    "type": "string"
+                },
+                "spec_name": {
+                    "type": "string"
+                },
+                "title": {
+                    "description": "Title and Description are the operator-set per-spec summary\noverrides. Empty means \"derive from the spec's info.title /\ninfo.description\". See catalog.NormalizeSpecTitle /\nNormalizeSpecDescription for the validation rules.",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "catalogapi.updateCatalogRequest": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "catalogapi.upsertCatalogSpecRequest": {
+            "type": "object",
+            "properties": {
+                "base_path": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "source_url": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
         },
         "configstore.ChangelogEntry": {
             "type": "object",
@@ -16658,6 +16834,90 @@ const docTemplate = `{
                 }
             }
         },
+        "connoauthapi.connectionOAuthHealthSummary": {
+            "type": "object",
+            "properties": {
+                "has_oauth": {
+                    "type": "boolean"
+                },
+                "idp_error_code": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "needs_reauth": {
+                    "type": "boolean"
+                },
+                "token_acquired": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "connoauthapi.connectionsOAuthHealthResponse": {
+            "type": "object",
+            "properties": {
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/connoauthapi.connectionOAuthHealthSummary"
+                    }
+                }
+            }
+        },
+        "connoauthapi.startConnectionOAuthRequest": {
+            "type": "object",
+            "properties": {
+                "return_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "connoauthapi.startConnectionOAuthResponse": {
+            "type": "object",
+            "properties": {
+                "authorization_url": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "redirect_uri": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "connoauthapi.startGatewayOAuthRequest": {
+            "type": "object",
+            "properties": {
+                "return_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "connoauthapi.startGatewayOAuthResponse": {
+            "type": "object",
+            "properties": {
+                "authorization_url": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "redirect_uri": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
         "enrichment.Action": {
             "type": "object",
             "properties": {
@@ -16756,6 +17016,193 @@ const docTemplate = `{
                 },
                 "when_predicate": {
                     "$ref": "#/definitions/enrichment.Predicate"
+                }
+            }
+        },
+        "feedbackapi.appendEventRequest": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "parent_event_id": {
+                    "type": "string"
+                },
+                "rating": {
+                    "type": "integer"
+                }
+            }
+        },
+        "feedbackapi.captureInsightRequest": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "confidence": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "entity_urns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sink_class": {
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.captureInsightResponse": {
+            "type": "object",
+            "properties": {
+                "insight_id": {
+                    "type": "string"
+                },
+                "linked": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.createThreadRequest": {
+            "type": "object",
+            "properties": {
+                "anchor": {
+                    "type": "object"
+                },
+                "asset_id": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "collection_id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "knowledge_page_id": {
+                    "type": "string"
+                },
+                "prompt_id": {
+                    "type": "string"
+                },
+                "rating": {
+                    "type": "integer"
+                },
+                "requires_resolution": {
+                    "type": "boolean"
+                },
+                "target_type": {
+                    "type": "string"
+                },
+                "target_version": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.pagedResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 42
+                }
+            }
+        },
+        "feedbackapi.respondValidationRequest": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                },
+                "result": {
+                    "description": "validated | disputed",
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.signoffSummary": {
+            "type": "object",
+            "properties": {
+                "signed_off": {
+                    "type": "integer"
+                },
+                "stakeholders": {
+                    "type": "integer"
+                }
+            }
+        },
+        "feedbackapi.threadChainChangeset": {
+            "type": "object",
+            "properties": {
+                "change_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "rolled_back": {
+                    "type": "boolean"
+                },
+                "target_urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.threadChainResponse": {
+            "type": "object",
+            "properties": {
+                "changesets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/feedbackapi.threadChainChangeset"
+                    }
+                },
+                "insight_id": {
+                    "type": "string"
+                },
+                "thread_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "feedbackapi.updateThreadRequest": {
+            "type": "object",
+            "properties": {
+                "requires_resolution": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "validation_state": {
+                    "type": "string"
                 }
             }
         },
@@ -16907,6 +17354,36 @@ const docTemplate = `{
                             "$ref": "#/definitions/resource.Usage"
                         }
                     ]
+                }
+            }
+        },
+        "httpjson.ProblemDetail": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string",
+                    "example": "resource not found"
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 404
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Not Found"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "about:blank"
+                }
+            }
+        },
+        "httpjson.StatusResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "ok"
                 }
             }
         },
@@ -17413,7 +17890,177 @@ const docTemplate = `{
                 }
             }
         },
-        "notification.PrefsRequest": {
+        "notifyapi.notificationListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/notifyapi.notificationRow"
+                    }
+                },
+                "page": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "per_page": {
+                    "type": "integer",
+                    "example": 50
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 196
+                }
+            }
+        },
+        "notifyapi.notificationRow": {
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "attempts": {
+                    "type": "integer",
+                    "example": 5
+                },
+                "category": {
+                    "type": "string",
+                    "example": "share"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "digest": {
+                    "type": "boolean",
+                    "example": false
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 4211
+                },
+                "item_title": {
+                    "type": "string",
+                    "example": "Q3 Revenue"
+                },
+                "last_error": {
+                    "type": "string",
+                    "example": "dial tcp: connection refused"
+                },
+                "link": {
+                    "type": "string",
+                    "example": "https://platform.example.com/portal/assets/a1"
+                },
+                "recipient": {
+                    "type": "string",
+                    "example": "bob@example.com"
+                },
+                "scheduled_for": {
+                    "type": "string"
+                },
+                "sent_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "failed"
+                },
+                "subject": {
+                    "type": "string",
+                    "example": "alice@example.com shared the asset \"Q3 Revenue\" with you"
+                }
+            }
+        },
+        "notifyapi.notificationStatsResponse": {
+            "type": "object",
+            "properties": {
+                "failed": {
+                    "type": "integer",
+                    "example": 7
+                },
+                "pending": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "retention_days": {
+                    "description": "RetentionDays is how long a resolved row survives before the worker\npurges it. Zero means the deployment did not report a window.",
+                    "type": "integer",
+                    "example": 30
+                },
+                "sending": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "sent": {
+                    "type": "integer",
+                    "example": 842
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 853
+                }
+            }
+        },
+        "notifyhttp.HistoryItem": {
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "type": "string"
+                },
+                "category": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "digest": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "item_title": {
+                    "type": "string"
+                },
+                "link": {
+                    "type": "string"
+                },
+                "sent_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                }
+            }
+        },
+        "notifyhttp.HistoryResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/notifyhttp.HistoryItem"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "per_page": {
+                    "type": "integer"
+                },
+                "retention_days": {
+                    "description": "RetentionDays is the window this history covers. Zero means the\ndeployment did not report one.",
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "notifyhttp.PrefsRequest": {
             "type": "object",
             "properties": {
                 "comments_enabled": {
@@ -17430,10 +18077,14 @@ const docTemplate = `{
                 }
             }
         },
-        "notification.PrefsResponse": {
+        "notifyhttp.PrefsResponse": {
             "type": "object",
             "properties": {
                 "comments_enabled": {
+                    "type": "boolean"
+                },
+                "delivery_available": {
+                    "description": "DeliveryAvailable reports whether the platform currently has an SMTP\npath that could deliver these notifications. False means stored\npreferences describe an intent nothing can act on: triggers keep\nqueueing rows and those rows expire undelivered.",
                     "type": "boolean"
                 },
                 "mentions_enabled": {
@@ -17444,96 +18095,6 @@ const docTemplate = `{
                 },
                 "shares_enabled": {
                     "type": "boolean"
-                }
-            }
-        },
-        "notification.SMTPSettingsInput": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean",
-                    "example": true
-                },
-                "from": {
-                    "type": "string",
-                    "example": "platform@example.com"
-                },
-                "from_name": {
-                    "type": "string",
-                    "example": "Data Platform"
-                },
-                "host": {
-                    "type": "string",
-                    "example": "smtp.example.com"
-                },
-                "password": {
-                    "type": "string",
-                    "example": "app-password"
-                },
-                "port": {
-                    "type": "integer",
-                    "example": 587
-                },
-                "tls_mode": {
-                    "type": "string",
-                    "example": "starttls"
-                },
-                "username": {
-                    "type": "string",
-                    "example": "mailer@example.com"
-                }
-            }
-        },
-        "notification.SMTPSettingsView": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean",
-                    "example": true
-                },
-                "from": {
-                    "type": "string",
-                    "example": "platform@example.com"
-                },
-                "from_name": {
-                    "type": "string",
-                    "example": "Data Platform"
-                },
-                "host": {
-                    "type": "string",
-                    "example": "smtp.example.com"
-                },
-                "password_set": {
-                    "type": "boolean",
-                    "example": true
-                },
-                "port": {
-                    "type": "integer",
-                    "example": 587
-                },
-                "tls_mode": {
-                    "type": "string",
-                    "example": "starttls"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "updated_by": {
-                    "type": "string",
-                    "example": "admin@example.com"
-                },
-                "username": {
-                    "type": "string",
-                    "example": "mailer@example.com"
-                }
-            }
-        },
-        "notification.TestEmailRequest": {
-            "type": "object",
-            "properties": {
-                "to": {
-                    "type": "string",
-                    "example": "admin@example.com"
                 }
             }
         },
@@ -17585,7 +18146,7 @@ const docTemplate = `{
                 "collections": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/portal.AssetCollectionRef"
+                        "$ref": "#/definitions/portaldomain.AssetCollectionRef"
                     }
                 },
                 "content_type": {
@@ -17627,7 +18188,7 @@ const docTemplate = `{
                     "example": "550e8400-e29b-41d4-a716-446655440000"
                 },
                 "provenance": {
-                    "$ref": "#/definitions/portal.Provenance"
+                    "$ref": "#/definitions/portaldomain.Provenance"
                 },
                 "s3_bucket": {
                     "type": "string",
@@ -17662,19 +18223,6 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
-                }
-            }
-        },
-        "portal.AssetCollectionRef": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "example": "col_01HK7R8Z"
-                },
-                "name": {
-                    "type": "string",
-                    "example": "Q4 Performance Review"
                 }
             }
         },
@@ -17722,182 +18270,6 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.Collection": {
-            "type": "object",
-            "properties": {
-                "asset_tags": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "config": {
-                    "$ref": "#/definitions/portal.CollectionConfig"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "deleted_at": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string",
-                    "example": "Executive collection with revenue dashboards"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "col_01HK7R8Z"
-                },
-                "name": {
-                    "type": "string",
-                    "example": "Q4 Performance Review"
-                },
-                "owner_email": {
-                    "type": "string",
-                    "example": "alice@example.com"
-                },
-                "owner_id": {
-                    "type": "string",
-                    "example": "550e8400-e29b-41d4-a716-446655440000"
-                },
-                "sections": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/portal.CollectionSection"
-                    }
-                },
-                "thumbnail_s3_key": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "portal.CollectionConfig": {
-            "type": "object",
-            "properties": {
-                "thumbnail_size": {
-                    "description": "\"large\", \"medium\", \"small\", \"none\"",
-                    "type": "string",
-                    "example": "medium"
-                }
-            }
-        },
-        "portal.CollectionItem": {
-            "type": "object",
-            "properties": {
-                "asset_content_type": {
-                    "type": "string",
-                    "example": "text/html"
-                },
-                "asset_description": {
-                    "type": "string",
-                    "example": "Interactive revenue breakdown"
-                },
-                "asset_id": {
-                    "type": "string",
-                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
-                },
-                "asset_name": {
-                    "type": "string",
-                    "example": "Q4 Revenue Dashboard"
-                },
-                "asset_thumbnail_s3_key": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "item_01HK7R9D"
-                },
-                "position": {
-                    "type": "integer",
-                    "example": 0
-                },
-                "section_id": {
-                    "type": "string",
-                    "example": "sec_01HK7R9C"
-                }
-            }
-        },
-        "portal.CollectionSection": {
-            "type": "object",
-            "properties": {
-                "collection_id": {
-                    "type": "string",
-                    "example": "col_01HK7R8Z"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string",
-                    "example": "High-level revenue and KPI snapshots"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "sec_01HK7R9C"
-                },
-                "items": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/portal.CollectionItem"
-                    }
-                },
-                "position": {
-                    "type": "integer",
-                    "example": 0
-                },
-                "title": {
-                    "type": "string",
-                    "example": "Overview"
-                }
-            }
-        },
-        "portal.Provenance": {
-            "type": "object",
-            "properties": {
-                "declared_content_type": {
-                    "description": "DeclaredContentType is the media type the writer declared, recorded only\nwhen detection replaced it. It is the audit trail for a reclassified\nasset: it answers \"what did the upstream actually say\" without which a\nstored type that disagrees with the source is unexplainable.",
-                    "type": "string",
-                    "example": "text/plain"
-                },
-                "session_id": {
-                    "type": "string",
-                    "example": "sess_abc123"
-                },
-                "tool_calls": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/portal.ProvenanceToolCall"
-                    }
-                },
-                "user_id": {
-                    "type": "string",
-                    "example": "550e8400-e29b-41d4-a716-446655440000"
-                }
-            }
-        },
-        "portal.ProvenanceToolCall": {
-            "type": "object",
-            "properties": {
-                "parameters": {
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "timestamp": {
-                    "type": "string",
-                    "example": "2026-04-15T14:30:00Z"
-                },
-                "tool_name": {
-                    "type": "string",
-                    "example": "trino_query"
-                }
-            }
-        },
         "portal.SearchCoverage": {
             "type": "object",
             "properties": {
@@ -17909,6 +18281,9 @@ const docTemplate = `{
                 },
                 "source": {
                     "type": "string"
+                },
+                "withheld": {
+                    "type": "integer"
                 }
             }
         },
@@ -17965,7 +18340,7 @@ const docTemplate = `{
                 "access_mode": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.ShareAccessMode"
+                            "$ref": "#/definitions/portaldomain.ShareAccessMode"
                         }
                     ],
                     "example": "restricted"
@@ -18005,7 +18380,7 @@ const docTemplate = `{
                 "origin": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.ShareOrigin"
+                            "$ref": "#/definitions/portaldomain.ShareOrigin"
                         }
                     ],
                     "example": "explicit"
@@ -18013,7 +18388,7 @@ const docTemplate = `{
                 "permission": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.SharePermission"
+                            "$ref": "#/definitions/portaldomain.SharePermission"
                         }
                     ],
                     "example": "viewer"
@@ -18038,41 +18413,6 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.ShareAccessMode": {
-            "type": "string",
-            "enum": [
-                "restricted",
-                "authenticated",
-                "public"
-            ],
-            "x-enum-varnames": [
-                "ModeRestricted",
-                "ModeAuthenticated",
-                "ModePublic"
-            ]
-        },
-        "portal.ShareOrigin": {
-            "type": "string",
-            "enum": [
-                "explicit",
-                "public_link_login"
-            ],
-            "x-enum-varnames": [
-                "OriginExplicit",
-                "OriginPublicLinkLogin"
-            ]
-        },
-        "portal.SharePermission": {
-            "type": "string",
-            "enum": [
-                "viewer",
-                "editor"
-            ],
-            "x-enum-varnames": [
-                "PermissionViewer",
-                "PermissionEditor"
-            ]
-        },
         "portal.ShareSummary": {
             "type": "object",
             "properties": {
@@ -18090,12 +18430,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "collection": {
-                    "$ref": "#/definitions/portal.Collection"
+                    "$ref": "#/definitions/portaldomain.Collection"
                 },
                 "permission": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.SharePermission"
+                            "$ref": "#/definitions/portaldomain.SharePermission"
                         }
                     ],
                     "example": "viewer"
@@ -18117,7 +18457,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "permission": {
-                    "$ref": "#/definitions/portal.SharePermission"
+                    "$ref": "#/definitions/portaldomain.SharePermission"
                 },
                 "prompt": {
                     "$ref": "#/definitions/prompt.Prompt"
@@ -18133,135 +18473,13 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.Thread": {
-            "type": "object",
-            "properties": {
-                "anchor": {
-                    "type": "object"
-                },
-                "asset_id": {
-                    "type": "string"
-                },
-                "author_email": {
-                    "type": "string",
-                    "example": "sme@example.com"
-                },
-                "author_id": {
-                    "type": "string"
-                },
-                "collection_id": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "deleted_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "thr_01HK7R8Z"
-                },
-                "insight_id": {
-                    "type": "string"
-                },
-                "kind": {
-                    "type": "string",
-                    "example": "correction"
-                },
-                "knowledge_page_id": {
-                    "type": "string"
-                },
-                "prompt_id": {
-                    "type": "string"
-                },
-                "requires_resolution": {
-                    "type": "boolean"
-                },
-                "status": {
-                    "type": "string",
-                    "example": "open"
-                },
-                "target_type": {
-                    "type": "string",
-                    "example": "asset"
-                },
-                "target_version": {
-                    "type": "integer"
-                },
-                "title": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "validation_state": {
-                    "type": "string",
-                    "example": "none"
-                }
-            }
-        },
-        "portal.ThreadEvent": {
-            "type": "object",
-            "properties": {
-                "author_email": {
-                    "type": "string"
-                },
-                "author_id": {
-                    "type": "string"
-                },
-                "body": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "event_type": {
-                    "type": "string",
-                    "example": "comment"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "evt_01HK7R8Z"
-                },
-                "metadata": {
-                    "type": "object"
-                },
-                "parent_event_id": {
-                    "type": "string"
-                },
-                "rating": {
-                    "type": "integer"
-                },
-                "thread_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "portal.appendEventRequest": {
-            "type": "object",
-            "properties": {
-                "body": {
-                    "type": "string"
-                },
-                "event_type": {
-                    "type": "string"
-                },
-                "parent_event_id": {
-                    "type": "string"
-                },
-                "rating": {
-                    "type": "integer"
-                }
-            }
-        },
         "portal.assetResponse": {
             "type": "object",
             "properties": {
                 "collections": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/portal.AssetCollectionRef"
+                        "$ref": "#/definitions/portaldomain.AssetCollectionRef"
                     }
                 },
                 "content_type": {
@@ -18307,7 +18525,7 @@ const docTemplate = `{
                     "example": "550e8400-e29b-41d4-a716-446655440000"
                 },
                 "provenance": {
-                    "$ref": "#/definitions/portal.Provenance"
+                    "$ref": "#/definitions/portaldomain.Provenance"
                 },
                 "s3_bucket": {
                     "type": "string",
@@ -18324,7 +18542,7 @@ const docTemplate = `{
                 "share_permission": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.SharePermission"
+                            "$ref": "#/definitions/portaldomain.SharePermission"
                         }
                     ],
                     "example": "viewer"
@@ -18361,43 +18579,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/knowledgepage.PageRef"
                     }
-                }
-            }
-        },
-        "portal.captureInsightRequest": {
-            "type": "object",
-            "properties": {
-                "category": {
-                    "type": "string"
-                },
-                "confidence": {
-                    "type": "string"
-                },
-                "content": {
-                    "type": "string"
-                },
-                "entity_urns": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "sink_class": {
-                    "type": "string"
-                }
-            }
-        },
-        "portal.captureInsightResponse": {
-            "type": "object",
-            "properties": {
-                "insight_id": {
-                    "type": "string"
-                },
-                "linked": {
-                    "type": "boolean"
-                },
-                "status": {
-                    "type": "string"
                 }
             }
         },
@@ -18450,7 +18631,7 @@ const docTemplate = `{
                     "example": "restricted"
                 },
                 "expires_in": {
-                    "description": "duration string, e.g. \"24h\"",
+                    "description": "ExpiresIn is a duration string (\"24h\") bounding a link share's life. It\napplies to link shares only: a share addressed to a person is access\ngranted to that person and is revoked, not timed out.",
                     "type": "string",
                     "example": "24h"
                 },
@@ -18458,10 +18639,20 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": false
                 },
+                "message": {
+                    "description": "Message is an optional plain-text note from the sharer, delivered in the\nnotification email and stored nowhere. Markup and links are rejected\n(ValidateShareMessage) whatever the share's shape, so a malformed note\nis reported rather than silently dropped; a note on a share that sends\nno email is accepted and then goes nowhere.",
+                    "type": "string",
+                    "example": "Here's the Q3 revenue breakdown you asked about"
+                },
                 "notice_text": {
                     "description": "nil = default, \"\" = hidden, custom = as-is",
                     "type": "string",
                     "example": "Confidential"
+                },
+                "notify": {
+                    "description": "Notify controls whether a named recipient gets a \"shared with you\"\nemail. nil (omitted) means notify -- the default a share carries when\nnobody says otherwise. false shares quietly. The recipient's own\nnotification preferences still apply when it is true; this only removes\nthe sharer's ability to force one.",
+                    "type": "boolean",
+                    "example": true
                 },
                 "permission": {
                     "description": "\"viewer\" (default) or \"editor\"",
@@ -18478,47 +18669,6 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.createThreadRequest": {
-            "type": "object",
-            "properties": {
-                "anchor": {
-                    "type": "object"
-                },
-                "asset_id": {
-                    "type": "string"
-                },
-                "body": {
-                    "type": "string"
-                },
-                "collection_id": {
-                    "type": "string"
-                },
-                "kind": {
-                    "type": "string"
-                },
-                "knowledge_page_id": {
-                    "type": "string"
-                },
-                "prompt_id": {
-                    "type": "string"
-                },
-                "rating": {
-                    "type": "integer"
-                },
-                "requires_resolution": {
-                    "type": "boolean"
-                },
-                "target_type": {
-                    "type": "string"
-                },
-                "target_version": {
-                    "type": "integer"
-                },
-                "title": {
-                    "type": "string"
-                }
-            }
-        },
         "portal.getCollectionResponse": {
             "type": "object",
             "properties": {
@@ -18529,7 +18679,7 @@ const docTemplate = `{
                     }
                 },
                 "config": {
-                    "$ref": "#/definitions/portal.CollectionConfig"
+                    "$ref": "#/definitions/portaldomain.CollectionConfig"
                 },
                 "created_at": {
                     "type": "string"
@@ -18564,13 +18714,13 @@ const docTemplate = `{
                 "sections": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/portal.CollectionSection"
+                        "$ref": "#/definitions/portaldomain.CollectionSection"
                     }
                 },
                 "share_permission": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/portal.SharePermission"
+                            "$ref": "#/definitions/portaldomain.SharePermission"
                         }
                     ],
                     "example": "viewer"
@@ -18721,7 +18871,7 @@ const docTemplate = `{
                 "data": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/portal.Collection"
+                        "$ref": "#/definitions/portaldomain.Collection"
                     }
                 },
                 "limit": {
@@ -19015,18 +19165,6 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.respondValidationRequest": {
-            "type": "object",
-            "properties": {
-                "reason": {
-                    "type": "string"
-                },
-                "result": {
-                    "description": "validated | disputed",
-                    "type": "string"
-                }
-            }
-        },
         "portal.searchResponse": {
             "type": "object",
             "properties": {
@@ -19053,6 +19191,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "withheld_notice": {
+                    "type": "string"
                 }
             }
         },
@@ -19090,60 +19231,12 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.signoffSummary": {
-            "type": "object",
-            "properties": {
-                "signed_off": {
-                    "type": "integer"
-                },
-                "stakeholders": {
-                    "type": "integer"
-                }
-            }
-        },
         "portal.statusResponse": {
             "type": "object",
             "properties": {
                 "status": {
                     "type": "string",
                     "example": "updated"
-                }
-            }
-        },
-        "portal.threadChainChangeset": {
-            "type": "object",
-            "properties": {
-                "change_type": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "rolled_back": {
-                    "type": "boolean"
-                },
-                "target_urn": {
-                    "type": "string"
-                }
-            }
-        },
-        "portal.threadChainResponse": {
-            "type": "object",
-            "properties": {
-                "changesets": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/portal.threadChainChangeset"
-                    }
-                },
-                "insight_id": {
-                    "type": "string"
-                },
-                "thread_id": {
-                    "type": "string"
                 }
             }
         },
@@ -19183,19 +19276,229 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.updateThreadRequest": {
+        "portaldomain.AssetCollectionRef": {
             "type": "object",
             "properties": {
-                "requires_resolution": {
-                    "type": "boolean"
+                "id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
                 },
-                "status": {
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Performance Review"
+                }
+            }
+        },
+        "portaldomain.Collection": {
+            "type": "object",
+            "properties": {
+                "asset_tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "config": {
+                    "$ref": "#/definitions/portaldomain.CollectionConfig"
+                },
+                "created_at": {
                     "type": "string"
                 },
-                "validation_state": {
+                "deleted_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Executive collection with revenue dashboards"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q4 Performance Review"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "alice@example.com"
+                },
+                "owner_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "sections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.CollectionSection"
+                    }
+                },
+                "thumbnail_s3_key": {
+                    "type": "string"
+                },
+                "updated_at": {
                     "type": "string"
                 }
             }
+        },
+        "portaldomain.CollectionConfig": {
+            "type": "object",
+            "properties": {
+                "thumbnail_size": {
+                    "description": "\"large\", \"medium\", \"small\", \"none\"",
+                    "type": "string",
+                    "example": "medium"
+                }
+            }
+        },
+        "portaldomain.CollectionItem": {
+            "type": "object",
+            "properties": {
+                "asset_content_type": {
+                    "type": "string",
+                    "example": "text/html"
+                },
+                "asset_description": {
+                    "type": "string",
+                    "example": "Interactive revenue breakdown"
+                },
+                "asset_id": {
+                    "type": "string",
+                    "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
+                },
+                "asset_name": {
+                    "type": "string",
+                    "example": "Q4 Revenue Dashboard"
+                },
+                "asset_thumbnail_s3_key": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "item_01HK7R9D"
+                },
+                "position": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "section_id": {
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                }
+            }
+        },
+        "portaldomain.CollectionSection": {
+            "type": "object",
+            "properties": {
+                "collection_id": {
+                    "type": "string",
+                    "example": "col_01HK7R8Z"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "High-level revenue and KPI snapshots"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "sec_01HK7R9C"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.CollectionItem"
+                    }
+                },
+                "position": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Overview"
+                }
+            }
+        },
+        "portaldomain.Provenance": {
+            "type": "object",
+            "properties": {
+                "declared_content_type": {
+                    "description": "DeclaredContentType is the media type the writer declared, recorded only\nwhen detection replaced it. It is the audit trail for a reclassified\nasset: it answers \"what did the upstream actually say\" without which a\nstored type that disagrees with the source is unexplainable.",
+                    "type": "string",
+                    "example": "text/plain"
+                },
+                "session_id": {
+                    "type": "string",
+                    "example": "sess_abc123"
+                },
+                "tool_calls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.ProvenanceToolCall"
+                    }
+                },
+                "user_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "portaldomain.ProvenanceToolCall": {
+            "type": "object",
+            "properties": {
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "timestamp": {
+                    "type": "string",
+                    "example": "2026-04-15T14:30:00Z"
+                },
+                "tool_name": {
+                    "type": "string",
+                    "example": "trino_query"
+                }
+            }
+        },
+        "portaldomain.ShareAccessMode": {
+            "type": "string",
+            "enum": [
+                "restricted",
+                "authenticated",
+                "public"
+            ],
+            "x-enum-varnames": [
+                "ModeRestricted",
+                "ModeAuthenticated",
+                "ModePublic"
+            ]
+        },
+        "portaldomain.ShareOrigin": {
+            "type": "string",
+            "enum": [
+                "explicit",
+                "public_link_login"
+            ],
+            "x-enum-varnames": [
+                "OriginExplicit",
+                "OriginPublicLinkLogin"
+            ]
+        },
+        "portaldomain.SharePermission": {
+            "type": "string",
+            "enum": [
+                "viewer",
+                "editor"
+            ],
+            "x-enum-varnames": [
+                "PermissionViewer",
+                "PermissionEditor"
+            ]
         },
         "prompt.Argument": {
             "type": "object",
@@ -19612,6 +19915,77 @@ const docTemplate = `{
                 }
             }
         },
+        "reviewalert.SettingsInput": {
+            "type": "object",
+            "properties": {
+                "cooldown_hours": {
+                    "type": "integer",
+                    "example": 24
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "oldest_pending_days": {
+                    "type": "integer",
+                    "example": 30
+                },
+                "pending_threshold": {
+                    "type": "integer",
+                    "example": 25
+                },
+                "recipients": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "data-admin@example.com"
+                    ]
+                }
+            }
+        },
+        "reviewalert.SettingsView": {
+            "type": "object",
+            "properties": {
+                "cooldown_hours": {
+                    "type": "integer",
+                    "example": 24
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "oldest_pending_days": {
+                    "type": "integer",
+                    "example": 30
+                },
+                "pending_threshold": {
+                    "type": "integer",
+                    "example": 25
+                },
+                "recipients": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "warnings": {
+                    "description": "Warnings describes a configuration that saves cleanly but delivers\nnothing. They never block a save; they exist so the operator sees the\ngap at the surface where the setting was chosen.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "settingsapi.problemDetail": {
             "type": "object",
             "properties": {
@@ -19630,6 +20004,208 @@ const docTemplate = `{
                 "type": {
                     "type": "string",
                     "example": "about:blank"
+                }
+            }
+        },
+        "smtp.SettingsInput": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "from": {
+                    "type": "string",
+                    "example": "platform@example.com"
+                },
+                "from_name": {
+                    "type": "string",
+                    "example": "Data Platform"
+                },
+                "host": {
+                    "type": "string",
+                    "example": "smtp.example.com"
+                },
+                "password": {
+                    "type": "string",
+                    "example": "app-password"
+                },
+                "port": {
+                    "type": "integer",
+                    "example": 587
+                },
+                "tls_mode": {
+                    "type": "string",
+                    "example": "starttls"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "mailer@example.com"
+                }
+            }
+        },
+        "smtp.SettingsView": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "from": {
+                    "type": "string",
+                    "example": "platform@example.com"
+                },
+                "from_name": {
+                    "type": "string",
+                    "example": "Data Platform"
+                },
+                "host": {
+                    "type": "string",
+                    "example": "smtp.example.com"
+                },
+                "password_set": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "port": {
+                    "type": "integer",
+                    "example": 587
+                },
+                "tls_mode": {
+                    "type": "string",
+                    "example": "starttls"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "mailer@example.com"
+                },
+                "warnings": {
+                    "description": "Warnings describes accepted-but-hazardous combinations in the stored\nconfiguration. They never block a save; they exist so the operator sees\nthe hazard at the surface where the setting was chosen.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "smtp.TestEmailRequest": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                }
+            }
+        },
+        "threads.Thread": {
+            "type": "object",
+            "properties": {
+                "anchor": {
+                    "type": "object"
+                },
+                "asset_id": {
+                    "type": "string"
+                },
+                "author_email": {
+                    "type": "string",
+                    "example": "sme@example.com"
+                },
+                "author_id": {
+                    "type": "string"
+                },
+                "collection_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "thr_01HK7R8Z"
+                },
+                "insight_id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "correction"
+                },
+                "knowledge_page_id": {
+                    "type": "string"
+                },
+                "prompt_id": {
+                    "type": "string"
+                },
+                "requires_resolution": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "open"
+                },
+                "target_type": {
+                    "type": "string",
+                    "example": "asset"
+                },
+                "target_version": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "validation_state": {
+                    "type": "string",
+                    "example": "none"
+                }
+            }
+        },
+        "threads.ThreadEvent": {
+            "type": "object",
+            "properties": {
+                "author_email": {
+                    "type": "string"
+                },
+                "author_id": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string",
+                    "example": "comment"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "evt_01HK7R8Z"
+                },
+                "metadata": {
+                    "type": "object"
+                },
+                "parent_event_id": {
+                    "type": "string"
+                },
+                "rating": {
+                    "type": "integer"
+                },
+                "thread_id": {
+                    "type": "string"
                 }
             }
         },

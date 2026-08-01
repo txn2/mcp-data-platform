@@ -17,9 +17,9 @@ func MigrateConfig(r io.Reader, w io.Writer, targetVersion string) error {
 	if err != nil {
 		return fmt.Errorf("reading input: %w", err)
 	}
-	out, err := MigrateConfigBytes(data, targetVersion)
+	out, err := migrateConfigBytes(data, targetVersion)
 	if err != nil {
-		return err //nolint:wrapcheck // MigrateConfigBytes already wraps errors
+		return err //nolint:wrapcheck // migrateConfigBytes already wraps errors
 	}
 	if _, err := w.Write(out); err != nil {
 		return fmt.Errorf("writing output: %w", err)
@@ -27,12 +27,12 @@ func MigrateConfig(r io.Reader, w io.Writer, targetVersion string) error {
 	return nil
 }
 
-// MigrateConfigBytes migrates raw YAML config bytes to targetVersion.
+// migrateConfigBytes migrates raw YAML config bytes to targetVersion.
 // If targetVersion is empty, the current version is used.
 // This function does NOT expand environment variables so ${VAR} references
 // are preserved in the output.
-func MigrateConfigBytes(data []byte, targetVersion string) ([]byte, error) {
-	reg := DefaultRegistry()
+func migrateConfigBytes(data []byte, targetVersion string) ([]byte, error) {
+	reg := defaultRegistry()
 
 	if targetVersion == "" {
 		targetVersion = reg.Current()
@@ -44,12 +44,12 @@ func MigrateConfigBytes(data []byte, targetVersion string) ([]byte, error) {
 		return nil, fmt.Errorf("unknown target version %q; supported: %s",
 			targetVersion, strings.Join(reg.ListSupported(), ", "))
 	}
-	if targetInfo.Status == VersionRemoved {
+	if targetInfo.Status == versionRemoved {
 		return nil, fmt.Errorf("target version %q has been removed", targetVersion)
 	}
 
 	// Peek at the source version (without env expansion)
-	sourceVersion := PeekVersion(data)
+	sourceVersion := peekVersion(data)
 
 	// Validate source version
 	_, sourceErr := resolveVersion(reg, sourceVersion)
@@ -79,7 +79,7 @@ func MigrateConfigBytes(data []byte, targetVersion string) ([]byte, error) {
 
 // hasAPIVersionField checks if the raw YAML contains an explicit apiVersion field.
 func hasAPIVersionField(data []byte) bool {
-	var envelope ConfigEnvelope
+	var envelope configEnvelope
 	if err := yaml.Unmarshal(data, &envelope); err != nil {
 		return false
 	}

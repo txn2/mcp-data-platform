@@ -803,6 +803,7 @@
     var state = {
         prompts: [],      // normalized prompt objects (score attached when ranked)
         collections: {},  // id -> collection
+        callerEmail: '',  // who the platform says we are; buckets My Prompts by ownership
         query: '',
         bucket: 'all',    // all | mine | library
         collection: '',
@@ -882,6 +883,7 @@
                 if (seq !== listSeq) { return; }
                 state.prompts = normalizePrompts(d.prompts);
                 state.collections = indexCollections(d.collections);
+                state.callerEmail = d.caller_email || '';
                 state.ranked = !!query && d.ranking !== undefined;
                 hide('loading');
                 renderBrowser();
@@ -950,9 +952,13 @@
     // ---------------------------------------------------------------------
     // Browse view
     // ---------------------------------------------------------------------
+    // My Prompts is ownership, not scope (#1124): the bucket holds every prompt
+    // the caller owns, at any scope, and never another owner's personal prompt
+    // (which an admin's list response does include; those stay under All).
     function visiblePrompts() {
         var list = state.prompts.filter(function(p) {
-            if (state.bucket === 'mine' && p.scope !== 'personal') { return false; }
+            if (state.bucket === 'mine' &&
+                (!state.callerEmail || p.owner_email !== state.callerEmail)) { return false; }
             if (state.bucket === 'library' && p.scope === 'personal') { return false; }
             if (state.collection && p.collection_id !== state.collection) { return false; }
             if (state.tag && (!p.tags || p.tags.indexOf(state.tag) === -1)) { return false; }

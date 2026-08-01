@@ -16,6 +16,10 @@ export interface SMTPSettings {
   tls_mode: string;
   updated_by?: string;
   updated_at?: string;
+  // warnings describes accepted-but-hazardous combinations in the stored
+  // configuration, e.g. credentials configured with TLS off (#1072). Absent
+  // when the stored configuration raises none.
+  warnings?: string[];
 }
 
 // SMTPSettingsInput is the PUT body. The password field is write-only:
@@ -82,5 +86,51 @@ export function useSendTestEmail() {
         method: "POST",
         body: JSON.stringify({ to }),
       }),
+  });
+}
+
+// --- Knowledge review-queue staleness alert (#803) ---
+
+// ReviewQueueAlertSettings is the stored alert configuration. A threshold of 0
+// disables that condition; warnings describe a configuration that saves
+// cleanly but delivers nothing.
+export interface ReviewQueueAlertSettings {
+  enabled: boolean;
+  pending_threshold: number;
+  oldest_pending_days: number;
+  cooldown_hours: number;
+  recipients: string[];
+  updated_by?: string;
+  updated_at?: string;
+  warnings?: string[];
+}
+
+// ReviewQueueAlertInput is the PUT body: the same fields without the
+// server-owned audit columns and warnings.
+export type ReviewQueueAlertInput = Omit<
+  ReviewQueueAlertSettings,
+  "updated_by" | "updated_at" | "warnings"
+>;
+
+export function useReviewQueueAlert() {
+  return useQuery({
+    queryKey: ["settings", "review-queue-alert"],
+    queryFn: () => apiFetch<ReviewQueueAlertSettings>("/settings/review-queue-alert"),
+  });
+}
+
+export function useSetReviewQueueAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ReviewQueueAlertInput) =>
+      apiFetch<ReviewQueueAlertSettings>("/settings/review-queue-alert", {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+    // The PUT answers with the stored state (recipients normalized, warnings
+    // re-evaluated), so seed the cache from it rather than refetching.
+    onSuccess: (data) => {
+      qc.setQueryData(["settings", "review-queue-alert"], data);
+    },
   });
 }

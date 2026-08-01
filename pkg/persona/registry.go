@@ -9,11 +9,14 @@ import (
 )
 
 // Registry manages persona definitions.
+//
+// A registry has no fallback persona. A caller whose roles match no registered
+// persona resolves to nothing, and every surface that consults the registry
+// treats that as no access. Access is granted only by a role a persona names.
 type Registry struct {
 	mu sync.RWMutex
 
-	personas       map[string]*Persona
-	defaultPersona string
+	personas map[string]*Persona
 }
 
 // NewRegistry creates a new persona registry.
@@ -100,25 +103,6 @@ func (r *Registry) Get(name string) (*Persona, bool) {
 	return p, ok
 }
 
-// SetDefault sets the default persona name.
-func (r *Registry) SetDefault(name string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.defaultPersona = name
-}
-
-// GetDefault returns the default persona.
-func (r *Registry) GetDefault() (*Persona, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if r.defaultPersona == "" {
-		return nil, false
-	}
-	p, ok := r.personas[r.defaultPersona]
-	return p, ok
-}
-
 // All returns all registered personas.
 func (r *Registry) All() []*Persona {
 	r.mu.RLock()
@@ -131,7 +115,15 @@ func (r *Registry) All() []*Persona {
 	return result
 }
 
-// GetForRoles returns the best matching persona for the given roles.
+// GetForRoles returns the highest-priority persona whose roles intersect the
+// given roles, or (nil, false) when none does.
+//
+// There is deliberately no fallback. A caller whose roles match no persona is
+// unmapped, and an unmapped caller has no access: the MCP authorizer resolves
+// them to the deny-all DefaultPersona and the portal refuses the request
+// outright. Reintroducing a configured fallback here would silently grant that
+// persona's tools to every identity the IdP will issue a token for, whether or
+// not an operator ever granted them a role.
 func (r *Registry) GetForRoles(roles []string) (*Persona, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -148,17 +140,7 @@ func (r *Registry) GetForRoles(roles []string) (*Persona, bool) {
 		}
 	}
 
-	if bestMatch != nil {
-		return bestMatch, true
-	}
-
-	// Fall back to default
-	if r.defaultPersona != "" {
-		p, ok := r.personas[r.defaultPersona]
-		return p, ok
-	}
-
-	return nil, false
+	return bestMatch, bestMatch != nil
 }
 
 // Unregister removes a persona by name. Returns error if not found.
@@ -170,17 +152,7 @@ func (r *Registry) Unregister(name string) error {
 		return fmt.Errorf("persona %q not found", name)
 	}
 	delete(r.personas, name)
-	if r.defaultPersona == name {
-		r.defaultPersona = ""
-	}
 	return nil
-}
-
-// DefaultName returns the default persona name.
-func (r *Registry) DefaultName() string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.defaultPersona
 }
 
 // matchesAnyRole checks if any persona role matches any user role.

@@ -1266,3 +1266,237 @@ func TestNewMemoryInsightAdapter(t *testing.T) {
 	adapter := NewMemoryInsightAdapter(store)
 	assert.NotNil(t, adapter)
 }
+
+// TestSharedScopeForcesAppliedTogether is the safety property of the shared arm
+// (#980 B2): reaching across capturers and pinning the applied status are one
+// decision, not two. If Shared could drop the owner predicate while a caller's
+// Status rode through, a "show me everything" query would return every person's
+// private pending captures.
+func TestSharedScopeForcesAppliedTogether(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		shared       bool
+		capturedBy   string
+		status       string
+		wantOwner    string
+		wantStatusIs string
+	}{
+		{"owner arm passes through", false, "alice@example.com", StatusPending, "alice@example.com", StatusPending},
+		{"owner arm with no status", false, "alice@example.com", "", "alice@example.com", ""},
+		{"shared drops the owner", true, "alice@example.com", "", "", StatusApplied},
+		{"shared overrides a status the caller asked for", true, "alice@example.com", StatusPending, "", StatusApplied},
+		{"shared with no owner still pins applied", true, "", "", "", StatusApplied},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			owner, status := sharedInsightScope(tc.shared, tc.capturedBy, tc.status)
+			if owner != tc.wantOwner || status != tc.wantStatusIs {
+				t.Errorf("sharedInsightScope(%v, %q, %q) = (%q, %q), want (%q, %q)",
+					tc.shared, tc.capturedBy, tc.status, owner, status, tc.wantOwner, tc.wantStatusIs)
+			}
+		})
+	}
+}
+
+// TestStoreInsightStatusOnlyPushesExactStatuses guards the rule that decides
+// what the store may filter on. The store predicate reads the overlay metadata
+// only, so it is exact just for the statuses the coarse status column can never
+// resolve to. Pushing pending down would drop the records that carry no overlay
+// key and are pending by virtue of the column alone.
+func TestStoreInsightStatusOnlyPushesExactStatuses(t *testing.T) {
+	pushed := map[string]bool{StatusApproved: true, StatusApplied: true, StatusRolledBack: true}
+	for _, status := range []string{
+		StatusPending, StatusApproved, StatusRejected, StatusApplied, StatusSuperseded, StatusRolledBack, "",
+	} {
+		got := storeInsightStatus(status)
+		if pushed[status] {
+			if got != status {
+				t.Errorf("storeInsightStatus(%q) = %q, want it pushed to the store", status, got)
+			}
+			continue
+		}
+		if got != "" {
+			t.Errorf("storeInsightStatus(%q) = %q, want it left to the per-record filter", status, got)
+		}
+	}
+	// The rule must agree with the mapping it is derived from: a status the
+	// column can produce must never be pushed down.
+	for _, memStatus := range []string{memory.StatusActive, memory.StatusArchived, memory.StatusSuperseded} {
+		if fromColumn := mapMemoryStatusToInsight(memStatus); storeInsightStatus(fromColumn) != "" {
+			t.Errorf("status %q is reachable from the status column but is pushed to the store", fromColumn)
+		}
+	}
+}
+
+// TestAdapterSearchSharedArmQuery proves the override reaches the store query
+// itself, not just the helper: the shared arm must carry no owner and must carry
+// the applied status as a store-side predicate rather than relying on the
+// per-record filter, which runs after the top-k cut.
+func TestAdapterSearchSharedArmQuery(t *testing.T) {
+	t.Run("hybrid", func(t *testing.T) {
+		m := &mockMemoryStore{}
+		a := newSearchableAdapter(t, m)
+		if _, err := a.Search(context.Background(), InsightSearchQuery{
+			QueryText: "orders", Embedding: []float32{0.1},
+			CapturedBy: "alice@example.com", Status: StatusPending, Shared: true,
+		}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.lastHybridQ == nil {
+			t.Fatal("no hybrid search issued")
+		}
+		if m.lastHybridQ.CreatedBy != "" {
+			t.Errorf("shared arm carried an owner predicate: %q", m.lastHybridQ.CreatedBy)
+		}
+		if m.lastHybridQ.InsightStatus != StatusApplied {
+			t.Errorf("InsightStatus = %q, want the applied predicate pushed into SQL", m.lastHybridQ.InsightStatus)
+		}
+	})
+
+	t.Run("lexical", func(t *testing.T) {
+		m := &mockMemoryStore{}
+		a := newSearchableAdapter(t, m)
+		if _, err := a.Search(context.Background(), InsightSearchQuery{
+			QueryText: "orders", CapturedBy: "alice@example.com", Shared: true,
+		}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.lastLexicalQ == nil {
+			t.Fatal("no lexical search issued")
+		}
+		if m.lastLexicalQ.CreatedBy != "" || m.lastLexicalQ.InsightStatus != StatusApplied {
+			t.Errorf("shared lexical arm = %+v, want no owner and the applied predicate", m.lastLexicalQ)
+		}
+	})
+
+	t.Run("owner arm keeps its predicate and pushes nothing", func(t *testing.T) {
+		m := &mockMemoryStore{}
+		a := newSearchableAdapter(t, m)
+		if _, err := a.Search(context.Background(), InsightSearchQuery{
+			QueryText: "orders", CapturedBy: "alice@example.com", Status: StatusPending,
+		}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.lastLexicalQ.CreatedBy != "alice@example.com" {
+			t.Errorf("owner arm lost its owner predicate: %+v", m.lastLexicalQ)
+		}
+		if m.lastLexicalQ.InsightStatus != "" {
+			t.Errorf("pending was pushed to the store: %+v", m.lastLexicalQ)
+		}
+	})
+}
+
+// TestAdapterSearchSharedArmFiltersNonApplied proves the per-record filter still
+// governs even when the store hands back more than it should. The store predicate
+// is an optimization; correctness must not depend on the store honoring it.
+func TestAdapterSearchSharedArmFiltersNonApplied(t *testing.T) {
+	m := &mockMemoryStore{searchResult: []memory.ScoredRecord{
+		{Record: memory.Record{
+			ID: "applied", Dimension: memory.DimensionKnowledge, Status: memory.StatusActive,
+			Metadata: map[string]any{memory.MetaKeyInsightStatus: StatusApplied},
+		}, Score: 0.9},
+		{Record: memory.Record{
+			ID: "pending", Dimension: memory.DimensionKnowledge, Status: memory.StatusActive,
+			Metadata: map[string]any{memory.MetaKeyInsightStatus: StatusPending},
+		}, Score: 0.95},
+	}}
+	got, err := newSearchableAdapter(t, m).Search(context.Background(), InsightSearchQuery{
+		QueryText: "orders", Shared: true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].Insight.ID != "applied" {
+		t.Errorf("shared search returned %+v, want only the applied insight", got)
+	}
+}
+
+// TestAdapterListSharedArm is the entity-keyed counterpart: the same override
+// applies to the List path the entity search arm uses.
+func TestAdapterListSharedArm(t *testing.T) {
+	m := &mockMemoryStore{}
+	a := NewMemoryInsightAdapter(m)
+	if _, _, err := a.List(context.Background(), InsightFilter{
+		EntityURN: "urn:li:dataset:orders", CapturedBy: "alice@example.com", Shared: true,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if m.listFilter.CreatedBy != "" {
+		t.Errorf("shared list carried an owner predicate: %q", m.listFilter.CreatedBy)
+	}
+	if m.listFilter.InsightStatus != StatusApplied {
+		t.Errorf("InsightStatus = %q, want the applied predicate pushed into SQL", m.listFilter.InsightStatus)
+	}
+}
+
+// TestSharedArmAdmitsStaleAppliedInsights pins the asymmetry that a naive
+// implementation introduces. The shared arm pins the applied insight status; if
+// the coarse lifecycle predicate were derived from that pinned value it would
+// become status=active, dropping an applied insight the staleness watcher has
+// flagged stale, while the capturer (whose arm carries no status) kept seeing
+// it. Organization knowledge would disappear for everyone but its author the
+// moment a watched entity changed.
+func TestSharedArmAdmitsStaleAppliedInsights(t *testing.T) {
+	t.Run("no coarse status narrows the shared arm", func(t *testing.T) {
+		m := &mockMemoryStore{}
+		a := newSearchableAdapter(t, m)
+		if _, err := a.Search(context.Background(), InsightSearchQuery{
+			QueryText: "orders", Shared: true,
+		}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if m.lastLexicalQ.Status != "" {
+			t.Errorf("Status = %q, want no lifecycle predicate so stale applied insights still surface",
+				m.lastLexicalQ.Status)
+		}
+		if m.lastLexicalQ.InsightStatus != StatusApplied {
+			t.Errorf("InsightStatus = %q, want applied to be what selects the rows", m.lastLexicalQ.InsightStatus)
+		}
+	})
+
+	t.Run("a stale applied record still maps through", func(t *testing.T) {
+		m := &mockMemoryStore{searchResult: []memory.ScoredRecord{{
+			Record: memory.Record{
+				ID: "stale-applied", Dimension: memory.DimensionKnowledge, Status: memory.StatusStale,
+				Metadata: map[string]any{memory.MetaKeyInsightStatus: StatusApplied},
+			},
+			Score: 0.9,
+		}}}
+		a := newSearchableAdapter(t, m)
+		got, err := a.Search(context.Background(), InsightSearchQuery{QueryText: "orders", Shared: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 1 || got[0].Insight.ID != "stale-applied" {
+			t.Errorf("shared search returned %+v, want the stale applied insight", got)
+		}
+	})
+
+	t.Run("both arms admit the same lifecycle states", func(t *testing.T) {
+		owner := &mockMemoryStore{}
+		shared := &mockMemoryStore{}
+		for store, q := range map[*mockMemoryStore]InsightSearchQuery{
+			owner:  {QueryText: "orders", CapturedBy: "alice@example.com"},
+			shared: {QueryText: "orders", Shared: true},
+		} {
+			a := newSearchableAdapter(t, store)
+			if _, err := a.Search(context.Background(), q); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		}
+		if owner.lastLexicalQ.Status != shared.lastLexicalQ.Status {
+			t.Errorf("owner arm status %q != shared arm status %q; the arms must admit the same lifecycle states",
+				owner.lastLexicalQ.Status, shared.lastLexicalQ.Status)
+		}
+	})
+}
+
+// newSearchableAdapter builds the memory-backed adapter and asserts it exposes
+// the relevance search, which is the capability every shared-arm test drives.
+func newSearchableAdapter(t *testing.T, store memory.Store) *memoryInsightAdapter {
+	t.Helper()
+	a, ok := NewMemoryInsightAdapter(store).(*memoryInsightAdapter)
+	if !ok {
+		t.Fatal("the memory insight adapter must be a *memoryInsightAdapter")
+	}
+	return a
+}

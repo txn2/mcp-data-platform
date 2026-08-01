@@ -1,9 +1,10 @@
-# Dependencies for bench/report/report.ipynb (the benchmark report's reproducible
-# supplement). The notebook loads only committed JSON under bench/results/ and
-# writes figures to bench/report/figures/; no API key or network access is used.
+# Dependencies for bench/reports/knowledge-layer/report.ipynb (the benchmark
+# report's reproducible supplement). The notebook loads only committed JSON under
+# bench/results/ and writes figures to bench/reports/knowledge-layer/figures/; no
+# API key or network access is used.
 #
-# Install:  pip install -r bench/report/requirements.txt
-# Execute:  jupyter nbconvert --to notebook --execute --inplace bench/report/report.ipynb
+# Install:  pip install -r bench/reports/knowledge-layer/requirements.txt
+# Execute:  jupyter nbconvert --to notebook --execute --inplace bench/reports/knowledge-layer/report.ipynb
 #
 # Lower bounds are conservative; the notebook was last regenerated with
 # numpy 2.5.1, pandas 3.0.3, matplotlib 3.11.1 on CPython 3.12.

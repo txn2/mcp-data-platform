@@ -539,7 +539,7 @@ Returns a single config entry by key. Returns `404 Not Found` if the key has no 
 PUT /api/v1/admin/config/entries/{key}
 ```
 
-Sets a config entry for a whitelisted key. The change takes effect immediately (hot-reload) without restart. Requires a database connection. Returns `400 Bad Request` for non-whitelisted keys and `409 Conflict` when no database is configured.
+Sets a config entry for a whitelisted key. The change takes effect immediately on every replica, without restart: the platform resolves these keys from the store on each read rather than caching them per process. Requires a database connection. Returns `400 Bad Request` for non-whitelisted keys and `409 Conflict` when no database is configured.
 
 **Whitelisted keys (phase 1):** `server.description`, `server.agent_instructions`
 
@@ -1198,6 +1198,81 @@ Returns session-level discovery patterns: how often users explore the catalog (D
 | `discovery_rate` | float | Fraction of sessions that used discovery (0.0–1.0) |
 | `query_without_discovery` | int | Sessions that queried Trino without using DataHub first |
 | `top_discovery_tools` | array | Most-used discovery tools, sorted by count |
+
+## Notification Endpoints
+
+Notification endpoints expose the email-delivery history the notification queue leaves behind, so an admin can answer whether notification emails are reaching people and what happened to the ones that did not. They are read-only and require a database; without one the routes are not registered.
+
+The queue purges resolved rows on a retention schedule (30 days by default), so these endpoints report recent history rather than a complete archive. `retention_days` on the stats response states the effective window.
+
+Each user reads their own rows through the self-scoped `GET /api/v1/portal/notifications`, which takes no recipient parameter and omits the delivery error text below.
+
+### List Notifications
+
+```
+GET /api/v1/admin/notifications
+```
+
+Returns paginated queue rows, newest first.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `recipient` | string | Filter by recipient email. Accepts the display-name form; normalized to the bare address before matching |
+| `status` | string | Filter by status: `pending`, `sending`, `sent`, `failed` |
+| `category` | string | Filter by category: `share`, `comment`, `mention` |
+| `page` | int | Page number, 1-based (default: 1) |
+| `per_page` | int | Results per page (default: 50, max: 200) |
+
+**Response:**
+
+```json
+{
+  "data": [
+    {
+      "id": 5121,
+      "recipient": "marcus.johnson@example.com",
+      "category": "share",
+      "subject": "lisa.chang@example.com shared the asset \"Q3 Revenue by Region\" with you",
+      "digest": false,
+      "status": "failed",
+      "attempts": 5,
+      "last_error": "dial tcp 10.24.0.31:587: connect: connection refused",
+      "item_title": "Q3 Revenue by Region",
+      "actor": "lisa.chang@example.com",
+      "scheduled_for": "2026-07-29T14:02:00Z",
+      "created_at": "2026-07-29T14:01:00Z"
+    }
+  ],
+  "total": 133,
+  "page": 1,
+  "per_page": 50
+}
+```
+
+`subject` is the same line the recipient's email carried, so a reported message can be matched to its row.
+
+### Get Notification Stats
+
+```
+GET /api/v1/admin/notifications/stats
+```
+
+Returns per-status counts and the retention window they cover. The `recipient` and `category` filters apply; `status` does not, so a list narrowed to failures still shows how many rows sent.
+
+**Response:**
+
+```json
+{
+  "pending": 2,
+  "sending": 0,
+  "sent": 128,
+  "failed": 3,
+  "total": 133,
+  "retention_days": 30
+}
+```
 
 ## Connection Instance Endpoints
 

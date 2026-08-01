@@ -3,15 +3,8 @@ package portal
 import (
 	"context"
 	"net/http"
-	"slices"
 	"strings"
 )
-
-// applyKnowledgeTool is the persona tool whose access gates insight review and
-// canonical-knowledge writes. It is the single capability the REST path checks,
-// matching the MCP path's persona tool-visibility gate so both agree on who may
-// promote knowledge.
-const applyKnowledgeTool = "apply_knowledge"
 
 // SearchRouter is the unified knowledge-search federation behind the portal's
 // GET /api/v1/portal/search endpoint. It is a portal-local interface (rather
@@ -50,6 +43,11 @@ type SearchResult struct {
 	Coverage       []SearchCoverage
 	Ranking        string
 	UnknownSources []string
+	// WithheldNotice explains, in one line, results the caller's persona hid
+	// because they belong to connections it is not granted (#1108). Empty when
+	// nothing was withheld. The adapter builds it from the router's coverage so
+	// the portal and the MCP search tool render identical copy.
+	WithheldNotice string
 }
 
 // SearchGroup is one source's slice of the balanced display set.
@@ -71,11 +69,14 @@ type SearchHit struct {
 }
 
 // SearchCoverage reports, per source, how many records matched versus how many
-// are shown, the anti-tunnel signal that breadth exists beyond the display set.
+// are shown, the anti-tunnel signal that breadth exists beyond the display set,
+// plus how many the caller's persona hid (#1108) so "nothing matched" and
+// "matches you may not see" render differently.
 type SearchCoverage struct {
-	Source  string `json:"source"`
-	Matched int    `json:"matched"`
-	Shown   int    `json:"shown"`
+	Source   string `json:"source"`
+	Matched  int    `json:"matched"`
+	Shown    int    `json:"shown"`
+	Withheld int    `json:"withheld,omitempty"`
 }
 
 // registerSearchRoutes wires the unified knowledge-search endpoint. It is
@@ -97,6 +98,7 @@ type searchResponse struct {
 	Count          int              `json:"count"`
 	Ranking        string           `json:"ranking"`
 	UnknownSources []string         `json:"unknown_sources,omitempty"`
+	WithheldNotice string           `json:"withheld_notice,omitempty"`
 }
 
 // search handles GET /api/v1/portal/search. It is a thin REST adapter over the
@@ -165,6 +167,7 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		Count:          shown,
 		Ranking:        res.Ranking,
 		UnknownSources: res.UnknownSources,
+		WithheldNotice: res.WithheldNotice,
 	})
 }
 
@@ -182,38 +185,9 @@ func (h *Handler) callerFor(user *User) SearchCaller {
 }
 
 // userHasApplyKnowledge reports whether the user effectively holds the
-// apply_knowledge capability. It grants access when the user's resolved persona
-// lists the tool (the same Tools the frontend reads from GET /me and the MCP
-// path gates on, so a non-admin persona granted apply_knowledge can review and
-// promote), OR when the user is an admin.
-//
-// Admins are always treated as holding the capability for two reasons: their
-// persona normally grants every registered tool, and the tool may not be
-// registered at all on a given deployment (apply_knowledge is absent when
-// Knowledge.Apply.Enabled is false, its default), in which case the resolved
-// Tools list can never contain it. Without the admin arm, enabling capability
-// gating would lock admins out of knowledge writes wherever apply is disabled,
-// a regression from the prior admin-role gate. The admin arm only widens access;
-// the capability still grants non-admins, which is the behavior #661 requires.
+// apply_knowledge capability.
 func (h *Handler) userHasApplyKnowledge(user *User) bool {
-	return h.userHasTool(user, applyKnowledgeTool)
-}
-
-// userHasTool reports whether the user's resolved persona grants the named tool,
-// or the user is an admin. It is the shared capability check behind the
-// apply_knowledge and DataHub write authorizations; the admin arm only widens
-// access (a separate write-enabled-connection check still applies to DataHub
-// writes, so admin cannot mutate a read-only connection).
-func (h *Handler) userHasTool(user *User, tool string) bool {
-	if user == nil {
-		return false
-	}
-	if h.deps.PersonaResolver != nil {
-		if info := h.deps.PersonaResolver(user.Roles); info != nil && slices.Contains(info.Tools, tool) {
-			return true
-		}
-	}
-	return h.userIsAdmin(user)
+	return h.access.HasApplyKnowledge(user)
 }
 
 // queryValues returns the trimmed, non-empty values for a query parameter,

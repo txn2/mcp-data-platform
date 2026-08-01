@@ -106,3 +106,28 @@ func TestEndpointHitText_NoSummary(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestEndpointsProvider_HidesEndpointsOfDeniedConnections(t *testing.T) {
+	// The denied gateway outranks the permitted one, so filtering must happen
+	// before the per-source cap or the permitted operations would be crowded out.
+	denied := &fakeEndpointSearcher{cands: []EndpointCandidate{
+		{Connection: "payroll", OperationID: "listPay", Method: "GET", Path: "/pay", Score: 0.9},
+		{Connection: "payroll", OperationID: "getPay", Method: "GET", Path: "/pay/1", Score: 0.8},
+	}}
+	allowed := &fakeEndpointSearcher{cands: []EndpointCandidate{
+		{Connection: "shop", OperationID: "listOrders", Method: "GET", Path: "/orders", Score: 0.2},
+	}}
+	p := NewEndpointsProvider(denied, allowed)
+	caller, gate := scopedCaller(stubScope{allowed: map[string]bool{"shop": true}})
+
+	hits, err := p.Search(context.Background(), Query{Intent: "orders", Limit: 1, Caller: caller})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Ref != "shop:listOrders" {
+		t.Fatalf("expected only the permitted gateway's operation, got %+v", hits)
+	}
+	if gate.withheld != 2 {
+		t.Errorf("withheld = %d, want 2", gate.withheld)
+	}
+}

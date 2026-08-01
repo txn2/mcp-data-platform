@@ -115,10 +115,31 @@ check_benchmark_tool_refs() {
     fi
 }
 
+# ── Hard gate 4: engineering-posture claims still hold ──────────────────────
+# README.md and docs/llms.txt state the test posture in prose. Delegated to a
+# standalone script so `make posture-check` can run it alone while `make
+# verify` still enforces it through this gate.
+# Invoked through `bash` rather than executed directly, so a lost exec bit
+# cannot turn a hard gate into a silent pass. A missing script is a failure,
+# not a skip: the gates above skip only on a missing external toolchain, never
+# on the state of a file that is part of this repository.
+check_posture_claims() {
+    if [ ! -f scripts/posture-check.sh ]; then
+        echo "FAIL: scripts/posture-check.sh is missing; the posture gate cannot run."
+        hard_fail=1
+        return 0
+    fi
+    if ! bash scripts/posture-check.sh; then
+        echo "FAIL: engineering-posture claims are stale (see above)."
+        hard_fail=1
+    fi
+}
+
 echo "=== Documentation Gates (hard) ==="
 check_orphaned_docs
 check_retired_tools
 check_benchmark_tool_refs
+check_posture_claims
 echo "=== End Documentation Gates ==="
 echo ""
 

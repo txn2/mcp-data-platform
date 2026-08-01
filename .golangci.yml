@@ -190,6 +190,85 @@ linters:
               desc: "provider abstractions must not depend up on pkg/admin. See CONTRIBUTING.md."
             - pkg: github.com/txn2/mcp-data-platform/pkg/toolkits
               desc: "provider abstractions must not depend up on toolkits; toolkits use providers, not the reverse. See CONTRIBUTING.md."
+        # The internal/platform seams were extracted from the facade (#894) so
+        # that pkg/platform stays thin: each seam owns one responsibility and
+        # the facade composes them. A seam importing the facade back would
+        # restore the god-object through the back door, and a seam importing
+        # internal/httpserver would invert the composition root's direction
+        # (httpserver assembles the platform, never the reverse). Verified
+        # against the current graph: no seam imports either package today.
+        #
+        # What this adds over the compiler: for a seam the facade already
+        # composes, the back edge is an import cycle and the compiler rejects
+        # it. This rule covers the seams outside that closure — today
+        # internal/platform/notifydelivery, which pkg/platform does not reach,
+        # so the compiler would accept a facade import there — plus every seam
+        # added later.
+        #
+        # pkg/platform/fieldcrypt is allowed explicitly. depguard matches by
+        # path prefix, so denying the facade would otherwise also deny its
+        # subpackages, and fieldcrypt is not the facade: it is the shared field
+        # encryptor that pkg/platform and pkg/admin both use, and it is pinned
+        # as a leaf below (zero first-party imports). That pinning is what keeps
+        # this exception narrow — a package that can never import the facade
+        # cannot become a route back to it.
+        platform-seams-do-not-import-the-facade:
+          list-mode: lax
+          files:
+            - "**/internal/platform/**"
+            - "!**/*_test.go"
+          allow:
+            - github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt
+          deny:
+            - pkg: github.com/txn2/mcp-data-platform/pkg/platform
+              desc: "internal/platform seams are composed BY pkg/platform; importing it back rebuilds the facade god-object the seams were extracted to prevent (see CONTRIBUTING.md)."
+            - pkg: github.com/txn2/mcp-data-platform/internal/httpserver
+              desc: "internal/httpserver is the HTTP composition root; a platform seam must not import it (invert the dependency behind an interface). See CONTRIBUTING.md."
+        # Leaf utilities: packages that import nothing first-party. Being a leaf
+        # is what makes them safely reusable from any layer, and it is a
+        # property that erodes silently — one convenience import of the config
+        # or platform type is all it takes. Pinning them here makes the erosion
+        # a lint failure rather than a ratchet diff that can be regenerated
+        # away. Criterion for the list: a package with zero first-party imports
+        # is a leaf and belongs here. Verify with
+        # `grep -E '^pkg/<name>(/[^ ]*)? -> ' testdata/allowed_internal_imports.txt`
+        # returning nothing before adding an entry.
+        leaf-utilities-import-nothing-first-party:
+          list-mode: lax
+          files:
+            - "**/pkg/contenttype/**"
+            - "**/pkg/ratelimit/**"
+            - "**/pkg/oidcdiscovery/**"
+            - "**/pkg/platform/fieldcrypt/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/txn2/mcp-data-platform
+              desc: "this package is a leaf utility with no first-party imports; keep it that way so any layer can use it (invert the dependency behind an interface or a parameter). See CONTRIBUTING.md."
+        # pkg/blobserve and pkg/textpatch sit one layer above the leaves: each
+        # imports pkg/contenttype and nothing else first-party, so they cannot
+        # be pinned as leaves, but they are still low-level utilities that must
+        # not reach up. pkg/textpatch/patchmcp is excluded deliberately — it is
+        # the MCP error adapter for pkg/textpatch and imports pkg/middleware by
+        # design, which is why the rule targets the package files rather than
+        # the whole subtree.
+        low-level-utilities-do-not-depend-up:
+          list-mode: lax
+          files:
+            - "**/pkg/blobserve/**"
+            - "**/pkg/textpatch/**"
+            - "!**/pkg/textpatch/patchmcp/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/txn2/mcp-data-platform/pkg/platform
+              desc: "low-level utilities must not depend up on pkg/platform (Stable Dependencies Principle). See CONTRIBUTING.md."
+            - pkg: github.com/txn2/mcp-data-platform/pkg/middleware
+              desc: "low-level utilities must not depend up on pkg/middleware; the MCP adapter for a utility belongs in its own subpackage. See CONTRIBUTING.md."
+            - pkg: github.com/txn2/mcp-data-platform/pkg/admin
+              desc: "low-level utilities must not depend up on pkg/admin. See CONTRIBUTING.md."
+            - pkg: github.com/txn2/mcp-data-platform/pkg/toolkits
+              desc: "low-level utilities must not depend up on toolkits; toolkits use utilities, not the reverse. See CONTRIBUTING.md."
+            - pkg: github.com/txn2/mcp-data-platform/internal
+              desc: "low-level utilities must not depend on internal/ composition seams. See CONTRIBUTING.md."
 
     gocritic:
       enabled-tags:
@@ -458,6 +537,15 @@ linters:
         linters:
           - nilerr
 
+      # pkg/portal/domain.go is nothing but aliases and one-line forwarders
+      # onto internal/portal/portaldomain, which exist to keep the portal's
+      # public spelling stable across the #1121 split. A validator's error text
+      # is what the REST API returns to the caller; wrapping it in the
+      # forwarder would change that message and defeat the point of the alias.
+      - path: pkg/portal/domain\.go
+        linters:
+          - wrapcheck
+
       # Main packages can have longer functions
       - path: cmd/
         linters:
@@ -521,6 +609,19 @@ linters:
           - revive
         text: "max-public-structs"
       - path: pkg/portal/
+        linters:
+          - revive
+        text: "max-public-structs"
+      # The portal's domain vocabulary and its feedback seam are the same kind
+      # of type-defining package as pkg/portal itself, which they were split
+      # out of (#1121): portaldomain defines the persisted entities and the
+      # search contracts over them, feedbackapi its request/response DTOs
+      # alongside its Config and Handler.
+      - path: internal/portal/portaldomain/
+        linters:
+          - revive
+        text: "max-public-structs"
+      - path: internal/portal/feedbackapi/
         linters:
           - revive
         text: "max-public-structs"

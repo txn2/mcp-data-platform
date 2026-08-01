@@ -24,13 +24,16 @@ type connBroadcast struct {
 // fakeReloadNotifier records the cross-replica reload broadcasts the
 // admin handler emits after a local config change.
 type fakeReloadNotifier struct {
-	catalogs []string
 	conns    []connBroadcast
 	personas int
 	apikeys  int
 }
 
-func (f *fakeReloadNotifier) PublishCatalogReload(id string) { f.catalogs = append(f.catalogs, id) }
+// PublishCatalogReload satisfies ReloadNotifier. Nothing in this package
+// triggers it any more — the catalog routes moved to
+// internal/admin/catalogapi, which asserts the broadcast against its own fake.
+func (*fakeReloadNotifier) PublishCatalogReload(string) {}
+
 func (f *fakeReloadNotifier) PublishConnectionReload(kind, name string, op platform.ConnectionReloadOp) {
 	f.conns = append(f.conns, connBroadcast{kind, name, op.String()})
 }
@@ -39,8 +42,9 @@ func (f *fakeReloadNotifier) PublishAPIKeyReload()  { f.apikeys++ }
 
 // TestReloadNotifier_PublishedOnAdminChange proves the admin handler
 // broadcasts a reload to peer replicas after each local config change
-// (issue #501): a catalog spec edit broadcasts a catalog reload, and a
-// connection add/remove broadcasts a connection reload.
+// (issue #501): a connection add/remove broadcasts a connection reload. The
+// catalog half of that contract now lives with the catalog routes, in
+// internal/admin/catalogapi.
 func TestReloadNotifier_PublishedOnAdminChange(t *testing.T) {
 	tk := apigateway.New("apigateway") // Kind() == "api"
 	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
@@ -53,11 +57,9 @@ func TestReloadNotifier_PublishedOnAdminChange(t *testing.T) {
 		ReloadNotifier:  notifier,
 	}, nil)
 
-	h.reloadConnectionsForCatalog("things")
 	h.hotAddConnection("api", "c1", map[string]any{"base_url": "https://x"})
 	h.hotRemoveConnection("api", "c1")
 
-	require.Equal(t, []string{"things"}, notifier.catalogs, "catalog reload should broadcast")
 	require.Equal(t, []connBroadcast{
 		{"api", "c1", "upsert"},
 		{"api", "c1", "delete"},
@@ -138,7 +140,6 @@ func TestReloadNotifier_NilNotifierSafe(t *testing.T) {
 		ToolkitRegistry: reg,
 		ConfigStore:     &mockConfigStore{mode: "database"},
 	}, nil)
-	h.reloadConnectionsForCatalog("things")
 	h.hotRemoveConnection("api", "c1")
 	// Reaching here without a nil-pointer panic is the assertion.
 	require.NotNil(t, h)

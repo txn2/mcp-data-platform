@@ -671,18 +671,51 @@ func TestConfigTypes_ServerConfig(t *testing.T) {
 	}
 }
 
-func TestConfigTypes_PersonasConfig(t *testing.T) {
-	cfg := PersonasConfig{
-		DefaultPersona: cfgTestRoleAdmin,
-		RoleMapping: RoleMappingConfig{
-			OIDCToPersona: map[string]string{"admin_role": cfgTestRoleAdmin},
-		},
+// personas.default_persona granted its persona to every caller whose roles
+// matched nothing, so a config that still sets it is refused at startup rather
+// than started with different access than the operator wrote down.
+func TestConfig_Validate_RejectsDefaultPersona(t *testing.T) {
+	cfg := &Config{Personas: PersonasConfig{DefaultPersona: cfgTestRoleAdmin}}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() accepted a config setting personas.default_persona")
 	}
-	if cfg.DefaultPersona != cfgTestRoleAdmin {
-		t.Errorf("DefaultPersona = %q", cfg.DefaultPersona)
+	if !strings.Contains(err.Error(), "default_persona") {
+		t.Errorf("error does not name the offending key: %v", err)
 	}
-	if cfg.RoleMapping.OIDCToPersona["admin_role"] != cfgTestRoleAdmin {
-		t.Error("OIDCToPersona mapping incorrect")
+	if !strings.Contains(err.Error(), "no longer supported") {
+		t.Errorf("error does not tell the operator the key was removed: %v", err)
+	}
+}
+
+func TestConfig_Validate_AcceptsUnsetDefaultPersona(t *testing.T) {
+	cfg := &Config{Personas: PersonasConfig{
+		Definitions: map[string]PersonaDef{cfgTestRoleAdmin: {Roles: []string{cfgTestRoleAdmin}}},
+	}}
+
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() = %v, want nil for a config with no default_persona", err)
+	}
+}
+
+// PersonasConfig.Definitions is an inline map, so the field must stay declared:
+// without it, default_persona would decode as a persona *named*
+// "default_persona" instead of being rejected.
+func TestConfig_DefaultPersonaParsesIntoItsOwnField(t *testing.T) {
+	var cfg Config
+	unknown, err := strictDecode([]byte("personas:\n  default_persona: admin\n"), &cfg)
+	if err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if len(unknown) != 0 {
+		t.Errorf("unknown keys = %v, want none", unknown)
+	}
+	if cfg.Personas.DefaultPersona != cfgTestRoleAdmin {
+		t.Errorf("DefaultPersona = %q, want %q", cfg.Personas.DefaultPersona, cfgTestRoleAdmin)
+	}
+	if _, isPersona := cfg.Personas.Definitions["default_persona"]; isPersona {
+		t.Error("default_persona decoded as a persona definition")
 	}
 }
 
@@ -1855,39 +1888,6 @@ session_gate:
 	}
 }
 
-func TestApplyConfigEntry(t *testing.T) {
-	cfg := &Config{}
-
-	cfg.ApplyConfigEntry("server.description", "test description")
-	if cfg.Server.Description != "test description" {
-		t.Errorf("Description = %q, want %q", cfg.Server.Description, "test description")
-	}
-
-	cfg.ApplyConfigEntry("server.agent_instructions", "test instructions")
-	if cfg.Server.AgentInstructions != "test instructions" {
-		t.Errorf("AgentInstructions = %q, want %q", cfg.Server.AgentInstructions, "test instructions")
-	}
-
-	// Unknown key should be a no-op.
-	cfg.ApplyConfigEntry("unknown.key", "value")
-	if cfg.Server.Description != "test description" {
-		t.Error("unknown key should not modify config")
-	}
-
-	// tool.<name>.description writes into Tools.DescriptionOverrides
-	// (lazy-init the map on first use).
-	cfg.ApplyConfigEntry("tool.trino_query.description", "custom desc")
-	if got := cfg.Tools.DescriptionOverrides["trino_query"]; got != "custom desc" {
-		t.Errorf("DescriptionOverrides[trino_query] = %q, want %q", got, "custom desc")
-	}
-
-	// Empty value removes the override.
-	cfg.ApplyConfigEntry("tool.trino_query.description", "")
-	if _, exists := cfg.Tools.DescriptionOverrides["trino_query"]; exists {
-		t.Error("empty value should remove the override")
-	}
-}
-
 func TestParseToolsDenyValue(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1920,30 +1920,6 @@ func TestParseToolsDenyValue(t *testing.T) {
 				t.Errorf("%s: parseToolsDenyValue(%q)[%d] = %q, want %q", tc.name, tc.value, i, got[i], tc.want[i])
 			}
 		}
-	}
-}
-
-func TestApplyConfigEntry_ToolsDeny_PreservesOnMalformed(t *testing.T) {
-	// Bug guard: a corrupt tools.deny config_entry must NOT clobber the
-	// live deny list. Otherwise a bad row could silently open up tools
-	// the file config wanted hidden.
-	cfg := &Config{}
-	cfg.Tools.Deny = []string{"trino_admin_kill"}
-	cfg.ApplyConfigEntry("tools.deny", "not valid json")
-	if len(cfg.Tools.Deny) != 1 || cfg.Tools.Deny[0] != "trino_admin_kill" {
-		t.Errorf("malformed tools.deny clobbered live slice: got %v", cfg.Tools.Deny)
-	}
-}
-
-func TestApplyConfigEntry_ToolsDeny(t *testing.T) {
-	cfg := &Config{}
-	cfg.ApplyConfigEntry("tools.deny", `["trino_admin_kill","s3_delete"]`)
-	if len(cfg.Tools.Deny) != 2 || cfg.Tools.Deny[0] != "trino_admin_kill" {
-		t.Errorf("Tools.Deny = %v, want [trino_admin_kill s3_delete]", cfg.Tools.Deny)
-	}
-	cfg.ApplyConfigEntry("tools.deny", `[]`)
-	if len(cfg.Tools.Deny) != 0 {
-		t.Errorf("Tools.Deny after empty array = %v, want []", cfg.Tools.Deny)
 	}
 }
 

@@ -13,22 +13,23 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/access"
+	"github.com/txn2/mcp-data-platform/internal/portal/feedbackapi"
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/internal/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/blobserve"
-	"github.com/txn2/mcp-data-platform/pkg/contenttype"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareguest"
-	"github.com/txn2/mcp-data-platform/pkg/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -53,7 +54,7 @@ const (
 // DefaultNoticeText is the notice shown on public shares when no custom text is
 // provided. Exported so out-of-package share creators (e.g. the export adapters)
 // apply the same default rather than re-declaring the literal.
-const DefaultNoticeText = "Proprietary & Confidential. Only share with authorized viewers."
+const DefaultNoticeText = portaldomain.DefaultNoticeText
 
 // defaultNoticeText is the internal alias retained for existing references.
 const defaultNoticeText = DefaultNoticeText
@@ -74,12 +75,6 @@ type InsightReader interface {
 	Get(ctx context.Context, id string) (*knowledge.Insight, error)
 }
 
-// ChangesetReader provides read access to knowledge changesets, used to surface
-// the thread -> insight -> changeset chain on a feedback thread (Phase 2).
-type ChangesetReader interface {
-	ListChangesets(ctx context.Context, filter knowledge.ChangesetFilter) ([]knowledge.Changeset, int, error)
-}
-
 // MemoryReader provides read-only access to user memory records. The
 // search methods back the portal's per-user "my knowledge" search: both
 // queries are scoped to the caller via CreatedBy server-side, so a user
@@ -88,14 +83,6 @@ type MemoryReader interface {
 	List(ctx context.Context, filter memory.Filter) ([]memory.Record, int, error)
 	HybridSearch(ctx context.Context, q memory.HybridQuery) ([]memory.ScoredRecord, error)
 	LexicalSearch(ctx context.Context, q memory.LexicalQuery) ([]memory.ScoredRecord, error)
-}
-
-// MemoryWriter inserts memory records. It backs #662's "capture feedback as an
-// insight" path: a reviewer turns a feedback thread into a pending,
-// knowledge-dimension memory_record that enters the apply_knowledge review
-// queue. The full memory.Store satisfies it; the portal only needs Insert.
-type MemoryWriter interface {
-	Insert(ctx context.Context, record memory.Record) error
 }
 
 // InsightSearcher is the optional relevance-search capability of the insight
@@ -154,7 +141,7 @@ type Deps struct {
 	SearchRouter SearchRouter
 	// DataHubRegistrar, when set, registers the portal DataHub Catalog and Context
 	// Docs REST routes (#718) onto the portal mux. It is provided by cmd wiring
-	// (pkg/portal/datahubapi.Handler.Register) so the DataHub feature lives in its
+	// (internal/httpserver/datahubapi.Handler.Register) so the DataHub feature lives in its
 	// own package; nil leaves the /api/v1/portal/datahub/* routes unregistered.
 	DataHubRegistrar func(*http.ServeMux)
 	// MentionResolver filters the @-mentions written in a thread comment to
@@ -198,6 +185,7 @@ type Handler struct {
 	authedMux   http.Handler
 	deps        Deps
 	rateLimiter *viewerlimit.RateLimiter
+	access      *access.Checker
 }
 
 // NewHandler creates a new portal API handler.
@@ -207,6 +195,7 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 		publicMux:   http.NewServeMux(),
 		deps:        deps,
 		rateLimiter: viewerlimit.New(deps.RateLimit, deps.RateLimitResolver),
+		access:      newAccessChecker(deps),
 	}
 	h.registerRoutes()
 
@@ -218,6 +207,58 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 	}
 
 	return h
+}
+
+// newAccessChecker builds the portal's authorization core from the wired
+// dependencies. Both this package and the handler seams under internal/portal
+// answer every permission question through it, so a check cannot come to mean
+// two different things in two places.
+func newAccessChecker(deps Deps) *access.Checker {
+	cfg := access.Config{
+		Assets:      deps.AssetStore,
+		Collections: deps.CollectionStore,
+		Shares:      deps.ShareStore,
+		Prompts:     deps.PromptStore,
+		AdminRoles:  deps.AdminRoles,
+	}
+	if deps.PersonaResolver != nil {
+		cfg.PersonaTools = func(roles []string) []string {
+			if info := deps.PersonaResolver(roles); info != nil {
+				return info.Tools
+			}
+			return nil
+		}
+	}
+	return access.New(cfg)
+}
+
+// feedbackConfig projects the portal's dependencies onto the feedback seam's
+// narrower contract. The authorization core is passed rather than rebuilt, so
+// the seam and the routes that stayed here answer permission questions through
+// one checker.
+func (h *Handler) feedbackConfig() feedbackapi.Config {
+	cfg := feedbackapi.Config{
+		Threads:        h.deps.ThreadStore,
+		Assets:         h.deps.AssetStore,
+		Collections:    h.deps.CollectionStore,
+		Shares:         h.deps.ShareStore,
+		Prompts:        h.deps.PromptStore,
+		KnowledgePages: h.deps.KnowledgePageStore,
+		Changesets:     h.deps.ChangesetReader,
+		MemoryWriter:   h.deps.MemoryWriter,
+		Mentions:       h.deps.MentionResolver,
+		Notifier:       h.deps.Notifier,
+		Access:         h.access,
+	}
+	if h.deps.PersonaResolver != nil {
+		cfg.PersonaName = func(roles []string) string {
+			if info := h.deps.PersonaResolver(roles); info != nil {
+				return info.Name
+			}
+			return ""
+		}
+	}
+	return cfg
 }
 
 // ServeHTTP implements http.Handler.
@@ -289,16 +330,17 @@ func (h *Handler) registerRoutes() {
 	h.registerSearchRoutes()
 
 	// DataHub catalog + context-doc browse/search/edit (#718). Registered by cmd
-	// wiring via pkg/portal/datahubapi so the feature stays in its own package.
+	// wiring via internal/httpserver/datahubapi so the feature stays in its own package.
 	if h.deps.DataHubRegistrar != nil {
 		h.deps.DataHubRegistrar(h.mux)
 	}
 
-	// Feedback thread routes
-	h.registerThreadRoutes()
-
-	// Capture feedback as a reviewable insight (#662)
-	h.registerFeedbackInsightRoutes()
+	// Feedback: threads, activity, worklists, sign-off, validation, and
+	// capturing a thread as a reviewable insight. The family lives in
+	// internal/portal/feedbackapi; this package supplies its dependencies.
+	feedback := feedbackapi.New(h.feedbackConfig())
+	feedback.Register(h.mux)
+	feedback.RegisterInsightCapture(h.mux)
 
 	// Activity routes (user-scoped audit metrics)
 	if h.deps.AuditMetrics != nil {
@@ -392,7 +434,7 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		UserID:  user.UserID,
 		Email:   user.Email,
 		Roles:   user.Roles,
-		IsAdmin: hasAnyRole(user.Roles, h.deps.AdminRoles),
+		IsAdmin: h.access.IsAdmin(user),
 	}
 	// Cookie sessions carry a CSRF token the SPA echoes on mutations; API-key
 	// callers are exempt. Issued here since only /me needs it.
@@ -483,8 +525,8 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 // It extends the Asset with optional share context when the viewer is not the owner.
 type assetResponse struct {
 	Asset
-	SharePermission SharePermission `json:"share_permission,omitempty" example:"viewer"`
-	IsOwner         bool            `json:"is_owner" example:"true"`
+	SharePermission portaldomain.SharePermission `json:"share_permission,omitempty" example:"viewer"`
+	IsOwner         bool                         `json:"is_owner" example:"true"`
 }
 
 // getAsset handles GET /api/v1/portal/assets/{id}.
@@ -528,7 +570,7 @@ func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 		// cascade, so a user who holds only a collection share can open the
 		// individual asset (issue #839) and a collection editor is reported as
 		// editor even when a lesser direct share also exists.
-		perm, permErr := h.resolveAssetPermission(r, id, user)
+		perm, permErr := h.access.ResolveAssetPermission(r.Context(), id, user)
 		if permErr != nil {
 			writeError(w, http.StatusInternalServerError, "failed to check share access")
 			return
@@ -860,7 +902,9 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	// canViewAsset decided this on the caller, so the bytes may sit in that
+	// caller's browser cache and nowhere a second caller can reach.
+	blobserve.CachePrivate(w, time.Hour)
 	blobserve.Serve(w, r, blobserve.Options{
 		Name:        asset.ID + ".png",
 		ContentType: mimeTypePNG,
@@ -1293,7 +1337,10 @@ func (h *Handler) revertContentToVersion(ctx context.Context, asset *Asset, asse
 
 // createShareRequest is the request body for creating a share.
 type createShareRequest struct {
-	ExpiresIn        string  `json:"expires_in,omitempty" example:"24h"` // duration string, e.g. "24h"
+	// ExpiresIn is a duration string ("24h") bounding a link share's life. It
+	// applies to link shares only: a share addressed to a person is access
+	// granted to that person and is revoked, not timed out.
+	ExpiresIn        string  `json:"expires_in,omitempty" example:"24h"`
 	SharedWithUserID string  `json:"shared_with_user_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
 	SharedWithEmail  string  `json:"shared_with_email,omitempty" example:"colleague@example.com"`
 	HideExpiration   bool    `json:"hide_expiration,omitempty" example:"false"`
@@ -1303,6 +1350,41 @@ type createShareRequest struct {
 	// the default for the share's shape: restricted when a recipient is
 	// named, authenticated otherwise. "public" is never implied.
 	AccessMode string `json:"access_mode,omitempty" example:"restricted"`
+	// Notify controls whether a named recipient gets a "shared with you"
+	// email. nil (omitted) means notify -- the default a share carries when
+	// nobody says otherwise. false shares quietly. The recipient's own
+	// notification preferences still apply when it is true; this only removes
+	// the sharer's ability to force one.
+	Notify *bool `json:"notify,omitempty" example:"true"`
+	// Message is an optional plain-text note from the sharer, delivered in the
+	// notification email and stored nowhere. Markup and links are rejected
+	// (ValidateShareMessage) whatever the share's shape, so a malformed note
+	// is reported rather than silently dropped; a note on a share that sends
+	// no email is accepted and then goes nowhere.
+	Message string `json:"message,omitempty" example:"Here's the Q3 revenue breakdown you asked about"`
+}
+
+// wantsNotify reports whether a share created from this request should notify
+// its recipient. Omitted means yes.
+func (req createShareRequest) wantsNotify() bool {
+	return req.Notify == nil || *req.Notify
+}
+
+// normalizeRecipient reduces the request's recipient to the bare address it
+// names, so every later comparison (self-share checks, view-time matching,
+// the notification recipient) sees one spelling. An empty recipient stays
+// empty: that is a link share, not an invalid address.
+func (req *createShareRequest) normalizeRecipient() error {
+	if strings.TrimSpace(req.SharedWithEmail) == "" {
+		req.SharedWithEmail = ""
+		return nil
+	}
+	addr, err := portaldomain.ParseEmail(req.SharedWithEmail)
+	if err != nil {
+		return err //nolint:wrapcheck // message is the verbatim 400 body
+	}
+	req.SharedWithEmail = addr
+	return nil
 }
 
 // shareResponse is the response for a created share.
@@ -1364,7 +1446,11 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.notifyShare(r.Context(), &share, "asset", asset.ID, asset.Name)
+	if req.wantsNotify() {
+		h.notifyShare(r.Context(), &share, ShareEvent{
+			Kind: "asset", ItemID: asset.ID, ItemTitle: asset.Name, Message: req.Message,
+		})
+	}
 
 	resp := shareResponse{Share: share}
 	if h.deps.PublicBaseURL != "" {
@@ -1388,11 +1474,12 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 		return Share{}, errors.New("failed to generate share token")
 	}
 
-	email := strings.ToLower(strings.TrimSpace(req.SharedWithEmail))
-	if email != "" {
-		if err := ValidateEmail(email); err != nil {
-			return Share{}, err
-		}
+	if err := req.normalizeRecipient(); err != nil {
+		return Share{}, err
+	}
+	email := req.SharedWithEmail
+	if err := ValidateShareMessage(req.Message); err != nil {
+		return Share{}, err
 	}
 
 	noticeText := defaultNoticeText
@@ -1428,7 +1515,15 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 		NoticeText:       noticeText,
 	}
 
+	// A share addressed to a person grants that person access; it ends when
+	// the owner revokes it, not on a clock. Expiry belongs to link shares,
+	// where the URL is the credential and a bounded life limits what a
+	// forwarded or leaked link is worth. Setting both is a contradiction, so
+	// it is refused rather than silently resolved either way.
 	if req.ExpiresIn != "" {
+		if email != "" || req.SharedWithUserID != "" {
+			return Share{}, errors.New("expires_in does not apply to a share addressed to a person; revoke the share to end access")
+		}
 		dur, parseErr := time.ParseDuration(req.ExpiresIn)
 		if parseErr != nil {
 			return Share{}, errors.New("invalid expires_in duration")
@@ -2195,126 +2290,24 @@ func GenerateShareToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// hasAnyRole returns true if any role in userRoles is also in targetRoles.
-func hasAnyRole(userRoles, targetRoles []string) bool {
-	for _, r := range userRoles {
-		if slices.Contains(targetRoles, r) {
-			return true
-		}
-	}
-	return false
-}
-
-// isShareActive returns true if the share is not revoked and not expired.
-func isShareActive(s Share) bool {
-	if s.Revoked {
-		return false
-	}
-	return s.ExpiresAt == nil || !s.ExpiresAt.Before(time.Now())
-}
-
-// sharePermissionForUser returns the highest permission level a user has for a shared asset.
-// Returns empty string if not shared with this user.
-func (h *Handler) sharePermissionForUser(r *http.Request, assetID string, user *User) (SharePermission, error) {
-	shares, err := h.deps.ShareStore.ListByAsset(r.Context(), assetID)
-	if err != nil {
-		return "", fmt.Errorf("checking share permission: %w", err)
-	}
-	var best SharePermission
-	for _, s := range shares {
-		if !isShareActive(s) {
-			continue
-		}
-		matched := s.SharedWithUserID == user.UserID ||
-			(user.Email != "" && strings.EqualFold(s.SharedWithEmail, user.Email))
-		if !matched {
-			continue
-		}
-		if s.Permission == PermissionEditor {
-			return PermissionEditor, nil // highest possible, short-circuit
-		}
-		if best == "" {
-			best = s.Permission
-		}
-	}
-	return best, nil
-}
-
-// permissionRank orders share permissions so the highest grant wins when a user
-// holds access through more than one path (editor > viewer > none).
-func permissionRank(p SharePermission) int {
-	switch p {
-	case PermissionEditor:
-		return 2
-	case PermissionViewer:
-		return 1
-	default:
-		return 0
-	}
-}
-
-// resolveAssetPermission returns the highest permission a non-owner user holds for
-// an asset, combining a direct share (sharePermissionForUser) with a collection
-// share (GetUserAssetPermissionViaCollection). A direct editor short-circuits the
-// collection lookup because editor is the ceiling. The returned error is the
-// direct-share store error (nil on success); a collection-lookup error is treated
-// as no collection access, matching the best-effort cascade the access helpers use.
-// Owner access must be checked by the caller, which treats a non-nil error as 500.
-//
-// This is for callers that need the effective permission value (getAsset reports it
-// as SharePermission; canEditAsset compares it to editor). The bool view helpers
-// (canViewAsset/userCanViewAsset) deliberately do not use it: they only need "any
-// grant" and short-circuit on a direct share to avoid a collection query per asset.
-func (h *Handler) resolveAssetPermission(r *http.Request, assetID string, user *User) (SharePermission, error) {
-	direct, err := h.sharePermissionForUser(r, assetID, user)
-	if err == nil && direct == PermissionEditor {
-		return direct, nil // editor is the ceiling; no need to consult the cascade
-	}
-	collPerm, _ := h.deps.ShareStore.GetUserAssetPermissionViaCollection(r.Context(), assetID, user.UserID, user.Email)
-	best := direct
-	if permissionRank(collPerm) > permissionRank(best) {
-		best = collPerm
-	}
-	return best, err
-}
-
 // canViewAsset checks owner or any share access, writing an HTTP error on failure.
 func (h *Handler) canViewAsset(w http.ResponseWriter, r *http.Request, assetID string, asset *Asset, user *User) bool {
-	if asset.OwnerID == user.UserID {
-		return true
-	}
-	// A view only needs any grant, so short-circuit on a direct share before the
-	// collection lookup — this runs per-asset in loops (e.g. knowledge-page refs).
-	perm, err := h.sharePermissionForUser(r, assetID, user)
+	granted, err := h.access.AssetViewGrant(r.Context(), assetID, asset, user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to check share access")
 		return false
 	}
-	if perm != "" {
-		return true
+	if !granted {
+		writeError(w, http.StatusForbidden, errAccessDenied)
 	}
-	collPerm, _ := h.deps.ShareStore.GetUserAssetPermissionViaCollection(r.Context(), assetID, user.UserID, user.Email)
-	if collPerm != "" {
-		return true
-	}
-	writeError(w, http.StatusForbidden, errAccessDenied)
-	return false
+	return granted
 }
 
-// userCanViewAsset reports whether the user may view the asset (owner, a direct
-// share, or a collection share) without writing an HTTP response — the pure form
-// of canViewAsset, for callers that resolve many entities in a loop. A direct-share
-// store error is tolerated: a collection grant still allows access. Like canViewAsset
-// it short-circuits on a direct grant to avoid a collection query on the hot path.
+// userCanViewAsset reports whether the user may view the asset without writing
+// an HTTP response — the pure form of canViewAsset, for callers that resolve
+// many entities in a loop.
 func (h *Handler) userCanViewAsset(r *http.Request, assetID string, asset *Asset, user *User) bool {
-	if asset.OwnerID == user.UserID {
-		return true
-	}
-	if perm, err := h.sharePermissionForUser(r, assetID, user); err == nil && perm != "" {
-		return true
-	}
-	collPerm, _ := h.deps.ShareStore.GetUserAssetPermissionViaCollection(r.Context(), assetID, user.UserID, user.Email)
-	return collPerm != ""
+	return h.access.CanViewAsset(r.Context(), assetID, asset, user)
 }
 
 // canEditAsset checks owner or editor share access, writing an HTTP error on failure.
@@ -2322,7 +2315,7 @@ func (h *Handler) canEditAsset(w http.ResponseWriter, r *http.Request, assetID s
 	if asset.OwnerID == user.UserID {
 		return true
 	}
-	perm, err := h.resolveAssetPermission(r, assetID, user)
+	perm, err := h.access.ResolveAssetPermission(r.Context(), assetID, user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to check share access")
 		return false
@@ -2470,32 +2463,6 @@ type createAssetRequest struct {
 	Tags        []string `json:"tags,omitempty"`
 }
 
-// allowedCreateAssetContentTypes lists the MIME types accepted by the inline
-// asset-create endpoint. The request body is a JSON string, so only textual
-// families can travel through it; binary types (images, audio, video, PDF) must
-// go through a path that carries bytes.
-//
-// Keys are canonical types, so a caller may declare any alias of a family
-// (text/json, text/xml, ...) and still be admitted.
-var allowedCreateAssetContentTypes = map[string]struct{}{
-	contenttype.Markdown:    {},
-	contenttype.PlainText:   {},
-	contenttype.HTML:        {},
-	contenttype.JSX:         {},
-	contenttype.CSV:         {},
-	contenttype.TSV:         {},
-	contenttype.SVG:         {},
-	contenttype.JSON:        {},
-	contenttype.NDJSON:      {},
-	contenttype.XML:         {},
-	contenttype.YAML:        {},
-	contenttype.JavaScript:  {},
-	contenttype.OctetStream: {},
-	"application/sql":       {},
-	"text/x-python":         {},
-	"text/css":              {},
-}
-
 // validateCreateAssetRequest validates the request body and returns the
 // normalized name and content type, or an httpError with the appropriate
 // status code. Extracted from createAsset to keep its cyclomatic complexity
@@ -2513,10 +2480,11 @@ func validateCreateAssetRequest(req createAssetRequest) (name, contentType strin
 	}
 	// Detection runs before the allowlist check, so a caller that declared a
 	// generic type is admitted or refused on what the content actually is —
-	// the same type the asset will be stored and rendered under.
+	// the same type the asset will be stored and rendered under. The check
+	// itself is ValidateContentType, shared with the tool paths.
 	contentType = ResolveContentType(req.ContentType, []byte(req.Content))
-	if _, ok := allowedCreateAssetContentTypes[contentType]; !ok {
-		return "", "", &httpError{http.StatusUnsupportedMediaType, "unsupported content_type for inline create; use the save_asset tool for binary types"}
+	if vErr := ValidateContentType(contentType); vErr != nil {
+		return "", "", &httpError{http.StatusUnsupportedMediaType, vErr.Error()}
 	}
 	if int64(len(req.Content)) > MaxContentUploadBytes {
 		return "", "", &httpError{http.StatusRequestEntityTooLarge, "content exceeds 10 MB limit"}

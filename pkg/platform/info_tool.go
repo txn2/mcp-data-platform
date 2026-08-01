@@ -150,17 +150,13 @@ func (p *Platform) reviewQueueInfo(ctx context.Context) *ReviewQueueInfo {
 
 // resolveCallerPersona returns a PersonaInfo for the calling user.
 // It reads the persona name from PlatformContext (set by auth middleware) and
-// looks it up in the registry. If no persona is found in context, it falls back
-// to the configured default persona. Returns nil when no persona applies.
+// looks it up in the registry. Returns nil when the caller's roles mapped to no
+// persona, which platform_info reports as no persona rather than substituting
+// one the caller was never granted.
 func (p *Platform) resolveCallerPersona(ctx context.Context) *PersonaInfo {
 	name := ""
 	if pc := middleware.GetPlatformContext(ctx); pc != nil {
 		name = pc.PersonaName
-	}
-	if name == "" {
-		if def, ok := p.personaRegistry.GetDefault(); ok {
-			name = def.Name
-		}
 	}
 	if name == "" {
 		return nil
@@ -235,7 +231,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 
 	// Apply the persona description override; the persona's agent-instruction
 	// tuning is applied to the admin layer inside ComposeForCaller below.
-	description := p.config.Server.Description
+	description := p.config.ServerDescription(ctx)
 	var caller *personapkg.Persona
 	if persona != nil {
 		if full, ok := p.personaRegistry.Get(persona.Name); ok {
@@ -258,7 +254,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		notes = append(notes, instructions.ResourcesNote(accessibleTools))
 	}
 	agentInstructions := instructions.ComposeForCaller(
-		p.config.Server.AgentInstructions,
+		p.config.ServerAgentInstructions(ctx),
 		p.toolkitRegistry.AllTools(),
 		caller,
 		p.personaRegistry,
@@ -274,7 +270,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		agentInstructions = sessionThreadingInstruction(sessionID) + agentInstructions
 	}
 
-	reg := DefaultRegistry()
+	reg := defaultRegistry()
 	info := Info{
 		Name:                p.config.Server.Name,
 		Version:             p.config.Server.Version,

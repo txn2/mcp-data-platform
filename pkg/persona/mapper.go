@@ -77,7 +77,10 @@ func (m *OIDCRoleMapper) matchesPrefix(role string) bool {
 	return m.RolePrefix == "" || strings.HasPrefix(role, m.RolePrefix)
 }
 
-// MapToPersona maps roles to a persona.
+// MapToPersona maps roles to a persona: an explicit role-to-persona mapping
+// first, then the registry's role matching. Roles that map to nothing resolve
+// to the deny-all DefaultPersona, so an identity an operator never granted a
+// role reaches no tool.
 func (m *OIDCRoleMapper) MapToPersona(_ context.Context, roles []string) (*Persona, error) {
 	// Check explicit mappings first
 	for _, role := range roles {
@@ -93,21 +96,20 @@ func (m *OIDCRoleMapper) MapToPersona(_ context.Context, roles []string) (*Perso
 		return persona, nil
 	}
 
-	// Return default persona
-	if persona, ok := m.Registry.GetDefault(); ok {
-		return persona, nil
-	}
-
 	return DefaultPersona(), nil
 }
 
-// StaticRoleMapper uses static configuration for mapping.
+// StaticRoleMapper assigns every caller one named persona regardless of their
+// roles. It exists for embedders that do their own authorization upstream and
+// want a fixed persona; it is not wired into any platform auth path, where
+// access follows role-to-persona matching.
 type StaticRoleMapper struct {
 	// GroupPersonas maps groups to persona names.
 	GroupPersonas map[string]string
 
-	// DefaultPersonaName is the fallback persona.
-	DefaultPersonaName string
+	// PersonaName is the persona every caller is assigned. An empty name, or a
+	// name absent from the registry, yields the deny-all DefaultPersona.
+	PersonaName string
 
 	// Registry is the persona registry.
 	Registry *Registry
@@ -118,16 +120,13 @@ func (*StaticRoleMapper) MapToRoles(_ map[string]any) ([]string, error) {
 	return []string{}, nil
 }
 
-// MapToPersona maps based on static configuration.
+// MapToPersona returns the configured persona, or the deny-all DefaultPersona
+// when none is configured or the configured name is not registered.
 func (m *StaticRoleMapper) MapToPersona(_ context.Context, _ []string) (*Persona, error) {
-	if m.DefaultPersonaName != "" {
-		if persona, ok := m.Registry.Get(m.DefaultPersonaName); ok {
+	if m.PersonaName != "" {
+		if persona, ok := m.Registry.Get(m.PersonaName); ok {
 			return persona, nil
 		}
-	}
-
-	if persona, ok := m.Registry.GetDefault(); ok {
-		return persona, nil
 	}
 
 	return DefaultPersona(), nil

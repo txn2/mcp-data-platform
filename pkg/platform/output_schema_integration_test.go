@@ -9,6 +9,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/pkg/auth"
 )
 
 // TestPlatformToolsAdvertiseAndHonorOutputSchemas assembles the real platform
@@ -24,14 +26,18 @@ func TestPlatformToolsAdvertiseAndHonorOutputSchemas(t *testing.T) {
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
-		// Without a persona that can reach the tools, the deny-all default persona
-		// hides them from tools/list and refuses tools/call; grant an allow-all
-		// persona so the client exercises the real advertised surface.
+		// A caller matching no persona reaches the deny-all default, which hides
+		// the tools from tools/list and refuses tools/call. Grant a persona whose
+		// role the anonymous test identity carries so the client exercises the
+		// real advertised surface.
 		Personas: PersonasConfig{
 			Definitions: map[string]PersonaDef{
-				"default": {DisplayName: "Default", Tools: ToolRulesDef{Allow: []string{"*"}}},
+				"default": {
+					DisplayName: "Default",
+					Roles:       []string{auth.RoleAnonymous},
+					Tools:       ToolRulesDef{Allow: []string{"*"}},
+				},
 			},
-			DefaultPersona: "default",
 		},
 	}
 	p, err := New(WithConfig(cfg))

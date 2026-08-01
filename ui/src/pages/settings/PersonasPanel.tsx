@@ -9,6 +9,7 @@ import type { PersonaDetail } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import { Plus, Users } from "lucide-react";
 import { PersonaEditor, type PersonaDraft } from "./PersonaEditor";
+import { ModalScroll } from "@/components/ModalShell";
 
 function emptyDraft(): PersonaDraft {
   return {
@@ -46,7 +47,10 @@ function detailToDraft(d: PersonaDetail): PersonaDraft {
   };
 }
 
-function sourceNoteFor(detail: PersonaDetail, isReadOnly: boolean): string | null {
+function sourceNoteFor(
+  detail: PersonaDetail,
+  isReadOnly: boolean,
+): string | null {
   if (isReadOnly) {
     return "Personas are loaded from the config file in this deployment. Changes made here will not persist; manage personas by updating the config file.";
   }
@@ -178,10 +182,10 @@ export function PersonasPanel() {
 
   const canDelete = Boolean(
     detail &&
-      !isReadOnly &&
-      !isCreating &&
-      detail.name !== "admin" &&
-      detail.source !== "file",
+    !isReadOnly &&
+    !isCreating &&
+    detail.name !== "admin" &&
+    detail.source !== "file",
   );
 
   return (
@@ -202,18 +206,25 @@ export function PersonasPanel() {
               )}
             >
               <div className="flex items-center gap-1.5">
-                <span className="text-sm font-medium truncate">{p.display_name}</span>
+                <span className="text-sm font-medium truncate">
+                  {p.display_name}
+                </span>
                 {p.source && (
-                  <span className={cn(
-                    "shrink-0 rounded px-1 py-0 text-xs font-medium",
-                    p.source === "file" ? "bg-muted text-muted-foreground" :
-                    "bg-primary/10 text-primary",
-                  )}>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded px-1 py-0 text-xs font-medium",
+                      p.source === "file"
+                        ? "bg-muted text-muted-foreground"
+                        : "bg-primary/10 text-primary",
+                    )}
+                  >
                     {p.source === "file" ? "file" : "database"}
                   </span>
                 )}
               </div>
-              <span className="text-xs font-mono text-muted-foreground truncate">{p.name}</span>
+              <span className="text-xs font-mono text-muted-foreground truncate">
+                {p.name}
+              </span>
               <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                 <span>{p.roles.length} roles</span>
                 <span>{p.tool_count} tools</span>
@@ -305,9 +316,11 @@ export function PersonasPanel() {
       {confirmDelete && detail && (
         <ConfirmModal
           title="Delete Persona"
-          message={detail.source === "both"
-            ? `Are you sure you want to remove the database override for "${detail.display_name}"? It will revert to the version defined in the config file.`
-            : `Are you sure you want to delete "${detail.display_name}"? This cannot be undone.`}
+          message={
+            detail.source === "both"
+              ? `Are you sure you want to remove the database override for "${detail.display_name}"? It will revert to the version defined in the config file.`
+              : `Are you sure you want to delete "${detail.display_name}"? This cannot be undone.`
+          }
           confirmLabel="Delete"
           onConfirm={handleDelete}
           onCancel={() => setConfirmDelete(false)}
@@ -334,14 +347,8 @@ function ConfirmModal({
   destructive?: boolean;
 }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onCancel}
-    >
-      <div
-        className="rounded-lg border bg-card p-6 shadow-lg max-w-sm mx-4"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <ModalScroll onClose={onCancel} width="max-w-sm">
+      <div className="rounded-lg border bg-card p-6 shadow-lg">
         <h3 className="text-sm font-semibold mb-2">{title}</h3>
         <p className="text-sm text-muted-foreground mb-4">{message}</p>
         <div className="flex justify-end gap-2">
@@ -366,6 +373,6 @@ function ConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </ModalScroll>
   );
 }

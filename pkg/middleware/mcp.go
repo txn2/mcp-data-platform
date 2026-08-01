@@ -177,10 +177,10 @@ func buildToolCallContext(ctx context.Context, req mcp.Request, pc *PlatformCont
 	// Store ServerSession and progress token in context for
 	// progress notifications and client logging.
 	if ss := extractServerSession(req); ss != nil {
-		ctx = WithServerSession(ctx, ss)
+		ctx = withServerSession(ctx, ss)
 	}
 	if pt := extractProgressToken(req); pt != nil {
-		ctx = WithProgressToken(ctx, pt)
+		ctx = withProgressToken(ctx, pt)
 	}
 
 	// Populate toolkit metadata (kind, name, default-or-resolved connection).
@@ -513,7 +513,7 @@ func extractServerSession(req mcp.Request) (ss *mcp.ServerSession) {
 
 // extractProgressToken extracts the progress token from an MCP Request.
 // Returns nil if the request has no progress token.
-// Uses defer/recover to guard against typed-nil panics from GetProgressToken.
+// Uses defer/recover to guard against typed-nil panics from getProgressToken.
 func extractProgressToken(req mcp.Request) (token any) {
 	if req == nil {
 		return nil
@@ -527,7 +527,7 @@ func extractProgressToken(req mcp.Request) (token any) {
 	if params == nil {
 		return nil
 	}
-	// GetProgressToken is on RequestParams, not Params.
+	// getProgressToken is on RequestParams, not Params.
 	rp, ok := params.(mcp.RequestParams)
 	if !ok {
 		return nil

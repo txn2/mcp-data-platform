@@ -89,6 +89,17 @@ auth:
     audience: "mcp-data-platform"
 ```
 
+### When the identity provider is unreachable
+
+A token whose validity cannot be determined, because the provider's signing keys
+could not be fetched, is treated differently from one that is definitively
+invalid. The HTTP edge lets it through and the protocol layer refuses each tool
+call with a retryable `feature_unavailable` error rather than a `401`, so
+clients wait out the outage instead of starting a re-authentication flow that
+cannot complete. Access is never granted on an unvalidated credential. The
+decision and its reasoning are recorded in the
+[threat model](../security/threat-model.md#identity-provider-outage).
+
 ## HTTP Authentication Flow
 
 mcp-data-platform supports two authentication flows for HTTP transport:
@@ -200,8 +211,11 @@ personas:
     tools:
       allow: ["trino_query", "trino_execute", "trino_explain", "datahub_*"]
       deny: ["*_delete_*"]
-  default_persona: analyst  # Required: users need explicit persona
 ```
+
+A caller whose roles match no persona here reaches nothing: tool calls are
+refused and the portal answers `403`. Authenticating is not access — grant a
+role a persona lists.
 
 This configuration:
 

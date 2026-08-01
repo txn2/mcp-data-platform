@@ -3,7 +3,8 @@
 The platform emails users when something needs their attention: a teammate
 shares an asset, collection, or prompt with them, comments on something they
 own or that is shared with them, or names them in a comment with an
-@-mention. Delivery is durable (a database-backed queue with retries), never
+@-mention. It also alerts operators when the knowledge review queue goes
+unworked. Delivery is durable (a database-backed queue with retries), never
 blocks the originating request, and respects per-user preferences including
 a daily digest mode.
 
@@ -22,6 +23,7 @@ graph LR
         Share[Share created]
         Comment[Thread comment / feedback]
         Mention["@-mention in a comment"]
+        Review[Review queue over threshold]
     end
     subgraph Queue
         Prefs[(user preferences)]
@@ -34,6 +36,7 @@ graph LR
     Share --> Prefs
     Comment --> Prefs
     Mention --> Prefs
+    Review --> Prefs
     Prefs -->|off| Drop[Dropped]
     Prefs -->|immediate or daily| Rows
     Rows --> Worker --> SMTP
@@ -48,7 +51,13 @@ graph LR
    mention category instead, so one comment never sends the same person two
    emails, and mentions are queued first: enqueueing is rate-limited per
    author, so on a widely-shared item the people addressed by name are the ones
-   that get through.
+   that get through. The person who wrote the event is never a recipient of
+   it: the actor is excluded at the enqueue seam every trigger passes through,
+   comparing normalized addresses so an owner or grantee recorded as
+   `Display Name <addr>` is still recognized as the author. A thread event
+   whose author cannot be resolved queues no general fan-out at all -- it
+   cannot be shown not to be a self-notification -- though addresses the body
+   named explicitly still get their mention.
 2. A background send worker claims due rows (immediately via Postgres
    LISTEN/NOTIFY, or on a poll interval), renders a branded HTML email with
    a plaintext alternative, and delivers it over SMTP. Failed sends retry
@@ -56,6 +65,10 @@ graph LR
    pod restarts and expired delivery leases are reclaimed automatically.
 3. Daily-digest users get one email per day summarizing that window's
    events instead of one email per event.
+4. One trigger has no human behind it: a scheduled check compares the
+   knowledge review queue against the operator's staleness threshold and
+   queues an alert when it crosses. See
+   [Review queue alerts](#review-queue-alerts) below.
 
 ## Admin SMTP settings
 
@@ -74,6 +87,16 @@ write-only: no API response ever includes it.
 | `from`, `from_name` | Sender address and optional display name. |
 | `tls_mode` | `starttls` (default), `implicit`, or `none` (closed-network relays only). |
 
+The read and update responses carry a `warnings` array describing accepted
+but hazardous combinations in the stored configuration; the admin UI shows
+them as a banner above the form. A save is never blocked by one. The only
+warning today fires when `tls_mode: none` is stored alongside a username or
+password: SMTP AUTH then runs over an unencrypted connection and the
+credential crosses the network in the clear. It is evaluated against the
+stored settings rather than the request body, so it still fires when the
+write-only password field was left empty and the previously stored
+credential was kept.
+
 The **Send test** action delivers a test email through the stored settings
 so the configuration can be verified end to end before users depend on it.
 It requires an enabled, saved configuration; a disabled or unconfigured
@@ -83,6 +106,17 @@ deliver); when the target address has opted out of notification emails,
 the admin UI shows an informational notice next to the send action so
 "receives test mail but never notifications" is self-explaining rather
 than a troubleshooting mystery.
+
+A failed send answers 502 with fixed text that does not vary with the
+failure mode. The host and port are admin-chosen and deliberately
+unrestricted, so a reflected dial error would distinguish refused from
+timed out from TLS handshake failure for any address the server can reach.
+The underlying error is written to the server log instead, together with
+the host and port that produced it:
+
+```
+level=ERROR msg="notification: test send failed" recipient=admin@example.com smtp_host=smtp.example.com smtp_port=587 error="..."
+```
 
 ```
 GET  /api/v1/admin/settings/smtp                     read settings (password_set only, never the password)
@@ -94,6 +128,70 @@ GET  /api/v1/admin/settings/smtp/recipient-status    opt-out state of an address
 Like other admin configuration, writes require database config mode; in
 file mode the endpoints respond 405.
 
+## Review queue alerts
+
+An `apply_knowledge` review queue that nobody works erodes the knowledge
+flywheel silently: captures stop becoming shared knowledge and agents keep
+re-deriving facts nobody promoted. The pending count and its age are already
+visible to anyone who looks (`bulk_review`, `platform_info`, and the portal's
+Insights tab all report them). This is the push signal for everyone who does
+not look.
+
+A scheduled check reads the pending queue once an hour through the same
+lightweight rollup `platform_info` uses -- one aggregate query, never on a
+request path -- and queues an alert when the queue crosses the operator's
+threshold. The alert is a normal notification: it goes through the same
+preference gate, queue, worker, and branded renderer as every other email,
+and a daily-mode recipient reads it as one line of their digest.
+
+Admins configure it in the portal under **Admin, then Settings**, beside the
+SMTP section, or via the REST API:
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Master switch for the scheduled check. |
+| `pending_threshold` | Alert once this many insights are awaiting review. `0` turns this condition off. |
+| `oldest_pending_days` | Alert once the oldest pending insight reaches this age in days. `0` turns this condition off. Defaults to 30, the same age at which the portal badges an insight stale. |
+| `cooldown_hours` | Minimum gap between two alerts while the queue stays over threshold (1-720, default 24). |
+| `recipients` | The addresses the digest is delivered to (at most 20). |
+
+Either threshold alone is enough to cross; an empty queue never crosses. The
+recipient list is explicit rather than derived from roles: role membership
+arrives with a request from the identity provider, so there is no set of
+admins the platform can enumerate at check time.
+
+Like the SMTP section, the read and update responses carry a `warnings` array
+for a configuration that saves cleanly and delivers nothing -- an enabled
+alert with no recipients, or with both thresholds cleared -- and the admin UI
+shows them as a banner above the form. Neither blocks a save.
+
+```
+GET /api/v1/admin/settings/review-queue-alert    read the threshold, cooldown, and recipients
+PUT /api/v1/admin/settings/review-queue-alert    update them
+```
+
+**Re-alert policy.** A queue that stays over threshold produces one alert per
+cooldown window, not one per check. A queue worked back under the threshold
+clears the marker, so the next crossing alerts immediately rather than serving
+out a cooldown that belongs to a queue which has since been dealt with. The
+claim is a single conditional write against a one-row table, so it also makes
+the alert a cluster-wide singleton: on a multi-replica deployment exactly one
+replica's check wins a given window.
+
+**What the email says.** The pending count, the age of the oldest pending
+insight, how many are past the staleness threshold, and a deep link to the
+review queue itself (`<portal>/knowledge#review`) -- the queue, not the tab it
+lives behind. The figures are the queue as the check saw it, so a digest
+delivered hours later still reports what actually tripped the threshold. The
+link opens the review queue for anyone holding `apply_knowledge`; a recipient
+without that capability lands on the Insights tab's own-captures view, since
+the review queue is not a surface they can act on.
+
+**Preferences.** This category has no per-user toggle: the operator chose the
+recipient list, so removing an address there is how you stop sending it.
+A recipient still opts out for themselves with delivery mode `off`, including
+through the unsubscribe link the email carries like any other.
+
 ## User notification preferences
 
 Each user manages their own preferences in the portal under **Settings**
@@ -103,7 +201,8 @@ ever read or write their own preferences.
 - **Delivery mode**: `immediate` (one email per event, the default),
   `daily` (one digest email per day), or `off`.
 - **Category toggles**: shares, comments/feedback, and mentions, each individually
-  switchable.
+  switchable. Review queue alerts have no toggle here; see
+  [Review queue alerts](#review-queue-alerts).
 
 Users with no stored preferences get the defaults: immediate delivery with
 all categories enabled. Turning notifications off drops events at enqueue
@@ -113,6 +212,17 @@ time; nothing is queued.
 GET /api/v1/portal/notification-prefs
 PUT /api/v1/portal/notification-prefs   {"mode": "daily", "shares_enabled": true, "comments_enabled": false}
 ```
+
+Both responses carry `delivery_available`, a read-only boolean derived from
+the stored SMTP settings: false when SMTP has never been configured, when it
+is disabled, or when its host is empty. It exposes no SMTP detail, so it is
+safe for a non-admin caller, and it is the signal the Settings page uses to
+render the section inert rather than offering live controls over a preference
+nothing can act on. Stored preferences are untouched while delivery is
+unavailable; they take effect as soon as an admin configures SMTP. Admins see
+the same note with a link into **Admin > Settings**, and the SMTP section
+itself states the consequence of leaving delivery off: triggers keep queueing
+rows, and those rows expire undelivered after 7 days.
 
 Preferences are keyed by bare email address, so they also apply to share
 recipients who have no platform account. Because such a recipient cannot
@@ -149,6 +259,85 @@ no-mutation-on-GET rule as the unsubscribe endpoint it reverses), answers
 uniformly for every share state, is rate limited alongside the other
 public share routes, and restores the immediate-delivery default for the
 share's stored recipient address.
+
+## Sharer control over the share email
+
+A share addressed to a person notifies its recipient by default. The sharer
+can change two things about that email at the moment they share, from the
+share dialog or the API:
+
+- **`notify`** (`*bool`, omitted means notify): `false` shares quietly. No
+  row is queued and no email is sent; the share itself is created exactly as
+  it would be otherwise. The recipient's own preferences still apply when
+  notification is on, so this only removes the sharer's ability to force one.
+- **`message`** (optional, 500 characters): a plain-text note from the
+  sharer, rendered in the email as a quoted block attributed to them. It is
+  never persisted: it travels with the one notification the share produces
+  and is stored nowhere, so a share created with `notify: false` carries no
+  note anywhere.
+
+The note is plain text and is checked as such at validation time: markup and
+links are rejected with a 400 rather than escaped and delivered. Escaping
+alone would stop a note from rendering as markup, but a plausible-looking
+link inside a trusted platform email is a phishing vector however it is
+encoded. Rendering escapes as well, so the two defenses are independent.
+
+```
+POST /api/v1/portal/assets/{id}/shares
+{"shared_with_email": "colleague@example.com", "notify": false}
+
+POST /api/v1/portal/assets/{id}/shares
+{"shared_with_email": "colleague@example.com",
+ "message": "Here's the Q3 revenue breakdown you asked about"}
+```
+
+Recipient addresses are accepted in both the bare form and the
+`Example User <user@example.com>` form mail clients put on the clipboard;
+only the bare address is stored, lowercased. A value that names no single
+routable address is refused with a 400 instead of being stored raw, which
+previously produced a share matching no signed-in user and a notification
+addressed to a string no mail server would route. The share dialog applies
+the same rule as the field loses focus, so what the sharer sees is what will
+be stored and mailed.
+
+A share addressed to a person carries no expiration: it grants that person
+access until the owner revokes it. `expires_in` is a link-share concept --
+where the URL is the credential and a bounded life limits what a forwarded
+link is worth -- and sending it alongside a recipient is refused rather than
+silently resolved either way.
+
+## Delivery history
+
+Both the admin monitoring tab and each user's own notification screen read
+the queue's delivery history. Both are bounded by the retention pass below:
+they show recent history, not an archive, and both state the effective
+window.
+
+**Admin (Dashboard > Notifications)** lists every queue row with its
+recipient, category, subject, status, attempt count, and -- on drill-in --
+the error the mail server returned. Counts by status sit above the list as
+an at-a-glance health read, and each count doubles as a filter. The routes
+sit behind the admin persona gate:
+
+```
+GET /api/v1/admin/notifications?status=failed&recipient=user@example.com
+GET /api/v1/admin/notifications/stats
+```
+
+**Users (Settings > Recent notifications)** see the notifications addressed
+to them, alongside the preferences that govern them, because the two answer
+one question together: what should I be told, and what was I actually told.
+The endpoint is self-scoped server-side -- the authenticated caller's address
+is the only recipient it queries, and there is no parameter to widen it:
+
+```
+GET /api/v1/portal/notifications
+```
+
+The user view deliberately omits the delivery error text the admin view
+carries. A failed send fails for reasons belonging to the platform's mail
+infrastructure (host names, credentials, relay refusals), which the recipient
+can act on none of; the status alone tells them whether to expect an email.
 
 ## Branded emails
 

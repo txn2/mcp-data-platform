@@ -19,9 +19,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // Swagger API docs
+	"github.com/txn2/mcp-data-platform/internal/httpserver/health"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/ui"
-	"github.com/txn2/mcp-data-platform/pkg/health"
-	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/session"
@@ -153,6 +153,12 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	notify := buildNotifications(p)
 	notify.Start(ctx)
 	defer notify.Stop()
+
+	// Scheduled knowledge review-queue staleness check (#803). It enqueues
+	// through the substrate above, so it starts after it and stops before it.
+	reviewAlert := buildReviewAlert(p, notify)
+	reviewAlert.Start(ctx)
+	defer reviewAlert.Stop()
 
 	mux := http.NewServeMux()
 	hcfg := extractHTTPConfig(p)

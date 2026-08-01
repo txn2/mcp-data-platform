@@ -1,11 +1,15 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http/httptest"
 	"slices"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -470,3 +474,70 @@ func decodeProblem(body []byte) problemDetail {
 	_ = json.Unmarshal(body, &pd)
 	return pd
 }
+
+// doJSON drives a request through the assembled admin handler and returns the
+// recorded response. Shared by the route tests that stayed in this package;
+// the catalog seam carries its own copy against its own mux.
+func doJSON(t *testing.T, h *Handler, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	var rc io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		rc = bytes.NewReader(b)
+	}
+	req := httptest.NewRequestWithContext(context.Background(), method, path, rc)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	return w
+}
+
+// mockAuditMetricsQuerier is the double for the aggregate audit rollups. The
+// audit routes moved to internal/admin/auditapi, which carries its own copy;
+// this one serves the tools-detail surface that stayed behind.
+type mockAuditMetricsQuerier struct {
+	timeseriesResult  []audit.TimeseriesBucket
+	timeseriesErr     error
+	breakdownResult   []audit.BreakdownEntry
+	breakdownErr      error
+	overviewResult    *audit.Overview
+	overviewErr       error
+	performanceResult *audit.PerformanceStats
+	performanceErr    error
+	enrichmentResult  *audit.EnrichmentStats
+	enrichmentErr     error
+	discoveryResult   *audit.DiscoveryStats
+	discoveryErr      error
+}
+
+func (m *mockAuditMetricsQuerier) Timeseries(_ context.Context, _ audit.TimeseriesFilter) ([]audit.TimeseriesBucket, error) {
+	return m.timeseriesResult, m.timeseriesErr
+}
+
+func (m *mockAuditMetricsQuerier) Breakdown(_ context.Context, _ audit.BreakdownFilter) ([]audit.BreakdownEntry, error) {
+	return m.breakdownResult, m.breakdownErr
+}
+
+func (m *mockAuditMetricsQuerier) Overview(_ context.Context, _ audit.MetricsFilter) (*audit.Overview, error) {
+	return m.overviewResult, m.overviewErr
+}
+
+func (m *mockAuditMetricsQuerier) Performance(_ context.Context, _ audit.MetricsFilter) (*audit.PerformanceStats, error) {
+	return m.performanceResult, m.performanceErr
+}
+
+func (m *mockAuditMetricsQuerier) Enrichment(_ context.Context, _ audit.MetricsFilter) (*audit.EnrichmentStats, error) {
+	return m.enrichmentResult, m.enrichmentErr
+}
+
+func (m *mockAuditMetricsQuerier) Discovery(_ context.Context, _ audit.MetricsFilter) (*audit.DiscoveryStats, error) {
+	return m.discoveryResult, m.discoveryErr
+}
+
+// Verify interface compliance.
+var _ AuditMetricsQuerier = (*mockAuditMetricsQuerier)(nil)

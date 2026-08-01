@@ -8,6 +8,7 @@ import {
   usePromptCollections,
 } from "@/api/portal/hooks";
 import type { Prompt, PromptCollection } from "@/api/admin/types";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 import { CollectionsManagerDialog } from "./CollectionsManagerDialog";
 import { PromptCreateForm } from "./PromptCreateForm";
@@ -29,10 +30,10 @@ interface Props {
   onNavigate: (path: string) => void;
 }
 
-// The library's two buckets (#1010): My Prompts is the caller's personal
-// prompts plus prompts shared with them (attributed); Library is the approved
-// shared set visible to them, grouped by collection. Scope taxonomy stays out
-// of this page.
+// The library's two buckets (#1010, #1124): My Prompts is every prompt the
+// caller owns, at any scope (shared scopes carry a badge), plus prompts shared
+// with them (attributed); Library is the approved shared set visible to them,
+// grouped by collection.
 type Tab = "mine" | "library";
 
 interface LibraryGroup {
@@ -72,7 +73,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
     return m;
   }, [collections]);
 
-  // My Prompts: personal plus shared-with-me, attributed.
+  // My Prompts: everything the caller owns plus shared-with-me, attributed.
   const myRows = useMemo<Row[]>(() => {
     const own = (data?.personal ?? []).map((p) => ({ prompt: p }));
     const shared = sharedPrompts.map((s) => ({ prompt: s.prompt, sharedBy: s.shared_by }));
@@ -197,7 +198,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
     : filtersOn
       ? "No prompts match the current filters"
       : isMineTab
-        ? "No personal prompts yet"
+        ? "You don't own any prompts yet"
         : "The library is empty";
 
   return (
@@ -288,7 +289,9 @@ export function MyPromptsPage({ onNavigate }: Props) {
                   {group.collection?.name ?? "General"}
                 </h3>
                 {group.collection?.description && (
-                  <span className="text-xs text-muted-foreground truncate">{group.collection.description}</span>
+                  <span className="text-xs text-muted-foreground truncate">
+                    {markdownToPlainText(group.collection.description)}
+                  </span>
                 )}
                 <span className="text-xs text-muted-foreground/70">({group.rows.length})</span>
               </div>

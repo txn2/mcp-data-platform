@@ -159,7 +159,7 @@ func postExchange(client *http.Client, req *http.Request, tokenURL string) ([]by
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.Warn("connoauth: exchange: transport error",
-			logKeyTokenURLHost, tokenHost, "error", err)
+			logKeyTokenURLHost, tokenHost, "error", logsan.SanitizeForLog(err.Error()))
 		return nil, fmt.Errorf("connoauth: exchange: token request: %w", err)
 	}
 	// Drain remaining bytes before close so net/http can pool the
@@ -247,12 +247,12 @@ func urlHost(u string) string {
 	return parsed.Host
 }
 
-// trimBody caps the size of upstream error bodies surfaced in error
-// strings so a misbehaving upstream can't blow up an audit log.
+// trimBody bounds and sanitizes an upstream error body before it is
+// surfaced in a log field and in the error string that carries it
+// upstack. Whoever answers a connection's token URL chooses both the
+// length and the bytes, so an unbounded excerpt fills an audit log and
+// one carrying CR/LF forges records in it.
 func trimBody(body []byte) string {
 	const limit = 256
-	if len(body) <= limit {
-		return string(body)
-	}
-	return string(body[:limit]) + "..."
+	return logsan.Excerpt(string(body), limit)
 }

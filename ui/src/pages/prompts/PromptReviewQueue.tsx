@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Check, X, Globe, Users } from "lucide-react";
+import { markdownToPlainText } from "@/lib/markdownText";
 import {
   useAdminPrompts,
   useApprovePromptPromotion,
@@ -60,7 +61,9 @@ export function PromptReviewQueue() {
                     )}
                   </div>
                   {p.description && (
-                    <div className="text-xs text-muted-foreground mt-0.5 break-words">{p.description}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5 break-words">
+                      {markdownToPlainText(p.description)}
+                    </div>
                   )}
                 </div>
                 <div className="flex gap-2 shrink-0">

@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -350,4 +352,74 @@ func TestRegisterConnectionsTool(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, out.Count)
 	assert.Equal(t, "trino", out.Connections[0].Kind)
+}
+
+func TestHandleListConnections_PersonaBoundary(t *testing.T) {
+	newRegistry := func(t *testing.T) *registry.Registry {
+		t.Helper()
+		reg := registry.NewRegistry()
+		require.NoError(t, reg.Register(&mockConnectionListerToolkit{
+			mockToolkit: mockToolkit{kind: "trino", name: "warehouse", tools: []string{"trino_query"}},
+			connections: []toolkit.ConnectionDetail{
+				{Name: "warehouse-a", Description: "Analytics"},
+				{Name: "warehouse-b", Description: "Payroll"},
+			},
+		}))
+		require.NoError(t, reg.Register(&mockToolkit{
+			kind: "datahub", name: "primary", connection: "primary-datahub", tools: []string{"datahub_search"},
+		}))
+		return reg
+	}
+
+	personas := persona.NewRegistry()
+	require.NoError(t, personas.Register(&persona.Persona{
+		Name:        "analyst",
+		Roles:       []string{"analyst"},
+		Connections: persona.ConnectionRules{Allow: []string{"warehouse-a"}},
+	}))
+	require.NoError(t, personas.Register(persona.AdminPersona()))
+
+	listFor := func(t *testing.T, personaName string) listConnectionsOutput {
+		t.Helper()
+		p := &Platform{toolkitRegistry: newRegistry(t), personaRegistry: personas}
+		ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+			UserID: "u1", PersonaName: personaName,
+		})
+		result, _, err := p.handleListConnections(ctx, &mcp.CallToolRequest{})
+		require.NoError(t, err)
+		require.False(t, result.IsError)
+
+		var out listConnectionsOutput
+		tc, ok := result.Content[0].(*mcp.TextContent)
+		require.True(t, ok)
+		require.NoError(t, json.Unmarshal([]byte(tc.Text), &out))
+		return out
+	}
+
+	t.Run("omits connections the persona is not granted", func(t *testing.T) {
+		out := listFor(t, "analyst")
+		require.Len(t, out.Connections, 1)
+		assert.Equal(t, "warehouse-a", out.Connections[0].Name)
+		assert.Equal(t, 1, out.Count)
+		// warehouse-b (a listed connection) and primary (a fallback data toolkit).
+		assert.Equal(t, 2, out.Withheld)
+		assert.Contains(t, out.Notice, "2 connections are hidden")
+		assert.Contains(t, out.Notice, "your persona (analyst)")
+		assert.Contains(t, out.Notice, "Ask an administrator")
+	})
+
+	t.Run("an unrestricted persona sees every connection", func(t *testing.T) {
+		out := listFor(t, "admin")
+		assert.Equal(t, 3, out.Count)
+		assert.Zero(t, out.Withheld)
+		assert.Empty(t, out.Notice)
+	})
+
+	t.Run("an unresolvable persona is denied every connection", func(t *testing.T) {
+		out := listFor(t, "ghost")
+		assert.Empty(t, out.Connections)
+		assert.Equal(t, 3, out.Withheld)
+		assert.Contains(t, out.Notice, "3 connections are hidden",
+			"a persona that does not resolve is denied every connection, and told so")
+	})
 }

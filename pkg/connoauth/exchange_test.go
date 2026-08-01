@@ -242,6 +242,16 @@ func TestTrimBody(t *testing.T) {
 	if got := trimBody([]byte(long)); !strings.HasSuffix(got, "...") || len(got) != 259 {
 		t.Fatalf("trimBody should cap with ...: got len=%d suffix=%q", len(got), got[len(got)-3:])
 	}
+	// The excerpt reaches a log field and an error that is logged again
+	// upstack, so an upstream body cannot be allowed to carry line breaks.
+	hostile := []byte("invalid_grant\r\nlevel=ERROR msg=\"forged\"")
+	got := trimBody(hostile)
+	if strings.ContainsAny(got, "\r\n") {
+		t.Fatalf("trimBody left a line break in the excerpt: %q", got)
+	}
+	if !strings.Contains(got, "invalid_grant") || !strings.Contains(got, "forged") {
+		t.Fatalf("trimBody dropped the diagnostic text instead of the control characters: %q", got)
+	}
 }
 
 // TestExchange_NoRedirectFollow proves the CheckRedirect guard

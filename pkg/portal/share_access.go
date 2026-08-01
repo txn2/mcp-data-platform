@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/sharecache"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareguest"
 )
@@ -48,6 +49,10 @@ func isGuestRequest(r *http.Request) bool {
 // seven routes and several read S3 without going through the page handler, so
 // enforcing per-handler would leave a route open by omission (#999).
 //
+// The gate also owns the response's caching policy (internal/portal/sharecache),
+// for the same reason it owns the access decision: a per-handler directive
+// would leave a route publicly cacheable by omission.
+//
 // A refusal is rendered by denyShare: a branded page for browser navigations,
 // plain text otherwise. Before refusing an anonymous caller the gate consults
 // the guest service for a valid one-time-link session scoped to this share
@@ -65,6 +70,8 @@ func (h *Handler) publicShareGate(next http.Handler) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		sharecache.Apply(w, share.AccessMode)
+
 		if msg := shareaccess.Availability(share.Revoked, share.ExpiresAt, time.Now()); msg != "" {
 			h.denyShare(w, r, share, shareguest.Denial{Status: http.StatusGone, Message: msg})
 			return
@@ -112,7 +119,11 @@ func viewerEmail(viewer *User) string {
 // With a guest service wired, browser navigations get a branded landing page
 // offering a way in (sign-in, and a one-time link for email shares); without
 // one, the refusal stays the plain text it was before #1001.
+//
+// A refusal is never stored (sharecache.Refuse): a cached refusal keyed on the
+// URL would answer for the recipient the share was made for.
 func (h *Handler) denyShare(w http.ResponseWriter, r *http.Request, share *Share, d shareguest.Denial) {
+	sharecache.Refuse(w)
 	if h.deps.ShareGuest == nil {
 		http.Error(w, d.Message, d.Status)
 		return

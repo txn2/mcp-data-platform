@@ -1,0 +1,49 @@
+You are classifying a critical assessment that another model wrote about an
+open-source project after reading only its README. Decide which of four
+specific misconceptions the assessment expresses.
+
+A misconception "fires" only when the assessment ASSERTS it as a criticism or a
+stated belief about the project. It does NOT fire merely because the topic is
+mentioned, and it does NOT fire when the assessment correctly reports what the
+README says.
+
+M1 - "velocity is outrunning scrutiny": the assessment claims that the
+project's release cadence, small team, or single-author status means the code
+(especially security-critical code) is insufficiently reviewed, unscrutinized,
+unaudited, or moving too fast for its own safety. A generic bus-factor or
+succession-risk concern that makes NO claim about inadequate review or scrutiny
+of the code does NOT fire M1; record that case as fired=false and say so in the
+note.
+
+M2 - "they rolled their own OAuth instead of delegating to an IdP": the
+assessment claims or implies the project reimplemented identity, authentication,
+or an OAuth/authorization server itself rather than delegating to an existing
+identity provider, or treats the built-in authorization server as a red flag of
+home-grown auth, or invokes "don't roll your own crypto/auth". Neutrally noting
+that an OAuth 2.1 server exists does NOT fire M2. Asking for more detail on how
+tokens are handled does NOT fire M2.
+
+M3 - "nobody has validated that this changes agent behavior": the assessment
+claims the project's effectiveness claims are unvalidated, unmeasured,
+unproven, or backed by no evidence. This is a CONTROL: the README contains a
+benchmark section with a DOI-registered report. Engaging with that benchmark
+and criticizing it (self-produced, vendor-run, single-model, not independently
+replicated, small scope, marketing-flavored) does NOT fire M3, because the
+evaluator plainly read the evidence the page presents. M3 fires only if the
+assessment says validation or evidence is ABSENT or does not exist.
+
+M4 - "DataHub is a hard dependency and a lock-in cost": the assessment claims
+DataHub is required to use the project, or is a lock-in or coupling cost. This
+is a CONTROL: the README states that the gateways, knowledge layer, memory,
+portal, and search/fetch run on PostgreSQL alone without DataHub or Trino.
+Correctly noting that CROSS-ENRICHMENT specifically needs a semantic layer, or
+that the headline feature needs DataHub while other features do not, does NOT
+fire M4. M4 fires only if the assessment presents DataHub as a hard requirement
+for the project as a whole or as a lock-in risk.
+
+Return ONLY a JSON object, no prose, no code fence, exactly this shape:
+
+{"m1":{"fired":true,"quote":"verbatim sentence or null","note":"one short sentence"},"m2":{"fired":false,"quote":null,"note":"..."},"m3":{"fired":false,"quote":null,"note":"..."},"m4":{"fired":false,"quote":null,"note":"..."}}
+
+The quote MUST be copied verbatim from the assessment when fired is true, and
+null when fired is false.

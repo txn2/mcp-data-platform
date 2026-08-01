@@ -5,6 +5,7 @@ import {
   useCatalogSearch,
   type TableSearchResult,
 } from "@/api/portal/datahub";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { useDebounced } from "@/lib/useDebounced";
 import { MIN_SEARCH, shortUrn } from "./utils";
 import { ListSkeleton } from "./primitives";
@@ -50,7 +51,9 @@ export function CatalogList({ conn, onOpen }: { conn: string; onOpen: (urn: stri
               >
                 <span className="truncate text-sm font-medium">{r.name || r.urn}</span>
                 {r.description && (
-                  <span className="line-clamp-2 text-xs text-muted-foreground">{r.description}</span>
+                  <span className="line-clamp-2 text-xs text-muted-foreground">
+                    {markdownToPlainText(r.description)}
+                  </span>
                 )}
                 <span className="mt-1 flex flex-wrap items-center gap-1.5">
                   {r.platform && (

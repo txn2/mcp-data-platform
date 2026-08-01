@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 184
+	migrateTestFileCount    = 192
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -608,6 +608,11 @@ func TestMigration008_DownContent(t *testing.T) {
 // non-test, non-migration Go source code. This prevents "vaporware" tables
 // that exist in the database but are never used by the running application.
 //
+// The corpus covers pkg/ and internal/ alike: a store that moves out of the
+// public surface into an implementation seam is still the table's consumer,
+// and a gate that only reads pkg/ would call the table orphaned the moment it
+// moved (#1121).
+//
 // If this test fails, one of two things is true:
 //  1. A migration creates a table that no Go code uses — delete the migration.
 //  2. Go code exists but isn't wired up — wire it into the platform or delete it.
@@ -654,12 +659,15 @@ func TestMigrationTablesHaveConsumers(t *testing.T) {
 	}
 	require.NotEmpty(t, tables, "migrations should leave at least one live table after all CREATE/DROP events")
 
-	// 2. Collect all non-test, non-migration Go source files under pkg/.
-	pkgRoot := "../../.."
+	// 2. Collect all non-test, non-migration Go source files under pkg/ and
+	// internal/, the two trees that hold first-party stores.
+	repoRoot := "../../.."
 	var goFiles []string
-	collectErr := collectGoSourceFiles(pkgRoot+"/pkg", &goFiles)
-	require.NoError(t, collectErr, "failed to walk pkg/ directory")
-	require.NotEmpty(t, goFiles, "should find Go source files under pkg/")
+	for _, tree := range []string{"/pkg", "/internal"} {
+		collectErr := collectGoSourceFiles(repoRoot+tree, &goFiles)
+		require.NoError(t, collectErr, "failed to walk %s directory", tree)
+	}
+	require.NotEmpty(t, goFiles, "should find Go source files under pkg/ and internal/")
 
 	// 3. Read all source files into a single corpus.
 	var corpus strings.Builder

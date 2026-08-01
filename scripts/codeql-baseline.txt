@@ -26,17 +26,36 @@ go/sql-injection pkg/audit/postgres/store.go:195
 # inherent to OAuth; an SSRF allowlist is deliberately NOT applied
 # because internal/private-network IdPs (self-hosted Keycloak and the
 # like) are a supported, common deployment, so blocking private
-# addresses here would break legitimate connections. CodeQL began
-# tracing this pre-existing exchange only after OAuth parsing was routed
+# addresses here would break legitimate connections.
+#
+# What the endpoint IS constrained by, as of the connoauth endpoint
+# validation (pkg/connoauth/validate.go): both oauth_token_url and
+# oauth_authorization_url must be absolute http/https URLs with a host,
+# no embedded userinfo and no fragment, enforced at the one shared door
+# every connection kind parses through — at save time via
+# registry.ValidateConnectionConfig (400 to the admin) and again on the
+# runtime paths for a row written before the check. A cleartext http
+# endpoint is allowed (in-cluster IdP) but warns once per endpoint.
+# This does not silence the alert and is not expected to: CodeQL's
+# request-forgery barriers (RequestForgeryCustomizations.qll) recognize
+# only host pinning, a regexp check, constant-string equality, or a
+# callee named isLocalUrl/isValidRedirect — none of which apply when the
+# host must stay operator-chosen. The finding is accepted on the
+# admin-authored-config rationale above, not on the validation.
+#
+# CodeQL began tracing this pre-existing exchange only after OAuth parsing was routed
 # through the shared connoauth.ParseConfig, which widened the generic
 # taint surface; the runtime behavior is unchanged. The line moved from
 # 522 to 494 when the PKCE store (PKCEState struct + pkceTTL const) was
 # extracted to pkg/pkcestore (#636), then from 494 to 498 when the logsan
 # import and truncateForLog control-char stripping were added in #861,
 # then from 498 to 499 when the OAuth-start handler was routed through the
-# shared strict-decode helper in #923 (one extra line above this sink);
+# shared strict-decode helper in #923 (one extra line above this sink), and
+# finally the whole file moved to internal/admin/connoauthapi/gateway_legacy.go
+# in #1078 when the admin OAuth surface was extracted out of pkg/admin, losing
+# one line (499 to 498) because the route registration shed its guard clause;
 # same sink, same exchange, unchanged.
-go/request-forgery pkg/admin/gateway_oauth_handler.go:499
+go/request-forgery internal/admin/connoauthapi/gateway_legacy.go:498
 
 # weak-sensitive-data-hashing on the OAuth signing-key kid derivation
 # (#897). KeyID hashes the HMAC signing key with SHA-256 and truncates to

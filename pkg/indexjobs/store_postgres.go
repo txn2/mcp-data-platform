@@ -182,7 +182,7 @@ func (s *PostgresStore) Claim(ctx context.Context, workerID string) (*Job, error
 // unit, so a failure superseded by this success self-clears from the
 // admin Indexing dashboard's triage surface.
 func (s *PostgresStore) Complete(ctx context.Context, id int64, workerID string) error {
-	const q = `
+	const completeQ = `
 		UPDATE index_jobs
 		   SET status = 'succeeded',
 		       completed_at = NOW(),
@@ -190,21 +190,14 @@ func (s *PostgresStore) Complete(ctx context.Context, id int64, workerID string)
 		       lease_expires_at = NULL
 		 WHERE id = $1 AND status = 'running' AND worker_id = $2
 	`
-	if err := s.execOwned(ctx, "complete", q, id, workerID); err != nil {
-		return err
-	}
-	s.resolveSupersededFailures(ctx, id)
-	return nil
-}
-
-// resolveSupersededFailures stamps resolved_at on every open failed
-// row belonging to the same unit as the just-completed job, identified
-// by joining back to the completed row's (source_kind, source_id).
-// Best-effort: the success is already durable, so a sweep error is not
-// worth failing the Complete; the failure simply lingers until the
-// next success or an operator dismiss resolves it.
-func (s *PostgresStore) resolveSupersededFailures(ctx context.Context, completedJobID int64) {
-	const q = `
+	// A success also resolves every open failed row for the same unit, in the
+	// SAME transaction: the contract (a completion supersedes the unit's
+	// earlier failures) must hold for any observer, so a reader can never see
+	// the job succeeded while the superseded failure still looks open. The two
+	// statements previously ran back to back unbatched, and under load the gap
+	// between them was wide enough for the triage surface to report a failure
+	// the success had already superseded.
+	const resolveQ = `
 		UPDATE index_jobs f
 		   SET resolved_at = NOW()
 		  FROM index_jobs c
@@ -214,9 +207,27 @@ func (s *PostgresStore) resolveSupersededFailures(ctx context.Context, completed
 		   AND f.status = 'failed'
 		   AND f.resolved_at IS NULL
 	`
-	if _, err := s.db.ExecContext(ctx, q, completedJobID); err != nil {
-		_ = err // best-effort; resolves on the next success or operator dismiss
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("indexjobs: complete begin: %w", err)
 	}
+	res, err := tx.ExecContext(ctx, completeQ, id, workerID)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("indexjobs: complete: %w", err)
+	}
+	if err := rowsAffectedOwned(res, "complete"); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, resolveQ, id); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("indexjobs: complete resolve failures: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("indexjobs: complete commit: %w", err)
+	}
+	return nil
 }
 
 // ResolveFailures stamps resolved_at on every open failed row for the

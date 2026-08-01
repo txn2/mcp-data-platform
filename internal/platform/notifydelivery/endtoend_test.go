@@ -11,7 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyrender"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyworker"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/notification/smtp"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -135,34 +138,34 @@ func (*dailyPrefs) Set(_ context.Context, email string, _ notification.PrefsUpda
 // enabledSettings serves enabled SMTP settings to the worker.
 type enabledSettings struct{}
 
-func (enabledSettings) GetSMTP(context.Context) (*notification.SMTPSettings, error) {
-	return &notification.SMTPSettings{
+func (enabledSettings) Get(context.Context) (*smtp.Settings, error) {
+	return &smtp.Settings{
 		Enabled: true, Host: "smtp.example.com", Port: 587,
-		From: "platform@example.com", TLSMode: notification.TLSModeStartTLS,
+		From: "platform@example.com", TLSMode: smtp.TLSModeStartTLS,
 	}, nil
 }
 
-func (enabledSettings) SetSMTP(context.Context, notification.SMTPSettings, string) error {
+func (enabledSettings) Set(context.Context, smtp.Settings, string) error {
 	return nil
 }
 
 // smtpSink captures delivered emails in place of a real SMTP server.
 type smtpSink struct {
 	mu   sync.Mutex
-	sent []notification.Email
+	sent []notifyrender.Email
 }
 
-func (s *smtpSink) Send(_ context.Context, _ notification.SMTPSettings, e notification.Email) error {
+func (s *smtpSink) Send(_ context.Context, _ smtp.Settings, e notifyrender.Email) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sent = append(s.sent, e)
 	return nil
 }
 
-func (s *smtpSink) emails() []notification.Email {
+func (s *smtpSink) emails() []notifyrender.Email {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]notification.Email(nil), s.sent...)
+	return append([]notifyrender.Email(nil), s.sent...)
 }
 
 // shareInsertOK accepts every share insert.
@@ -182,13 +185,13 @@ func userMiddleware(user *portal.User) func(http.Handler) http.Handler {
 // startTestWorker runs the real send worker over the queue into the sink.
 func startTestWorker(t *testing.T, queue notification.QueueStore, sink *smtpSink) {
 	t.Helper()
-	renderer, err := notification.NewRenderer(notification.Branding{
+	renderer, err := notifyrender.NewRenderer(notifyrender.Branding{
 		Name: "ACME Data Platform", BaseURL: "https://data.example.com",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	worker := notification.NewWorker(notification.WorkerConfig{
+	worker := notifyworker.New(notifyworker.Config{
 		Queue: queue, Settings: enabledSettings{}, Renderer: renderer, Sender: sink,
 		PollEvery: 10 * time.Millisecond,
 	})
@@ -196,7 +199,7 @@ func startTestWorker(t *testing.T, queue notification.QueueStore, sink *smtpSink
 	t.Cleanup(worker.Stop)
 }
 
-func awaitEmails(sink *smtpSink, want int) []notification.Email {
+func awaitEmails(sink *smtpSink, want int) []notifyrender.Email {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) && len(sink.emails()) < want {
 		time.Sleep(5 * time.Millisecond)
@@ -324,5 +327,70 @@ func TestDigestEndToEnd(t *testing.T) {
 		if !strings.Contains(emails[0].HTML, want) {
 			t.Errorf("digest HTML missing %q", want)
 		}
+	}
+}
+
+// threadStoreStub accepts a thread create and echoes it back, so the real
+// portal handler runs end to end without a database.
+type threadStoreStub struct{ portal.ThreadStore }
+
+func (threadStoreStub) CreateThread(_ context.Context, t portal.Thread, _ portal.ThreadEvent) (*portal.Thread, error) {
+	return &t, nil
+}
+
+// TestOwnCommentDoesNotSelfNotifyEndToEnd is the #1100 regression at the real
+// seam: an authenticated POST to the real portal thread handler, through the
+// real bridge, Enqueuer, and preference gate, must write no queue row for the
+// author of the comment -- here the asset's owner, whose owner_email is stored
+// in the "Display Name <addr>" shape the platform accepts at rest. Everyone
+// else the asset is shared with still gets their notification.
+func TestOwnCommentDoesNotSelfNotifyEndToEnd(t *testing.T) {
+	queue := &memQueue{}
+	enq := notification.NewEnqueuer(&dailyPrefs{}, queue, 13)
+	defer enq.Close()
+
+	owner := &portal.User{UserID: "u-owner", Email: "owner@example.com"}
+	assets := &fakeAssets{asset: &portal.Asset{
+		ID: "a1", Name: "Quarterly Revenue", OwnerID: owner.UserID,
+		OwnerEmail: "Owner Person <Owner@Example.com>",
+	}}
+	stores := PortalStores{
+		Assets: assets,
+		Grantees: &fakeGrantees{emails: []string{
+			"Owner Person <owner@example.com>", "teammate@example.com",
+		}},
+	}
+	bridge := NewPortalNotifier(enq, stores, "https://data.example.com")
+	h := portal.NewHandler(portal.Deps{
+		AssetStore:    assets,
+		ThreadStore:   threadStoreStub{},
+		PublicBaseURL: "https://data.example.com",
+		Notifier:      bridge,
+	}, userMiddleware(owner))
+
+	body, err := json.Marshal(map[string]any{
+		"kind": portal.ThreadKindComment, "target_type": "asset",
+		"asset_id": "a1", "body": "Numbers look right to me.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequestWithContext(context.Background(),
+		http.MethodPost, "/api/v1/portal/threads", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create thread = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	rows := queue.snapshot()
+	for _, row := range rows {
+		if notification.NormalizeAddress(row.Recipient) == notification.NormalizeAddress(owner.Email) {
+			t.Fatalf("the comment's author was queued their own notification: %+v", row)
+		}
+	}
+	if len(rows) != 1 || rows[0].Recipient != "teammate@example.com" {
+		t.Fatalf("expected exactly the other grantee to be notified, got %+v", rows)
 	}
 }

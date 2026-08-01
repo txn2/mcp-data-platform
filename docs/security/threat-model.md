@@ -133,25 +133,72 @@ All HTTP surfaces are assembled in one composition root
 | Surface | Route(s) | Authentication |
 |---------|----------|----------------|
 | MCP stdio transport | n/a (process pipe) | None at the transport. stdio is local-process trust; see [non-goals](#non-goals-and-residual-risks). |
-| MCP streamable HTTP | `/` | Bearer or `X-API-Key`, enforced by `MCPAuthGateway` (`pkg/http/authmiddleware.go`) when `auth.allow_anonymous` is false. |
-| MCP SSE | `/sse`, `/message` | Same gate via `RequireAuthWithOAuth` (`pkg/http/authmiddleware.go`). |
+| MCP streamable HTTP | `/` | Bearer or `X-API-Key`, enforced by `MCPAuthGateway` (`internal/httpserver/httpauth/authmiddleware.go`) when `auth.allow_anonymous` is false. |
+| MCP SSE | `/sse`, `/message` | Same gate via `RequireAuthWithOAuth` (`internal/httpserver/httpauth/authmiddleware.go`). |
 | OAuth 2.1 endpoints | `/authorize`, `/token`, `/register`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` | Public by design. `/token` and `/register` are rate-limited (see below); `/register` (DCR) is disabled unless configured. |
 | Admin REST API | `/api/v1/admin/` | `admin.RequirePersona` (`pkg/admin/middleware.go`): unauthenticated returns 401, cookie path enforces CSRF, and the resolved persona must equal the configured admin persona. |
-| Portal API | `/api/v1/portal/` | Authenticated mux (`pkg/portal/handler.go`). |
-| Portal public viewer | `/portal/view/` | Rate-limited, then gated on the share's access mode by `publicShareGate` (`pkg/portal/share_access.go`, `pkg/portal/shareaccess`), which wraps every route on the public mux. Anonymous access only for `public` shares; `authenticated` requires any signed-in user and `restricted` only the named recipient or the share's creator, both 403 otherwise. Revoked/expired tokens return 410 (`pkg/portal/viewerlimit`). A refused browser navigation renders a branded landing page; email-share recipients without an account can request a single-use view link (`pkg/portal/shareguest`): sent only to the stored recipient address, SHA-256-hashed at rest, claimed atomically (15-minute expiry), opening a view-only guest session as an HMAC-signed cookie scoped to that one share, with the key domain-separated from the browser-session signing key so a guest cookie can never pose as a portal session. Share revocation is checked before guest admission, so it cuts off live guest sessions. The request endpoint answers uniformly regardless of share state (no share-existence oracle) and is capped per share per hour against mailbombing, inside the same per-IP limiter. |
-| Notification unsubscribe | `/portal/notifications/unsubscribe` | Public by design so recipients without an account can opt out of notification emails. The `tok` parameter is an HMAC over the recipient address under a key derived from the browser-session signing key; an invalid token writes nothing, and a valid one can only set delivery mode `off` for the address it names. GET performs no mutation (it renders a confirmation page), so mail-scanner URL prefetch cannot opt a recipient out; the opt-out records only on POST, either the confirmation form or the RFC 8058 one-click body (`pkg/notification/unsubscribe.go`). |
+| Portal API | `/api/v1/portal/` | Authenticated mux (`pkg/portal/handler.go`), then the persona gate (`internal/httpserver/accessgate`). Authentication proves identity; the gate decides access. A caller whose roles map to no persona is refused 403 before any handler runs — a browser navigation gets a branded page naming the refused account, everything else gets RFC 9457 Problem Details. Without it, any account an identity provider will issue a token for would read every org-shared knowledge page and the whole federated search surface, neither of which scopes on roles. The SPA shell at `/portal/` applies the same check to a session cookie so a refused person gets the page instead of an application shell (`internal/httpserver/mounts.go`). |
+| Portal public viewer | `/portal/view/` | Deliberately outside the persona gate (share links are for people with no account). Rate-limited, then gated on the share's access mode by `publicShareGate` (`pkg/portal/share_access.go`, `pkg/portal/shareaccess`), which wraps every route on the public mux. Anonymous access only for `public` shares; `authenticated` requires any signed-in user and `restricted` only the named recipient or the share's creator, both 403 otherwise. Revoked/expired tokens return 410 (`internal/portal/viewerlimit`). A refused browser navigation renders a branded landing page; email-share recipients without an account can request a single-use view link (`pkg/portal/shareguest`): sent only to the stored recipient address, SHA-256-hashed at rest, claimed atomically (15-minute expiry), opening a view-only guest session as an HMAC-signed cookie scoped to that one share, with the key domain-separated from the browser-session signing key so a guest cookie can never pose as a portal session. Share revocation is checked before guest admission, so it cuts off live guest sessions. The request endpoint answers uniformly regardless of share state (no share-existence oracle) and is capped per share per hour against mailbombing, inside the same per-IP limiter. The gate also sets the response's cache policy, since a per-caller verdict cached under a per-URL key is the same bypass by another route: every response on the surface carries `Vary: Cookie`, responses for any mode but `public` are `Cache-Control: private`, refusals are `no-store`, and only a fully public share's thumbnail is offered to shared caches, as `public` with `max-age` clamped to the smaller of an hour and the share's remaining life so no stored copy outlives the token. Revocation is the residual: it is not a time the response can be written against, so a copy a shared cache already holds is served until it goes stale, which is why that one window is an hour. |
+| Notification unsubscribe | `/portal/notifications/unsubscribe` | Public by design so recipients without an account can opt out of notification emails. The `tok` parameter is an HMAC over the recipient address under a key derived from the browser-session signing key; an invalid token writes nothing, and a valid one can only set delivery mode `off` for the address it names. GET performs no mutation (it renders a confirmation page), so mail-scanner URL prefetch cannot opt a recipient out; the opt-out records only on POST, either the confirmation form or the RFC 8058 one-click body (`internal/httpserver/unsubhttp/unsubscribe.go`). |
 | Share resubscribe | `POST /portal/view/{token}/resubscribe` | Public by design (its audience is opted-out recipients the share gate refuses); rate limited with the other public share routes. Answers uniformly regardless of share state (no share-existence oracle), acts only on a live, non-public share's stored recipient address, and can only restore the immediate-delivery default; it can never opt anyone out or touch category toggles (`pkg/portal/shareguest`). |
-| Gateway REST shim | `/api/v1/gateway/{connection}/invoke` | Wrapped by `httpauth.RequireAuth` when auth is enabled; the request runs through an in-memory MCP session so persona and audit apply (`pkg/gatewayhttp/handler.go`). |
+| Gateway REST shim | `/api/v1/gateway/{connection}/invoke` | Wrapped by `httpauth.RequireAuth` when auth is enabled; the request runs through an in-memory MCP session so persona and audit apply (`internal/httpserver/gatewayhttp/handler.go`). |
 | Observability PromQL proxy | `/api/v1/observability/query`, `/query_range` | Requires authentication and the `observability:read` capability; unauthenticated 401, unauthorized 403 (`pkg/observability/proxy/handler.go`). |
-| Health | `/healthz`, `/readyz` | Unauthenticated by design (`pkg/health/health.go`); liveness/readiness only, no data. |
-| Managed resources | `POST /api/v1/resources`, `GET /api/v1/resources/{id}/content`, and CRUD | Every handler calls `authenticate` first (401 on failure, 403 on CSRF); upload checks `CanWriteScope`, and the by-id reads (get, download, patch, delete) check `CanAccessResource` — the caller's visible scopes, OR current write authority over the scope (platform admin, or that persona's admin), so an admin can manage material they may create but do not belong to, while a revoked role revokes the access with it (the grant is re-derived from current claims, never from the stored uploader); uploads are size-bounded via `MaxBytesReader` (`pkg/resource/handler.go`). |
+| Health | `/healthz`, `/readyz` | Unauthenticated by design (`internal/httpserver/health/health.go`); liveness/readiness only, no data. |
+| Managed resources | `POST /api/v1/resources`, `GET /api/v1/resources/{id}/content`, and CRUD | Every handler calls `authenticate` first (401 on failure, 403 on CSRF). This surface authenticates through the portal authenticator but not through the portal handler, so it applies the persona gate in its own claims builder: a caller belonging to no persona is refused 403 (`internal/httpserver/mounts.go`, `buildResourceClaims`). upload checks `CanWriteScope`, and the by-id reads (get, download, patch, delete) check `CanAccessResource` — the caller's visible scopes, OR current write authority over the scope (platform admin, or that persona's admin), so an admin can manage material they may create but do not belong to, while a revoked role revokes the access with it (the grant is re-derived from current claims, never from the stored uploader); uploads are size-bounded via `MaxBytesReader` (`pkg/resource/handler.go`). |
 
 On the HTTP transports, a missing token yields `401` with a
 `WWW-Authenticate: Bearer` challenge, and a present-but-invalid token yields
-`401` with `error="invalid_token"` (`pkg/http/authmiddleware.go`,
+`401` with `error="invalid_token"` (`internal/httpserver/httpauth/authmiddleware.go`,
 `oauthgate`). The gate fails open only on a transient validation outage
 (`ErrValidationUnavailable`, e.g. a JWKS fetch failure), never on an invalid
 token.
+
+#### Identity-provider outage
+
+Validation has three outcomes, not two: valid, definitively invalid, and
+undetermined. The third arises when the identity provider cannot be reached, so
+the signing keys needed to check a token are unavailable. The platform
+distinguishes it with the `ErrValidationUnavailable` sentinel
+(`pkg/middleware/auth.go`), which `pkg/auth/oidc.go` wraps only when a JWKS
+fetch fails while the cache is expired — never for a key the issuer does not
+have.
+
+**The decision: the HTTP edge passes an undetermined credential through, and
+the protocol layer refuses the call.** These are one control, not two
+independent behaviors:
+
+- The edge (`oauthGate`) does not answer `401`. A `401` asserts the credential
+  is bad, which during an outage is false, and it would drive every valid user
+  into an OAuth re-authentication flow that cannot complete until the provider
+  returns.
+- The protocol layer re-validates on every tool call and, on the same sentinel,
+  answers `feature_unavailable` with a retryable hint rather than
+  `unauthenticated` (`pkg/middleware/mcp.go`, `authenticateAndAuthorize`). No
+  tool handler runs.
+
+Access is therefore never granted on an unvalidated credential. What the
+fail-open costs is depth: during a provider outage an unauthenticated request
+reaches the protocol layer before it is refused, so the refusal there is
+load-bearing for every request shape that can reach it.
+
+What a client sees during an outage: HTTP requests succeed at the transport
+level, the MCP session establishes, and every tool call returns an in-band error
+result carrying `code: feature_unavailable`, the message `authentication
+temporarily unavailable`, and a hint stating that this is a transient
+server-side condition rather than a credential problem. Nothing signals re-auth,
+so a well-behaved client retries rather than prompting the user to sign in
+again. Once the provider is reachable the next call succeeds with no client
+action.
+
+Both halves are pinned end to end by
+`TestStreamableHTTP_ValidationUnavailable_EdgePassesThroughProtocolRefuses`
+(`internal/httpserver/validation_outage_test.go`), which drives a real HTTP
+handler, gate, middleware chain and MCP client. It fails if the edge starts
+rejecting, if the protocol layer stops refusing, or if the refusal stops being
+categorized as retryable. Its companion,
+`TestStreamableHTTP_DefinitiveRejection_EdgeFailsClosed`, holds the boundary:
+pass-through applies only to an undetermined verdict, never to a credential the
+platform can definitively reject.
 
 ### Identity and authorization
 
@@ -218,11 +265,11 @@ and (before authentication) the HTTP MCP transports.
   chose to publish is reachable.
 - Token forgery against the MCP transports (Spoofing). A missing or invalid
   bearer/API key is rejected with 401 before any handler runs
-  (`pkg/http/authmiddleware.go`); OAuth access tokens are HS256-signed and
+  (`internal/httpserver/httpauth/authmiddleware.go`); OAuth access tokens are HS256-signed and
   verified against the key ring.
 - Health endpoints (Information disclosure). `/healthz` and `/readyz` are
   unauthenticated but return only liveness/readiness, no data
-  (`pkg/health/health.go`).
+  (`internal/httpserver/health/health.go`).
 
 ### Authenticated low-privilege persona
 
@@ -336,7 +383,7 @@ configuration that implements it.
 
 | Threat | Mechanism | Citation |
 |--------|-----------|----------|
-| Unauthenticated call to an HTTP MCP transport | Bearer/API-key gate, 401 + `WWW-Authenticate`, fail-closed on invalid token | `pkg/http/authmiddleware.go` (`MCPAuthGateway`, `RequireAuthWithOAuth`, `oauthgate`) |
+| Unauthenticated call to an HTTP MCP transport | Bearer/API-key gate, 401 + `WWW-Authenticate`, fail-closed on invalid token | `internal/httpserver/httpauth/authmiddleware.go` (`MCPAuthGateway`, `RequireAuthWithOAuth`, `oauthgate`) |
 | Token forgery | HS256 access tokens signed and verified against a `kid` key ring | `pkg/oauth/server.go`, `pkg/oauth/signkey/signkey.go` |
 | PKCE downgrade to `plain` | S256 required and hard-coded; other methods rejected | `pkg/oauth/server.go`, `pkg/oauth/pkce.go` |
 | Authorization-code or refresh-token replay | Single-use via atomic `DELETE ... RETURNING` on the hashed value | `pkg/oauth/postgres/store.go` (`ConsumeAuthorizationCode`, `ConsumeRefreshToken`) |
@@ -346,10 +393,10 @@ configuration that implements it.
 | Tool-allowlist escape / cross-connection access | Persona default-deny on tools, connections, and API routes | `pkg/persona/filter.go` |
 | Admin-surface access by a non-admin | Admin persona required, CSRF enforced on the cookie path | `pkg/admin/middleware.go` |
 | Observability data access by a non-admin | `observability:read` capability required; 401/403 | `pkg/observability/proxy/handler.go` |
-| Public share-link scraping | Share-token gate, rate limiting, 410 on revoked/expired | `pkg/portal/public.go`, `pkg/portal/handler.go`, `pkg/portal/viewerlimit` |
+| Public share-link scraping | Share-token gate, rate limiting, 410 on revoked/expired | `pkg/portal/public.go`, `pkg/portal/handler.go`, `internal/portal/viewerlimit` |
 | Guest-link abuse (mailbombing a recipient, probing share tokens, replaying emailed links) | Uniform response regardless of share state; per-share issue cap plus per-IP rate limit; single-use atomic claim of a hashed, 15-minute token; guest session scoped to one share and view-only | `pkg/portal/shareguest` |
-| Forged unsubscribe (opting someone else out) | Footer token is an HMAC over the recipient address under a key derived from the browser-session signing key; only a holder of the emailed link can opt that address out | `pkg/notification/unsubscribe.go` |
-| Silent unsubscribe by mail-scanner prefetch (Safe Links, Proofpoint, and similar GETting footer URLs) | GET renders a confirmation page and mutates nothing; the opt-out records only on the confirmation form POST or the RFC 8058 one-click POST, which providers fire only on a real user action | `pkg/notification/unsubscribe.go` |
+| Forged unsubscribe (opting someone else out) | Footer token is an HMAC over the recipient address under a key derived from the browser-session signing key; only a holder of the emailed link can opt that address out | `internal/httpserver/unsubhttp/unsubscribe.go` |
+| Silent unsubscribe by mail-scanner prefetch (Safe Links, Proofpoint, and similar GETting footer URLs) | GET renders a confirmation page and mutates nothing; the opt-out records only on the confirmation form POST or the RFC 8058 one-click POST, which providers fire only on a real user action | `internal/httpserver/unsubhttp/unsubscribe.go` |
 | The model acting on injected instructions to mutate data | Trino read-only mode rejects write SQL | `pkg/toolkits/trino/readonly.go` (opt-in via `read_only`) |
 | Premature or over-broad tool use | Search-first gate refuses query tools until `search` runs; `SEARCH_REQUIRED` short-circuit | `pkg/middleware/mcp_workflow_gate.go` |
 | Unbounded large scans / unconsented PII access | Cost-estimation and PII-consent elicitation prompts (Trino toolkit) | `pkg/toolkits/trino/elicitation.go` |

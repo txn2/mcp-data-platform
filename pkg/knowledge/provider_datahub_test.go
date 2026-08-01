@@ -295,3 +295,133 @@ func TestCatalogProvider_Fetch(t *testing.T) {
 		}
 	})
 }
+
+// catalogScope maps the two test dataset URNs onto distinct connections and
+// grants only the first, so a caller sees one dataset, is told about the other,
+// and keeps the one no connection claims.
+func catalogScope() stubScope {
+	return stubScope{
+		allowed: map[string]bool{"warehouse-a": true},
+		urns: map[string][]string{
+			mineURN:   {"warehouse-a"},
+			theirsURN: {"warehouse-b"},
+		},
+	}
+}
+
+const (
+	mineURN     = "urn:li:dataset:(urn:li:dataPlatform:trino-a,db.public.orders,PROD)"
+	theirsURN   = "urn:li:dataset:(urn:li:dataPlatform:trino-b,db.public.payroll,PROD)"
+	unmappedURN = "urn:li:dataset:(urn:li:dataPlatform:mystery,db.public.notes,PROD)"
+)
+
+func TestDatahubProvider_TextArmHidesDatasetsOfDeniedConnections(t *testing.T) {
+	s := &fakeTableSearcher{results: []semantic.TableSearchResult{
+		{URN: mineURN, Name: "db.public.orders"},
+		{URN: theirsURN, Name: "db.public.payroll"},
+		{URN: unmappedURN, Name: "db.public.notes"},
+	}}
+	p := NewCatalogProvider(s)
+	caller, gate := scopedCaller(catalogScope())
+
+	hits, err := p.Search(context.Background(), Query{Intent: "records", Limit: 10, Caller: caller})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	refs := make([]string, len(hits))
+	for i, h := range hits {
+		refs[i] = h.Ref
+	}
+	if len(hits) != 2 || refs[0] != mineURN || refs[1] != unmappedURN {
+		t.Fatalf("want the permitted and the unmappable dataset, got %v", refs)
+	}
+	if gate.withheld != 1 {
+		t.Errorf("withheld = %d, want 1", gate.withheld)
+	}
+}
+
+func TestDatahubProvider_EntityArmHidesDatasetsOfDeniedConnections(t *testing.T) {
+	s := &fakeTableSearcher{byTable: map[string]*semantic.TableContext{
+		"db.public.orders":  {URN: mineURN, Description: "orders"},
+		"db.public.payroll": {URN: theirsURN, Description: "payroll"},
+		"db.public.absent":  nil,
+	}}
+	p := NewCatalogProvider(s)
+	caller, gate := scopedCaller(catalogScope())
+
+	hits, err := p.Search(context.Background(), Query{
+		EntityURNs: []string{mineURN, theirsURN, "urn:li:dataset:(urn:li:dataPlatform:trino-b,db.public.absent,PROD)"},
+		Caller:     caller,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Ref != mineURN {
+		t.Fatalf("want only the permitted dataset, got %+v", hits)
+	}
+	// The denied URN resolved to a real entity and is counted; the one that
+	// resolves to nothing is not, so the count means "exists but hidden".
+	if gate.withheld != 1 {
+		t.Errorf("withheld = %d, want 1", gate.withheld)
+	}
+}
+
+func TestDatahubProvider_FetchDeniedDatasetIsNotFound(t *testing.T) {
+	s := &fakeTableSearcher{byTable: map[string]*semantic.TableContext{
+		"db.public.payroll": {URN: theirsURN, Description: "payroll"},
+		"db.public.orders":  {URN: mineURN, Description: "orders"},
+	}}
+	p := NewCatalogProvider(s)
+	caller, _ := scopedCaller(catalogScope())
+
+	doc, owned, err := p.Fetch(context.Background(), theirsURN, caller)
+	if !owned {
+		t.Fatal("a dataset URN is owned by the catalog provider even when denied")
+	}
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+	if doc != nil {
+		t.Errorf("denied fetch must return no document, got %+v", doc)
+	}
+
+	// The permitted dataset still resolves through the same path.
+	doc, owned, err = p.Fetch(context.Background(), mineURN, caller)
+	if !owned || err != nil || doc == nil {
+		t.Fatalf("permitted fetch: doc=%+v owned=%v err=%v", doc, owned, err)
+	}
+}
+
+// craftedURN names a real table under a platform no connection claims. The
+// catalog resolves a dataset from the TABLE identifier and re-derives the
+// platform itself, so the boundary must judge the URN the catalog returned, not
+// the one the caller wrote — otherwise this reference reads around it.
+const craftedURN = "urn:li:dataset:(urn:li:dataPlatform:mystery,db.public.payroll,PROD)"
+
+func TestDatahubProvider_CraftedURNCannotEvadeTheBoundary(t *testing.T) {
+	newSearcher := func() *fakeTableSearcher {
+		return &fakeTableSearcher{byTable: map[string]*semantic.TableContext{
+			"db.public.payroll": {URN: theirsURN, Description: "payroll"},
+		}}
+	}
+	caller, gate := scopedCaller(catalogScope())
+
+	hits, err := NewCatalogProvider(newSearcher()).Search(context.Background(), Query{
+		EntityURNs: []string{craftedURN},
+		Caller:     caller,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("a crafted platform must not surface a denied dataset, got %+v", hits)
+	}
+	if gate.withheld != 1 {
+		t.Errorf("withheld = %d, want 1", gate.withheld)
+	}
+
+	doc, owned, err := NewCatalogProvider(newSearcher()).Fetch(context.Background(), craftedURN, caller)
+	if !owned || !errors.Is(err, ErrNotFound) || doc != nil {
+		t.Fatalf("crafted fetch: doc=%+v owned=%v err=%v, want owned + ErrNotFound", doc, owned, err)
+	}
+}

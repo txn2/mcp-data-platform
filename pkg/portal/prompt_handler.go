@@ -8,18 +8,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+
+	"github.com/txn2/mcp-data-platform/internal/portal/access"
 )
 
 // SharedPrompt is a prompt shared with the current user, with share metadata,
 // for the "Shared With Me" listing.
 type SharedPrompt struct {
-	Prompt     prompt.Prompt   `json:"prompt"`
-	ShareID    string          `json:"share_id"`
-	SharedBy   string          `json:"shared_by"`
-	SharedAt   time.Time       `json:"shared_at"`
-	Permission SharePermission `json:"permission"`
+	Prompt     prompt.Prompt                `json:"prompt"`
+	ShareID    string                       `json:"share_id"`
+	SharedBy   string                       `json:"shared_by"`
+	SharedAt   time.Time                    `json:"shared_at"`
+	Permission portaldomain.SharePermission `json:"permission"`
 }
 
 // PromptStore provides prompt persistence for the portal: exactly the prompt
@@ -61,7 +64,11 @@ func (h *Handler) registerPromptRoutes() {
 	}
 }
 
-// portalPromptListResponse is the response for user prompt listing.
+// portalPromptListResponse is the response for user prompt listing. Personal
+// is every prompt the caller owns, at any scope ("My Prompts" is ownership,
+// not scope; #1124). Available is the approved shared set visible to the
+// caller plus the system prompts (the Library). A shared prompt the caller
+// owns appears in both.
 type portalPromptListResponse struct {
 	Personal  []prompt.Prompt `json:"personal"`
 	Available []prompt.Prompt `json:"available"`
@@ -88,7 +95,7 @@ type portalPromptCreateRequest struct {
 // listMyPrompts handles GET /api/v1/portal/prompts.
 //
 // @Summary      List my prompts
-// @Description  Returns the user's personal prompts plus available global, persona, and system prompts.
+// @Description  Returns the prompts the user owns (any scope) plus the approved global, persona, and system prompts visible to them.
 // @Tags         Prompts
 // @Produce      json
 // @Success      200  {object}  portalPromptListResponse
@@ -106,11 +113,14 @@ func (h *Handler) listMyPrompts(w http.ResponseWriter, r *http.Request) {
 
 	enabled := true
 
-	// Get personal prompts
+	// "My Prompts" is ownership, not scope (#1124): every prompt the caller
+	// owns, at any scope, so an owner's own global or persona prompt is findable
+	// where they look for it. Ingested static prompts (source=system) are
+	// excluded here as everywhere below; systemPrompts adds them separately.
 	personal, err := h.deps.PromptStore.List(r.Context(), prompt.ListFilter{
-		Scope:      prompt.ScopePersonal,
-		OwnerEmail: user.Email,
-		Enabled:    &enabled,
+		OwnerEmail:    user.Email,
+		Enabled:       &enabled,
+		ExcludeSource: prompt.SourceSystem,
 	})
 	if err != nil {
 		writePortalError(w, http.StatusInternalServerError, "failed to list prompts")
@@ -120,12 +130,13 @@ func (h *Handler) listMyPrompts(w http.ResponseWriter, r *http.Request) {
 		personal = []prompt.Prompt{}
 	}
 
-	// Get global prompts. Ingested static prompts (source=system) are added
-	// separately by systemPrompts below; exclude the store rows here so they are
-	// not listed twice or shown as editable global prompts.
+	// The Library is the approved shared set (#1124): the same visibility rule
+	// ranked search applies, so a prompt browseable here is searchable and vice
+	// versa. Get global prompts first.
 	available, err := h.deps.PromptStore.List(r.Context(), prompt.ListFilter{
 		Scope:         prompt.ScopeGlobal,
 		Enabled:       &enabled,
+		Status:        prompt.StatusApproved,
 		ExcludeSource: prompt.SourceSystem,
 	})
 	if err != nil {
@@ -138,6 +149,7 @@ func (h *Handler) listMyPrompts(w http.ResponseWriter, r *http.Request) {
 			Scope:    prompt.ScopePersona,
 			Personas: []string{personaInfo.Name},
 			Enabled:  &enabled,
+			Status:   prompt.StatusApproved,
 		})
 		if err == nil {
 			available = append(available, personaPrompts...)
@@ -156,7 +168,7 @@ func (h *Handler) listMyPrompts(w http.ResponseWriter, r *http.Request) {
 // searchMyPrompts handles GET /api/v1/portal/prompts/search.
 //
 // @Summary      Search my prompts
-// @Description  Ranks approved prompts visible to the caller by relevance to q. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Visibility (global, matching-persona, and own personal prompts; all approved prompts for admins) is applied before ranking.
+// @Description  Ranks prompts visible to the caller by relevance to q: approved shared prompts plus the caller's own prompts at any status, the same visibility rule the browse lists apply. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Visibility (global, matching-persona, and own personal prompts; every owner's prompts for admins) is applied before ranking.
 // @Tags         Prompts
 // @Produce      json
 // @Param        q      query  string   true   "Search query"
@@ -188,7 +200,7 @@ func (h *Handler) searchMyPrompts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAdmin := hasAnyRole(user.Roles, h.deps.AdminRoles)
+	isAdmin := h.access.IsAdmin(user)
 	persona := ""
 	if pi := h.resolveUserPersona(user); pi != nil {
 		persona = pi.Name
@@ -385,7 +397,7 @@ func checkPortalPromptPermission(user *User, existing *prompt.Prompt, adminRoles
 	if existing.Source == prompt.SourceSystem {
 		return "this prompt is defined in server configuration and is read-only"
 	}
-	if hasAnyRole(user.Roles, adminRoles) {
+	if access.HasAnyRole(user.Roles, adminRoles) {
 		return ""
 	}
 	if existing.Scope != prompt.ScopePersonal {
@@ -635,6 +647,13 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 		writePortalError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	// Normalize before the recipient checks: "Owner Name <owner@example.com>"
+	// must fail the you-already-own-this test the bare address fails, and the
+	// MCP serving path matches recipients by bare address.
+	if err := req.normalizeRecipient(); err != nil {
+		writePortalError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if msg := validatePromptRecipient(req.SharedWithEmail, user.Email); msg != "" {
 		writePortalError(w, http.StatusBadRequest, msg)
 		return
@@ -649,7 +668,11 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 		writePortalError(w, http.StatusInternalServerError, "failed to create share")
 		return
 	}
-	h.notifyShare(r.Context(), &share, "prompt", pr.ID, pr.DisplayName)
+	if req.wantsNotify() {
+		h.notifyShare(r.Context(), &share, ShareEvent{
+			Kind: "prompt", ItemID: pr.ID, ItemTitle: pr.DisplayName, Message: req.Message,
+		})
+	}
 	writePortalJSON(w, http.StatusCreated, shareResponse{Share: share})
 }
 

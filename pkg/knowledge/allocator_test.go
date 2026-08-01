@@ -67,6 +67,21 @@ func shownBySource(groups []SourceGroup) map[string]int {
 	return m
 }
 
+// results adapts plain per-provider hit lists to the allocator's input, taking
+// each source name from its own hits. Tests that exercise the connection
+// boundary build sourceResult values directly so they can set a withheld count.
+func results(lists ...[]Hit) []sourceResult {
+	out := make([]sourceResult, 0, len(lists))
+	for _, hits := range lists {
+		name := ""
+		if len(hits) > 0 {
+			name = hits[0].Source
+		}
+		out = append(out, sourceResult{source: name, hits: hits})
+	}
+	return out
+}
+
 // coverageBySource collapses a coverage summary into a source->coverage map.
 func coverageBySource(cov []SourceCoverage) map[string]SourceCoverage {
 	m := make(map[string]SourceCoverage, len(cov))
@@ -82,7 +97,7 @@ func TestAllocate_Empty(t *testing.T) {
 		t.Fatalf("empty input should yield nil, nil; got %+v %+v", groups, cov)
 	}
 	// An all-empty-provider input collapses the same way.
-	groups, cov = allocate([][]Hit{{}, nil}, 10)
+	groups, cov = allocate(results([]Hit{}, nil), 10)
 	if groups != nil || cov != nil {
 		t.Fatalf("all-empty providers should yield nil, nil; got %+v %+v", groups, cov)
 	}
@@ -98,7 +113,7 @@ func TestAllocate_FloorGivesEverySourceVisibility(t *testing.T) {
 	}
 	small := []Hit{{Source: "memory", Ref: "m1", Score: 0.01}}
 
-	groups, cov := allocate([][]Hit{big, small}, 6)
+	groups, cov := allocate(results(big, small), 6)
 	shown := shownBySource(groups)
 	if shown["memory"] < floorPerSource {
 		t.Errorf("memory should keep at least its floor of %d, shown %d", floorPerSource, shown["memory"])
@@ -131,7 +146,7 @@ func TestAllocate_CeilingBoundsWhenOthersCanAbsorb(t *testing.T) {
 		a[i] = Hit{Source: "a", Ref: string(rune('a' + i)), Score: float64(i)}
 		b[i] = Hit{Source: "b", Ref: string(rune('a' + i)), Score: float64(i)}
 	}
-	groups, _ := allocate([][]Hit{a, b}, 6)
+	groups, _ := allocate(results(a, b), 6)
 	shown := shownBySource(groups)
 	ceiling := allocCeiling(6)
 	if shown["a"] != ceiling || shown["b"] != ceiling {
@@ -146,7 +161,7 @@ func TestAllocate_RedistributesWhenOneSource(t *testing.T) {
 	for i := range only {
 		only[i] = Hit{Source: "memory", Ref: string(rune('a' + i)), Score: float64(i)}
 	}
-	groups, _ := allocate([][]Hit{only}, 6)
+	groups, _ := allocate(results(only), 6)
 	if got := shownBySource(groups)["memory"]; got != 6 {
 		t.Errorf("single source should fill the whole budget via redistribution, shown %d want 6", got)
 	}
@@ -157,7 +172,7 @@ func TestAllocate_BudgetBounds(t *testing.T) {
 	a := []Hit{{Source: "a", Ref: "1", Score: 3}, {Source: "a", Ref: "2", Score: 2}}
 	b := []Hit{{Source: "b", Ref: "1", Score: 5}, {Source: "b", Ref: "2", Score: 4}}
 	c := []Hit{{Source: "c", Ref: "1", Score: 1}}
-	groups, _ := allocate([][]Hit{a, b, c}, 3)
+	groups, _ := allocate(results(a, b, c), 3)
 	total := 0
 	for _, g := range groups {
 		total += len(g.Hits)
@@ -170,7 +185,7 @@ func TestAllocate_BudgetBounds(t *testing.T) {
 func TestAllocate_ZeroBudgetStillReportsCoverage(t *testing.T) {
 	// A zero budget shows nothing but must still report what matched, so the
 	// agent learns the answer space exists.
-	groups, cov := allocate([][]Hit{{{Source: "memory", Ref: "m1", Score: 1}}}, 0)
+	groups, cov := allocate(results([]Hit{{Source: "memory", Ref: "m1", Score: 1}}), 0)
 	if len(groups) != 0 {
 		t.Errorf("zero budget should show nothing, got %+v", groups)
 	}
@@ -182,7 +197,7 @@ func TestAllocate_ZeroBudgetStillReportsCoverage(t *testing.T) {
 func TestAllocate_GroupsOrderedByShownThenName(t *testing.T) {
 	a := []Hit{{Source: "a", Ref: "1", Score: 1}}
 	b := []Hit{{Source: "b", Ref: "1", Score: 1}, {Source: "b", Ref: "2", Score: 1}, {Source: "b", Ref: "3", Score: 1}}
-	groups, _ := allocate([][]Hit{a, b}, 10)
+	groups, _ := allocate(results(a, b), 10)
 	if len(groups) != 2 || groups[0].Source != "b" {
 		t.Errorf("group with more shown should lead, got %+v", groups)
 	}

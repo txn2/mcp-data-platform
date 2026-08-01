@@ -2,6 +2,7 @@ import { ExternalLink } from "lucide-react";
 import { useEnrichmentRules } from "@/api/admin/hooks";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import type { ToolDetail } from "@/api/admin/types";
+import { markdownToPlainText } from "@/lib/markdownText";
 import { errorMessage } from "@/lib/utils";
 
 export function EnrichmentTab({ detail }: { detail: ToolDetail }) {
@@ -64,7 +65,7 @@ export function EnrichmentTab({ detail }: { detail: ToolDetail }) {
                 <tr key={r.id} className="border-t">
                   <td className="px-3 py-1.5">
                     <div className="font-medium">
-                      {r.description || (
+                      {markdownToPlainText(r.description) || (
                         <span className="text-muted-foreground">
                           Rule {r.id.slice(0, 8)}
                         </span>

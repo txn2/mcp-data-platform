@@ -109,19 +109,17 @@ auth:
 
 These roles are matched to personas the same way as OIDC roles.
 
-## Default Persona
+## Roles That Match Nothing
 
-When no roles match any persona, the default is used:
-
-```yaml
-personas:
-  default_persona: viewer
-```
+When no roles match any persona, the caller is unmapped and reaches nothing: MCP
+tool calls resolve to the built-in deny-all persona and are refused, and the
+portal answers `403`. There is no fallback persona to catch them.
 
 This applies to:
-- Anonymous users (when auth is disabled)
 - Users with no roles
 - Users whose roles don't match any persona
+- Anonymous callers, unless a persona lists the `anonymous` role (see
+  [Personas](overview.md#anonymous-and-no-auth-deployments))
 
 ## Mapping Priority
 
@@ -129,7 +127,7 @@ The mapping process follows this priority order:
 
 1. **OIDC role mapping** - `oidc_to_persona` entries
 2. **Direct role match** - Persona's `roles` list
-3. **Default persona** - `default_persona`
+3. **No match** - the deny-all persona; the caller reaches nothing
 
 ## Example: Enterprise Setup
 
@@ -178,8 +176,6 @@ personas:
       "mcp-analyst": "analyst"
       "mcp-engineer": "data_engineer"
       "mcp-admin": "admin"
-
-  default_persona: viewer
 ```
 
 With this configuration:
@@ -190,7 +186,7 @@ With this configuration:
 | `["mcp-analyst"]` | analyst |
 | `["mcp-analyst", "mcp-engineer"]` | data_engineer (higher priority) |
 | `["mcp-admin"]` | admin |
-| `["unknown-role"]` | viewer (default) |
+| `["unknown-role"]` | none - every tool refused, portal returns 403 |
 
 ## Debugging Role Mapping
 

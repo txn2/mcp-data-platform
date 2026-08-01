@@ -467,7 +467,7 @@ type recordingThreadNotifier struct {
 	mentioned []string
 }
 
-func (*recordingThreadNotifier) NotifyShare(context.Context, *portal.Share, string, string, string) {
+func (*recordingThreadNotifier) NotifyShare(context.Context, *portal.Share, portal.ShareEvent) {
 }
 
 func (n *recordingThreadNotifier) NotifyThreadEvent(_ context.Context, _ *portal.Thread, actor, body string, mentioned []string) {

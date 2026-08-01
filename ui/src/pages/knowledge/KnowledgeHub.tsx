@@ -19,7 +19,13 @@ import { LifecycleHeader } from "@/pages/knowledge/hub/LifecycleHeader";
 import { SubTabBar } from "@/pages/knowledge/hub/SubTabBar";
 import { UnifiedSearch } from "@/pages/knowledge/hub/UnifiedSearch";
 
-type Tab = "knowledge" | "insights" | "memory";
+import {
+  insightSubHash,
+  normalizeInsightSub,
+  normalizeTab,
+  type InsightSubTab,
+  type Tab,
+} from "./hubHash";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "knowledge", label: "Knowledge" },
@@ -44,13 +50,6 @@ const subRoutePath: Partial<Record<KnowledgeSubTab, string>> = {
 // DH_CONN_STORAGE_KEY persists the selected DataHub connection across the remount
 // that a Catalog<->Context Docs route switch triggers, and across refreshes.
 const DH_CONN_STORAGE_KEY = "mcp-portal-datahub-conn";
-
-// The Insights tab splits your own captured insights from the reviewer queue.
-type InsightSubTab = "mine" | "review";
-
-function normalizeTab(raw?: string): Tab {
-  return raw === "insights" || raw === "memory" ? raw : "knowledge";
-}
 
 /**
  * KnowledgeHub is the single home for the Memory to Insight to Knowledge
@@ -118,7 +117,9 @@ export function KnowledgeHub({
   const [knowledgeSub, setKnowledgeSub] = useState<KnowledgeSubTab>(() =>
     initialTab === "changesets" || initialTab === "search" ? initialTab : "search",
   );
-  const [insightSub, setInsightSub] = useState<InsightSubTab>("mine");
+  const [insightSub, setInsightSub] = useState<InsightSubTab>(() =>
+    onRoute ? "mine" : normalizeInsightSub(initialTab),
+  );
   // Review and promote affordances gate on the apply_knowledge capability (not
   // an admin role), or admin. This mirrors the REST handler's userHasToolAccess:
   // the capability grants non-admins, and admins are allowed too since the tool
@@ -237,6 +238,15 @@ export function KnowledgeHub({
     window.history.replaceState(null, "", `#${next}`);
   };
 
+  // The Insights sub-tab is carried in the hash the same way the top tabs are,
+  // so a reviewer who opened the queue can share or refresh the exact view --
+  // and so the deep link in the review-queue alert email stays honest (#803).
+  const selectInsightSub = (next: InsightSubTab) => {
+    setInsightSub(next);
+    if (onRoute) return;
+    window.history.replaceState(null, "", `#${insightSubHash(next)}`);
+  };
+
   // Pages, Catalog, and Context Docs are URL-addressable sub-tabs (#709/#719/#720):
   // selecting one routes to its path so deep-links and browser back/forward work.
   // The other sub-tabs (search, changesets) are in-page state under the bare
@@ -346,7 +356,7 @@ export function KnowledgeHub({
           <SubTabBar
             tabs={insightSubTabs}
             active={activeInsightSub}
-            onSelect={setInsightSub}
+            onSelect={selectInsightSub}
           />
           <p className="text-sm text-muted-foreground">
             {insightSubMeta.description}

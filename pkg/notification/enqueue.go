@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
@@ -127,8 +126,15 @@ const maxFanout = 200
 // reporting whether one was written. It performs no rate limiting: that is the
 // caller's choice of per-recipient (Notify) or per-event (NotifyFanout).
 func (e *Enqueuer) enqueue(ctx context.Context, recipient, category string, p Payload) (bool, error) {
-	recipient = strings.ToLower(strings.TrimSpace(recipient))
-	if recipient == "" || strings.EqualFold(recipient, p.Actor) {
+	// Normalize both sides of the self-check to the bare address: the
+	// candidate came from whatever shape a store holds ("Display Name
+	// <addr>" is accepted at rest), while the actor is the signed-in
+	// caller's address. Comparing the raw strings let an owner recorded in
+	// display form receive their own comment (#1100). The normalized form is
+	// also what the row stores, so the preference lookup below and the queue
+	// key agree on the person.
+	recipient = NormalizeAddress(recipient)
+	if recipient == "" || recipient == NormalizeAddress(p.Actor) {
 		return false, nil
 	}
 	prefs, err := e.prefs.Get(ctx, recipient)
@@ -168,9 +174,9 @@ func (e *Enqueuer) allowActor(actor, recipient string) bool {
 	if e.limiter == nil {
 		return true
 	}
-	key := strings.ToLower(strings.TrimSpace(actor))
+	key := NormalizeAddress(actor)
 	if key == "" {
-		key = recipient
+		key = NormalizeAddress(recipient)
 	}
 	if e.limiter.Allow(key) {
 		return true
@@ -192,6 +198,11 @@ func wantsCategory(prefs Prefs, category string) bool {
 		return prefs.CommentsEnabled
 	case CategoryMention:
 		return prefs.MentionsEnabled
+	case CategoryReviewQueue:
+		// Operator-addressed, so it has no per-user category toggle: the
+		// admin settings hold the recipient list, and Mode (checked above) is
+		// the recipient's own opt-out. See CategoryReviewQueue.
+		return true
 	default:
 		return false
 	}

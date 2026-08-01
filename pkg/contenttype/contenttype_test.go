@@ -74,14 +74,48 @@ func TestNormalize(t *testing.T) {
 func TestIsActive(t *testing.T) {
 	t.Parallel()
 
-	active := []string{"text/html", "TEXT/HTML; charset=utf-8", "text/jsx", "image/svg+xml", "application/javascript"}
+	active := []string{
+		"text/html", "TEXT/HTML; charset=utf-8", "text/jsx", "image/svg+xml",
+		"application/javascript", "application/xhtml+xml",
+	}
 	for _, ct := range active {
 		require.Truef(t, contenttype.IsActive(ct), "%q must be active", ct)
 	}
 
+	// XML is deliberately not active: Detect names it from content, and doing so
+	// is safe because a viewer shows it as inert text. It is still a scriptable
+	// document for serving purposes, which TestIsScriptableDocument covers.
 	passive := []string{"application/json", "text/plain", "image/png", "application/xml", "text/markdown", ""}
 	for _, ct := range passive {
 		require.Falsef(t, contenttype.IsActive(ct), "%q must not be active", ct)
+	}
+}
+
+// TestIsScriptableDocument covers the serving-side predicate. Every active type
+// belongs to it, and so does the XML family, which a browser renders as a
+// document that honors an <?xml-stylesheet?> processing instruction.
+func TestIsScriptableDocument(t *testing.T) {
+	t.Parallel()
+
+	scriptable := []string{
+		"text/html", "text/jsx", "image/svg+xml", "text/javascript", "application/javascript",
+		"application/xhtml+xml", "APPLICATION/XHTML+XML; charset=utf-8",
+		"application/xml", "text/xml", "application/x-xml",
+		// An unregistered XML dialect has no entry and is covered by the
+		// structured-suffix rule alone.
+		"application/rss+xml", "application/atom+xml", "application/vnd.acme.thing+xml",
+	}
+	for _, ct := range scriptable {
+		require.Truef(t, contenttype.IsScriptableDocument(ct), "%q must be a scriptable document", ct)
+	}
+
+	inert := []string{
+		"", "text/plain", "text/markdown", "text/csv", "application/json", "application/vnd.api+json",
+		"application/yaml", "application/pdf", "image/png", "audio/mpeg", "video/mp4",
+		"application/octet-stream", "not a media type",
+	}
+	for _, ct := range inert {
+		require.Falsef(t, contenttype.IsScriptableDocument(ct), "%q must not be a scriptable document", ct)
 	}
 }
 
