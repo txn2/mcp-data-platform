@@ -1,0 +1,149 @@
+=== arm dir-goff-sdef-sonnet: model=sonnet scaffold=default cells=bridge-directive config=bench/config/platform.bench.pk-gateoff.yaml -> build/bench-results/pk-gateprobe-dir-goff-sdef-sonnet-20260731-184148
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+E2E environment stopped.
+DROP DATABASE
+Using external Postgres on 5432 (BENCH_PG=skip)...
+CREATE DATABASE
+Building binaries...
+go build -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=v1.116.0-3-gcd3bef22-dirty" -o ./build/mcp-data-platform-bench ./cmd/mcp-data-platform
+Starting perishable fixture service on :8112 (world monitors-0)...
+Starting platform (bench/config/platform.bench.pk-gateoff.yaml) on :8098...
+Registering the perishable fixture...
+2026/07/31 18:41:53 apisetup: catalog "bench-acme" + api connection "acme" -> http://127.0.0.1:8112 registered (bench/specs/pk.json)
+Perishable-knowledge stack ready (world monitors-0).
+2026/07/31 18:41:54 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=1 behavior=answer seq=1
+2026/07/31 18:42:19 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=1 behavior=probe_then_refuse seq=2
+2026/07/31 18:43:10 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=2 behavior=answer seq=3
+2026/07/31 18:43:35 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=2 behavior=probe_then_refuse seq=4
+2026/07/31 18:44:14 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=3 behavior=answer seq=5
+2026/07/31 18:44:37 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=3 behavior=probe_then_refuse seq=6
+2026/07/31 18:45:18 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=4 behavior=answer seq=7
+2026/07/31 18:45:45 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=4 behavior=probe_then_refuse seq=8
+2026/07/31 18:46:22 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=5 behavior=answer seq=9
+2026/07/31 18:46:55 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=5 behavior=probe_then_refuse seq=10
+2026/07/31 18:47:41 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=6 behavior=answer seq=11
+2026/07/31 18:48:07 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=6 behavior=probe_then_refuse seq=12
+2026/07/31 18:48:45 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=7 behavior=answer seq=13
+2026/07/31 18:49:12 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=7 behavior=probe_then_refuse seq=14
+2026/07/31 18:49:45 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=8 behavior=answer seq=15
+2026/07/31 18:50:15 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=8 behavior=probe_then_refuse seq=16
+
+cell                                                        n  verified  correct  trusted  failed
+positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3    8         0        8        8       0
+positive-coverage-days-directive/none/monitors-3            8         0        0        0       0
+
+archive: build/bench-results/pk-gateprobe-dir-goff-sdef-sonnet-20260731-184148
+=== arm dir-goff-sdef-sonnet done
+=== arm dir-goff-snodisc-sonnet: model=sonnet scaffold=no-discovery cells=bridge-directive config=bench/config/platform.bench.pk-gateoff.yaml -> build/bench-results/pk-gateprobe-dir-goff-snodisc-sonnet-20260731-185055
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+E2E environment stopped.
+DROP DATABASE
+Using external Postgres on 5432 (BENCH_PG=skip)...
+CREATE DATABASE
+Building binaries...
+go build -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=v1.116.0-3-gcd3bef22-dirty" -o ./build/mcp-data-platform-bench ./cmd/mcp-data-platform
+Starting perishable fixture service on :8112 (world monitors-0)...
+Starting platform (bench/config/platform.bench.pk-gateoff.yaml) on :8098...
+Registering the perishable fixture...
+2026/07/31 18:51:01 apisetup: catalog "bench-acme" + api connection "acme" -> http://127.0.0.1:8112 registered (bench/specs/pk.json)
+Perishable-knowledge stack ready (world monitors-0).
+2026/07/31 18:51:01 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=1 behavior=answer seq=1
+2026/07/31 18:51:25 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=1 behavior=probe_then_refuse seq=2
+2026/07/31 18:52:22 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=2 behavior=answer seq=3
+2026/07/31 18:52:46 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=2 behavior=probe_then_refuse seq=4
+2026/07/31 18:53:26 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=3 behavior=answer seq=5
+2026/07/31 18:53:52 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=3 behavior=probe_then_refuse seq=6
+2026/07/31 18:54:53 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=4 behavior=answer seq=7
+2026/07/31 18:55:16 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=4 behavior=probe_then_refuse seq=8
+2026/07/31 18:55:58 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=5 behavior=answer seq=9
+2026/07/31 18:56:23 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=5 behavior=probe_then_refuse seq=10
+2026/07/31 18:56:55 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=6 behavior=answer seq=11
+2026/07/31 18:57:16 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=6 behavior=probe_then_refuse seq=12
+2026/07/31 18:57:54 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=7 behavior=answer seq=13
+2026/07/31 18:58:24 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=7 behavior=probe_then_refuse seq=14
+2026/07/31 18:59:11 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=8 behavior=answer seq=15
+2026/07/31 18:59:35 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=8 behavior=probe_then_refuse seq=16
+
+cell                                                        n  verified  correct  trusted  failed
+positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3    8         0        8        8       0
+positive-coverage-days-directive/none/monitors-3            8         0        0        0       0
+
+archive: build/bench-results/pk-gateprobe-dir-goff-snodisc-sonnet-20260731-185055
+=== arm dir-goff-snodisc-sonnet done
+=== arm dir-gon-snodisc-sonnet: model=sonnet scaffold=no-discovery cells=bridge-directive config=bench/config/platform.bench.pk.yaml -> build/bench-results/pk-gateprobe-dir-gon-snodisc-sonnet-20260731-190009
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+E2E environment stopped.
+DROP DATABASE
+Using external Postgres on 5432 (BENCH_PG=skip)...
+CREATE DATABASE
+Building binaries...
+go build -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=v1.116.0-3-gcd3bef22-dirty" -o ./build/mcp-data-platform-bench ./cmd/mcp-data-platform
+Starting perishable fixture service on :8112 (world monitors-0)...
+Starting platform (bench/config/platform.bench.pk.yaml) on :8098...
+Registering the perishable fixture...
+2026/07/31 19:00:14 apisetup: catalog "bench-acme" + api connection "acme" -> http://127.0.0.1:8112 registered (bench/specs/pk.json)
+Perishable-knowledge stack ready (world monitors-0).
+2026/07/31 19:00:14 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=1 behavior=answer seq=1
+2026/07/31 19:00:39 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=1 behavior=probe_then_refuse seq=2
+2026/07/31 19:01:26 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=2 behavior=answer seq=3
+2026/07/31 19:01:54 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=2 behavior=probe_then_refuse seq=4
+2026/07/31 19:02:35 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=3 behavior=answer seq=5
+2026/07/31 19:03:05 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=3 behavior=probe_then_refuse seq=6
+2026/07/31 19:03:45 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=4 behavior=answer seq=7
+2026/07/31 19:04:13 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=4 behavior=probe_then_refuse seq=8
+2026/07/31 19:04:56 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=5 behavior=answer seq=9
+2026/07/31 19:05:28 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=5 behavior=probe_then_refuse seq=10
+2026/07/31 19:06:14 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=6 behavior=answer seq=11
+2026/07/31 19:06:40 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=6 behavior=probe_then_refuse seq=12
+2026/07/31 19:07:23 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=7 behavior=answer seq=13
+2026/07/31 19:07:50 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=7 behavior=probe_then_refuse seq=14
+2026/07/31 19:08:35 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=8 behavior=answer seq=15
+2026/07/31 19:09:07 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=8 behavior=probe_then_refuse seq=16
+
+cell                                                        n  verified  correct  trusted  failed
+positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3    8         0        8        8       0
+positive-coverage-days-directive/none/monitors-3            8         2        2        0       0
+
+archive: build/bench-results/pk-gateprobe-dir-gon-snodisc-sonnet-20260731-190009
+=== arm dir-gon-snodisc-sonnet done
+=== arm dir-goff-snodisc-opus: model=opus scaffold=no-discovery cells=bridge-directive config=bench/config/platform.bench.pk-gateoff.yaml -> build/bench-results/pk-gateprobe-dir-goff-snodisc-opus-20260731-191003
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+E2E environment stopped.
+DROP DATABASE
+Using external Postgres on 5432 (BENCH_PG=skip)...
+CREATE DATABASE
+Building binaries...
+go build -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=v1.116.0-3-gcd3bef22-dirty" -o ./build/mcp-data-platform-bench ./cmd/mcp-data-platform
+Starting perishable fixture service on :8112 (world monitors-0)...
+Starting platform (bench/config/platform.bench.pk-gateoff.yaml) on :8098...
+Registering the perishable fixture...
+2026/07/31 19:10:09 apisetup: catalog "bench-acme" + api connection "acme" -> http://127.0.0.1:8112 registered (bench/specs/pk.json)
+Perishable-knowledge stack ready (world monitors-0).
+2026/07/31 19:10:09 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=1 behavior=answer seq=1
+2026/07/31 19:10:42 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=1 behavior=probe_then_refuse seq=2
+2026/07/31 19:11:28 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=2 behavior=answer seq=3
+2026/07/31 19:11:59 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=2 behavior=probe_then_refuse seq=4
+2026/07/31 19:12:43 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=3 behavior=answer seq=5
+2026/07/31 19:13:18 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=3 behavior=probe_then_refuse seq=6
+2026/07/31 19:14:15 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=4 behavior=answer seq=7
+2026/07/31 19:14:41 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=4 behavior=probe_then_refuse seq=8
+2026/07/31 19:15:24 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=5 behavior=answer seq=9
+2026/07/31 19:16:01 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=5 behavior=probe_then_refuse seq=10
+2026/07/31 19:17:10 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=6 behavior=answer seq=11
+2026/07/31 19:17:45 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=6 behavior=probe_then_refuse seq=12
+2026/07/31 19:18:23 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=7 behavior=answer seq=13
+2026/07/31 19:18:58 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=7 behavior=probe_then_refuse seq=14
+2026/07/31 19:19:46 INFO cell attempt cell=positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=8 behavior=answer seq=15
+2026/07/31 19:20:17 INFO cell attempt cell=positive-coverage-days-directive/none/monitors-3 replicate=8 behavior=probe_then_refuse seq=16
+
+cell                                                        n  verified  correct  trusted  failed
+positive-coverage-days-directive/coverage-convention-standing-plain-noaff/bare/monitors-3    8         0        8        8       0
+positive-coverage-days-directive/none/monitors-3            8         1        1        0       0
+
+archive: build/bench-results/pk-gateprobe-dir-goff-snodisc-opus-20260731-191003
+=== arm dir-goff-snodisc-opus done
+./build/bench-results/pk-gateprobe-orchestrator.sh:91: MAKEVARS[@]: parameter not set

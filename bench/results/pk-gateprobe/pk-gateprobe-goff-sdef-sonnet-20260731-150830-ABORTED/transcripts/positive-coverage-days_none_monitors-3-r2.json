@@ -1,0 +1,56 @@
+[
+  {
+    "role": "user",
+    "text": "How many days between 1 June and 28 June 2026 counted as positive coverage for ACME's 'Brand mentions' listening monitor?"
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01CCLJzzQHiMPpWWGAqVGFyU",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "search brand mentions listening monitor coverage"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01CCLJzzQHiMPpWWGAqVGFyU",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01LonAR1TWMVHGR9oiYPBYiX",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "social media monitoring sentiment mentions data platform query"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01LonAR1TWMVHGR9oiYPBYiX",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "There is no data platform tool or connector available in this environment for querying a \"Brand mentions\" listening monitor, and I have no saved knowledge from an earlier session about ACME's coverage metrics. I can't ground an answer in any tool result or prior memory, so I can't determine this figure — estimating it would violate the requirement to avoid guessing.\n\nFINAL ANSWER: UNAVAILABLE"
+  }
+]

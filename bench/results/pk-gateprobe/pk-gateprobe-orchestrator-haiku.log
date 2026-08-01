@@ -1,0 +1,78 @@
+=== arm goff-sdef-haiku: model=haiku scaffold=default -> build/bench-results/pk-gateprobe-goff-sdef-haiku-20260731-161223
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+E2E environment stopped.
+DROP DATABASE
+Using external Postgres on 5432 (BENCH_PG=skip)...
+CREATE DATABASE
+Building binaries...
+go build -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=v1.116.0-3-gcd3bef22-dirty" -o ./build/mcp-data-platform-bench ./cmd/mcp-data-platform
+Starting perishable fixture service on :8112 (world monitors-0)...
+Starting platform (bench/config/platform.bench.pk-gateoff.yaml) on :8098...
+Registering the perishable fixture...
+2026/07/31 16:12:27 apisetup: catalog "bench-acme" + api connection "acme" -> http://127.0.0.1:8112 registered (bench/specs/pk.json)
+Perishable-knowledge stack ready (world monitors-0).
+2026/07/31 16:12:27 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=1 behavior=answer seq=1
+2026/07/31 16:13:06 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=1 behavior=probe_then_refuse seq=2
+2026/07/31 16:13:51 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=2 behavior=answer seq=3
+2026/07/31 16:14:36 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=2 behavior=probe_then_refuse seq=4
+2026/07/31 16:15:36 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=3 behavior=answer seq=5
+2026/07/31 16:16:10 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=3 behavior=probe_then_refuse seq=6
+2026/07/31 16:17:04 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=4 behavior=answer seq=7
+2026/07/31 16:17:46 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=4 behavior=probe_then_refuse seq=8
+2026/07/31 16:18:23 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=5 behavior=answer seq=9
+2026/07/31 16:19:03 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=5 behavior=probe_then_refuse seq=10
+2026/07/31 16:19:51 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=6 behavior=answer seq=11
+2026/07/31 16:20:29 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=6 behavior=probe_then_refuse seq=12
+2026/07/31 16:21:13 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=7 behavior=answer seq=13
+2026/07/31 16:21:50 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=7 behavior=probe_then_refuse seq=14
+2026/07/31 16:22:55 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=8 behavior=answer seq=15
+2026/07/31 16:23:25 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=8 behavior=probe_then_refuse seq=16
+
+cell                                                        n  verified  correct  trusted  failed
+positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3    8         8        8        0       0
+positive-coverage-days/none/monitors-3                      8         8        0        0       0
+
+archive: build/bench-results/pk-gateprobe-goff-sdef-haiku-20260731-161223
+=== arm goff-sdef-haiku done
+=== arm goff-snodisc-haiku: model=haiku scaffold=no-discovery -> build/bench-results/pk-gateprobe-goff-snodisc-haiku-20260731-162359
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+E2E environment stopped.
+DROP DATABASE
+Using external Postgres on 5432 (BENCH_PG=skip)...
+CREATE DATABASE
+Building binaries...
+go build -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=v1.116.0-3-gcd3bef22-dirty" -o ./build/mcp-data-platform-bench ./cmd/mcp-data-platform
+Starting perishable fixture service on :8112 (world monitors-0)...
+Starting platform (bench/config/platform.bench.pk-gateoff.yaml) on :8098...
+Registering the perishable fixture...
+2026/07/31 16:24:06 apisetup: catalog "bench-acme" + api connection "acme" -> http://127.0.0.1:8112 registered (bench/specs/pk.json)
+Perishable-knowledge stack ready (world monitors-0).
+2026/07/31 16:24:06 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=1 behavior=answer seq=1
+2026/07/31 16:24:37 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=1 behavior=probe_then_refuse seq=2
+2026/07/31 16:25:26 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=2 behavior=answer seq=3
+2026/07/31 16:25:59 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=2 behavior=probe_then_refuse seq=4
+2026/07/31 16:26:43 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=3 behavior=answer seq=5
+2026/07/31 16:27:32 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=3 behavior=probe_then_refuse seq=6
+2026/07/31 16:28:34 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=4 behavior=answer seq=7
+2026/07/31 16:29:07 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=4 behavior=probe_then_refuse seq=8
+2026/07/31 16:29:41 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=5 behavior=answer seq=9
+2026/07/31 16:30:22 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=5 behavior=probe_then_refuse seq=10
+2026/07/31 16:31:09 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=6 behavior=answer seq=11
+2026/07/31 16:31:49 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=6 behavior=probe_then_refuse seq=12
+2026/07/31 16:32:32 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=7 behavior=answer seq=13
+2026/07/31 16:33:08 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=7 behavior=probe_then_refuse seq=14
+2026/07/31 16:33:53 INFO cell attempt cell=positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3 replicate=8 behavior=answer seq=15
+2026/07/31 16:34:33 INFO cell attempt cell=positive-coverage-days/none/monitors-3 replicate=8 behavior=probe_then_refuse seq=16
+
+cell                                                        n  verified  correct  trusted  failed
+positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3    8         8        8        0       0
+positive-coverage-days/none/monitors-3                      8         8        1        0       0
+
+archive: build/bench-results/pk-gateprobe-goff-snodisc-haiku-20260731-162359
+=== arm goff-snodisc-haiku done
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+E2E environment stopped.
+=== gate probe complete
