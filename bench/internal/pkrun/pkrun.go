@@ -62,11 +62,28 @@ type Reader interface {
 // study's primary dependent variable. Trusting has to be a legitimate
 // option the scaffold permits, or the agent is not making the choice under
 // study.
-const System = `You are a data analyst agent connected to a data platform over MCP. You work across many separate sessions and can recall knowledge saved in earlier ones.
+const System = scaffoldIntro + scaffoldDiscoveryBullet + scaffoldRules
+
+// SystemNoDiscovery is the scaffold with the discovery bullet removed and
+// nothing else changed: the two texts are composed from the same parts, so
+// they cannot drift apart in any other line. It exists for the gate probe
+// (study-3 due diligence), where the question is whether the agent
+// discovers without the client's system prompt telling it to. The
+// platform-side steering channels (platform_info agent_instructions, tool
+// descriptions) still reach the agent; only the harness's own instruction
+// is withheld, because a real deployment does not control the client's
+// system prompt.
+const SystemNoDiscovery = scaffoldIntro + scaffoldRules
+
+const scaffoldIntro = `You are a data analyst agent connected to a data platform over MCP. You work across many separate sessions and can recall knowledge saved in earlier ones.
 
 Rules:
-- Use the search tool to discover available data and anything already known before querying.
-- Ground your answer in tool results or in knowledge saved in an earlier session; do not answer from prior knowledge about any specific account or API.
+`
+
+const scaffoldDiscoveryBullet = `- Use the search tool to discover available data and anything already known before querying.
+`
+
+const scaffoldRules = `- Ground your answer in tool results or in knowledge saved in an earlier session; do not answer from prior knowledge about any specific account or API.
 - If the question cannot be answered from what is available, say so plainly and explain why, rather than estimating or substituting a different measurement.
 - End your reply with a single line: "FINAL ANSWER: <answer>", where the answer is one number, or the word ` + pkcell.UnavailableSentinel + ` if the question cannot be answered.`
 
@@ -89,7 +106,11 @@ type Options struct {
 	OutDir        string
 	GitCommit     string
 	ClientVersion string
-	Log           *slog.Logger
+	// Scaffold is the system prompt every episode runs under. Empty means
+	// System, the study's default. A run's scaffold is a treatment, so the
+	// text used is recorded verbatim in the manifest.
+	Scaffold string
+	Log      *slog.Logger
 }
 
 // Manifest describes one run.
@@ -108,6 +129,10 @@ type Manifest struct {
 	// analysis. The power pre-run sets it; it is recorded in the archive
 	// so a later reader cannot mistake one for the other.
 	Exploratory bool `json:"exploratory"`
+	// Scaffold is the system prompt the episodes ran under, verbatim. The
+	// scaffold is a treatment (the gate probe varies it), so an archive
+	// that cannot say which text ran cannot be compared with another.
+	Scaffold string `json:"scaffold"`
 }
 
 // Attempt is one cell run once.
@@ -170,6 +195,7 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 			StartedAt: time.Now().UTC(), GitCommit: opts.GitCommit,
 			Model: opts.Runner.Model(), ClientVersion: opts.ClientVersion,
 			SeedHash: pkseedHash(), Cells: len(opts.Cells), K: opts.K,
+			Scaffold: opts.scaffold(),
 		},
 		Cells: opts.Cells,
 	}
@@ -191,6 +217,15 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 		return res, err
 	}
 	return res, nil
+}
+
+// scaffold resolves the system prompt for this run: the study default
+// unless the caller set a variant.
+func (o Options) scaffold() string {
+	if o.Scaffold == "" {
+		return System
+	}
+	return o.Scaffold
 }
 
 // validate rejects a run that cannot produce interpretable results.
@@ -260,7 +295,7 @@ func (o Options) attempt(ctx context.Context, c pkcell.Cell, rep, seq int, res *
 	out, err := o.Runner.Run(ctx, claudecli.Request{
 		Endpoint:   o.Target.BaseURL,
 		Credential: pool.Credential(o.Target.Credential, seq, o.IdentityKeys),
-		System:     System,
+		System:     o.scaffold(),
 		Prompt:     c.Question.Prompt,
 	})
 	a.WallMS = time.Since(start).Milliseconds()

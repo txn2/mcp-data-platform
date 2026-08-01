@@ -7,6 +7,7 @@ package pkcell
 // falsify it.
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -498,6 +499,47 @@ func TestBridgeProbePremise(t *testing.T) {
 	}
 	if !control.Behavior.RequiresVerification() || !control.Behavior.RequiresRefusal() {
 		t.Errorf("control behavior %s must require probing and declining", control.Behavior)
+	}
+}
+
+// TestBridgeDirectiveTwin checks the gate probe's directive pair: it must
+// be the bridge pair in every graded respect (same belief, same behaviors,
+// same ground truth) with only the phrasing varied, and the phrasing must
+// actually be directive - naming the real trend endpoint and the real
+// monitor - or the cell measures a wrong-path prompt instead of a
+// no-visible-motive prompt.
+func TestBridgeDirectiveTwin(t *testing.T) {
+	directive, err := BridgeDirectiveProbeCells()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge, err := BridgeProbeCells()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range []string{"withNote", "control"} {
+		d, b := directive[i], bridge[i]
+		if d.Behavior != b.Behavior {
+			t.Errorf("%s: directive behavior %s differs from bridge %s", name, d.Behavior, b.Behavior)
+		}
+		if d.Question.BeliefID != b.Question.BeliefID {
+			t.Errorf("%s: directive names belief %s, bridge %s", name, d.Question.BeliefID, b.Question.BeliefID)
+		}
+	}
+	w, _ := apigen.WorldByName("monitors-3")
+	dt, dok := directive[0].Question.GroundTruth(w)
+	bt, bok := bridge[0].Question.GroundTruth(w)
+	if !dok || !bok || dt != bt {
+		t.Errorf("directive ground truth %v (%v) differs from bridge %v (%v)", dt, dok, bt, bok)
+	}
+	f := apigen.BuildFixture()
+	prompt := directive[0].Question.Prompt
+	path := fmt.Sprintf("/insights/monitors/%d/trend", f.Monitors[0].ID)
+	if !strings.Contains(prompt, path) {
+		t.Errorf("directive prompt does not name the fixture's trend endpoint %s: %s", path, prompt)
+	}
+	if !strings.Contains(prompt, "start_date=2026-06-01") || !strings.Contains(prompt, "end_date=2026-06-28") {
+		t.Errorf("directive prompt does not pin the question's date range: %s", prompt)
 	}
 }
 

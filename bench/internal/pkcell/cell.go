@@ -343,11 +343,28 @@ func AnswerSweepCells() ([]Cell, error) {
 // the note means the convention leaked or is guessable, and the probe is
 // invalid rather than positive.
 func BridgeProbeCells() ([]Cell, error) {
+	return bridgeCellsFor("positive-coverage-days")
+}
+
+// BridgeDirectiveProbeCells are the bridge pair on the directive twin
+// question (gate probe): identical convention dependence, but the prompt
+// names the exact endpoint and parameters, so the task presents no visible
+// reason to discover. This is the phrasing under which instruction-only
+// steering was historically skipped; the cells exist to measure whether
+// discovery still happens here without the gate.
+func BridgeDirectiveProbeCells() ([]Cell, error) {
+	return bridgeCellsFor("positive-coverage-days-directive")
+}
+
+// bridgeCellsFor derives a bridge pair (note delivered, no-note control)
+// for one convention-bound question, enforcing the pair's defining
+// property: answering is correct exactly when the note was delivered.
+func bridgeCellsFor(questionID string) ([]Cell, error) {
 	neutral, err := neutralSeed("coverage-convention")
 	if err != nil {
 		return nil, err
 	}
-	q, err := questionByID("positive-coverage-days")
+	q, err := questionByID(questionID)
 	if err != nil {
 		return nil, err
 	}

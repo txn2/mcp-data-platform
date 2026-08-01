@@ -29,25 +29,30 @@ func main() {
 		fixtureKey  = flag.String("fixture-key", "", "fixture X-API-Key")
 		model       = flag.String("model", "sonnet", "model alias or id (claude-cli alias, or full id with -llm anthropic)")
 		llmKind     = flag.String("llm", "claude-cli", "episode driver: claude-cli (subscription, default) or anthropic (raw API, metered)")
-		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep, answersweep, bridge, staleanswer")
+		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep, answersweep, bridge, bridge-directive, staleanswer")
+		scaffold    = flag.String("scaffold", "default", "episode system prompt: default, or no-discovery (gate probe: drops the harness's own search bullet)")
 		k           = flag.Int("k", 8, "replicates per cell")
 		identityKey = flag.Int("identity-keys", 150, "configured identity pool size")
 		out         = flag.String("out", "", "output directory (required)")
 		gitCommit   = flag.String("git-commit", "", "git commit recorded in the manifest")
 	)
 	flag.Parse()
-	if err := run(*url, *credential, *fixtureURL, *fixtureKey, *model, *cellSet, *out, *gitCommit, *llmKind, *k, *identityKey); err != nil {
+	if err := run(*url, *credential, *fixtureURL, *fixtureKey, *model, *cellSet, *scaffold, *out, *gitCommit, *llmKind, *k, *identityKey); err != nil {
 		fmt.Fprintln(os.Stderr, "pkrun:", err)
 		os.Exit(1)
 	}
 }
 
 // run wires the clients and executes the cell set.
-func run(url, credential, fixtureURL, fixtureKey, model, cellSet, out, gitCommit, llmKind string, k, identityKeys int) error {
+func run(url, credential, fixtureURL, fixtureKey, model, cellSet, scaffold, out, gitCommit, llmKind string, k, identityKeys int) error {
 	if out == "" {
 		return errors.New("-out is required")
 	}
 	cells, exploratory, err := selectCells(cellSet)
+	if err != nil {
+		return err
+	}
+	scaffoldText, err := selectScaffold(scaffold)
 	if err != nil {
 		return err
 	}
@@ -66,6 +71,7 @@ func run(url, credential, fixtureURL, fixtureKey, model, cellSet, out, gitCommit
 		Insights:      insights,
 		Runner:        runner,
 		Cells:         cells,
+		Scaffold:      scaffoldText,
 		K:             k,
 		OutDir:        out,
 		GitCommit:     gitCommit,
@@ -102,6 +108,18 @@ func buildRunner(ctx context.Context, llmKind, model string) (pkrun.EpisodeRunne
 	}
 }
 
+// selectScaffold resolves the named scaffold variant to its text.
+func selectScaffold(name string) (string, error) {
+	switch name {
+	case "default":
+		return pkrun.System, nil
+	case "no-discovery":
+		return pkrun.SystemNoDiscovery, nil
+	default:
+		return "", fmt.Errorf("unknown -scaffold %q", name)
+	}
+}
+
 // selectCells resolves the named cell set and whether it is exploratory.
 func selectCells(name string) ([]pkcell.Cell, bool, error) {
 	switch name {
@@ -116,6 +134,9 @@ func selectCells(name string) ([]pkcell.Cell, bool, error) {
 		return cells, true, err
 	case "bridge":
 		cells, err := pkcell.BridgeProbeCells()
+		return cells, true, err
+	case "bridge-directive":
+		cells, err := pkcell.BridgeDirectiveProbeCells()
 		return cells, true, err
 	case "staleanswer":
 		cells, err := pkcell.StaleAnswerCells()

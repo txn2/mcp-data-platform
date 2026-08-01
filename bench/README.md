@@ -123,6 +123,16 @@ make bench-pk-run CELLS=prerun K=8 MODEL=sonnet   # a cell set
 make bench-pk-down
 ```
 
+The runner's `-scaffold` flag selects the episode system prompt: `default`
+(the study scaffold, including its "use the search tool" bullet) or
+`no-discovery` (the same text minus that one bullet, for probes that ask
+whether the agent discovers when only the platform's own steering channels
+— `platform_info` agent instructions and tool descriptions — tell it to).
+The text used is recorded verbatim in the run manifest. The search-first
+gate itself is a platform config: `bench/config/platform.bench.pk-gateoff.yaml`
+is the pk arm's single-deviation copy with `workflow.require_search: false`,
+selected with `make bench-pk-up BENCH_PK_CONFIG=bench/config/platform.bench.pk-gateoff.yaml`.
+
 Every run writes into its own timestamped directory under
 `build/bench-results/`, and the runners refuse an output path that already
 exists, so a re-run can never overwrite paid-for results.
