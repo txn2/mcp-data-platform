@@ -26,17 +26,20 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
 )
 
-// fakeRunner records the world each episode was asked in.
+// fakeRunner records the world each episode was asked in, and the system
+// prompt it was asked under.
 type fakeRunner struct {
-	fixture *fixturectl.Client
-	worlds  []string
-	answer  string
-	err     error
+	fixture    *fixturectl.Client
+	worlds     []string
+	lastSystem string
+	answer     string
+	err        error
 }
 
 func (f *fakeRunner) Model() string { return "fake-model" }
 
-func (f *fakeRunner) Run(ctx context.Context, _ claudecli.Request) (claudecli.Result, error) {
+func (f *fakeRunner) Run(ctx context.Context, req claudecli.Request) (claudecli.Result, error) {
+	f.lastSystem = req.System
 	if f.err != nil {
 		return claudecli.Result{}, f.err
 	}
@@ -242,12 +245,67 @@ func TestFailuresAreRecordedNotCounted(t *testing.T) {
 // knowledge, or an agent that trusts its note is violating an instruction
 // and the study measures obedience instead of the verification decision.
 func TestScaffoldLicensesTrusting(t *testing.T) {
-	if !strings.Contains(System, "knowledge saved in an earlier session") {
-		t.Error("the scaffold no longer licenses answering from saved knowledge")
-	}
-	for _, banned := range []string{"verify", "re-check", "recheck", "confirm", "double-check"} {
-		if strings.Contains(strings.ToLower(System), banned) {
-			t.Errorf("the scaffold contains %q and would instruct the measured action", banned)
+	for name, scaffold := range map[string]string{"default": System, "no-discovery": SystemNoDiscovery} {
+		if !strings.Contains(scaffold, "knowledge saved in an earlier session") {
+			t.Errorf("the %s scaffold no longer licenses answering from saved knowledge", name)
 		}
+		for _, banned := range []string{"verify", "re-check", "recheck", "confirm", "double-check"} {
+			if strings.Contains(strings.ToLower(scaffold), banned) {
+				t.Errorf("the %s scaffold contains %q and would instruct the measured action", name, banned)
+			}
+		}
+	}
+}
+
+// TestScaffoldVariantDropsOnlyTheDiscoveryBullet pins the gate probe's
+// contrast: the two scaffolds must differ by exactly the discovery bullet,
+// or the probe compares two treatments instead of one.
+func TestScaffoldVariantDropsOnlyTheDiscoveryBullet(t *testing.T) {
+	if System == SystemNoDiscovery {
+		t.Fatal("the no-discovery scaffold is identical to the default; the probe's contrast is empty")
+	}
+	if strings.Contains(SystemNoDiscovery, "search tool") {
+		t.Error("the no-discovery scaffold still instructs use of the search tool")
+	}
+	if got := scaffoldIntro + scaffoldDiscoveryBullet + scaffoldRules; got != System {
+		t.Error("System is no longer composed from the shared scaffold parts")
+	}
+	if got := strings.Replace(System, scaffoldDiscoveryBullet, "", 1); got != SystemNoDiscovery {
+		t.Error("the scaffolds differ by more than the discovery bullet")
+	}
+}
+
+// TestOptionsScaffoldReachesTheEpisode proves the variant a run selects is
+// the text the episode actually runs under, and that it is recorded in the
+// manifest: an archive that cannot say which scaffold ran cannot be
+// compared with another.
+func TestOptionsScaffoldReachesTheEpisode(t *testing.T) {
+	opts, runner, _ := newRun(t, "FINAL ANSWER: 11")
+	opts.Scaffold = SystemNoDiscovery
+	res, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if runner.lastSystem != SystemNoDiscovery {
+		t.Errorf("episode ran under %q, want the no-discovery scaffold", runner.lastSystem)
+	}
+	if res.Manifest.Scaffold != SystemNoDiscovery {
+		t.Errorf("manifest records %q, want the no-discovery scaffold", res.Manifest.Scaffold)
+	}
+}
+
+// TestDefaultScaffoldIsSystem pins the zero value: leaving Scaffold unset
+// must mean the study's default, not an empty system prompt.
+func TestDefaultScaffoldIsSystem(t *testing.T) {
+	opts, runner, _ := newRun(t, "FINAL ANSWER: 11")
+	res, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if runner.lastSystem != System {
+		t.Errorf("episode ran under %q, want the default scaffold", runner.lastSystem)
+	}
+	if res.Manifest.Scaffold != System {
+		t.Errorf("manifest records %q, want the default scaffold", res.Manifest.Scaffold)
 	}
 }

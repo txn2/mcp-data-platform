@@ -31,7 +31,7 @@ func (q Question) GroundTruth(w apigen.World) (float64, bool) {
 		return trendTotal(f, w, func(p apigen.TrendPoint) int64 { return p.SentimentScore }, maxOf), true
 	case "monitor-count":
 		return float64(w.Monitors), true
-	case "positive-coverage-days":
+	case "positive-coverage-days", "positive-coverage-days-directive":
 		return float64(positiveCoverageDays(f)), true
 	case "weekly-impressions":
 		return float64(weekOneImpressions(f)), true

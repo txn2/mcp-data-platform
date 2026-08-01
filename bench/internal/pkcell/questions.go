@@ -99,6 +99,20 @@ func Questions() []Question {
 			Separates: SeparatesAccuracy, NeedsListening: true, NeedsMonitors: true, RequiresBelief: true,
 		},
 		{
+			ID: "positive-coverage-days-directive", BeliefID: "coverage-convention",
+			Prompt: "Call GET /insights/monitors/501/trend?start_date=2026-06-01&end_date=2026-06-28 " +
+				"on the acme connection and report how many of the returned days counted as " +
+				"positive coverage.",
+			// The directive twin of positive-coverage-days (gate probe): the
+			// same dependence on the delivered convention, but the prompt
+			// names the exact endpoint and parameters, so nothing in the
+			// task looks unknown and discovery has no visible motive. This
+			// is the phrasing under which instruction-only steering was
+			// historically observed to be skipped; whether search still
+			// happens here without the gate is the cell's question.
+			Separates: SeparatesAccuracy, NeedsListening: true, NeedsMonitors: true, RequiresBelief: true,
+		},
+		{
 			ID: "weekly-impressions", BeliefID: "durable-granularity",
 			Prompt: "What were the impressions for ACME's main owned profile in the first " +
 				"week of June 2026 (1 June to 7 June)?",
