@@ -1,0 +1,79 @@
+[
+  {
+    "role": "user",
+    "text": "How many days between 1 June and 28 June 2026 counted as positive coverage for ACME's 'Brand mentions' listening monitor?"
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01L193U7DGmZT2XqkrUyJjVh",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 10,
+          "query": "search listening monitor brand mentions coverage"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01L193U7DGmZT2XqkrUyJjVh",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01CBw5Hyvv59zAf5EfNPaosA",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 10,
+          "query": "data platform search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01CBw5Hyvv59zAf5EfNPaosA",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Q1shM3toZ6pJ7qfsGL4CDF",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 10,
+          "query": "ACME sentiment mentions query"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Q1shM3toZ6pJ7qfsGL4CDF",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "No data platform tool (media/social listening connector) is available in this session — I only have generic dev tools (LSP, DesignSync, Monitor, CronCreate, etc.), none of which can query a \"Brand mentions\" listening monitor or sentiment/coverage data for ACME. I also have no prior-session knowledge saved about this monitor. I can't answer this from tool results or memory, and I won't estimate a number.\n\nFINAL ANSWER: UNAVAILABLE"
+  }
+]

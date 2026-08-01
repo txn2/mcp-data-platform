@@ -1,0 +1,79 @@
+[
+  {
+    "role": "user",
+    "text": "How many days between 1 June and 28 June 2026 counted as positive coverage for ACME's 'Brand mentions' listening monitor?"
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Hz1BDxzmYqFoZ9nKAH1aq9",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "search brand mentions listening monitor coverage"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Hz1BDxzmYqFoZ9nKAH1aq9",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01F4kEuCbC8WjjjSsiXSi6jQ",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "search knowledge data platform query"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01F4kEuCbC8WjjjSsiXSi6jQ",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01RPWHweo96qoXNwndRJ3oXB",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "ACME sentiment coverage social listening"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01RPWHweo96qoXNwndRJ3oXB",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "No data platform search or query tool, and no saved knowledge about ACME's \"Brand mentions\" listening monitor, is available in this session — only generic dev/scheduling tools (Monitor, LSP, DesignSync, CronCreate) are accessible, none of which connect to a media/social listening data source. I can't retrieve or compute the requested coverage metric.\n\nFINAL ANSWER: UNAVAILABLE"
+  }
+]

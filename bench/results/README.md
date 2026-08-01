@@ -40,6 +40,15 @@ Protocol: [`docs/knowledge-use-protocol.md`](../docs/knowledge-use-protocol.md).
 All seven families are under [`knowledge-use/`](knowledge-use/), indexed by
 [`knowledge-use/README.md`](knowledge-use/README.md).
 
+## Search-first gate probe (closed)
+
+Summary: [`pk-gateprobe/pk-gateprobe-SUMMARY.md`](pk-gateprobe/pk-gateprobe-SUMMARY.md).
+Not a study; the probe killed the enforcement-study premise (#1145).
+
+| Directory | What it is |
+| --- | --- |
+| [`pk-gateprobe/`](pk-gateprobe/) | Gate-off search-first probe: 128/128 search-first across eight clean gate-off arms, 16/16 in the gate-on control, plus one aborted arm, with summary, analyzer, and orchestrator logs. |
+
 ## API-connection architecture (closed)
 
 Design: [`docs/api-connection-study-design.md`](../docs/api-connection-study-design.md).

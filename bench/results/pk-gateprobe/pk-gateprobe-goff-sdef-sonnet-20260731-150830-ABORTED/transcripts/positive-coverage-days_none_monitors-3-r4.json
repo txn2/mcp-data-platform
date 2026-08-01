@@ -1,0 +1,125 @@
+[
+  {
+    "role": "user",
+    "text": "How many days between 1 June and 28 June 2026 counted as positive coverage for ACME's 'Brand mentions' listening monitor?"
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Vy3mXQWDF7635TXcXMgsox",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "search brand mentions listening monitor sentiment coverage"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Vy3mXQWDF7635TXcXMgsox",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01StbZ52ypEPuZArZmuUzB9P",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "social listening sentiment mentions monitor data"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01StbZ52ypEPuZArZmuUzB9P",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01RQZbxmL8H4UyjyZXYX5WWp",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "search knowledge memory recall"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01RQZbxmL8H4UyjyZXYX5WWp",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01PsSUgdKx6Fs3rySq3nSoJv",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "ACME data platform metrics query"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01PsSUgdKx6Fs3rySq3nSoJv",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01GswvKuZqN4WN2PfktiNsVf",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "coverage days positive negative sentiment brand"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01GswvKuZqN4WN2PfktiNsVf",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "I don't have access to any data platform tool (search/query connector) that exposes ACME's \"Brand mentions\" listening monitor data — none of the available or discoverable tools connect to a media/social listening or analytics platform. I also have no saved memory from earlier sessions covering this metric.\n\nSince I cannot ground this in actual tool results or prior verified knowledge, I can't determine the coverage figure.\n\nFINAL ANSWER: UNAVAILABLE"
+  }
+]

@@ -1,0 +1,1 @@
+Aborted run: a leftover make child from a killed first orchestrator launch shut the platform down 18s into the run; 15/16 episodes failed with "MCP server did not connect". Kept per all-runs-are-data policy; contains no interpretable episode results.

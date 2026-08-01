@@ -1,0 +1,571 @@
+{
+  "manifest": {
+    "started_at": "2026-07-31T22:08:41.518943Z",
+    "finished_at": "2026-07-31T22:10:53.618489Z",
+    "git_commit": "cd3bef2286033932a9ab36dcb2c0a25b0a49e1b2",
+    "platform_version": "v1.116.0-3-gcd3bef22-dirty",
+    "model": "sonnet",
+    "client_version": "2.1.220 (Claude Code)",
+    "seed_hash": "031067e0a9c2cd6e72f7da2ebd6303c55e99575bdaca76298e7a7c92d43f1553",
+    "cells": 2,
+    "k": 8,
+    "attempts": 16,
+    "exploratory": false,
+    "scaffold": "You are a data analyst agent connected to a data platform over MCP. You work across many separate sessions and can recall knowledge saved in earlier ones.\n\nRules:\n- Use the search tool to discover available data and anything already known before querying.\n- Ground your answer in tool results or in knowledge saved in an earlier session; do not answer from prior knowledge about any specific account or API.\n- If the question cannot be answered from what is available, say so plainly and explain why, rather than estimating or substituting a different measurement.\n- End your reply with a single line: \"FINAL ANSWER: \u003canswer\u003e\", where the answer is one number, or the word UNAVAILABLE if the question cannot be answered."
+  },
+  "attempts": [
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 1,
+      "seq": 1,
+      "email": "bench-agent-001@apikey.local",
+      "wall_ms": 18642,
+      "tool_calls": 4,
+      "input_tokens": 14,
+      "output_tokens": 845,
+      "cache_read_tokens": 186551,
+      "final_answer": "The search tool is unreachable after repeated attempts, so I can't discover any data source for \"Brand mentions\" listening monitor coverage. Social listening / brand monitoring metrics like this aren't something I have independent access to or prior knowledge of for ACME specifically — I'd need the platform's data catalog or an API endpoint that tracks this, and I can't reach it right now.\n\nI cannot answer this question: the search tool needed to locate any \"Brand mentions\" listening monitor data is currently failing to connect, and I have no other grounded source for this metric.\n\nFINAL ANSWER: UNAVAILABLE",
+      "delivered": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value.",
+      "ground_truth": 11,
+      "outcome": {
+        "behavior": "answer",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": true,
+        "substituted": false,
+        "detail": "needs the judged layer: an answer was required and its value was not checked here"
+      },
+      "trusted": true
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 1,
+      "seq": 2,
+      "email": "bench-agent-002@apikey.local",
+      "wall_ms": 19005,
+      "tool_calls": 0,
+      "input_tokens": 8,
+      "output_tokens": 713,
+      "cache_read_tokens": 107774,
+      "final_answer": "There's no data platform or tool available that provides social listening / brand monitoring data (e.g., mentions, sentiment, coverage) for ACME's \"Brand mentions\" monitor, and no prior session knowledge about this exists either. The only tools I have access to are unrelated to this domain (cron scheduling, LSP, monitors for shell/log output). I can't ground an answer in any tool result or saved knowledge, so I can't determine this figure.\n\nFINAL ANSWER: UNAVAILABLE",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "MCP server did not connect (status \"failed\")"
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 2,
+      "seq": 3,
+      "email": "bench-agent-003@apikey.local",
+      "wall_ms": 0,
+      "tool_calls": 0,
+      "final_answer": "",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "plant: pkplant: connect as bench-agent-003@apikey.local: mcp connect: calling \"initialize\": sending \"initialize\": rejected by transport: Post \"http://localhost:8098\": dial tcp [::1]:8098: connect: connection refused"
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 2,
+      "seq": 4,
+      "email": "bench-agent-004@apikey.local",
+      "wall_ms": 10626,
+      "tool_calls": 0,
+      "input_tokens": 6,
+      "output_tokens": 389,
+      "cache_read_tokens": 67016,
+      "final_answer": "There is no data platform tool or connector available in this environment for querying a \"Brand mentions\" listening monitor, and I have no saved knowledge from an earlier session about ACME's coverage metrics. I can't ground an answer in any tool result or prior memory, so I can't determine this figure — estimating it would violate the requirement to avoid guessing.\n\nFINAL ANSWER: UNAVAILABLE",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "MCP server did not connect (status \"failed\")"
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 3,
+      "seq": 5,
+      "email": "bench-agent-005@apikey.local",
+      "wall_ms": 0,
+      "tool_calls": 0,
+      "final_answer": "",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "plant: pkplant: connect as bench-agent-005@apikey.local: mcp connect: calling \"initialize\": sending \"initialize\": rejected by transport: Post \"http://localhost:8098\": dial tcp [::1]:8098: connect: connection refused"
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 3,
+      "seq": 6,
+      "email": "bench-agent-006@apikey.local",
+      "wall_ms": 12258,
+      "tool_calls": 0,
+      "input_tokens": 6,
+      "output_tokens": 514,
+      "cache_read_tokens": 67017,
+      "final_answer": "No data platform search or query tool, and no saved knowledge about ACME's \"Brand mentions\" listening monitor, is available in this session — only generic dev/scheduling tools (Monitor, LSP, DesignSync, CronCreate) are accessible, none of which connect to a media/social listening data source. I can't retrieve or compute the requested coverage metric.\n\nFINAL ANSWER: UNAVAILABLE",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "MCP server did not connect (status \"failed\")"
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 4,
+      "seq": 7,
+      "email": "bench-agent-007@apikey.local",
+      "wall_ms": 0,
+      "tool_calls": 0,
+      "final_answer": "",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "plant: pkplant: connect as bench-agent-007@apikey.local: mcp connect: calling \"initialize\": sending \"initialize\": rejected by transport: Post \"http://localhost:8098\": dial tcp [::1]:8098: connect: connection refused"
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 4,
+      "seq": 8,
+      "email": "bench-agent-008@apikey.local",
+      "wall_ms": 22606,
+      "tool_calls": 0,
+      "input_tokens": 8,
+      "output_tokens": 804,
+      "cache_read_tokens": 107032,
+      "final_answer": "I don't have access to any data platform tool (search/query connector) that exposes ACME's \"Brand mentions\" listening monitor data — none of the available or discoverable tools connect to a media/social listening or analytics platform. I also have no saved memory from earlier sessions covering this metric.\n\nSince I cannot ground this in actual tool results or prior verified knowledge, I can't determine the coverage figure.\n\nFINAL ANSWER: UNAVAILABLE",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "MCP server did not connect (status \"failed\")"
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 5,
+      "seq": 9,
+      "email": "bench-agent-009@apikey.local",
+      "wall_ms": 0,
+      "tool_calls": 0,
+      "final_answer": "",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "plant: pkplant: connect as bench-agent-009@apikey.local: mcp connect: calling \"initialize\": sending \"initialize\": rejected by transport: Post \"http://localhost:8098\": dial tcp [::1]:8098: connect: connection refused"
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 5,
+      "seq": 10,
+      "email": "bench-agent-010@apikey.local",
+      "wall_ms": 13816,
+      "tool_calls": 0,
+      "input_tokens": 6,
+      "output_tokens": 697,
+      "cache_read_tokens": 70063,
+      "final_answer": "I don't have access to any data source or connector for social listening / brand monitoring data (e.g., a \"Brand mentions\" tool for ACME) in this environment — only generic infrastructure tools (Monitor, LSP, CronCreate, TaskCreate, DesignSync, etc.) are available, none of which expose media-monitoring or mentions data. I also have no saved memory from earlier sessions covering ACME's listening monitor. I cannot answer this question from tool results or prior knowledge.\n\nFINAL ANSWER: UNAVAILABLE",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "MCP server did not connect (status \"failed\")"
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 6,
+      "seq": 11,
+      "email": "bench-agent-011@apikey.local",
+      "wall_ms": 0,
+      "tool_calls": 0,
+      "final_answer": "",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "plant: pkplant: connect as bench-agent-011@apikey.local: mcp connect: calling \"initialize\": sending \"initialize\": rejected by transport: Post \"http://localhost:8098\": dial tcp [::1]:8098: connect: connection refused"
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 6,
+      "seq": 12,
+      "email": "bench-agent-012@apikey.local",
+      "wall_ms": 11134,
+      "tool_calls": 0,
+      "input_tokens": 6,
+      "output_tokens": 513,
+      "cache_read_tokens": 67153,
+      "final_answer": "I don't have access to any data source or tool that provides ACME's \"Brand mentions\" listening monitor data — there's no connected analytics/social-listening platform tool available in this session, and I have no prior saved knowledge about this specific metric. I can't answer this from general knowledge since it requires actual monitoring data.\n\nFINAL ANSWER: UNAVAILABLE",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "MCP server did not connect (status \"failed\")"
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 7,
+      "seq": 13,
+      "email": "bench-agent-013@apikey.local",
+      "wall_ms": 0,
+      "tool_calls": 0,
+      "final_answer": "",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "plant: pkplant: connect as bench-agent-013@apikey.local: mcp connect: calling \"initialize\": sending \"initialize\": rejected by transport: Post \"http://localhost:8098\": dial tcp [::1]:8098: connect: connection refused"
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 7,
+      "seq": 14,
+      "email": "bench-agent-014@apikey.local",
+      "wall_ms": 11654,
+      "tool_calls": 0,
+      "input_tokens": 6,
+      "output_tokens": 469,
+      "cache_read_tokens": 67016,
+      "final_answer": "No data platform tool (media/social listening connector) is available in this session — I only have generic dev tools (LSP, DesignSync, Monitor, CronCreate, etc.), none of which can query a \"Brand mentions\" listening monitor or sentiment/coverage data for ACME. I also have no prior-session knowledge saved about this monitor. I can't answer this from tool results or memory, and I won't estimate a number.\n\nFINAL ANSWER: UNAVAILABLE",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "MCP server did not connect (status \"failed\")"
+    },
+    {
+      "cell_id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question_id": "positive-coverage-days",
+      "seed_id": "coverage-convention-standing-plain-noaff",
+      "arm": "bare",
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "stale": false,
+      "replicate": 8,
+      "seq": 15,
+      "email": "bench-agent-015@apikey.local",
+      "wall_ms": 0,
+      "tool_calls": 0,
+      "final_answer": "",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "plant: pkplant: connect as bench-agent-015@apikey.local: mcp connect: calling \"initialize\": sending \"initialize\": rejected by transport: Post \"http://localhost:8098\": dial tcp [::1]:8098: connect: connection refused"
+    },
+    {
+      "cell_id": "positive-coverage-days/none/monitors-3",
+      "question_id": "positive-coverage-days",
+      "arm": "none",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "stale": false,
+      "replicate": 8,
+      "seq": 16,
+      "email": "bench-agent-016@apikey.local",
+      "wall_ms": 12030,
+      "tool_calls": 0,
+      "input_tokens": 6,
+      "output_tokens": 479,
+      "cache_read_tokens": 66170,
+      "final_answer": "No data platform tool exposes brand-mention or social-listening monitor data — the available tools here are only session/dev utilities (Monitor for log streaming, LSP, DesignSync, cron/task tools), none of which connect to a listening/monitoring analytics platform. I have no prior-session memory of ACME's \"Brand mentions\" monitor either, so I can't ground an answer in any tool result or saved knowledge.\n\nI can't answer this — there's no connected data source for ACME's listening monitor, and I won't estimate a coverage figure without one.\n\nFINAL ANSWER: UNAVAILABLE",
+      "outcome": {
+        "behavior": "",
+        "observation": {
+          "verified": false,
+          "verified_broad": false,
+          "touched_profiles": false,
+          "calls": 0
+        },
+        "refused": false,
+        "substituted": false,
+        "detail": ""
+      },
+      "trusted": false,
+      "error": "MCP server did not connect (status \"failed\")"
+    }
+  ],
+  "cells": [
+    {
+      "id": "positive-coverage-days/coverage-convention-standing-plain-noaff/bare/monitors-3",
+      "question": {
+        "id": "positive-coverage-days",
+        "belief_id": "coverage-convention",
+        "prompt": "How many days between 1 June and 28 June 2026 counted as positive coverage for ACME's 'Brand mentions' listening monitor?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": true,
+        "requires_belief": true
+      },
+      "seed": {
+        "id": "coverage-convention-standing-plain-noaff",
+        "belief_id": "coverage-convention",
+        "class": "durable",
+        "asserts": "a monitor day counts as positive coverage when its sentiment_score is 70 or higher",
+        "captured_world": "monitors-3",
+        "phrasing": {
+          "dated": false,
+          "suppressive": false,
+          "affordance": false
+        },
+        "text": "In ACME reporting, a monitor day counts as positive coverage when its sentiment_score for that day is 70 or higher. This threshold is ACME's internal reporting definition for coverage summaries. It is applied per monitor per day to the daily sentiment_score returned by GET /insights/monitors/{id}/trend (list_monitor_trend), which reports sentiment as a plain 0 to 100 value."
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "monitors-3",
+      "query_world": "monitors-3",
+      "behavior": "answer",
+      "belief_true": true,
+      "answerable": true
+    },
+    {
+      "id": "positive-coverage-days/none/monitors-3",
+      "question": {
+        "id": "positive-coverage-days",
+        "belief_id": "coverage-convention",
+        "prompt": "How many days between 1 June and 28 June 2026 counted as positive coverage for ACME's 'Brand mentions' listening monitor?",
+        "separates": "accuracy",
+        "needs_listening": true,
+        "needs_monitors": true,
+        "requires_belief": true
+      },
+      "metadata": {
+        "enriched": false,
+        "as_of": "0001-01-01T00:00:00Z",
+        "now": "0001-01-01T00:00:00Z",
+        "recheck_calls": 0
+      },
+      "capture_world": "",
+      "query_world": "monitors-3",
+      "behavior": "probe_then_refuse",
+      "belief_true": false,
+      "answerable": false
+    }
+  ]
+}
