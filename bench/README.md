@@ -35,6 +35,13 @@ Each directory under [`results/`](results/) carries a README stating what that
 run family does and does not establish; [`results/README.md`](results/README.md)
 maps every family to its study.
 
+One kind of measurement here belongs to no study by design.
+[`docs-eval/`](docs-eval/) holds documentation probes, which measure what a
+model concludes after reading one of this repository's pages. A probe is
+evidence about prose, never about the platform, so it carries no protocol, no
+DOI, and no row in the table above, and it lives outside `results/` so the
+one-artifact-one-study rule stays exact.
+
 ## Reading the reports
 
 Both reports are neutral evaluations, not marketing pages: every statistic is
@@ -163,6 +170,7 @@ bench/
 │   └── findings-register.md
 ├── reports/             per-study recompute + render toolchains
 ├── results/             archived run data, one directory per family
+├── docs-eval/           documentation probes (measure a page, not the platform; no study, no DOI)
 ├── benchrun/            CLI entry point (run, summarize, compare, calibrate)
 ├── seedgen/             deterministic artifact/task generator CLI
 ├── apigen/              fixture catalog + spec + task + seed generator CLI

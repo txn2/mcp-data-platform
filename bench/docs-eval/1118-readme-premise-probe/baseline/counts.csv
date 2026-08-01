@@ -1,0 +1,17 @@
+model,run,m1,m2,m3,m4
+haiku,1,0,0,0,1
+haiku,2,0,1,0,1
+haiku,3,0,0,0,1
+haiku,4,0,0,0,0
+haiku,5,0,0,0,0
+opus,1,0,1,0,0
+opus,2,0,1,0,0
+opus,3,1,1,0,0
+opus,4,0,1,0,0
+opus,5,0,1,0,0
+sonnet,0,0,0,0,0
+sonnet,1,0,1,0,1
+sonnet,2,1,1,0,0
+sonnet,3,1,0,0,0
+sonnet,4,0,1,0,1
+sonnet,5,1,0,0,1

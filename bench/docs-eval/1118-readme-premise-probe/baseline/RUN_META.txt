@@ -1,0 +1,9 @@
+probe: 1118 README premise probe (baseline, pre-change)
+date_utc: 2026-08-01T02:01:48Z
+git_sha: 9c3fad3b7a07ef3e15bed51f29ede53539e7b3a3
+git_branch: docs/1118-readme-broker-posture
+readme_sha256: e85c7cf6afda8cb561340ee0bfe6d645731f83edd331c4b894458a602481c839
+readme_lines: 291
+cli_version: 2.1.220 (Claude Code)
+models: opus sonnet haiku
+runs_per_model: 5
