@@ -31,8 +31,14 @@ fixed in the report prose, never in the data.
 make bench-report-knowledge-layer-pdf   # or: bash bench/reports/knowledge-layer/render-report.sh
 ```
 
-Output lands in `build/report/` (gitignored): `benchmark-report.pdf` (figures
-embedded, tables width-tuned) and `benchmark-report.html` (self-contained). This
+Output lands in `build/report/` (gitignored), version-stamped from the report's
+own `**Report version**` row: `benchmark-report-knowledge-layer-v<version>.pdf`
+(figures embedded, tables width-tuned) and the matching `.html`. The study slug
+is in the name because this is a report *series*: the sibling render emits
+`benchmark-report-knowledge-use.pdf`. The source markdown keeps its slugless
+legacy path (`docs/reference/benchmark-report.md`) because the deposited PDFs
+cite it; only the rendered artifacts carry the slug. Do not rename these by hand — the stamp is what keeps the
+rendered files, the data zip, and the Zenodo deposit on one name. This
 needs `pandoc` and `tectonic` (`brew install pandoc tectonic`) and is an on-demand
 tool, deliberately not part of `make verify`.
 
@@ -41,7 +47,8 @@ tool, deliberately not part of `make verify`.
 The report is archived on Zenodo under the concept DOI
 [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044), which always
 resolves to the latest published version. Each version also carries its own DOI:
-v2.0 is [10.5281/zenodo.21751050](https://doi.org/10.5281/zenodo.21751050) and the
+v2.0.1 is [10.5281/zenodo.21751635](https://doi.org/10.5281/zenodo.21751635), v2.0 is
+[10.5281/zenodo.21751050](https://doi.org/10.5281/zenodo.21751050) and the
 v1.0 snapshot is [10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045).
 There is no v1.1 DOI: v1.1 was a markdown-only revision that was never
 deposited, so the concept DOI resolved to v1.0 until v2.0 was published.
@@ -51,10 +58,16 @@ deposit artifacts (for example for a future report version):
 
 ```bash
 make bench-report-knowledge-layer-pdf
-# snapshot the raw data the report recomputes from:
-( cd bench && zip -rqX ../build/report/bench-results.zip results -x '*.DS_Store' )
+# snapshot the raw data the report recomputes from (same version stamp):
+( cd bench && zip -rqX ../build/report/bench-results-all-v2.0.zip results -x '*.DS_Store' )
 ```
 
-Upload `build/report/benchmark-report.pdf` and `build/report/bench-results.zip` to
-the Zenodo record. Repo-level `CITATION.cff` and `.zenodo.json` carry the citation
+Upload `build/report/benchmark-report-knowledge-layer-v<version>.pdf` and
+`build/report/bench-results-all-v<version>.zip` to the Zenodo record. The zip is
+the entire `bench/results/` tree, shared by every study in the series, which is
+why it carries no study slug — the PDF and
+the HTML render the same content, but only the PDF is deposited. **Look at the
+rendered PDF pages before uploading**, not just its text layer: report v2.0 was
+deposited with a table whose cells overprinted, and grepping the text for the
+numbers did not catch it. Repo-level `CITATION.cff` and `.zenodo.json` carry the citation
 metadata and the DOI.

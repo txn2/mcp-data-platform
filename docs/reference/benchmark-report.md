@@ -8,9 +8,9 @@ it comes from.*
 | | |
 | --- | --- |
 | **Author** | Craig Johnston (cj@imti.co), Deasil Works, Inc. / txn2 — ORCID [0009-0000-9041-4079](https://orcid.org/0009-0000-9041-4079) |
-| **Published** | 2026-07-19; version 2.0 published 2026-08-01 |
-| **Report version** | 2.0 |
-| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept DOI, resolves to the latest version). This version: [10.5281/zenodo.21751050](https://doi.org/10.5281/zenodo.21751050). |
+| **Published** | 2026-07-19; version 2.0.1 published 2026-08-01 |
+| **Report version** | 2.0.1 |
+| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept DOI, resolves to the latest version). This version: [10.5281/zenodo.21751635](https://doi.org/10.5281/zenodo.21751635). |
 | **Subject under test** | The platform's semantic knowledge layer (cross-enrichment, `search`, and the memory / `apply_knowledge` lifecycle), not the whole platform. |
 | **Platform builds** | **This report spans two platform generations and the sections are not mutually comparable.** Section 5 (lifecycle) ran on `v1.118.0-4-g445e3abc`; Sections 3 and 4 are pinned to release tag `v1.102.2`, whose application code is byte-identical to the cold-start build. Within that tag the ablation ran on `v1.102.0` platform logic and cold-start on `v1.102.1` (the superseded v1.1 lifecycle run was also `v1.102.0`); the only deltas from the tag are portal-pagination plumbing (#974) and a pprof diagnostic endpoint, neither of which is in the cross-enrichment, `search`, or knowledge-lifecycle path under test (Section 6). Exact build strings, commits, seeds, and task-set hashes are pinned in each run's manifest (Section 9). |
 | **How to cite** | [Section 10](#10-how-to-cite-this-report) |
@@ -650,6 +650,12 @@ remains valid for the source and the raw data.
 
 ### Errata
 
+- **2026-08-01 (version 2.0.1).** Typesetting only. The v2.0 deposit's PDF
+  rendered the Section 5 table with its columns overflowing, so metric names
+  overprinted their own values; the markdown, the HTML, and every statistic
+  were unaffected. The render filter had no width rule for the five-column
+  table v2.0 introduced and silently fell back to defaults. No statistic,
+  figure value, or conclusion changed.
 - **2026-08-01 (version 2.0).** Section 5 was replaced with a lifecycle re-run
   at `k = 5` over thirty protocols on platform `v1.118.0-4-g445e3abc` (#1139),
   and the identity-pool figure in Section 2.5 was updated from 264 to 320 keys

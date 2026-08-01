@@ -5,7 +5,7 @@
   "publication_type": "report",
   "doi": "10.5281/zenodo.21438044",
   "publication_date": "2026-08-01",
-  "version": "2.0",
+  "version": "2.0.1",
   "access_right": "open",
   "license": "cc-by-4.0",
   "creators": [
@@ -37,7 +37,7 @@
       "scheme": "url"
     },
     {
-      "identifier": "10.5281/zenodo.21751050",
+      "identifier": "10.5281/zenodo.21751635",
       "relation": "isNewVersionOf",
       "scheme": "doi"
     }
