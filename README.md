@@ -22,9 +22,13 @@ mcp-data-platform fixes that. It is a single MCP server that connects AI assista
 
 It is a platform, not just a bridge. The same endpoint gives agents persistent memory and a governed path to write knowledge back to the catalog, proxies third-party MCP servers and REST APIs through one authentication, persona, and audit pipeline, and ships a web portal where AI-generated assets are saved, organized into collections, and shared with teammates.
 
+---
+
+## Do you need DataHub? Only for cross-enrichment
+
 Cross-enrichment is what [DataHub](https://datahubproject.io/) is for: point the platform at it as the semantic layer, then add [Trino](https://trino.io/) for SQL and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack.](https://mcp-data-platform.txn2.com/concepts/components/)
 
-No data warehouse and no catalog? The gateways, knowledge layer, memory, portal, and `search`/`fetch` are database-backed and run without DataHub or Trino, on PostgreSQL alone. See [Deployment Shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) for what each shape gives you.
+**Everything else runs without it.** DataHub is an adapter behind a provider interface, not a substrate the platform is built on. Omit the `semantic:` block and the semantic provider resolves to a noop, the server starts normally, and the gateways, knowledge layer, memory, portal, and `search`/`fetch` run on PostgreSQL alone. What you give up is cross-enrichment and the `datahub_*` tools, not the platform: `semantic:`, `query:`, `storage:`, and `toolkits:` are independent config blocks, so Trino and S3 stay available on their own terms and simply stop being enriched. See [Deployment Shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) for exactly what each shape includes and leaves out.
 
 ---
 
@@ -131,7 +135,7 @@ Each feature links to its full documentation.
 | Feature | Description |
 |---------|-------------|
 | [Authentication](https://mcp-data-platform.txn2.com/auth/overview/) | Fail-closed model: OIDC (Keycloak, Auth0, Okta, Azure AD) and API keys for service accounts |
-| [OAuth 2.1 server](https://mcp-data-platform.txn2.com/auth/oauth-server/) | Built-in authorization server with PKCE and Dynamic Client Registration; Claude signs in through your IdP |
+| [OAuth 2.1 server](https://mcp-data-platform.txn2.com/auth/oauth-server/) | A broker, [not an identity provider](#a-broker-not-an-identity-provider): authorization server with PKCE and Dynamic Client Registration toward MCP clients, delegating every human login upstream to your IdP |
 | [Outbound OAuth](https://mcp-data-platform.txn2.com/auth/oauth-gateway/) | OAuth to upstream MCPs and APIs with encrypted refresh tokens that survive restarts |
 | [Personas](https://mcp-data-platform.txn2.com/personas/overview/) | Role-mapped allow/deny tool and connection filtering, default-deny; roles that match no persona reach nothing, in the portal as well as over MCP |
 | [Audit logging](https://mcp-data-platform.txn2.com/server/audit/) | Every tool call logged to PostgreSQL with identity, persona, sanitized parameters, and timing |
@@ -214,7 +218,7 @@ toolkits:
 
 [Deployment Shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) covers the full configuration, what each shape includes, and what it leaves out.
 
-For a hosted deployment, run `--transport http` and enable the built-in OAuth 2.1 server so Claude and other MCP clients sign in through your identity provider. See [Configuration](https://mcp-data-platform.txn2.com/server/configuration/), [Deployment](https://mcp-data-platform.txn2.com/server/deployment/) (Docker Compose, Kubernetes), and the [OAuth 2.1 Server guide](https://mcp-data-platform.txn2.com/auth/oauth-server/).
+For a hosted deployment, run `--transport http` and enable the built-in OAuth 2.1 server so Claude and other MCP clients sign in through your identity provider. That server is a [broker, not an identity provider](#a-broker-not-an-identity-provider): it hands every human login to your IdP. See [Configuration](https://mcp-data-platform.txn2.com/server/configuration/), [Deployment](https://mcp-data-platform.txn2.com/server/deployment/) (Docker Compose, Kubernetes), and the [OAuth 2.1 Server guide](https://mcp-data-platform.txn2.com/auth/oauth-server/).
 
 ## Security
 
@@ -224,6 +228,30 @@ The platform implements a **fail-closed** security model: missing or invalid cre
 |-----------|----------------|-----|
 | **stdio** | Not required (local execution) | N/A |
 | **HTTP** | Required (Bearer token or API key) | Strongly recommended |
+
+### A broker, not an identity provider
+
+**mcp-data-platform is an OAuth 2.1 broker, not an identity provider.** No person authenticates to it: there is no login form, no user password to verify, and no MFA. A human's identity comes from your existing IdP (Keycloak, Auth0, Okta, Azure AD) over OIDC. `/authorize` redirects the browser there and refuses the flow outright when no upstream IdP is configured, and the roles and email that person is authorized against are the ones the IdP asserts. Service accounts authenticate with API keys instead, and their roles come from local configuration.
+
+It stores no human passwords, and no migration in the tree defines a password column. The secrets it does hold are machine credentials, held the way an auditor would want: API keys and the client secrets Dynamic Client Registration issues to MCP client software are bcrypt hashes, the authorization codes and tokens the platform itself issues are SHA-256 digests, and refresh tokens for upstream services are encrypted at rest (AES-256-GCM when `ENCRYPTION_KEY` is set; the server warns loudly at startup when it is not).
+
+The platform presents an authorization server toward MCP clients because the MCP specification requires a discoverable authorization server supporting Dynamic Client Registration, which upstream IdPs generally do not expose. The broker shape is what the spec requires, not a decision to reimplement identity.
+
+The parts an auditor reaches for first:
+
+| Concern | Implementation |
+|---|---|
+| `redirect_uri` matching | Exact match for non-loopback; RFC 8252 section 7.3 handling for loopback (`pkg/oauth/storage.go`) |
+| DCR abuse | Plain HTTP to non-loopback hosts refused regardless of configuration; private-use schemes excluded from `AllowAllRedirectURIs`, so the unauthenticated registration endpoint never hands out scheme hijacking by default (`pkg/oauth/dcr.go`) |
+| Brute force and registration flood | Per-IP token-bucket limits on `/token` and `/register`, applied before the bcrypt work they would otherwise burn (`pkg/oauth/ratelimit.go`) |
+| Authorization | Deny-before-allow, default deny, fail-closed on unresolved persona (`pkg/persona/filter.go`) |
+| Prompt injection carried in catalog metadata | Untrusted descriptions, tags, and owner notes are sanitized before they reach the model, and detected attempts are logged (`pkg/semantic/sanitize.go`, `pkg/semantic/injection_logger.go`) |
+
+### Engineering posture
+
+More than 1.25 lines of test code per line of production Go, with the security-critical packages carrying the highest ratios in the tree: `pkg/oauth` and `pkg/middleware` are both above 2:1. Fuzz suites cover `pkg/oauth`, `pkg/auth`, `pkg/platform`, and `pkg/middleware`. Every PR passes race-detector tests, `golangci-lint`, `gosec`, and Semgrep and CodeQL SAST, under a coverage floor enforced in CI. Release artifacts are Cosign-signed with GitHub build-provenance attestations, and supply-chain posture is tracked by [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/txn2/mcp-data-platform).
+
+Those ratios are claims a reader can check, so they are kept true mechanically rather than by hand: `make posture-check` recomputes them and fails when the tree crosses a stated line.
 
 ## Ecosystem
 

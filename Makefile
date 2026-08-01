@@ -37,7 +37,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
+	tools-check dead-code mutate patch-coverage doc-check posture-check swagger swagger-check \
 	semgrep codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
@@ -337,6 +337,10 @@ patch-coverage:
 ## doc-check: Fail on orphaned docs or unregistered tool refs; warn on undocumented changes
 doc-check:
 	@./scripts/doc-check.sh
+
+## posture-check: Fail when README/llms.txt engineering-posture claims go stale
+posture-check:
+	@./scripts/posture-check.sh
 
 ## release-check: Validate build, Docker, and release config
 release-check:
