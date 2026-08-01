@@ -1,0 +1,67 @@
+{
+  "protocol_id": "lc-benchmark-month",
+  "stage": "update",
+  "identity": "teacher",
+  "email": "bench-agent-005@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Correction to the definition I gave you earlier. The 'benchmark month' is now September 2025, not March. Please update your saved knowledge so future answers use this corrected definition."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01D1fgMh74R2s4a9cs4Eoi71",
+          "name": "search",
+          "args": {
+            "intent": "benchmark month definition March 2025"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01D1fgMh74R2s4a9cs4Eoi71",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:9bbd024e-dfc5-452c-bb44-0e5679dfe731\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7971075518380764,\n          \"reference\": \"mcp:prompt:17c36cc4-7c2a-4429-94a9-ddef2f81ec5a\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.7910842714220127,\n          \"reference\": \"mcp:prompt:cac06187-ab9d-440f-9a92-c65841eeb1fa\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.6071467431094042,\n          \"reference\": \"mcp:prompt:9ba2278c-a779-496b-ac7f-5995ec5fc7f4\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.5654315623632403,\n          \"reference\": \"mcp:prompt:927576fc-b396-475a-92da-049544079f60\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        },\n        {\n          \"text\": \"customers\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 0.6666666666666666,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        },\n        {\n          \"text\": \"legacy_orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n          \"score\": 0.3333333333333333,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition for this study: the 'benchmark month' is March 2025 (2025-03-01 through 2025-03-31). Use this as the reference/baseline month in all analyses for this study, e.g. filtering daily_region_revenue.day or orders.order_ts to March 2025 when computing benchmark-period comparisons.\",\n          \"source\": \"insights\",\n          \"ref\": \"f3aa80524aadf448274aae366c31c1e5\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-005@apikey.local\",\n          \"reference\": \"mcp:insight:f3aa80524aadf448274aae366c31c1e5\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 2,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01W7FVj9WEvipBkX8KxJiQ2K",
+          "name": "memory_capture",
+          "args": {
+            "category": "correction",
+            "confidence": "high",
+            "content": "Correction: the 'benchmark month' for this study is now September 2025 (2025-09-01 through 2025-09-30), superseding the earlier definition of March 2025. Use September 2025 as the reference/baseline month in all analyses for this study, e.g. filtering daily_region_revenue.day or orders.order_ts to September 2025 when computing benchmark-period comparisons.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)",
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01W7FVj9WEvipBkX8KxJiQ2K",
+          "text": "{\n  \"id\": \"e14883581a08e0d32fa16579e9b8382b\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"superseded\": \"f3aa80524aadf448274aae366c31c1e5\",\n  \"superseded_ids\": [\n    \"f3aa80524aadf448274aae366c31c1e5\"\n  ],\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog. 1 prior record(s) superseded.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: recorded the correction that the \"benchmark month\" is now September 2025 (2025-09-01 to 2025-09-30), linked to the `daily_region_revenue` and `orders` datasets — this new record automatically superseded the old March 2025 definition."
+    }
+  ]
+}

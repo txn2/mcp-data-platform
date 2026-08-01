@@ -1,0 +1,131 @@
+{
+  "protocol_id": "lc-flagship-region",
+  "stage": "abstain",
+  "identity": "teacher",
+  "email": "bench-agent-017@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "What is the retail store footprint of the flagship region?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01C8pbATE3YgGhqmDF8xRULn",
+          "name": "search",
+          "args": {
+            "intent": "retail store footprint of the flagship region"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01C8pbATE3YgGhqmDF8xRULn",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Clearance Set Definition\\nThe 'clearance set' is the set of completed orders placed by customers in the West region.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_8fbfc257-1ed0-46c7-b923-85130671998a\",\n          \"score\": 0.8361707291718642,\n          \"reference\": \"mcp:knowledge_page:kp_8fbfc257-1ed0-46c7-b923-85130671998a\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.7060678265117885,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:2afcb8ea-dee5-4d79-932e-5cb4b449d01e\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.914467901536585,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.8315974749922349,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        },\n        {\n          \"text\": \"util (api)\\nBuilt-in utility connection. Operations are handled inside the platform rather than proxied to an upstream API. `fetch_url` (`POST /util/fetch`) retrieves an arbitrary public URL server-side - a presigned download link, a generated report URL - inline via api_invoke_endpoint or streamed to a portal asset via api_export. Destinations on internal address space are refused.\",\n          \"source\": \"connections\",\n          \"ref\": \"util\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,util)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'flagship region' for this study is the South region. Use this exact definition for any 'flagship region' analysis in future sessions - filter/segment on region = South (region likely from customers table or an orders.region column; verify join/column at query time) when analyzing memory.bench.orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"112d6261704a1b5276418a8089e91779\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-017@apikey.local\",\n          \"reference\": \"mcp:insight:112d6261704a1b5276418a8089e91779\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 5,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 2,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01FSMMpx4QHdAkfzAkhsZiuU",
+          "name": "search",
+          "args": {
+            "intent": "retail store count footprint by region stores table"
+          }
+        },
+        {
+          "id": "toolu_01JMAbZocHVYjAbw4uYH6PV1",
+          "name": "search",
+          "args": {
+            "intent": "South region store locations"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01FSMMpx4QHdAkfzAkhsZiuU",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/threads/counts\\nCount open threads per target\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/threads/counts\",\n          \"score\": 0.8369514325510362\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/breakdown\\nGet audit breakdown\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/breakdown\",\n          \"score\": 0.758864960177366\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 0.7503937682339752\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'flagship region' for this study is the South region. Use this exact definition for any 'flagship region' analysis in future sessions - filter/segment on region = South (region likely from customers table or an orders.region column; verify join/column at query time) when analyzing memory.bench.orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"112d6261704a1b5276418a8089e91779\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-017@apikey.local\",\n          \"reference\": \"mcp:insight:112d6261704a1b5276418a8089e91779\"\n        },\n        {\n          \"text\": \"Working definition: the 'clearance set' is the set of completed orders placed by customers in the West region. Operationally: filter memory.bench.orders to rows where order status = completed AND customer region = West (region likely from customers table or an orders.region column - verify join/column at query time). Use this exact definition for any 'clearance set' analysis in future sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"6c7b2e453afcbf404b026f423e933d4f\",\n          \"score\": 0.7402130971124726,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-011@apikey.local\",\n          \"reference\": \"mcp:insight:6c7b2e453afcbf404b026f423e933d4f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Clearance Set Definition\\nThe 'clearance set' is the set of completed orders placed by customers in the West region.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_8fbfc257-1ed0-46c7-b923-85130671998a\",\n          \"score\": 0.8376122132092402,\n          \"reference\": \"mcp:knowledge_page:kp_8fbfc257-1ed0-46c7-b923-85130671998a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.7302472670806274,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 5,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01JMAbZocHVYjAbw4uYH6PV1",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/config/mode\\nGet config mode\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/config/mode\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 0.9834082983569846\n        },\n        {\n          \"text\": \"GET /api/v1/resources/{id}/versions\\nList resource versions\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /resources/{id}/versions\",\n          \"score\": 0.8363710609796414\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/shares\\nList collection shares\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/shares\",\n          \"score\": 0.811964436160967\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.6333745139944269\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Clearance Set Definition\\nThe 'clearance set' is the set of completed orders placed by customers in the West region.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_8fbfc257-1ed0-46c7-b923-85130671998a\",\n          \"score\": 0.7429272767064704,\n          \"reference\": \"mcp:knowledge_page:kp_8fbfc257-1ed0-46c7-b923-85130671998a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.7516877370479509,\n          \"reference\": \"mcp:prompt:df5c0448-b99d-486a-8209-3dff6a9da69a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'flagship region' for this study is the South region. Use this exact definition for any 'flagship region' analysis in future sessions - filter/segment on region = South (region likely from customers table or an orders.region column; verify join/column at query time) when analyzing memory.bench.orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"112d6261704a1b5276418a8089e91779\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-017@apikey.local\",\n          \"reference\": \"mcp:insight:112d6261704a1b5276418a8089e91779\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 5,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01SLnesEkEKQ5khqAC9cxYQb",
+          "name": "search",
+          "args": {
+            "intent": "stores table retail locations",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01SLnesEkEKQ5khqAC9cxYQb",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_015FZfWxLbFGi1twSicHxfHg",
+          "name": "datahub_browse",
+          "args": {
+            "what": "domains"
+          }
+        },
+        {
+          "id": "toolu_01GgaZ9KLh4dj8feLrnAHEfT",
+          "name": "search",
+          "args": {
+            "intent": "store footprint retail locations count"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_015FZfWxLbFGi1twSicHxfHg",
+          "text": "{}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01GgaZ9KLh4dj8feLrnAHEfT",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.7282865909355511,\n          \"reference\": \"mcp:prompt:2afcb8ea-dee5-4d79-932e-5cb4b449d01e\"\n        },\n        {\n          \"text\": \"Create an Interactive Dashboard\\nDiscover data, build a visualization, and save it as a shareable asset\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-interactive-dashboard\",\n          \"score\": 0.6523531632486966,\n          \"reference\": \"mcp:prompt:90498ade-5dd0-4961-8c3b-e376c609f196\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.6414610618263158,\n          \"reference\": \"mcp:prompt:5d4150e3-da01-4cf0-bad9-fb822b9e4e4a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/threads/counts\\nCount open threads per target\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/threads/counts\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.8626699806839458\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table with that customer's ID). This is a derived business definition, not a stored column/flag on the customers table. Use this definition for all \\\"active customer\\\" analysis: active customer count = count of distinct customers with \\u003e=1 row in orders (memory.bench.orders).\",\n          \"source\": \"insights\",\n          \"ref\": \"2db1c93fb3fe7d600de63215eaed770a\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:2db1c93fb3fe7d600de63215eaed770a\"\n        },\n        {\n          \"text\": \"Working definition: the 'flagship region' for this study is the South region. Use this exact definition for any 'flagship region' analysis in future sessions - filter/segment on region = South (region likely from customers table or an orders.region column; verify join/column at query time) when analyzing memory.bench.orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"112d6261704a1b5276418a8089e91779\",\n          \"score\": 0.8819235388713249,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-017@apikey.local\",\n          \"reference\": \"mcp:insight:112d6261704a1b5276418a8089e91779\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Clearance Set Definition\\nThe 'clearance set' is the set of completed orders placed by customers in the West region.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_8fbfc257-1ed0-46c7-b923-85130671998a\",\n          \"score\": 0.7940303636475026,\n          \"reference\": \"mcp:knowledge_page:kp_8fbfc257-1ed0-46c7-b923-85130671998a\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 5,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "I searched the catalog, knowledge pages, and saved insights for information about retail stores or store footprint. While I found a definition establishing that the \"flagship region\" refers to the South region (per an applied insight), there is no dataset, knowledge page, or catalog entity in this environment containing store location/footprint data (e.g., a stores table, store counts, or physical location records) — only order and customer transaction data exists (memory.bench.orders, memory.bench.customers).\n\nThere is no data source available that captures retail store footprint (number/location of stores) for any region, including the flagship (South) region.\n\nFINAL ANSWER: INSUFFICIENT INFORMATION"
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "protocol_id": "lc-core-market",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-015@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'core market' is the North region. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01VDhMpnm5VNfbiwxeAgK984",
+          "name": "search",
+          "args": {
+            "intent": "North region core market definition, sales region dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01VDhMpnm5VNfbiwxeAgK984",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Charter Cohort Definition\\nThe 'charter cohort' is the set of customers on the plus tier.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_f3b522c3-5120-42a6-8600-3682dbe92171\",\n          \"score\": 0.9015013730951871,\n          \"reference\": \"mcp:knowledge_page:kp_f3b522c3-5120-42a6-8600-3682dbe92171\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.8768195386339901,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.7482637835115067,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'clearance set' is the set of completed orders (orders.status = 'completed') placed by customers whose region = 'West' (customers.region), joined via orders.customer_id = customers.customer_id. Use this definition consistently in future analyses referencing the 'clearance set'.\",\n          \"source\": \"insights\",\n          \"ref\": \"974fd2b60f9c2aa7698809c29a2cf3cb\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-011@apikey.local\",\n          \"reference\": \"mcp:insight:974fd2b60f9c2aa7698809c29a2cf3cb\"\n        },\n        {\n          \"text\": \"Working definition: The 'charter cohort' is the set of customers on the plus tier (i.e., customers.tier = 'plus'). This is a derived grouping, not a stored flag/column, distinct from the broader 'key account' grouping (plus or enterprise tier). Use this definition consistently in analyses referencing the 'charter cohort'.\",\n          \"source\": \"insights\",\n          \"ref\": \"49f3ce956b07b283d739036bfee91748\",\n          \"score\": 0.6989655293754332,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-009@apikey.local\",\n          \"reference\": \"mcp:insight:49f3ce956b07b283d739036bfee91748\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:cac06187-ab9d-440f-9a92-c65841eeb1fa\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.7899091580268492,\n          \"reference\": \"mcp:prompt:9bbd024e-dfc5-452c-bb44-0e5679dfe731\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 6,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 4,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01GEtdfnRN55Kh1EfWvDDo6e",
+          "name": "datahub_get_entity",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01GEtdfnRN55Kh1EfWvDDo6e",
+          "text": "{\n  \"urn\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n  \"type\": \"DATASET\",\n  \"name\": \"customers\",\n  \"description\": \"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\n  \"platform\": \"trino\"\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.customers\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"name\",\"type\":\"varchar\"},{\"name\":\"region\",\"type\":\"varchar\"},{\"name\":\"tier\",\"type\":\"varchar\"},{\"name\":\"created_at\",\"type\":\"timestamp(3)\"}],\"total_columns\":5}}}\n{\"memory_context\":[{\"id\":\"974fd2b60f9c2aa7698809c29a2cf3cb\",\"reference\":\"mcp:memory:974fd2b60f9c2aa7698809c29a2cf3cb\",\"summary\":\"Working definition: the 'clearance set' is the set of completed orders (orders.status = 'completed') placed by customers whose region = 'West' (customers.region), joined via orders.customer_id = customers.customer_id. Use this definition consistently in future analyses referencin\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:17:50.004751Z\"},{\"id\":\"49f3ce956b07b283d739036bfee91748\",\"reference\":\"mcp:memory:49f3ce956b07b283d739036bfee91748\",\"summary\":\"Working definition: The 'charter cohort' is the set of customers on the plus tier (i.e., customers.tier = 'plus'). This is a derived grouping, not a stored flag/column, distinct from the broader 'key account' grouping (plus or enterprise tier). Use this definition consistently in\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:16:00.351739Z\"},{\"id\":\"6b66d52c65a80892e333f128f465287c\",\"reference\":\"mcp:memory:6b66d52c65a80892e333f128f465287c\",\"summary\":\"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., has at least one matching row in the orders table). Use this definition consistently in analyses of customer activity/engagement.\",\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:12:03.664253Z\"}]}\n{\"knowledge_pages\":[{\"id\":\"kp_e3930c3f-f3ff-4032-abfc-9e22a8b92fdb\",\"slug\":\"active-customer-definition\",\"title\":\"Active Customer Definition\"},{\"id\":\"kp_f3b522c3-5120-42a6-8600-3682dbe92171\",\"slug\":\"charter-cohort-definition\",\"title\":\"Charter Cohort Definition\"},{\"id\":\"kp_c4e2750f-1079-463b-875d-7757b1e62740\",\"slug\":\"clearance-set-definition\",\"title\":\"Clearance Set Definition\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "The customers table (memory.bench.customers) has a `region` column - this is the dataset the \"core market\" definition concerns.",
+      "tool_calls": [
+        {
+          "id": "toolu_01N9exeCdjHDuBbPkFi4KYRA",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: the 'core market' is the set of customers whose region = 'North' (customers.region = 'North'). Use this definition consistently in future analyses referencing the 'core market'.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01N9exeCdjHDuBbPkFi4KYRA",
+          "text": "{\n  \"id\": \"8266f7c53c5e75038fda3f66d49fbb9e\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"core market\" is now defined as customers with `region = 'North'` (memory.bench.customers table), captured as insight `8266f7c53c5e75038fda3f66d49fbb9e` and linked to the `memory.bench.customers` dataset — pending review before promotion to shared knowledge."
+    }
+  ]
+}

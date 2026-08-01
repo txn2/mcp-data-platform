@@ -1,0 +1,67 @@
+{
+  "protocol_id": "lc-spring-window",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-051@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'spring window' for this study is April 2025. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01FCoJqmxaDvqBrw3N1uXv7D",
+          "name": "search",
+          "args": {
+            "intent": "spring window date range definition study analysis"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01FCoJqmxaDvqBrw3N1uXv7D",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/activity/overview\\nGet activity overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/overview\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/overview\\nGet audit overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/overview\",\n          \"score\": 0.6972188750840455\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.6733348848829965\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'reporting cohort' is the set of orders placed in December 2025. Operationally: filter memory.bench.orders to rows where the order placement date falls between 2025-12-01 and 2025-12-31 inclusive (e.g. order_date \\u003e= DATE '2025-12-01' AND order_date \\u003c DATE '2026-01-01'; verify exact placement-date column name at query time). Use this exact definition for any 'reporting cohort' analysis in future sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"3ddd08c28c42ffc4ebc833304970d426\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-043@apikey.local\",\n          \"reference\": \"mcp:insight:3ddd08c28c42ffc4ebc833304970d426\"\n        },\n        {\n          \"text\": \"Working definition: the 'flagship region' for this study is the South region. Use this exact definition for any 'flagship region' analysis in future sessions - filter/segment on region = South (region likely from customers table or an orders.region column; verify join/column at query time) when analyzing memory.bench.orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"112d6261704a1b5276418a8089e91779\",\n          \"score\": 0.675188608169105,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-017@apikey.local\",\n          \"reference\": \"mcp:insight:112d6261704a1b5276418a8089e91779\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        },\n        {\n          \"text\": \"Peak Region Definition\\nThe 'peak region' is the region with the most customers.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5202dc68-920e-44a8-9959-a0a83d43d023\",\n          \"score\": 0.7467077608336122,\n          \"reference\": \"mcp:knowledge_page:kp_5202dc68-920e-44a8-9959-a0a83d43d023\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.9527490104862164,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 14,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Q3bzggTZ7FBu3R5x3yeZzr",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: the 'spring window' for this study is April 2025. Operationally: filter memory.bench.orders to rows where the order placement date falls in April 2025 (e.g. order_date \u003e= DATE '2025-04-01' AND order_date \u003c DATE '2025-05-01'; verify exact placement-date column name at query time). Use this exact definition for any 'spring window' analysis in future sessions.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Q3bzggTZ7FBu3R5x3yeZzr",
+          "text": "{\n  \"id\": \"6ad8c10f254a270a4747bea051da714d\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the working definition \"'spring window' = April 2025\" is recorded as a schema_entity insight (id `6ad8c10f254a270a4747bea051da714d`) linked to `memory.bench.orders`, pending review before promotion to shared catalog knowledge."
+    }
+  ]
+}

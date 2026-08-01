@@ -1,0 +1,67 @@
+{
+  "protocol_id": "lc-reporting-window",
+  "stage": "update",
+  "identity": "teacher",
+  "email": "bench-agent-045@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Correction to the definition I gave you earlier. The 'reporting window' is now calendar quarter 3 of 2025 (July through September). Please update your saved knowledge so future answers use this corrected definition."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_017FX3GCwqx8ahLBErqKE9NC",
+          "name": "search",
+          "args": {
+            "intent": "reporting window definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_017FX3GCwqx8ahLBErqKE9NC",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/notifications/stats\\nGet notification delivery stats\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/notifications/stats\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/notifications\\nList notification deliveries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/notifications\",\n          \"score\": 0.876440641494391\n        },\n        {\n          \"text\": \"GET /api/v1/portal/prompts/usage\\nPrompt usage stats (portal)\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/prompts/usage\",\n          \"score\": 0.722127614677343\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 0.6852088674685384\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.8950444396702976,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Peak Region Definition\\nThe 'peak region' is the region with the most customers.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5202dc68-920e-44a8-9959-a0a83d43d023\",\n          \"score\": 0.7328731615383561,\n          \"reference\": \"mcp:knowledge_page:kp_5202dc68-920e-44a8-9959-a0a83d43d023\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'reporting window' for this study is calendar quarter 1 of 2025 (January through March), i.e. 2025-01-01 through 2025-03-31 inclusive. Operationally: filter memory.bench.orders to rows where order_date \\u003e= DATE '2025-01-01' AND order_date \\u003c DATE '2025-04-01' (verify exact placement-date column name at query time). Use this exact definition for any 'reporting window' analysis in future sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"5cfc1e8d6e5e4d0947361ba1ffe73e0b\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-045@apikey.local\",\n          \"reference\": \"mcp:insight:5cfc1e8d6e5e4d0947361ba1ffe73e0b\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 13,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01TDAdAB4uGTmdMtQXvDd8w7",
+          "name": "memory_capture",
+          "args": {
+            "category": "correction",
+            "confidence": "high",
+            "content": "Correction: the 'reporting window' definition is now calendar quarter 3 of 2025 (July through September), i.e. 2025-07-01 through 2025-09-30 inclusive. This supersedes the earlier Q1 2025 (Jan-Mar) definition. Operationally: filter memory.bench.orders to rows where order_date \u003e= DATE '2025-07-01' AND order_date \u003c DATE '2025-10-01' (verify exact placement-date column name at query time). Use this exact definition for any 'reporting window' analysis in future sessions.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01TDAdAB4uGTmdMtQXvDd8w7",
+          "text": "{\n  \"id\": \"d5d09d465e5f382b4ab5cafaecf9cbdb\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"superseded\": \"5cfc1e8d6e5e4d0947361ba1ffe73e0b\",\n  \"superseded_ids\": [\n    \"5cfc1e8d6e5e4d0947361ba1ffe73e0b\"\n  ],\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog. 1 prior record(s) superseded.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"reporting window\" is now defined as Q3 2025 (2025-07-01 through 2025-09-30, i.e. `order_date \u003e= '2025-07-01' AND order_date \u003c '2025-10-01'`), linked to `memory.bench.orders`, and this correction has superseded the old Q1 2025 definition."
+    }
+  ]
+}

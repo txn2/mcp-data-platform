@@ -1,0 +1,106 @@
+{
+  "protocol_id": "lc-billing-window",
+  "stage": "recall",
+  "identity": "teacher",
+  "email": "bench-agent-007@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "How many completed orders fall in the billing window? Answer with the count."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01TPHqdLQyWgpeoLL2MdkYhf",
+          "name": "search",
+          "args": {
+            "intent": "billing window date range definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01TPHqdLQyWgpeoLL2MdkYhf",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"PUT /api/v1/admin/settings/review-queue-alert\\nUpdate review-queue alert settings\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /admin/settings/review-queue-alert\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/performance\\nGet audit performance\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/performance\",\n          \"score\": 0.992611976801515\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.9240482513637915\n        },\n        {\n          \"text\": \"GET /api/v1/admin/notifications\\nList notification deliveries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/notifications\",\n          \"score\": 0.8057421258279803\n        },\n        {\n          \"text\": \"GET /api/v1/portal/activity/overview\\nGet activity overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/overview\",\n          \"score\": 0.6965363981320843\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.6828480377685615,\n          \"reference\": \"mcp:prompt:a38f3151-0806-4858-b88e-40b35397fa2e\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.6296534746127997,\n          \"reference\": \"mcp:prompt:5d4150e3-da01-4cf0-bad9-fb822b9e4e4a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition for this study: the 'billing window' is calendar quarter 2 of 2025 (Q2 2025), i.e. April 1, 2025 through June 30, 2025 inclusive (order_ts/date \\u003e= 2025-04-01 and \\u003c 2025-07-01). Apply this definition whenever an analysis in this study refers to the 'billing window' — it scopes queries against memory.bench.orders (and derived revenue aggregates like memory.bench.daily_region_revenue) to that date range.\",\n          \"source\": \"insights\",\n          \"ref\": \"69e465fb57bf30892e44c57b1a91514b\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-007@apikey.local\",\n          \"reference\": \"mcp:insight:69e465fb57bf30892e44c57b1a91514b\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 5,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 2,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01MqsfdStASEadxTD9Ya2RrJ",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01MqsfdStASEadxTD9Ya2RrJ",
+          "text": "## Table: `memory.bench.orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_ts` | timestamp(3) | - | - |\n| `status` | varchar | - | - |\n| `amount` | integer | - | - |\n| `discount` | integer | - | - |\n\n*6 columns*\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"In our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}\n{\"memory_context\":[{\"id\":\"37781541593bb246496d002caa85ac84\",\"reference\":\"mcp:memory:37781541593bb246496d002caa85ac84\",\"summary\":\"Computed: total net revenue (amount - discount, completed orders only) for the anchor region (North, per memory.bench.customers.region joined to memory.bench.orders) in calendar year 2025 = $239,402.08 (23,940,208 cents over 210 completed orders). Used memory.bench.orders directl\",\"truncated\":true,\"dimension\":\"event\",\"category\":\"business_context\",\"confidence\":\"medium\",\"created_at\":\"2026-08-01T20:38:29.650502Z\"},{\"id\":\"2db1c93fb3fe7d600de63215eaed770a\",\"reference\":\"mcp:memory:2db1c93fb3fe7d600de63215eaed770a\",\"summary\":\"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table with that customer's ID). This is a derived business definition, not a stored column/flag on the customers table. Use this definition for\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:36:34.447711Z\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01FMkZ3vVgLPp4THHhXMWbgY",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT status, count(*) FROM memory.bench.orders GROUP BY status"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01FMkZ3vVgLPp4THHhXMWbgY",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"status\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"_col1\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"_col1\": 948,\n      \"status\": \"completed\"\n    },\n    {\n      \"_col1\": 166,\n      \"status\": \"refunded\"\n    },\n    {\n      \"_col1\": 86,\n      \"status\": \"pending\"\n    }\n  ],\n  \"row_count\": 3,\n  \"stats\": {\n    \"row_count\": 3,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 43\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.orders\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01FUvrPovmNi4hZo332ar6vS",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT count(*) FROM memory.bench.orders WHERE status='completed' AND order_ts \u003e= TIMESTAMP '2025-04-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-07-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01FUvrPovmNi4hZo332ar6vS",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"_col0\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"_col0\": 251\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 28\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.orders\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "The billing window is defined (per saved insight) as Q2 2025: April 1, 2025 through June 30, 2025 inclusive. Filtering `memory.bench.orders` for `status='completed'` within that range gives 251 orders.\n\nFINAL ANSWER: 251"
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "protocol_id": "lc-benchmark-month",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-005@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'benchmark month' for this study is March 2025. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01VuW3P1cKGeCWL3MjB3ygHT",
+          "name": "search",
+          "args": {
+            "intent": "benchmark month March 2025 study definition dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01VuW3P1cKGeCWL3MjB3ygHT",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:cac06187-ab9d-440f-9a92-c65841eeb1fa\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.8942879265505317,\n          \"reference\": \"mcp:prompt:9bbd024e-dfc5-452c-bb44-0e5679dfe731\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.6809649282228742,\n          \"reference\": \"mcp:prompt:17c36cc4-7c2a-4429-94a9-ddef2f81ec5a\"\n        },\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.5191035796218961,\n          \"reference\": \"mcp:prompt:af149f63-e826-465c-afc9-bb1472dd031f\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.4741791310377382,\n          \"reference\": \"mcp:prompt:9ba2278c-a779-496b-ac7f-5995ec5fc7f4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        },\n        {\n          \"text\": \"legacy_orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n          \"score\": 0.6666666666666666,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n        },\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 0.3333333333333333,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., has at least one matching row in the orders table). Use this definition consistently in analyses of customer activity/engagement.\",\n          \"source\": \"insights\",\n          \"ref\": \"6b66d52c65a80892e333f128f465287c\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:6b66d52c65a80892e333f128f465287c\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_018DweBz6so7atG7WzNmNRe4",
+          "name": "datahub_get_schema",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)"
+          }
+        },
+        {
+          "id": "toolu_01WDYo4P7YGcUB6TUx8eMhJE",
+          "name": "datahub_get_entity",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_018DweBz6so7atG7WzNmNRe4",
+          "text": "{\n  \"fields\": null\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.daily_region_revenue\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"day\",\"type\":\"date\"},{\"name\":\"region\",\"type\":\"varchar\"},{\"name\":\"gross_revenue_usd\",\"type\":\"double\"}],\"total_columns\":3}}}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01WDYo4P7YGcUB6TUx8eMhJE",
+          "text": "{\n  \"urn\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n  \"type\": \"DATASET\",\n  \"name\": \"daily_region_revenue\",\n  \"description\": \"Pre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy. FRESHNESS: this index is refreshed only through 2025-11-30; it has NO rows for dates after that cutoff, so any question about a period on or after 2025-12-01 must be answered from memory.bench.orders directly, not this index.\",\n  \"platform\": \"trino\"\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.daily_region_revenue\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"day\",\"type\":\"date\"},{\"name\":\"region\",\"type\":\"varchar\"},{\"name\":\"gross_revenue_usd\",\"type\":\"double\"}],\"total_columns\":3}}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01FXr4L5iuRUcbwn1XVzBRfo",
+          "name": "datahub_get_schema",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01FXr4L5iuRUcbwn1XVzBRfo",
+          "text": "{\n  \"fields\": null\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.orders\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"order_id\",\"type\":\"integer\"},{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"order_ts\",\"type\":\"timestamp(3)\"},{\"name\":\"status\",\"type\":\"varchar\"},{\"name\":\"amount\",\"type\":\"integer\"},{\"name\":\"discount\",\"type\":\"integer\"}],\"total_columns\":6}}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01LEvMeHQchJZPfRU14HZQwC",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition for this study: the 'benchmark month' is March 2025 (2025-03-01 through 2025-03-31). Use this as the reference/baseline month in all analyses for this study, e.g. filtering daily_region_revenue.day or orders.order_ts to March 2025 when computing benchmark-period comparisons.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)",
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01LEvMeHQchJZPfRU14HZQwC",
+          "text": "{\n  \"id\": \"f3aa80524aadf448274aae366c31c1e5\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: a `business_knowledge` memory (id `f3aa80524aadf448274aae366c31c1e5`) defining the **benchmark month = March 2025** for this study, linked to `memory.bench.daily_region_revenue` and `memory.bench.orders`. It's pending review before promotion to the shared catalog, but will be recallable via search in future sessions."
+    }
+  ]
+}

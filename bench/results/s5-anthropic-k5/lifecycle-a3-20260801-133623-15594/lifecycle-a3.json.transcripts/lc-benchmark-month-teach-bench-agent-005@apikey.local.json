@@ -1,0 +1,107 @@
+{
+  "protocol_id": "lc-benchmark-month",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-005@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'benchmark month' for this study is March 2025. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Y5V5SZdVmdT3ouTStxuge5",
+          "name": "search",
+          "args": {
+            "intent": "benchmark month March 2025 study definition dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Y5V5SZdVmdT3ouTStxuge5",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/performance\\nGet audit performance\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/performance\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/discovery\\nGet discovery pattern metrics\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/discovery\",\n          \"score\": 0.927437988535845\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/overview\\nGet audit overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/overview\",\n          \"score\": 0.6826620419225089\n        },\n        {\n          \"text\": \"GET /api/v1/portal/activity/overview\\nGet activity overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/overview\",\n          \"score\": 0.6806301148293329\n        },\n        {\n          \"text\": \"GET /api/v1/portal/memory/records/stats\\nGet my memory stats\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/memory/records/stats\",\n          \"score\": 0.6271360750181706\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.8942879265505317,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.6809649282228742,\n          \"reference\": \"mcp:prompt:5d4150e3-da01-4cf0-bad9-fb822b9e4e4a\"\n        },\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.5191035796218961,\n          \"reference\": \"mcp:prompt:2afcb8ea-dee5-4d79-932e-5cb4b449d01e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table with that customer's ID). This is a derived business definition, not a stored column/flag on the customers table. Use this definition for all \\\"active customer\\\" analysis: active customer count = count of distinct customers with \\u003e=1 row in orders (memory.bench.orders).\",\n          \"source\": \"insights\",\n          \"ref\": \"2db1c93fb3fe7d600de63215eaed770a\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:2db1c93fb3fe7d600de63215eaed770a\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_015sy5sVxkZhJXaHJLPV6Qgb",
+          "name": "search",
+          "args": {
+            "intent": "orders table dataset schema benchmark study",
+            "sources": [
+              "catalog"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01RffkR9nMQSBy8Hkgjjeq1k",
+          "name": "search",
+          "args": {
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "intent": "month date column orders table"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_015sy5sVxkZhJXaHJLPV6Qgb",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01RffkR9nMQSBy8Hkgjjeq1k",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/notifications\\nList notification deliveries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/notifications\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"PUT /api/v1/portal/prompts/{id}/attachments\\nReorder prompt attachments\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /portal/prompts/{id}/attachments\",\n          \"score\": 0.8964575187572462\n        },\n        {\n          \"text\": \"GET /api/v1/admin/prompt-collections\\nList prompt collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/prompt-collections\",\n          \"score\": 0.8571974625525336\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 0.8394465391588583\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.9381027122295814,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        },\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.8709558474199679,\n          \"reference\": \"mcp:prompt:2afcb8ea-dee5-4d79-932e-5cb4b449d01e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"memory.bench.orders\\nIn our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table with that customer's ID). This is a derived business definition, not a stored column/flag on the customers table. Use this definition for all \\\"active customer\\\" analysis: active customer count = count of distinct customers with \\u003e=1 row in orders (memory.bench.orders).\",\n          \"source\": \"insights\",\n          \"ref\": \"2db1c93fb3fe7d600de63215eaed770a\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:2db1c93fb3fe7d600de63215eaed770a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_7b429c5b-3198-40e1-97d4-dc74d0d21f3a\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"mcp:knowledge_page:kp_7b429c5b-3198-40e1-97d4-dc74d0d21f3a\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "The relevant dataset is `memory.bench.orders` (this is the study's core dataset, already used for \"active customer\" and \"top-line revenue\" definitions). I'll capture the benchmark month definition linked to it.",
+      "tool_calls": [
+        {
+          "id": "toolu_015JxmfSK9PDpqgnBaSsBdtV",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: the 'benchmark month' for this study is March 2025 (2025-03-01 through 2025-03-31). Use this as the reference/comparison month for all benchmark-related analysis on the orders data (memory.bench.orders).",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_015JxmfSK9PDpqgnBaSsBdtV",
+          "text": "{\n  \"id\": \"77b1921fdb792319aef45b16339ebb7d\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: recorded the working definition \"benchmark month = March 2025\" as a business_knowledge insight (id `77b1921fdb792319aef45b16339ebb7d`), linked to the `memory.bench.orders` dataset, pending review for promotion to shared knowledge."
+    }
+  ]
+}

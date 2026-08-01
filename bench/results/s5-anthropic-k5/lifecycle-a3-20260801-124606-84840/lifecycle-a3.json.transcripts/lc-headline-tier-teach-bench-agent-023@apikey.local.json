@@ -1,0 +1,66 @@
+{
+  "protocol_id": "lc-headline-tier",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-023@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'headline tier' for this study is the plus tier. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01SceLWD53vMFjbTVW26wS4c",
+          "name": "search",
+          "args": {
+            "intent": "tier column plus tier headline tier subscription customer tier dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01SceLWD53vMFjbTVW26wS4c",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:c2fc9751-6040-4b31-a893-28a743f0a842\"\n        },\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.8106920086446874,\n          \"reference\": \"mcp:prompt:3d35a6ff-3216-42ae-a19b-66804a706972\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.8065800301968489,\n          \"reference\": \"mcp:prompt:9181b031-d425-44b6-8f1e-c93a5b7f33f1\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7988752566595337,\n          \"reference\": \"mcp:prompt:5738c4fd-85ca-4443-b0ec-f94f7354208f\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.7385126452746896,\n          \"reference\": \"mcp:prompt:a2987b03-6509-456e-8ee4-486fa1b1fa37\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        },\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 0.6666666666666666,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'charter cohort' is the set of customers on the plus tier (customers.tier = 'plus'). This is a derived business grouping, not stored as its own column/flag; use this definition consistently in future analyses referencing 'charter cohort'. Note: distinct from the related 'key account' definition (plus OR enterprise tier).\",\n          \"source\": \"insights\",\n          \"ref\": \"8372aa75e6d08abf426929bc6075d662\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-009@apikey.local\",\n          \"reference\": \"mcp:insight:8372aa75e6d08abf426929bc6075d662\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_012oM8UwJQ36QN5Twf4Hygun",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: the 'headline tier' for this study is the plus tier (customers.tier = 'plus'). Use this definition consistently in future analyses referencing 'headline tier'. Note: distinct from related definitions on the same dataset - 'charter cohort' (also plus tier) and 'key account' (plus OR enterprise tier).",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_012oM8UwJQ36QN5Twf4Hygun",
+          "text": "{\n  \"id\": \"71e374f0e6bea2f98845c31b697616dc\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: \"headline tier\" = plus tier (`customers.tier = 'plus'`), linked to `memory.bench.customers` — captured as a schema_entity insight (id `71e374f0e6bea2f98845c31b697616dc`), pending review before promotion to the shared catalog."
+    }
+  ]
+}

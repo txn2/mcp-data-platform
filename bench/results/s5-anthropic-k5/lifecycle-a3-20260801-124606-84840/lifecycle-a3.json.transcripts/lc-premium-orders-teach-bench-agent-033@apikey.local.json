@@ -1,0 +1,69 @@
+{
+  "protocol_id": "lc-premium-orders",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-033@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. A 'premium order' is any order placed by a customer on the enterprise tier. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01SnufiSZLHxTQrCS86QD9Hs",
+          "name": "search",
+          "args": {
+            "intent": "orders table customer tier enterprise premium order definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01SnufiSZLHxTQrCS86QD9Hs",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:3d35a6ff-3216-42ae-a19b-66804a706972\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.9571220580600097,\n          \"reference\": \"mcp:prompt:c2fc9751-6040-4b31-a893-28a743f0a842\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.9100904983272107,\n          \"reference\": \"mcp:prompt:9181b031-d425-44b6-8f1e-c93a5b7f33f1\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7719585793327058,\n          \"reference\": \"mcp:prompt:5738c4fd-85ca-4443-b0ec-f94f7354208f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"House Tier Definition\\nThe 'house tier' is the customer tier that placed the most orders.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_f068d53f-9069-481d-be7e-8e352592e3d8\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_f068d53f-9069-481d-be7e-8e352592e3d8\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.8764662648214568,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Charter Cohort Definition\\nThe 'charter cohort' is the set of customers on the plus tier.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a5a79192-580a-4c5d-85a4-4feae5cd5ab9\",\n          \"score\": 0.713573240009586,\n          \"reference\": \"mcp:knowledge_page:kp_a5a79192-580a-4c5d-85a4-4feae5cd5ab9\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'house tier' is the customer tier (customers.tier) that placed the most orders overall — i.e., group orders by the customer's tier and take the tier with the highest order count. This is a derived business grouping, not stored as its own column/flag; use this definition consistently in future analyses referencing 'house tier'.\",\n          \"source\": \"insights\",\n          \"ref\": \"edbb551215fe364e2a783dca7a662f1a\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-027@apikey.local\",\n          \"reference\": \"mcp:insight:edbb551215fe364e2a783dca7a662f1a\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 10,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 8,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the relevant dataset (orders, joined with customers by tier). Now I'll capture the definition, linked to both datasets.",
+      "tool_calls": [
+        {
+          "id": "toolu_012ykKzs4SoayRm2gdoQzwXc",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: a 'premium order' is any order placed by a customer on the enterprise tier (customers.tier = 'enterprise'). This is a derived business grouping — join orders to customers and filter on tier, not a stored column/flag. Use this definition consistently in future analyses referencing 'premium order'.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_012ykKzs4SoayRm2gdoQzwXc",
+          "text": "{\n  \"id\": \"a4cf3aa66d3f80cfdbd362284eae2504\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"premium order\" definition (order placed by a customer on the enterprise tier) is captured as knowledge (id `a4cf3aa66d3f80cfdbd362284eae2504`), linked to the `memory.bench.orders` and `memory.bench.customers` datasets, pending review for promotion to the shared catalog."
+    }
+  ]
+}

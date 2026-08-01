@@ -1,0 +1,90 @@
+{
+  "protocol_id": "lc-target-cohort",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-055@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'target cohort' is the set of customers whose account was created during calendar year 2024. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_011ra2u6AnCvtiEmqe8BSiiQ",
+          "name": "search",
+          "args": {
+            "intent": "customers table account creation date column"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_011ra2u6AnCvtiEmqe8BSiiQ",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'reporting cohort' is the set of orders placed in December 2025. Operationally: filter the orders table (memory.bench.orders) to rows where order_date (placement date) falls between 2025-12-01 and 2025-12-31 inclusive. Use this definition consistently for any 'reporting cohort' analysis.\",\n          \"source\": \"insights\",\n          \"ref\": \"b9722810398a5a86c5ec339cf5214839\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-043@apikey.local\",\n          \"reference\": \"mcp:insight:b9722810398a5a86c5ec339cf5214839\"\n        },\n        {\n          \"text\": \"Working definition: the 'spring window' for this study is April 2025. Operationally: filter the orders table (memory.bench.orders) to rows where order_date (placement date) falls between 2025-04-01 and 2025-04-30 inclusive. Use this definition consistently for any 'spring window' analysis in later sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"5afb2f23e4b8ce6bb5a744236b0bd41b\",\n          \"score\": 0.915137025163877,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-051@apikey.local\",\n          \"reference\": \"mcp:insight:5afb2f23e4b8ce6bb5a744236b0bd41b\"\n        },\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customer_id exists in the orders table with at least one row). Use this definition consistently for customer activity/segmentation analyses.\",\n          \"source\": \"insights\",\n          \"ref\": \"fca597f647d5ac7e06d7a2bc3ae67207\",\n          \"score\": 0.8126836396407277,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:fca597f647d5ac7e06d7a2bc3ae67207\"\n        },\n        {\n          \"text\": \"Working definition: The 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025. Operationally: filter the orders table to rows where order status = completed AND order date falls within 2025-11-01 to 2025-12-31, then sum the amount column (no discount subtraction — this is gross, not net revenue). Use this definition consistently for any 'holiday total' analysis in later sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"a0b24d8bfc6dd5014d9e6df79685a868\",\n          \"score\": 0.7422906109793175,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-025@apikey.local\",\n          \"reference\": \"mcp:insight:a0b24d8bfc6dd5014d9e6df79685a868\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.7052327294008978,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:a2987b03-6509-456e-8ee4-486fa1b1fa37\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7474772099850929,\n          \"reference\": \"mcp:prompt:5738c4fd-85ca-4443-b0ec-f94f7354208f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 16,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_012tPAWuNMyjQ4UxvRaAewyy",
+          "name": "datahub_get_schema",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_012tPAWuNMyjQ4UxvRaAewyy",
+          "text": "{\n  \"fields\": null\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.customers\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"name\",\"type\":\"varchar\"},{\"name\":\"region\",\"type\":\"varchar\"},{\"name\":\"tier\",\"type\":\"varchar\"},{\"name\":\"created_at\",\"type\":\"timestamp(3)\"}],\"total_columns\":5}}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the relevant column: `created_at` (timestamp) on `memory.bench.customers`. Saving the definition now.",
+      "tool_calls": [
+        {
+          "id": "toolu_018JtusQV1a66kYzZRU6B18D",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: the 'target cohort' is the set of customers whose account was created during calendar year 2024. Operationally: filter the customers table (memory.bench.customers) to rows where created_at falls between 2024-01-01 00:00:00 and 2024-12-31 23:59:59 inclusive (i.e. created_at \u003e= DATE '2024-01-01' AND created_at \u003c DATE '2025-01-01'). Use this definition consistently for any 'target cohort' analysis in later sessions.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_018JtusQV1a66kYzZRU6B18D",
+          "text": "{\n  \"id\": \"864d8a4d080cd21034df8e0c9b3d4215\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"target cohort\" definition (customers with `created_at` in calendar year 2024) is recorded as a business_knowledge insight (id `864d8a4d080cd21034df8e0c9b3d4215`) linked to `memory.bench.customers`, pending review for promotion to shared knowledge."
+    }
+  ]
+}

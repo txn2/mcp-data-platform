@@ -1,0 +1,60 @@
+{
+  "protocol_id": "lc-signature-segment",
+  "stage": "recall",
+  "identity": "teacher",
+  "email": "bench-agent-049@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "How many customers are in the signature segment? Answer with the count."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01UEVgXb1WviDAHkjtijr9jt",
+          "name": "search",
+          "args": {
+            "intent": "customers in signature segment"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01UEVgXb1WviDAHkjtijr9jt",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"e2e (trino)\",\n          \"source\": \"connections\",\n          \"ref\": \"e2e\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(trino,e2e)\"\n        },\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        },\n        {\n          \"text\": \"util (api)\\nBuilt-in utility connection. Operations are handled inside the platform rather than proxied to an upstream API. `fetch_url` (`POST /util/fetch`) retrieves an arbitrary public URL server-side - a presigned download link, a generated report URL - inline via api_invoke_endpoint or streamed to a portal asset via api_export. Destinations on internal address space are refused.\",\n          \"source\": \"connections\",\n          \"ref\": \"util\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,util)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\\nAn 'active customer' is any customer who has placed at least one order.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_7b429c5b-3198-40e1-97d4-dc74d0d21f3a\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_7b429c5b-3198-40e1-97d4-dc74d0d21f3a\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.8821290212092284,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5d4150e3-da01-4cf0-bad9-fb822b9e4e4a\"\n        },\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.896016379314136,\n          \"reference\": \"mcp:prompt:2afcb8ea-dee5-4d79-932e-5cb4b449d01e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'signature segment' is the set of customers on the enterprise tier — i.e., customers where customers.tier = 'enterprise'. This is a derived business definition, not a stored flag; use this filter (memory.bench.customers.tier = 'enterprise') for all \\\"signature segment\\\" analysis in future sessions. Related but distinct from: 'key account' (plus or enterprise tier), 'charter cohort' (plus tier only).\",\n          \"source\": \"insights\",\n          \"ref\": \"805bf15ac861ab1b4c0e170d048d0b94\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-049@apikey.local\",\n          \"reference\": \"mcp:insight:805bf15ac861ab1b4c0e170d048d0b94\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 14,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 3,\n      \"shown\": 3\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01UCmofmLLt9zUohc1WKUE1z",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) FROM memory.bench.customers WHERE tier = 'enterprise'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01UCmofmLLt9zUohc1WKUE1z",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"_col0\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"_col0\": 19\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 20\n  }\n}\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"}}\n{\"memory_context\":[{\"id\":\"ee8443cf16f8a711de67a7ca41d0977a\",\"reference\":\"mcp:memory:ee8443cf16f8a711de67a7ca41d0977a\",\"summary\":\"Working definition: a 'premium order' is any order placed by a customer on the enterprise tier. Derived, not a stored flag: join memory.bench.orders.customer_id to memory.bench.customers.customer_id and filter customers.tier = 'enterprise'. Use this exact definition for any 'prem\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:51:11.013521Z\"},{\"id\":\"2452d23b7c8e79b1bf498a657924c19f\",\"reference\":\"mcp:memory:2452d23b7c8e79b1bf498a657924c19f\",\"summary\":\"Working definition: the 'peak region' is the region with the most customers (i.e., the region value with the highest count of distinct customers) in memory.bench.customers. Use this exact definition for any 'peak region' analysis in future sessions - determine via a GROUP BY regi\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:50:40.576777Z\"}],\"memory_context_note\":\"3 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"920ae64d98209b9561800042ccceeecd\",\"reference\":\"mcp:memory:920ae64d98209b9561800042ccceeecd\"},{\"id\":\"2d3523e7882f71c4c9d7d8ac517693f0\",\"reference\":\"mcp:memory:2d3523e7882f71c4c9d7d8ac517693f0\"},{\"id\":\"37781541593bb246496d002caa85ac84\",\"reference\":\"mcp:memory:37781541593bb246496d002caa85ac84\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "The saved insight defines the \"signature segment\" as customers where `tier = 'enterprise'`. Querying `memory.bench.customers` with that filter returns 19 customers.\n\nFINAL ANSWER: 19"
+    }
+  ]
+}

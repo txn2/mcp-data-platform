@@ -1,0 +1,122 @@
+{
+  "protocol_id": "lc-headline-tier",
+  "stage": "update_recall",
+  "identity": "teacher",
+  "email": "bench-agent-023@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Given the corrected headline tier, how many orders were placed by its customers? Answer with the count."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01GSzVdBjX1i3k2nLPA1Fa8H",
+          "name": "search",
+          "args": {
+            "intent": "corrected headline tier customer segment correction"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01GSzVdBjX1i3k2nLPA1Fa8H",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:17c36cc4-7c2a-4429-94a9-ddef2f81ec5a\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.8440118363809935,\n          \"reference\": \"mcp:prompt:9ba2278c-a779-496b-ac7f-5995ec5fc7f4\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.7482932612134932,\n          \"reference\": \"mcp:prompt:9bbd024e-dfc5-452c-bb44-0e5679dfe731\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.7167447283413211,\n          \"reference\": \"mcp:prompt:927576fc-b396-475a-92da-049544079f60\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        },\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 0.6666666666666666,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Correction: The 'headline tier' is now defined as the enterprise tier (customers.tier = 'enterprise'), NOT the plus tier as previously stated. Use this corrected definition consistently in any analysis referencing the 'headline tier'.\",\n          \"source\": \"insights\",\n          \"ref\": \"10d76f9e8a7654816f5bfa6507cc51c4\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-023@apikey.local\",\n          \"reference\": \"mcp:insight:10d76f9e8a7654816f5bfa6507cc51c4\"\n        },\n        {\n          \"text\": \"Working definition: The 'headline tier' for this study is the plus tier (i.e., customers.tier = 'plus'). Use this definition consistently in analyses referencing the 'headline tier'.\",\n          \"source\": \"insights\",\n          \"ref\": \"5bc27f2c23cfed457baec54c21550175\",\n          \"score\": 0.7258530771541396,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-023@apikey.local\",\n          \"reference\": \"mcp:insight:5bc27f2c23cfed457baec54c21550175\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 6,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01HiDeNTy8FbHXTBpFJKkytt",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "customers"
+          }
+        },
+        {
+          "id": "toolu_01QxrjxSV4woD5VxnrwcBUKj",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01HiDeNTy8FbHXTBpFJKkytt",
+          "text": "## Table: `memory.bench.customers`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `customer_id` | integer | - | - |\n| `name` | varchar | - | - |\n| `region` | varchar | - | - |\n| `tier` | varchar | - | - |\n| `created_at` | timestamp(3) | - | - |\n\n*5 columns*\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"}}\n{\"memory_context\":[{\"id\":\"974fd2b60f9c2aa7698809c29a2cf3cb\",\"reference\":\"mcp:memory:974fd2b60f9c2aa7698809c29a2cf3cb\",\"summary\":\"Working definition: the 'clearance set' is the set of completed orders (orders.status = 'completed') placed by customers whose region = 'West' (customers.region), joined via orders.customer_id = customers.customer_id. Use this definition consistently in future analyses referencin\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:17:50.004751Z\"},{\"id\":\"49f3ce956b07b283d739036bfee91748\",\"reference\":\"mcp:memory:49f3ce956b07b283d739036bfee91748\",\"summary\":\"Working definition: The 'charter cohort' is the set of customers on the plus tier (i.e., customers.tier = 'plus'). This is a derived grouping, not a stored flag/column, distinct from the broader 'key account' grouping (plus or enterprise tier). Use this definition consistently in\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:16:00.351739Z\"},{\"id\":\"6b66d52c65a80892e333f128f465287c\",\"reference\":\"mcp:memory:6b66d52c65a80892e333f128f465287c\",\"summary\":\"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., has at least one matching row in the orders table). Use this definition consistently in analyses of customer activity/engagement.\",\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:12:03.664253Z\"}]}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01QxrjxSV4woD5VxnrwcBUKj",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01PxVvNHJmEr6Qr6CoRjR4Em",
+          "name": "search",
+          "args": {
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "intent": "headline tier definition correction history"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01PxVvNHJmEr6Qr6CoRjR4Em",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Correction: The 'headline tier' is now defined as the enterprise tier (customers.tier = 'enterprise'), NOT the plus tier as previously stated. Use this corrected definition consistently in any analysis referencing the 'headline tier'.\",\n          \"source\": \"insights\",\n          \"ref\": \"10d76f9e8a7654816f5bfa6507cc51c4\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-023@apikey.local\",\n          \"reference\": \"mcp:insight:10d76f9e8a7654816f5bfa6507cc51c4\"\n        },\n        {\n          \"text\": \"Working definition: The 'charter cohort' is the set of customers on the plus tier (i.e., customers.tier = 'plus'). This is a derived grouping, not a stored flag/column, distinct from the broader 'key account' grouping (plus or enterprise tier). Use this definition consistently in analyses referencing the 'charter cohort'.\",\n          \"source\": \"insights\",\n          \"ref\": \"49f3ce956b07b283d739036bfee91748\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-009@apikey.local\",\n          \"reference\": \"mcp:insight:49f3ce956b07b283d739036bfee91748\"\n        },\n        {\n          \"text\": \"Working definition: The 'headline tier' for this study is the plus tier (i.e., customers.tier = 'plus'). Use this definition consistently in analyses referencing the 'headline tier'.\",\n          \"source\": \"insights\",\n          \"ref\": \"5bc27f2c23cfed457baec54c21550175\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-023@apikey.local\",\n          \"reference\": \"mcp:insight:5bc27f2c23cfed457baec54c21550175\"\n        },\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., has at least one matching row in the orders table). Use this definition consistently in analyses of customer activity/engagement.\",\n          \"source\": \"insights\",\n          \"ref\": \"6b66d52c65a80892e333f128f465287c\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:6b66d52c65a80892e333f128f465287c\"\n        },\n        {\n          \"text\": \"Working definition: the 'clearance set' is the set of completed orders (orders.status = 'completed') placed by customers whose region = 'West' (customers.region), joined via orders.customer_id = customers.customer_id. Use this definition consistently in future analyses referencing the 'clearance set'.\",\n          \"source\": \"insights\",\n          \"ref\": \"974fd2b60f9c2aa7698809c29a2cf3cb\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-011@apikey.local\",\n          \"reference\": \"mcp:insight:974fd2b60f9c2aa7698809c29a2cf3cb\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"memory.bench.customers\\nThe 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        },\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Clearance Set Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c4e2750f-1079-463b-875d-7757b1e62740\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"mcp:knowledge_page:kp_c4e2750f-1079-463b-875d-7757b1e62740\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:17c36cc4-7c2a-4429-94a9-ddef2f81ec5a\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 6,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01KHtixTvD9KhYnDPU9vhXfc",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS order_count\nFROM memory.bench.orders o\nJOIN memory.bench.customers c ON o.customer_id = c.customer_id\nWHERE c.tier = 'enterprise'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01KHtixTvD9KhYnDPU9vhXfc",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"order_count\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"order_count\": 287\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 47\n  }\n}\n{\"additional_tables\":[{\"description\":\"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\"table\":\"memory.bench.customers\",\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"}],\"semantic_context\":{\"deprecation\":null,\"description\":\"The 'closeout total' is the gross revenue (sum of amount over completed orders) for December 2025.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}\n{\"memory_context\":[{\"id\":\"974fd2b60f9c2aa7698809c29a2cf3cb\",\"reference\":\"mcp:memory:974fd2b60f9c2aa7698809c29a2cf3cb\",\"summary\":\"Working definition: the 'clearance set' is the set of completed orders (orders.status = 'completed') placed by customers whose region = 'West' (customers.region), joined via orders.customer_id = customers.customer_id. Use this definition consistently in future analyses referencin\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:17:50.004751Z\"},{\"id\":\"49f3ce956b07b283d739036bfee91748\",\"reference\":\"mcp:memory:49f3ce956b07b283d739036bfee91748\",\"summary\":\"Working definition: The 'charter cohort' is the set of customers on the plus tier (i.e., customers.tier = 'plus'). This is a derived grouping, not a stored flag/column, distinct from the broader 'key account' grouping (plus or enterprise tier). Use this definition consistently in\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:16:00.351739Z\"},{\"id\":\"6b66d52c65a80892e333f128f465287c\",\"reference\":\"mcp:memory:6b66d52c65a80892e333f128f465287c\",\"summary\":\"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., has at least one matching row in the orders table). Use this definition consistently in analyses of customer activity/engagement.\",\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:12:03.664253Z\"}],\"memory_context_note\":\"1 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"ff6ec626a326c5681667bbf462c02b8b\",\"reference\":\"mcp:memory:ff6ec626a326c5681667bbf462c02b8b\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "The corrected headline tier is the enterprise tier (customers.tier = 'enterprise'), per the correction insight superseding the earlier \"plus\" definition. Joining orders to customers with tier = 'enterprise' yields 287 orders.\n\nFINAL ANSWER: 287"
+    }
+  ]
+}

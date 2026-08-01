@@ -1,0 +1,68 @@
+{
+  "protocol_id": "lc-leading-region",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-029@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'leading region' is the region whose customers placed the most orders. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01SSszjHAjtuaNjRVKRyYVwq",
+          "name": "search",
+          "args": {
+            "intent": "orders by region, customer region, region dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01SSszjHAjtuaNjRVKRyYVwq",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/prompt-collections\\nList prompt collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/prompt-collections\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/prompt-collections\\nList prompt collections (portal)\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/prompt-collections\",\n          \"score\": 0.8915500895300014\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.8113753746621151\n        },\n        {\n          \"text\": \"GET /api/v1/admin/notifications\\nList notification deliveries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/notifications\",\n          \"score\": 0.7666927835788524\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'flagship region' for this study is the South region. Use this exact definition for any 'flagship region' analysis in future sessions - filter/segment on region = South (region likely from customers table or an orders.region column; verify join/column at query time) when analyzing memory.bench.orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"112d6261704a1b5276418a8089e91779\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-017@apikey.local\",\n          \"reference\": \"mcp:insight:112d6261704a1b5276418a8089e91779\"\n        },\n        {\n          \"text\": \"Working definition: the 'clearance set' is the set of completed orders placed by customers in the West region. Operationally: filter memory.bench.orders to rows where order status = completed AND customer region = West (region likely from customers table or an orders.region column - verify join/column at query time). Use this exact definition for any 'clearance set' analysis in future sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"6c7b2e453afcbf404b026f423e933d4f\",\n          \"score\": 0.7286093565704079,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-011@apikey.local\",\n          \"reference\": \"mcp:insight:6c7b2e453afcbf404b026f423e933d4f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:2afcb8ea-dee5-4d79-932e-5cb4b449d01e\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8852528239158705,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 6,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "This confirms the relevant dataset is `memory.bench.orders` (region tied to customers/orders). I'll save the \"leading region\" definition linked to that dataset.",
+      "tool_calls": [
+        {
+          "id": "toolu_01RgkKrRuv9st2B5EFPyg7td",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: the 'leading region' is the region whose customers placed the most orders (i.e., the region with the highest count of orders, determined via customer region on memory.bench.orders - region likely from customers table or an orders.region column; verify join/column at query time). Use this exact definition for any 'leading region' analysis in future sessions.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01RgkKrRuv9st2B5EFPyg7td",
+          "text": "{\n  \"id\": \"af13a8aa84ad738aa59850713208610d\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the working definition \"leading region = region whose customers placed the most orders\" is captured (id `af13a8aa84ad738aa59850713208610d`) and linked to `memory.bench.orders`, pending review for promotion to shared knowledge."
+    }
+  ]
+}

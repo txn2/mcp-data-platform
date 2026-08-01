@@ -1,0 +1,90 @@
+{
+  "protocol_id": "lc-reference-cohort",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-041@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'reference cohort' is the set of customers whose account was created during calendar year 2023. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01KknkjvPMzTcRQ17FBeBYo2",
+          "name": "search",
+          "args": {
+            "intent": "customers table account created date / signup date column"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01KknkjvPMzTcRQ17FBeBYo2",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customer_id exists in the orders table with at least one row). Use this definition consistently for customer activity/segmentation analyses.\",\n          \"source\": \"insights\",\n          \"ref\": \"fca597f647d5ac7e06d7a2bc3ae67207\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:fca597f647d5ac7e06d7a2bc3ae67207\"\n        },\n        {\n          \"text\": \"Working definition: The 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025. Operationally: filter the orders table to rows where order status = completed AND order date falls within 2025-11-01 to 2025-12-31, then sum the amount column (no discount subtraction — this is gross, not net revenue). Use this definition consistently for any 'holiday total' analysis in later sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"a0b24d8bfc6dd5014d9e6df79685a868\",\n          \"score\": 0.8417698669032588,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-025@apikey.local\",\n          \"reference\": \"mcp:insight:a0b24d8bfc6dd5014d9e6df79685a868\"\n        },\n        {\n          \"text\": \"Working definition: The 'closeout total' is the gross revenue (sum of amount over completed orders) for December 2025. Operationally: filter the orders table to rows where order status = completed AND order date falls within December 2025 (2025-12-01 to 2025-12-31), then sum the amount column (no discount subtraction — this is gross, not net revenue). Use this definition consistently for any 'closeout total' analysis in later sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"7148b00073ae60f593c32637534b161c\",\n          \"score\": 0.7339068615105641,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-013@apikey.local\",\n          \"reference\": \"mcp:insight:7148b00073ae60f593c32637534b161c\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        },\n        {\n          \"text\": \"util (api)\\nBuilt-in utility connection. Operations are handled inside the platform rather than proxied to an upstream API. `fetch_url` (`POST /util/fetch`) retrieves an arbitrary public URL server-side - a presigned download link, a generated report URL - inline via api_invoke_endpoint or streamed to a portal asset via api_export. Destinations on internal address space are refused.\",\n          \"source\": \"connections\",\n          \"ref\": \"util\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,util)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:a2987b03-6509-456e-8ee4-486fa1b1fa37\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7949738777216498,\n          \"reference\": \"mcp:prompt:5738c4fd-85ca-4443-b0ec-f94f7354208f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 11,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 10,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 2,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01JNoApgE3cHybiYU5sLqmmA",
+          "name": "datahub_get_schema",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01JNoApgE3cHybiYU5sLqmmA",
+          "text": "{\n  \"fields\": null\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.customers\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"name\",\"type\":\"varchar\"},{\"name\":\"region\",\"type\":\"varchar\"},{\"name\":\"tier\",\"type\":\"varchar\"},{\"name\":\"created_at\",\"type\":\"timestamp(3)\"}],\"total_columns\":5}}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Confirmed: the `customers` dataset has a `created_at` timestamp column, which is the account-creation date this definition refers to.",
+      "tool_calls": [
+        {
+          "id": "toolu_014AiCJ4REJoPfQepzi6k1aF",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: The 'reference cohort' is the set of customers whose account was created during calendar year 2023. Operationally: filter the customers table (memory.bench.customers) to rows where created_at falls between 2023-01-01 and 2023-12-31 (inclusive). Use this definition consistently for any 'reference cohort' analysis in later sessions.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_014AiCJ4REJoPfQepzi6k1aF",
+          "text": "{\n  \"id\": \"9aecfe904a36c1deaa50a24d69db485f\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"reference cohort\" definition (customers with `created_at` in calendar year 2023) is recorded as business knowledge and linked to the `memory.bench.customers` dataset, pending review for promotion to the shared catalog."
+    }
+  ]
+}

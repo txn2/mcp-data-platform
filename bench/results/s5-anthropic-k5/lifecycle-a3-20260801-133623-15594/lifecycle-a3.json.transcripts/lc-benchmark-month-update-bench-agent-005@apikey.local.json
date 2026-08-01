@@ -1,0 +1,133 @@
+{
+  "protocol_id": "lc-benchmark-month",
+  "stage": "update",
+  "identity": "teacher",
+  "email": "bench-agent-005@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Correction to the definition I gave you earlier. The 'benchmark month' is now September 2025, not March. Please update your saved knowledge so future answers use this corrected definition."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_014sHHiJN2nDwDTXfSDP3a5P",
+          "name": "search",
+          "args": {
+            "intent": "benchmark month definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_014sHHiJN2nDwDTXfSDP3a5P",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5d4150e3-da01-4cf0-bad9-fb822b9e4e4a\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.9560683338595374,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.9497204478830391,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.8507400760396845,\n          \"reference\": \"mcp:prompt:df5c0448-b99d-486a-8209-3dff6a9da69a\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.7264392627894719,\n          \"reference\": \"mcp:prompt:a38f3151-0806-4858-b88e-40b35397fa2e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/performance\\nGet audit performance\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/performance\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/timeseries\\nGet audit timeseries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/timeseries\",\n          \"score\": 0.5000803392714047\n        },\n        {\n          \"text\": \"PUT /api/v1/admin/settings/review-queue-alert\\nUpdate review-queue alert settings\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /admin/settings/review-queue-alert\",\n          \"score\": 0.4709666617882316\n        },\n        {\n          \"text\": \"GET /api/v1/portal/memory/records/search\\nSearch my memory records\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/memory/records/search\",\n          \"score\": 0.34100670026147284\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'benchmark month' for this study is March 2025 (2025-03-01 through 2025-03-31). Use this as the reference/comparison month for all benchmark-related analysis on the orders data (memory.bench.orders).\",\n          \"source\": \"insights\",\n          \"ref\": \"77b1921fdb792319aef45b16339ebb7d\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-005@apikey.local\",\n          \"reference\": \"mcp:insight:77b1921fdb792319aef45b16339ebb7d\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 2,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01DBjNQZh1c36DgzktBtuwn9",
+          "name": "search",
+          "args": {
+            "intent": "benchmark month definition",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01Lo8WaDLAAqLchysW75piLT",
+          "name": "search",
+          "args": {
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "intent": "benchmark month"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01DBjNQZh1c36DgzktBtuwn9",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01Lo8WaDLAAqLchysW75piLT",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.9967268668741024,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.826677253748562,\n          \"reference\": \"mcp:prompt:5d4150e3-da01-4cf0-bad9-fb822b9e4e4a\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.8246507426635149,\n          \"reference\": \"mcp:prompt:df5c0448-b99d-486a-8209-3dff6a9da69a\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.5940220122016673,\n          \"reference\": \"mcp:prompt:a38f3151-0806-4858-b88e-40b35397fa2e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table with that customer's ID). This is a derived business definition, not a stored column/flag on the customers table. Use this definition for all \\\"active customer\\\" analysis: active customer count = count of distinct customers with \\u003e=1 row in orders (memory.bench.orders).\",\n          \"source\": \"insights\",\n          \"ref\": \"2db1c93fb3fe7d600de63215eaed770a\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:2db1c93fb3fe7d600de63215eaed770a\"\n        },\n        {\n          \"text\": \"Working definition: the 'benchmark month' for this study is March 2025 (2025-03-01 through 2025-03-31). Use this as the reference/comparison month for all benchmark-related analysis on the orders data (memory.bench.orders).\",\n          \"source\": \"insights\",\n          \"ref\": \"77b1921fdb792319aef45b16339ebb7d\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-005@apikey.local\",\n          \"reference\": \"mcp:insight:77b1921fdb792319aef45b16339ebb7d\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"memory.bench.orders\\nIn our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/performance\\nGet audit performance\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/performance\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_7b429c5b-3198-40e1-97d4-dc74d0d21f3a\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"mcp:knowledge_page:kp_7b429c5b-3198-40e1-97d4-dc74d0d21f3a\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 2,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01GGoA5jpwr6dLZxyHycjr1d",
+          "name": "memory_capture",
+          "args": {
+            "category": "correction",
+            "confidence": "high",
+            "content": "Correction: the 'benchmark month' for this study is now September 2025 (2025-09-01 through 2025-09-30), superseding the earlier definition of March 2025. Use September 2025 as the reference/comparison month for all benchmark-related analysis on the orders data (memory.bench.orders).",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01GGoA5jpwr6dLZxyHycjr1d",
+          "text": "{\n  \"id\": \"6c5a200e267d2d7c2b9887eafb478ba7\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"similar_existing\": [\n    {\n      \"id\": \"77b1921fdb792319aef45b16339ebb7d\",\n      \"score\": 0.8940310806595658\n    }\n  ],\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog. Similar existing records found (similar_existing): if this restates one, consolidate with memory_manage (update the existing record, or consolidate the duplicate).\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01MRnSvtVnvnG3GV5y2GRHnM",
+          "name": "apply_knowledge",
+          "args": {
+            "action": "reject",
+            "insight_ids": [
+              "77b1921fdb792319aef45b16339ebb7d"
+            ],
+            "review_notes": "Superseded by corrected insight 6c5a200e267d2d7c2b9887eafb478ba7: benchmark month is now September 2025, not March 2025."
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01MRnSvtVnvnG3GV5y2GRHnM",
+          "text": "{\n  \"action\": \"reject\",\n  \"total\": 1,\n  \"updated\": 1\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved the correction: the \"benchmark month\" is now **September 2025** (2025-09-01 to 2025-09-30), linked to `memory.bench.orders` — captured as a new insight (id `6c5a200e...`) and the old March 2025 insight was rejected/superseded so future sessions use the corrected definition."
+    }
+  ]
+}

@@ -8,11 +8,11 @@ it comes from.*
 | | |
 | --- | --- |
 | **Author** | Craig Johnston (cj@imti.co), Deasil Works, Inc. / txn2 — ORCID [0009-0000-9041-4079](https://orcid.org/0009-0000-9041-4079) |
-| **Published** | 2026-07-19 |
-| **Report version** | 1.1 |
-| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept DOI, resolves to the latest version) |
+| **Published** | 2026-07-19; version 2.0.1 published 2026-08-01 |
+| **Report version** | 2.0.1 |
+| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept DOI, resolves to the latest version). This version: [10.5281/zenodo.21751635](https://doi.org/10.5281/zenodo.21751635). |
 | **Subject under test** | The platform's semantic knowledge layer (cross-enrichment, `search`, and the memory / `apply_knowledge` lifecycle), not the whole platform. |
-| **Platform builds** | This report and its run data are pinned to release tag `v1.102.2`, whose application code is byte-identical to the cold-start build. The ablation and lifecycle (S5) suites ran on `v1.102.0` platform logic and cold-start on `v1.102.1`; the only deltas from the tag are portal-pagination plumbing (#974) and a pprof diagnostic endpoint, neither of which is in the cross-enrichment, `search`, or knowledge-lifecycle path under test (Section 6). Exact build strings, commits, seeds, and task-set hashes are pinned in each run's manifest (Section 9). |
+| **Platform builds** | **This report spans two platform generations and the sections are not mutually comparable.** Section 5 (lifecycle) ran on `v1.118.0-4-g445e3abc`; Sections 3 and 4 are pinned to release tag `v1.102.2`, whose application code is byte-identical to the cold-start build. Within that tag the ablation ran on `v1.102.0` platform logic and cold-start on `v1.102.1` (the superseded v1.1 lifecycle run was also `v1.102.0`); the only deltas from the tag are portal-pagination plumbing (#974) and a pprof diagnostic endpoint, neither of which is in the cross-enrichment, `search`, or knowledge-lifecycle path under test (Section 6). Exact build strings, commits, seeds, and task-set hashes are pinned in each run's manifest (Section 9). |
 | **How to cite** | [Section 10](#10-how-to-cite-this-report) |
 
 ## Abstract
@@ -157,8 +157,10 @@ do not model task-selection variance.
 The search-first gate keys discovery on the authenticated user, not the MCP
 session (`pkg/searchgate/searchgate.go:1`,
 `pkg/middleware/mcp_workflow_gate.go:11`), so every attempt authenticates as its
-own pool identity. The committed pool holds 264 keys, sized to the full phase-2
-task set at `k = 3` (`bench/docs/knowledge-layer-protocol.md`, "Measurement"). The lifecycle suite consumes two
+own pool identity. The committed pool holds 320 keys, sized to the
+thirty-protocol lifecycle suite at `k = 5`, its largest single consumer
+(`bench/docs/knowledge-layer-protocol.md`, "Measurement"); it held 264 for the
+v1.1 runs and was grown for the Section 5 re-run. The lifecycle suite consumes two
 identities per attempt (a teacher and a learner) so discovery scope never leaks
 between them (`bench/docs/knowledge-layer-protocol.md`, "S5 memory-insight-knowledge lifecycle (#944)").
 
@@ -360,40 +362,72 @@ that promotion to a durable sink occurred.
 
 ## 5. Results: memory and knowledge lifecycle (S5)
 
-Source: `bench/results/s5-anthropic-k3-isolated-v2/lifecycle-a3.json`. Anthropic
-API, model `claude-sonnet-5`, 15 protocols, `k = 3` (45 protocol-runs), platform
-build `v1.102.0-10-g32d61254-dirty`. Each protocol teaches a fact with one
-identity and tests whether a different identity can reuse it, plus supersede and
-abstention checks.
+Source: `bench/results/s5-anthropic-k5/lifecycle-a3-k5.json`. Anthropic API,
+model `claude-sonnet-5`, 30 protocols, `k = 5` as five independent passes merged
+(149 protocol-runs after one harness exclusion), platform build
+`v1.118.0-4-g445e3abc`. Each protocol teaches a fact with one identity and tests
+whether a different identity can reuse it, plus supersede and abstention checks.
 
-![S5 lifecycle rates with 95% bootstrap confidence intervals; small denominators are flagged](benchmark-figures/fig4_s5_lifecycle.png)
+**This section is measured on a different platform build from Sections 3 and 4.**
+Report version 1.1 published lifecycle results from `v1.102.0` at `k = 3` over
+fifteen protocols. Two product changes have landed since and both act on paths
+this suite measures: applied insights became searchable and fetchable across
+identities (#1129), and catalog dataset descriptions gained a platform-side
+semantic index (#1141). Differences from the v1.1 figures below are therefore
+**across-code**, not the effect of a larger sample. The ablation and cold-start
+sections are unchanged from v1.1 and still describe `v1.102.x`.
 
-| Metric | Rate (95% CI) | num/den | Meaning |
-| --- | --- | ---: | --- |
-| capture_rate | 82.2% [71-93] | 37/45 | The agent recorded and entity-linked the taught fact. |
-| personal_recall | 84.4% [73-93] | 38/45 | A fresh same-identity session answered the fact-dependent question correctly. |
-| unprompted_surface | 100.0% [100-100] | 37/37 | Among captured runs, `search` surfaced the saved memory unprompted. |
-| transfer_rate | 46.7% [30-63] | 14/30 | A different identity answered correctly after promotion to shared knowledge. |
-| update_correctness | 100.0% [100-100] | 7/7 | A correction flipped a later recall to the new value (all seven, so the interval collapses; the small denominator is the real caveat). |
-| abstention_rate | 95.6% [89-100] | 43/45 | The agent refused to fabricate a fact it was never taught. |
-| pass^k | 20.0% | 3/15 | All `k` attempts passed the full applicable lifecycle. |
+![S5 lifecycle rates with 95% bootstrap confidence intervals](benchmark-figures/fig4_s5_lifecycle.png)
 
-Two metrics carry small denominators and must be read as such. `update_correctness`
-is 7 for 7 but on only seven supersede runs. `duplicate_rate`, the inverse metric
-where lower is better (a supersede that left more than one live insight), is 42.9%
-(3 of 7) with a 95% CI of [14 to 86]; the interval spans most of the range, so
-this is a noisy estimate, not a point claim. These small-sample lifecycle metrics
-are the clearest limitation of the current suite; a larger protocol set is
-required before they can be reported as point estimates.
+| Metric | Rate (95% CI) | num/den | v1.1 (`v1.102.0`, k=3) | Meaning |
+| --- | --- | ---: | --- | --- |
+| capture_rate | 91.9% [87.2-96.0] | 137/149 | 82.2% | The agent recorded and entity-linked the taught fact. |
+| personal_recall | 95.3% [91.9-98.0] | 142/149 | 84.4% | A fresh same-identity session answered the fact-dependent question correctly. |
+| unprompted_surface | 100.0% | 137/137 | 100.0% | Among captured runs, `search` surfaced the saved memory unprompted. |
+| transfer_rate | 98.9% [96.8-100.0] | 94/95 | 46.7% | A different identity answered correctly after promotion to shared knowledge. |
+| update_correctness | 100.0% | 41/41 | 100.0% (7/7) | A correction flipped a later recall to the new value. |
+| duplicate_rate | 22.0% [9.8-34.1] | 9/41 | 42.9%, CI [14-86] on n=7 | A supersede that left more than one live insight. Lower is better. |
+| abstention_rate | 92.6% [87.9-96.6] | 138/149 | 95.6% | The agent refused to fabricate a fact it was never taught. |
+| pass^k | 63.3% [46.7-80.0] | 19/30 | 20.0% | All `k` attempts passed the full applicable lifecycle. |
 
-The reproducible finding on the lifecycle side is the cross-identity transfer
-gap: a fact promoted to shared knowledge is reused by a different identity under
-half the time (46.7%, CI [30 to 63]). Because the ablation proves surfacing works
-on DataHub-resident and page-resident knowledge, the transfer gap is more likely
-a capture-and-propagation limit than a surfacing failure. The decomposition of
-transfer into "surfaced to the learner" versus "used given surfaced" is
-instrumented in the harness (`bench/internal/lifecycle/report.go`) and is the
-natural next measurement.
+**The small-denominator limitation named in v1.1 is resolved.** Supersede now
+carries 41 observations rather than seven, and `duplicate_rate` is a point
+estimate at 22.0% with a 24-point interval, replacing a 72-point range that
+spanned most of the scale. `update_correctness` remains at ceiling across a
+denominator six times larger.
+
+**The cross-identity transfer gap is closed on current code.** v1.1's
+reproducible lifecycle finding was that a fact promoted to shared knowledge was
+reused by a different identity under half the time (46.7%). On `v1.118.0` it is
+98.9% [96.8 to 100.0]. #1129 moved the visibility boundary to the act of
+applying an insight, which is the exact path the 46.7% measured, so this is the
+intended effect of a targeted change rather than a scale artifact. v1.1 judged
+the gap "more likely a capture-and-propagation limit than a surfacing failure";
+that reading is consistent with what the fix turned out to require.
+
+Two figures in this table need reading carefully.
+
+`capture_rate` at 91.9% does not measure capture reliability. All twelve misses
+are attributed `attempted_failed`, and they concentrate on two protocols:
+`lc-anchor-region` (5 of 5 passes) and `lc-flagship-region` (4 of 5). The
+transcripts show `memory_capture` returning success; the model links the fact to
+`memory.bench.daily_region_revenue` rather than the protocol's canonical entity,
+so the harness's linked-insight check does not find it. This is the mis-filing
+already recorded in the findings register from the S5 supersede probe,
+reproducing deterministically as that entry predicted. It is a filing defect,
+not a capture defect.
+
+The decomposition of transfer that v1.1 called "the natural next measurement"
+now exists: the fact surfaced to the learner in 68.4% [58.9-77.9] of transfer
+attempts, and was used in 98.5% of those. The gap between 68.4% surfaced and
+98.9% correct is **measurement conservatism, not unaided derivation**.
+`surfacedTarget` (`bench/internal/lifecycle/instrument.go:87`) requires the
+stored fact to appear as a normalized substring of a tool result, and is
+documented as deliberately conservative so it cannot over-report delivery. All
+thirty correct-but-not-surfaced episodes were checked against their transcripts:
+in every one the model called `search` and a tool result carried the protocol's
+key term. There are no cases of a correct answer without the knowledge reaching
+the learner.
 
 ## 6. Analysis
 
@@ -435,6 +469,26 @@ discovery conditions, which is future work.
 
 ## 7. Threats to validity
 
+- **Section 5 is measured on a later platform build than Sections 3 and 4.**
+  The lifecycle re-run is `v1.118.0-4-g445e3abc`; the ablation and cold-start
+  are `v1.102.x`. Differences between Section 5's figures and the v1.1 figures
+  it replaces are across-code, and at least two landed changes act directly on
+  the measured paths (#1129, #1141). No claim in this report compares a Section
+  5 rate to a Section 3 or 4 rate.
+- **Lifecycle protocols may supersede each other's insights within a pass.**
+  Recall-first supersede matches restatements by vector similarity, all thirty
+  protocols share one database within a pass, and the fixture contains families
+  of near-identical facts (four "total" protocols differing only by period, six
+  "-region" protocols). One run failed with a 409 refusing a
+  `superseded → approved` transition on a protocol that has no supersede stage
+  of its own, and two protocols show captured-then-recall-failed in 5 of 5 and 2
+  of 5 passes. The causal link is unproven — the between-pass reset wipes the
+  database and no run records per-insight supersede provenance — so this is a
+  stated threat, not a finding. If real, it depresses recall and transfer for
+  affected protocols and inflates the duplicate rate. Tracked as #1153; the
+  diagnostic is an instrumented pass recording each supersede's source and
+  target. It bears on Section 5 in particular because that section is the first
+  to run thirty protocols rather than fifteen.
 - **Single model.** The cold-start study used one model (`sonnet`) on one
   client path. The ablation used one model (`claude-sonnet-5`) on the API path.
   All accuracies are model-dependent; the reported effects are within-study,
@@ -524,7 +578,8 @@ the committed runs above are the artifacts those commands produced.
 | Study | Directory |
 | --- | --- |
 | Ablation, S1 to S3 | `bench/results/phase2-anthropic-k3/full-a{0,1,2,3}/` |
-| Lifecycle, S5 | `bench/results/s5-anthropic-k3-isolated-v2/` |
+| Lifecycle, S5 (v2.0, k=5) | `bench/results/s5-anthropic-k5/` — five independent passes plus the merged scorecard `lifecycle-a3-k5.json` |
+| Lifecycle, S5 (v1.1, superseded) | `bench/results/s5-anthropic-k3-isolated-v2/` |
 | Cold-start, K=3 (headline) | `bench/results/cold-start-a3-20260717-142008-3064/` |
 | Cold-start, K=1 | `bench/results/cold-start-a3-20260717-085742-89538/` |
 | Cold-start, capture-only | `bench/results/cold-start-a3-20260716-234306-5181/` |
@@ -537,10 +592,14 @@ provenance.
 
 ## 10. How to cite this report
 
-This is **Report version 1.1**, published 2026-07-19. It supersedes the
-unpublished Report v1.0 by pinning the report and its data to release tag
-`v1.102.2` (Section 6); every run, statistic, table, and figure is unchanged from
-v1.0. Cite an immutable copy rather than a moving branch: the report and the raw
+This is **Report version 2.0**, published 2026-08-01. It supersedes Report
+v1.1 (2026-07-19) by replacing Section 5 with a lifecycle re-run at `k = 5` over
+thirty protocols on platform build `v1.118.0-4-g445e3abc`, which turns the
+supersede and transfer figures into point estimates with confidence intervals
+(#1139). Sections 3 and 4, and every ablation and cold-start statistic, table,
+and figure in them, are unchanged from v1.1 and still describe `v1.102.x`.
+Report v1.1 itself superseded the unpublished v1.0 by pinning the report and its
+data to release tag `v1.102.2` (Section 6), with no statistic changed. Cite an immutable copy rather than a moving branch: the report and the raw
 data it recomputes from are captured at each tagged release. The permalinked
 artifact is
 
@@ -558,7 +617,7 @@ a citation resolves to a specific, reproducible dataset.
 
 > Johnston, C. (2026). *Does a semantic knowledge layer make an agent measurably
 > better? A reproducible benchmark of the mcp-data-platform knowledge layer*
-> (Report v1.1). Deasil Works, Inc. / txn2.
+> (Report v2.0). Deasil Works, Inc. / txn2.
 > https://doi.org/10.5281/zenodo.21438044
 
 **BibTeX.**
@@ -573,7 +632,7 @@ a citation resolves to a specific, reproducible dataset.
   year        = {2026},
   month       = jul,
   type        = {Evaluation Report},
-  number      = {Report v1.1},
+  number      = {Report v2.0},
   url         = {https://mcp-data-platform.txn2.com/reference/benchmark-report/},
   doi         = {10.5281/zenodo.21438044},
   note        = {Raw run data and reproduction notebook at
@@ -591,6 +650,20 @@ remains valid for the source and the raw data.
 
 ### Errata
 
+- **2026-08-01 (version 2.0.1).** Typesetting only. The v2.0 deposit's PDF
+  rendered the Section 5 table with its columns overflowing, so metric names
+  overprinted their own values; the markdown, the HTML, and every statistic
+  were unaffected. The render filter had no width rule for the five-column
+  table v2.0 introduced and silently fell back to defaults. No statistic,
+  figure value, or conclusion changed.
+- **2026-08-01 (version 2.0).** Section 5 was replaced with a lifecycle re-run
+  at `k = 5` over thirty protocols on platform `v1.118.0-4-g445e3abc` (#1139),
+  and the identity-pool figure in Section 2.5 was updated from 264 to 320 keys
+  to match the configuration that run required. Statistics in Sections 3 and 4
+  are unchanged. Because Section 5's statistics did change and the report now
+  spans two platform builds, this is a version bump rather than an erratum, and
+  it mints a new version DOI under the existing concept DOI. The v1.1 lifecycle
+  data remains committed at `bench/results/s5-anthropic-k3-isolated-v2/`.
 - **2026-07-29.** The harness citations throughout this report were repointed
   from line numbers in `bench/README.md` to named sections of
   `bench/docs/knowledge-layer-protocol.md`, which is where that protocol prose
@@ -598,6 +671,7 @@ remains valid for the source and the raw data.
   valid; section names are checked mechanically by `TestHarnessCitationsResolve`.
   No statistic, figure, table value, or conclusion changed, so the report
   version is unchanged at 1.1 and the deposited snapshots are unaffected.
+  (v1.1 was never deposited; the deposited versions are v1.0 and v2.0.)
 
 ## 11. Related work
 

@@ -1,0 +1,68 @@
+{
+  "protocol_id": "lc-billing-window",
+  "stage": "update",
+  "identity": "teacher",
+  "email": "bench-agent-007@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Correction to the definition I gave you earlier. The 'billing window' is now calendar quarter 4 of 2025 (October through December). Please update your saved knowledge so future answers use this corrected definition."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01EuhFRoZ4TXQDWJMW8DqaKT",
+          "name": "search",
+          "args": {
+            "intent": "billing window definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01EuhFRoZ4TXQDWJMW8DqaKT",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:7e17bfbd-7108-413f-a951-b9740d71e02e\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.987582519068783,\n          \"reference\": \"mcp:prompt:f9b6879d-b06c-499b-8446-75147edaf477\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.8616990480050734,\n          \"reference\": \"mcp:prompt:6c66b9b2-ec87-4377-b042-f73d06f5ad5d\"\n        },\n        {\n          \"text\": \"Create an Interactive Dashboard\\nDiscover data, build a visualization, and save it as a shareable asset\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-interactive-dashboard\",\n          \"score\": 0.824150832033581,\n          \"reference\": \"mcp:prompt:65fbab0a-9b87-43eb-963c-4f42eb732469\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\\nAn 'active customer' is any customer who has placed at least one order.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c16d34a7-882c-4339-a2c9-f8fe26eea76f\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_c16d34a7-882c-4339-a2c9-f8fe26eea76f\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.9224706952576923,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.892365341418639,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition for this study: the 'billing window' is calendar quarter 2 of 2025 (Q2 2025), i.e. April 1, 2025 through June 30, 2025. Apply this date range consistently whenever a 'billing window' analysis is requested in future sessions, e.g. filtering order_ts / day columns to 2025-04-01 through 2025-06-30 inclusive.\",\n          \"source\": \"insights\",\n          \"ref\": \"bc0242d153f1b7e70ff461971e0e2b45\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-007@apikey.local\",\n          \"reference\": \"mcp:insight:bc0242d153f1b7e70ff461971e0e2b45\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 5,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 2,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_016rSXqDD5yy1mwFScixzjJJ",
+          "name": "memory_capture",
+          "args": {
+            "category": "correction",
+            "confidence": "high",
+            "content": "Corrected working definition: the 'billing window' is calendar quarter 4 of 2025 (Q4 2025), i.e. October 1, 2025 through December 31, 2025. This supersedes the earlier definition of Q2 2025 (April-June 2025). Apply this corrected date range consistently whenever a 'billing window' analysis is requested in future sessions, e.g. filtering order_ts / day columns to 2025-10-01 through 2025-12-31 inclusive.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_016rSXqDD5yy1mwFScixzjJJ",
+          "text": "{\n  \"id\": \"cbbefb670f5bc8ffe1fd91f5a4c67021\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"superseded\": \"bc0242d153f1b7e70ff461971e0e2b45\",\n  \"superseded_ids\": [\n    \"bc0242d153f1b7e70ff461971e0e2b45\"\n  ],\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog. 1 prior record(s) superseded.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"billing window\" is now defined as Q4 2025 (Oct 1 – Dec 31, 2025), superseding the prior Q2 2025 definition, and linked to `memory.bench.orders` and `memory.bench.daily_region_revenue`."
+    }
+  ]
+}

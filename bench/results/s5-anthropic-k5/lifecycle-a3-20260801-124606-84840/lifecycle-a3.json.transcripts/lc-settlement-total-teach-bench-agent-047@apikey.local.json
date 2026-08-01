@@ -1,0 +1,68 @@
+{
+  "protocol_id": "lc-settlement-total",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-047@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'settlement total' is the gross revenue (sum of amount over completed orders) for calendar quarter 4 of 2025 (October through December). Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01LyZ9NKVCQVZGo5z1M9NebB",
+          "name": "search",
+          "args": {
+            "intent": "orders table amount completed orders gross revenue"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01LyZ9NKVCQVZGo5z1M9NebB",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Holiday Total Definition\\nThe 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_43f62052-ccda-40c2-be9f-5cefdebc0253\",\n          \"score\": 0.7127869429520998,\n          \"reference\": \"mcp:knowledge_page:kp_43f62052-ccda-40c2-be9f-5cefdebc0253\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.6697924197200931,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        },\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 0.6666666666666666,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: The 'closeout total' is the gross revenue (sum of amount over completed orders) for December 2025. Operationally: filter the orders table to rows where order status = completed AND order date falls within December 2025 (2025-12-01 to 2025-12-31), then sum the amount column (no discount subtraction — this is gross, not net revenue). Use this definition consistently for any 'closeout total' analysis in later sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"7148b00073ae60f593c32637534b161c\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-013@apikey.local\",\n          \"reference\": \"mcp:insight:7148b00073ae60f593c32637534b161c\"\n        },\n        {\n          \"text\": \"Working definition: The 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025. Operationally: filter the orders table to rows where order status = completed AND order date falls within 2025-11-01 to 2025-12-31, then sum the amount column (no discount subtraction — this is gross, not net revenue). Use this definition consistently for any 'holiday total' analysis in later sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"a0b24d8bfc6dd5014d9e6df79685a868\",\n          \"score\": 0.9840339882668213,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-025@apikey.local\",\n          \"reference\": \"mcp:insight:a0b24d8bfc6dd5014d9e6df79685a868\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:9181b031-d425-44b6-8f1e-c93a5b7f33f1\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.6645490642937967,\n          \"reference\": \"mcp:prompt:c2fc9751-6040-4b31-a893-28a743f0a842\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 12,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "I found the pattern used for similar definitions (\"holiday total\", \"closeout total\"). The dataset is `memory.bench.orders`. I'll save the \"settlement total\" definition the same way, linked to that dataset.",
+      "tool_calls": [
+        {
+          "id": "toolu_01Uqjo8Z4cHmj1j977F3xb7g",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: The 'settlement total' is the gross revenue (sum of amount over completed orders) for calendar quarter 4 of 2025 (October through December). Operationally: filter the orders table to rows where order status = completed AND order date falls within 2025-10-01 to 2025-12-31, then sum the amount column (no discount subtraction — this is gross, not net revenue). Use this definition consistently for any 'settlement total' analysis in later sessions.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Uqjo8Z4cHmj1j977F3xb7g",
+          "text": "{\n  \"id\": \"1224d9ecc175088b763207509f44848a\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"settlement total\" working definition (gross revenue = sum of `amount` over completed orders, Q4 2025 / Oct–Dec) is recorded as a schema_entity insight (id `1224d9ecc175088b763207509f44848a`) linked to `urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)`, pending review before shared promotion."
+    }
+  ]
+}

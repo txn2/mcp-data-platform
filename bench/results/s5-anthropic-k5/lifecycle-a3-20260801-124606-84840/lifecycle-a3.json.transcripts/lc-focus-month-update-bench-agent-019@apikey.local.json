@@ -1,0 +1,107 @@
+{
+  "protocol_id": "lc-focus-month",
+  "stage": "update",
+  "identity": "teacher",
+  "email": "bench-agent-019@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Correction to the definition I gave you earlier. The 'focus month' is now February 2025, not June. Please update your saved knowledge so future answers use this corrected definition."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01HptsrQZcMsbHmB65RZ4tgS",
+          "name": "search",
+          "args": {
+            "intent": "focus month definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01HptsrQZcMsbHmB65RZ4tgS",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:9181b031-d425-44b6-8f1e-c93a5b7f33f1\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.8795489688928325,\n          \"reference\": \"mcp:prompt:5738c4fd-85ca-4443-b0ec-f94f7354208f\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.7567772058933262,\n          \"reference\": \"mcp:prompt:a2987b03-6509-456e-8ee4-486fa1b1fa37\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.7475014501540262,\n          \"reference\": \"mcp:prompt:c2fc9751-6040-4b31-a893-28a743f0a842\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.6906849701866884,\n          \"reference\": \"mcp:prompt:3db1f543-3723-4470-9ae4-13685f13b010\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        },\n        {\n          \"text\": \"legacy_orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n          \"score\": 0.6666666666666666,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: The 'focus month' for this study is June 2025 (2025-06-01 through 2025-06-30). Use this definition consistently for any 'focus month' analysis in later sessions — filter relevant date/order date columns to this range when the analysis refers to the 'focus month'.\",\n          \"source\": \"insights\",\n          \"ref\": \"8ee5e0b90811ade35b9e8c31c5401bb4\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-019@apikey.local\",\n          \"reference\": \"mcp:insight:8ee5e0b90811ade35b9e8c31c5401bb4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 5,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_014n2SgeUVtZ4pH1eA4TWx9P",
+          "name": "search",
+          "args": {
+            "intent": "focus month",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01UmGQ8KTztiycpZ673myDoA",
+          "name": "search",
+          "args": {
+            "intent": "focus month definition orders",
+            "sources": [
+              "memory"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_014n2SgeUVtZ4pH1eA4TWx9P",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.3312724071227218,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Charter Cohort Definition\\nThe 'charter cohort' is the set of customers on the plus tier.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a5a79192-580a-4c5d-85a4-4feae5cd5ab9\",\n          \"score\": 0.19409846262022554,\n          \"reference\": \"mcp:knowledge_page:kp_a5a79192-580a-4c5d-85a4-4feae5cd5ab9\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.17826658888275246,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Clearance Set Definition\\nThe 'clearance set' is the set of completed orders placed by customers in the West region.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_06bb214e-a557-42b9-af83-886d5c85c1da\",\n          \"score\": 0.047999717162054034,\n          \"reference\": \"mcp:knowledge_page:kp_06bb214e-a557-42b9-af83-886d5c85c1da\"\n        },\n        {\n          \"text\": \"Active Customer Definition\\nAn 'active customer' is any customer who has placed at least one order.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_020aeb3d-fe4d-4f59-877f-5b639cd633f7\",\n          \"score\": 0.03722019620863285,\n          \"reference\": \"mcp:knowledge_page:kp_020aeb3d-fe4d-4f59-877f-5b639cd633f7\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 7\n    }\n  ],\n  \"count\": 7,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01UmGQ8KTztiycpZ673myDoA",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01XBwVbTapp9itZ6isoP2XfH",
+          "name": "memory_capture",
+          "args": {
+            "category": "correction",
+            "confidence": "high",
+            "content": "Correction: The 'focus month' definition has changed. The 'focus month' for this study is now February 2025 (2025-02-01 through 2025-02-28), NOT June 2025 as previously stated. Use this corrected definition consistently for any 'focus month' analysis in later sessions — filter relevant date/order date columns to 2025-02-01 through 2025-02-28 when the analysis refers to the 'focus month'. This supersedes the earlier June 2025 definition.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01XBwVbTapp9itZ6isoP2XfH",
+          "text": "{\n  \"id\": \"0c7065d6635089cf1219b5905817e5d2\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"superseded\": \"8ee5e0b90811ade35b9e8c31c5401bb4\",\n  \"superseded_ids\": [\n    \"8ee5e0b90811ade35b9e8c31c5401bb4\"\n  ],\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog. 1 prior record(s) superseded.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved the correction: \"focus month\" is now defined as February 2025 (2025-02-01 through 2025-02-28), superseding the prior June 2025 definition, linked to the `memory.bench.orders` dataset — it will go through review for promotion to shared knowledge."
+    }
+  ]
+}

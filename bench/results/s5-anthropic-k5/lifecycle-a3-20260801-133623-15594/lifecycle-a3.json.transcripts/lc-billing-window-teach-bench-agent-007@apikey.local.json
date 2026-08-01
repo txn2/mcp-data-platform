@@ -1,0 +1,186 @@
+{
+  "protocol_id": "lc-billing-window",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-007@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'billing window' for this study is calendar quarter 2 of 2025 (April through June). Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01JQSMrczEgtUcxXMBiDjuS5",
+          "name": "search",
+          "args": {
+            "intent": "billing window billing period dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01JQSMrczEgtUcxXMBiDjuS5",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/prompts/usage\\nPrompt usage stats\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/prompts/usage\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/prompts/usage\\nPrompt usage stats (portal)\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/prompts/usage\",\n          \"score\": 0.9226517464947256\n        },\n        {\n          \"text\": \"GET /api/v1/admin/notifications/stats\\nGet notification delivery stats\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/notifications/stats\",\n          \"score\": 0.7165254470796715\n        },\n        {\n          \"text\": \"GET /api/v1/portal/activity/timeseries\\nGet activity timeseries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/timeseries\",\n          \"score\": 0.6749408010933906\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/performance\\nGet audit performance\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/performance\",\n          \"score\": 0.6374744550539808\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.830143747955022,\n          \"reference\": \"mcp:prompt:2afcb8ea-dee5-4d79-932e-5cb4b449d01e\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.7429429094203688,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.6403124504291537,\n          \"reference\": \"mcp:prompt:5d4150e3-da01-4cf0-bad9-fb822b9e4e4a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table with that customer's ID). This is a derived business definition, not a stored column/flag on the customers table. Use this definition for all \\\"active customer\\\" analysis: active customer count = count of distinct customers with \\u003e=1 row in orders (memory.bench.orders).\",\n          \"source\": \"insights\",\n          \"ref\": \"2db1c93fb3fe7d600de63215eaed770a\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:2db1c93fb3fe7d600de63215eaed770a\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01R4QzSYJpa85YnY7FcwPiy9",
+          "name": "search",
+          "args": {
+            "intent": "billing dataset invoices charges subscription billing table",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01R4QzSYJpa85YnY7FcwPiy9",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01ECmD19jRidkFNLqWNt2ff9",
+          "name": "search",
+          "args": {
+            "intent": "billing"
+          }
+        },
+        {
+          "id": "toolu_01N8FCna1xZWYzihA5KECRAh",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01ECmD19jRidkFNLqWNt2ff9",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/oauth/callback\\nOAuth authorization-code callback\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/oauth/callback\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.810538645992131\n        },\n        {\n          \"text\": \"GET /api/v1/admin/notifications\\nList notification deliveries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/notifications\",\n          \"score\": 0.7055635830139123\n        },\n        {\n          \"text\": \"POST /api/v1/admin/connections/{kind}/{name}/oauth-start\\nBegin OAuth authorization-code flow for any connection\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/connections/{kind}/{name}/oauth-start\",\n          \"score\": 0.6429126616804183\n        },\n        {\n          \"text\": \"GET /api/v1/admin/connections/oauth-health\\nBulk OAuth health for all connections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/connections/oauth-health\",\n          \"score\": 0.5638917112532261\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5d4150e3-da01-4cf0-bad9-fb822b9e4e4a\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.8926973760174636,\n          \"reference\": \"mcp:prompt:a38f3151-0806-4858-b88e-40b35397fa2e\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.847180202364098,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.6181424375884343,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table with that customer's ID). This is a derived business definition, not a stored column/flag on the customers table. Use this definition for all \\\"active customer\\\" analysis: active customer count = count of distinct customers with \\u003e=1 row in orders (memory.bench.orders).\",\n          \"source\": \"insights\",\n          \"ref\": \"2db1c93fb3fe7d600de63215eaed770a\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:2db1c93fb3fe7d600de63215eaed770a\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01N8FCna1xZWYzihA5KECRAh",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01HAvGaH3dDxXTgHZCoKYLux",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01HAvGaH3dDxXTgHZCoKYLux",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01TEjbcZ8jL9g8k7rMFcp1Dr",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "orders"
+          }
+        },
+        {
+          "id": "toolu_01MP7tQ92viv38zJdvFugoYR",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "daily_region_revenue"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01TEjbcZ8jL9g8k7rMFcp1Dr",
+          "text": "## Table: `memory.bench.orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_ts` | timestamp(3) | - | - |\n| `status` | varchar | - | - |\n| `amount` | integer | - | - |\n| `discount` | integer | - | - |\n\n*6 columns*\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"In our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}\n{\"memory_context\":[{\"id\":\"37781541593bb246496d002caa85ac84\",\"reference\":\"mcp:memory:37781541593bb246496d002caa85ac84\",\"summary\":\"Computed: total net revenue (amount - discount, completed orders only) for the anchor region (North, per memory.bench.customers.region joined to memory.bench.orders) in calendar year 2025 = $239,402.08 (23,940,208 cents over 210 completed orders). Used memory.bench.orders directl\",\"truncated\":true,\"dimension\":\"event\",\"category\":\"business_context\",\"confidence\":\"medium\",\"created_at\":\"2026-08-01T20:38:29.650502Z\"},{\"id\":\"2db1c93fb3fe7d600de63215eaed770a\",\"reference\":\"mcp:memory:2db1c93fb3fe7d600de63215eaed770a\",\"summary\":\"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table with that customer's ID). This is a derived business definition, not a stored column/flag on the customers table. Use this definition for\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:36:34.447711Z\"}]}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01MP7tQ92viv38zJdvFugoYR",
+          "text": "## Table: `memory.bench.daily_region_revenue`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `day` | date | - | - |\n| `region` | varchar | - | - |\n| `gross_revenue_usd` | double | - | - |\n\n*3 columns*\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"Pre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy. FRESHNESS: this index is refreshed only through 2025-11-30; it has NO rows for dates after that cutoff, so any question about a period on or after 2025-12-01 must be answered from memory.bench.orders directly, not this index.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01BCSrK4UBXvLfHzzsyAi4k7",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition for this study: the 'billing window' is calendar quarter 2 of 2025 (Q2 2025), i.e. April 1, 2025 through June 30, 2025 inclusive (order_ts/date \u003e= 2025-04-01 and \u003c 2025-07-01). Apply this definition whenever an analysis in this study refers to the 'billing window' — it scopes queries against memory.bench.orders (and derived revenue aggregates like memory.bench.daily_region_revenue) to that date range.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01BCSrK4UBXvLfHzzsyAi4k7",
+          "text": "{\n  \"id\": \"69e465fb57bf30892e44c57b1a91514b\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the working definition \"billing window = calendar Q2 2025 (Apr 1 – Jun 30, 2025)\" is recorded as knowledge (id `69e465fb57bf30892e44c57b1a91514b`) and linked to `memory.bench.orders` and `memory.bench.daily_region_revenue`, pending review for promotion to the shared catalog."
+    }
+  ]
+}

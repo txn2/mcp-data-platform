@@ -1,0 +1,60 @@
+{
+  "protocol_id": "lc-peak-region",
+  "stage": "recall",
+  "identity": "teacher",
+  "email": "bench-agent-031@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Which region is the peak region? Answer with the region name."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_018uMptTQV34kAjVSAhkNxwU",
+          "name": "search",
+          "args": {
+            "intent": "peak region"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_018uMptTQV34kAjVSAhkNxwU",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Clearance Set Definition\\nThe 'clearance set' is the set of completed orders placed by customers in the West region.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_8fbfc257-1ed0-46c7-b923-85130671998a\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_8fbfc257-1ed0-46c7-b923-85130671998a\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.8762406048230396,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"House Tier Definition\\nThe 'house tier' is the customer tier that placed the most orders.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5864426e-a838-44d0-8330-137edab1da2b\",\n          \"score\": 0.8688269979110739,\n          \"reference\": \"mcp:knowledge_page:kp_5864426e-a838-44d0-8330-137edab1da2b\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.8594485823373297,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/overview\\nGet audit overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/overview\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"PUT /api/v1/admin/settings/review-queue-alert\\nUpdate review-queue alert settings\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /admin/settings/review-queue-alert\",\n          \"score\": 0.8859391211524104\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8853344428793967,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'peak region' is the region with the most customers (i.e., the region value with the highest count of distinct customers) in memory.bench.customers. Use this exact definition for any 'peak region' analysis in future sessions - determine via a GROUP BY region, COUNT(*) on the customers table (or customer records), taking the region with the max count.\",\n          \"source\": \"insights\",\n          \"ref\": \"2452d23b7c8e79b1bf498a657924c19f\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-031@apikey.local\",\n          \"reference\": \"mcp:insight:2452d23b7c8e79b1bf498a657924c19f\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 8,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 8,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_017qdZnihYfT49ii6D7gKC9W",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT region, COUNT(*) as cnt FROM memory.bench.customers GROUP BY region ORDER BY cnt DESC"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_017qdZnihYfT49ii6D7gKC9W",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"region\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"cnt\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"cnt\": 24,\n      \"region\": \"West\"\n    },\n    {\n      \"cnt\": 20,\n      \"region\": \"East\"\n    },\n    {\n      \"cnt\": 19,\n      \"region\": \"South\"\n    },\n    {\n      \"cnt\": 17,\n      \"region\": \"North\"\n    }\n  ],\n  \"row_count\": 4,\n  \"stats\": {\n    \"row_count\": 4,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 32\n  }\n}\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"}}\n{\"memory_context\":[{\"id\":\"920ae64d98209b9561800042ccceeecd\",\"reference\":\"mcp:memory:920ae64d98209b9561800042ccceeecd\",\"summary\":\"Working definition: the 'house tier' is the customer tier (customers.tier) that placed the most orders. It is derived, not a stored flag: join memory.bench.orders.customer_id to memory.bench.customers.customer_id, group by customers.tier, count orders per tier, and the tier with\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:49:18.908258Z\"},{\"id\":\"2d3523e7882f71c4c9d7d8ac517693f0\",\"reference\":\"mcp:memory:2d3523e7882f71c4c9d7d8ac517693f0\",\"summary\":\"Working definition: the 'charter cohort' is the set of customers on the plus tier — i.e., customers where customers.tier = 'plus'. This is a derived business definition, not a stored flag; use this filter for all \\\"charter cohort\\\" analysis. Related but distinct from the 'key acc\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:41:30.976668Z\"}],\"memory_context_note\":\"2 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"37781541593bb246496d002caa85ac84\",\"reference\":\"mcp:memory:37781541593bb246496d002caa85ac84\"},{\"id\":\"2db1c93fb3fe7d600de63215eaed770a\",\"reference\":\"mcp:memory:2db1c93fb3fe7d600de63215eaed770a\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "West region has the most customers (24), matching the working definition of \"peak region\" as the region with the highest count of distinct customers.\n\nFINAL ANSWER: West"
+    }
+  ]
+}

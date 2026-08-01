@@ -1,0 +1,84 @@
+{
+  "protocol_id": "lc-top-line",
+  "stage": "transfer",
+  "identity": "learner",
+  "email": "bench-agent-058@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "What was the top-line for completed orders in calendar year 2025? Sum the amount column over completed orders only; amounts are integer US cents (divide by 100), in USD rounded to the nearest cent."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_013d8VsMMWGWHQfJtMgBTbCq",
+          "name": "search",
+          "args": {
+            "intent": "completed orders amount column top-line revenue calendar year 2025"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_013d8VsMMWGWHQfJtMgBTbCq",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: 'top-line' means gross revenue, defined as the sum of the `amount` column (no discount subtracted) over completed orders (orders.status = 'completed'). This is an unqualified, all-time gross revenue metric (unlike period-specific terms like 'closeout total', 'holiday total', or 'settlement total'). It differs from the standard 'Revenue Reporting Policy' (revenue = amount - discount) since 'top-line' is gross-only. Use this definition consistently whenever 'top-line' is referenced in analysis on the orders dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"077fe2294570211f94e9cab04ceac5c1\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-057@apikey.local\",\n          \"reference\": \"mcp:insight:077fe2294570211f94e9cab04ceac5c1\"\n        },\n        {\n          \"text\": \"Working definition: The 'closeout total' is the gross revenue for December 2025, defined as the sum of `amount` (no discount deduction) over completed orders (orders.status = 'completed') where the order date falls in December 2025 (2025-12-01 through 2025-12-31). Note this differs from the standard 'Revenue Reporting Policy' (revenue = amount - discount); 'closeout total' is a gross-only, period-specific metric. Use this definition consistently whenever 'closeout total' is referenced in analysis on the orders dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"02e9022e2c958757975c46397fd850d7\",\n          \"score\": 0.979774048314269,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-013@apikey.local\",\n          \"reference\": \"mcp:insight:02e9022e2c958757975c46397fd850d7\"\n        },\n        {\n          \"text\": \"Working definition: The 'holiday total' is the gross revenue for November and December 2025, defined as the sum of `amount` (no discount deduction) over completed orders (orders.status = 'completed') where the order date falls between 2025-11-01 and 2025-12-31 inclusive. This differs from the standard 'Revenue Reporting Policy' (revenue = amount - discount) since 'holiday total' is gross-only, and it also differs from the 'closeout total' definition (Dec 2025 only) since 'holiday total' spans both Nov and Dec 2025. Use this definition consistently whenever 'holiday total' is referenced in analysis on the orders dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"0efb5e77c67f561678fea2f273a83077\",\n          \"score\": 0.9614136629344663,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-025@apikey.local\",\n          \"reference\": \"mcp:insight:0efb5e77c67f561678fea2f273a83077\"\n        },\n        {\n          \"text\": \"Working definition: The 'settlement total' is the gross revenue for calendar quarter 4 of 2025 (Q4 2025), defined as the sum of `amount` (no discount deduction) over completed orders (orders.status = 'completed') where the order date falls between 2025-10-01 and 2025-12-31 inclusive (October through December 2025). This differs from the standard 'Revenue Reporting Policy' (revenue = amount - discount) since 'settlement total' is gross-only, and it differs from 'closeout total' (Dec 2025 only) and 'holiday total' (Nov-Dec 2025) by spanning the full Oct-Dec 2025 quarter. Use this definition consistently whenever 'settlement total' is referenced in analysis on the orders dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"bac7aba4ecb04ff1132922e148c88c1f\",\n          \"score\": 0.9507715281373245,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-047@apikey.local\",\n          \"reference\": \"mcp:insight:bac7aba4ecb04ff1132922e148c88c1f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.7386046855505645,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Holiday Total Definition\\nThe 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_94795821-8f38-4aad-ac38-a491007d7d12\",\n          \"score\": 0.7309831346654734,\n          \"reference\": \"mcp:knowledge_page:kp_94795821-8f38-4aad-ac38-a491007d7d12\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:322683bf-0e1a-4016-a486-16c7d4f839a1\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 18,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 14,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_011BGsBzknQ5mJAbcBpxh7V3",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_011BGsBzknQ5mJAbcBpxh7V3",
+          "text": "## Table: `memory.bench.orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_ts` | timestamp(3) | - | - |\n| `status` | varchar | - | - |\n| `amount` | integer | - | - |\n| `discount` | integer | - | - |\n\n*6 columns*\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"The 'reporting cohort' is the set of orders placed in December 2025.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}\n{\"memory_context\":[{\"id\":\"077fe2294570211f94e9cab04ceac5c1\",\"reference\":\"mcp:memory:077fe2294570211f94e9cab04ceac5c1\",\"summary\":\"Working definition: 'top-line' means gross revenue, defined as the sum of the `amount` column (no discount subtracted) over completed orders (orders.status = 'completed'). This is an unqualified, all-time gross revenue metric (unlike period-specific terms like 'closeout total', '\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T19:21:00.665013Z\"},{\"id\":\"0043c38ffb381763bc897c2182c4d2a4\",\"reference\":\"mcp:memory:0043c38ffb381763bc897c2182c4d2a4\",\"summary\":\"Working definition: a 'standard order' is any order whose amount is below $1,000.00 (i.e., amount \\u003c 100000 cents). Applies to the orders.amount column, which is stored in cents.\",\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T19:19:43.331964Z\"},{\"id\":\"af38aaf331c7b29913e6f494fa31be0d\",\"reference\":\"mcp:memory:af38aaf331c7b29913e6f494fa31be0d\",\"summary\":\"Working definition: The 'spring window' for this study is April 2025, i.e. the period from 2025-04-01 through 2025-04-30 inclusive. Use this definition consistently whenever 'spring window' is referenced in analysis on the orders dataset (consistent with other time-bounded workin\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T19:19:02.965383Z\"}],\"memory_context_note\":\"2 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"bac7aba4ecb04ff1132922e148c88c1f\",\"reference\":\"mcp:memory:bac7aba4ecb04ff1132922e148c88c1f\"},{\"id\":\"693d7b902b75d97451370866fd107653\",\"reference\":\"mcp:memory:693d7b902b75d97451370866fd107653\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_0142xqBFPG7z5e7a1mQuzHxm",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT SUM(amount) AS total_cents, COUNT(*) AS cnt FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-01-01 00:00:00' AND order_ts \u003c TIMESTAMP '2026-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_0142xqBFPG7z5e7a1mQuzHxm",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"total_cents\",\n      \"type\": \"BIGINT\"\n    },\n    {\n      \"name\": \"cnt\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"cnt\": 948,\n      \"total_cents\": 143060383\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 22\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.orders\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "1,430,603.83 USD\n\nFINAL ANSWER: 1430603.83"
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "protocol_id": "lc-house-tier",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-027@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'house tier' is the customer tier that placed the most orders. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_015uijGGQ8C6V6XhfmCz3vHG",
+          "name": "search",
+          "args": {
+            "intent": "customer tier orders dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_015uijGGQ8C6V6XhfmCz3vHG",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.7938791596678,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Charter Cohort Definition\\nThe 'charter cohort' is the set of customers on the plus tier.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_24382beb-1b62-4c1d-89de-6f8ca6a0f154\",\n          \"score\": 0.7704832152715035,\n          \"reference\": \"mcp:knowledge_page:kp_24382beb-1b62-4c1d-89de-6f8ca6a0f154\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        },\n        {\n          \"text\": \"legacy_orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n          \"score\": 0.6666666666666666,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: The 'charter cohort' is the set of customers on the plus tier (customers.tier = 'plus' or equivalent plus-tier flag). This is a derived grouping, not stored as its own column. Use this definition consistently in analyses referring to the 'charter cohort' on the customers dataset. Note: distinct from 'key account', which is plus OR enterprise tier.\",\n          \"source\": \"insights\",\n          \"ref\": \"67e58f5cc5fadc3056c779121d0a8f8a\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-009@apikey.local\",\n          \"reference\": \"mcp:insight:67e58f5cc5fadc3056c779121d0a8f8a\"\n        },\n        {\n          \"text\": \"Working definition: The 'clearance set' is the set of completed orders placed by customers in the West region. Operationally: filter orders.status = 'completed' (completed orders), joined to customers where customers.region = 'West'. Use this definition consistently in any analysis referencing the 'clearance set' on the orders/customers datasets.\",\n          \"source\": \"insights\",\n          \"ref\": \"4e1cc7f34e7e0a3906c6f0f217ac804f\",\n          \"score\": 0.6737992442040958,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-011@apikey.local\",\n          \"reference\": \"mcp:insight:4e1cc7f34e7e0a3906c6f0f217ac804f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:91e7f5df-b46a-4fa9-9fd5-33d5b1218680\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8504705674390844,\n          \"reference\": \"mcp:prompt:794565ec-9b49-4a87-bf33-cef55d0031fb\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 5,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_019UhNqM66feSud1ThYLRQzJ",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: The 'house tier' is the customer tier that placed the most orders (i.e., the tier value in customers.tier with the highest count of orders, determined by joining orders to customers and counting orders grouped by tier — not a fixed/static tier, but computed from order volume). Use this definition consistently in any analysis referencing the 'house tier' on the orders/customers datasets.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_019UhNqM66feSud1ThYLRQzJ",
+          "text": "{\n  \"id\": \"d77d112ceadfda43873cf222a7849879\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the working definition \"'house tier' = the customer tier that placed the most orders\" was captured as business knowledge (id `d77d112ceadfda43873cf222a7849879`), linked to the `orders` and `customers` datasets (memory.bench.orders / memory.bench.customers), pending review for promotion to shared knowledge."
+    }
+  ]
+}

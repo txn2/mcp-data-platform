@@ -1,0 +1,70 @@
+{
+  "protocol_id": "lc-primary-region",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-035@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'primary region' is the region with the highest gross revenue (sum of the amount column over completed orders) in memory.bench.orders. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01V5otM3tz6U2jWw3pDcNm8m",
+          "name": "search",
+          "args": {
+            "entity_urns": [],
+            "intent": "memory.bench.orders table"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01V5otM3tz6U2jWw3pDcNm8m",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: A 'premium order' is any order placed by a customer on the enterprise tier (i.e., an order in orders whose customer, joined via orders.customer_id -\\u003e customers, has customers.tier = 'enterprise'). This is a derived grouping, not a stored column. Use this definition consistently in analyses referencing 'premium order' on the orders/customers datasets. Distinct from related derived groupings: 'key account' = plus or enterprise tier; 'charter cohort' = plus tier only.\",\n          \"source\": \"insights\",\n          \"ref\": \"aeeeebea69106910d31170fde9a7a827\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-033@apikey.local\",\n          \"reference\": \"mcp:insight:aeeeebea69106910d31170fde9a7a827\"\n        },\n        {\n          \"text\": \"Working definition: The 'clearance set' is the set of completed orders placed by customers in the West region. Operationally: filter orders.status = 'completed' (completed orders), joined to customers where customers.region = 'West'. Use this definition consistently in any analysis referencing the 'clearance set' on the orders/customers datasets.\",\n          \"source\": \"insights\",\n          \"ref\": \"4e1cc7f34e7e0a3906c6f0f217ac804f\",\n          \"score\": 0.6873407779936735,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-011@apikey.local\",\n          \"reference\": \"mcp:insight:4e1cc7f34e7e0a3906c6f0f217ac804f\"\n        },\n        {\n          \"text\": \"Working definition: The 'house tier' is the customer tier that placed the most orders (i.e., the tier value in customers.tier with the highest count of orders, determined by joining orders to customers and counting orders grouped by tier — not a fixed/static tier, but computed from order volume). Use this definition consistently in any analysis referencing the 'house tier' on the orders/customers datasets.\",\n          \"source\": \"insights\",\n          \"ref\": \"d77d112ceadfda43873cf222a7849879\",\n          \"score\": 0.5612336741251153,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-027@apikey.local\",\n          \"reference\": \"mcp:insight:d77d112ceadfda43873cf222a7849879\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:413908a6-638a-4c3b-8c8b-4a6071a6c37a\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.7845860391560568,\n          \"reference\": \"mcp:prompt:2bc971cd-0349-4459-a4d1-2954de334c8d\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.5584971316471604,\n          \"reference\": \"mcp:prompt:794565ec-9b49-4a87-bf33-cef55d0031fb\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        },\n        {\n          \"text\": \"legacy_orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n          \"score\": 0.6666666666666666,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "No existing \"primary region\" definition found. Saving it now, linked to the orders dataset.",
+      "tool_calls": [
+        {
+          "id": "toolu_01GXBNf6xyYxSbEQzCYwUbny",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: The 'primary region' is the region (customers.region, joined via orders.customer_id -\u003e customers) with the highest gross revenue, where gross revenue = SUM(orders.amount) over completed orders only (orders.status = 'completed'), in memory.bench.orders. This is a derived/computed value (not a stored column) — recompute by filtering orders to status='completed', joining to customers on customer_id, grouping by customers.region, summing amount, and taking the region with the max total. Use this definition consistently in any analysis referencing 'primary region' on the orders/customers datasets.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01GXBNf6xyYxSbEQzCYwUbny",
+          "text": "{\n  \"id\": \"1baa7aa720f5877a10f49564a93fcc05\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"primary region\" working definition (region with highest gross revenue = SUM(amount) over completed orders in memory.bench.orders, joined to customers.region) is now captured as a schema_entity insight (id `1baa7aa720f5877a10f49564a93fcc05`), linked to `memory.bench.orders` and `memory.bench.customers`, pending review for promotion."
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "protocol_id": "lc-target-cohort",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-055@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'target cohort' is the set of customers whose account was created during calendar year 2024. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01T6MqeL9tZhCdfxX1P6oL7y",
+          "name": "search",
+          "args": {
+            "intent": "customers table account creation date"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01T6MqeL9tZhCdfxX1P6oL7y",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customers.customer_id appears at least once in orders). Use this definition consistently in analyses involving customer activity/status on the customers dataset joined with orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"6dbe6cd04e44dd91efba85909f8f9fa3\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:6dbe6cd04e44dd91efba85909f8f9fa3\"\n        },\n        {\n          \"text\": \"Working definition: The 'reporting cohort' is the set of orders placed in December 2025 (i.e., orders in the orders table whose order placement date falls between 2025-12-01 and 2025-12-31 inclusive). This is a derived, time-bounded grouping, not a stored column/flag. Use this definition consistently in analyses referencing the 'reporting cohort' on the orders dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"693d7b902b75d97451370866fd107653\",\n          \"score\": 0.9358677242465974,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-043@apikey.local\",\n          \"reference\": \"mcp:insight:693d7b902b75d97451370866fd107653\"\n        },\n        {\n          \"text\": \"Working definition: The 'signature segment' is the set of customers on the enterprise tier (customers.tier = 'enterprise'). This is a derived grouping, not stored as its own column. Use this definition consistently in analyses referring to the 'signature segment' on the customers dataset. Distinct from related derived groupings: 'key account' = plus or enterprise tier; 'charter cohort' = plus tier only; 'premium order' = orders placed by enterprise-tier customers.\",\n          \"source\": \"insights\",\n          \"ref\": \"3b61890e4c5d74dcc3a5226df436a8e6\",\n          \"score\": 0.8749162298274893,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-049@apikey.local\",\n          \"reference\": \"mcp:insight:3b61890e4c5d74dcc3a5226df436a8e6\"\n        },\n        {\n          \"text\": \"Working definition: The 'spring window' for this study is April 2025, i.e. the period from 2025-04-01 through 2025-04-30 inclusive. Use this definition consistently whenever 'spring window' is referenced in analysis on the orders dataset (consistent with other time-bounded working definitions like 'holiday total', 'closeout total', and 'reporting cohort' defined on this same dataset).\",\n          \"source\": \"insights\",\n          \"ref\": \"af38aaf331c7b29913e6f494fa31be0d\",\n          \"score\": 0.8530414875946407,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-051@apikey.local\",\n          \"reference\": \"mcp:insight:af38aaf331c7b29913e6f494fa31be0d\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Active Customer Definition\\nAn 'active customer' is any customer who has placed at least one order.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_e53011ec-e43e-4f46-ab59-8153f00445fd\",\n          \"score\": 0.9556564509988341,\n          \"reference\": \"mcp:knowledge_page:kp_e53011ec-e43e-4f46-ab59-8153f00445fd\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.8458307362898893,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:2bc971cd-0349-4459-a4d1-2954de334c8d\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 16,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Confirmed the `customers` dataset exists in the catalog (`urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)`) and there's no existing \"target cohort\" definition — this is new. Saving it now.",
+      "tool_calls": [
+        {
+          "id": "toolu_011Jj9E1QvcJibiVxphuCr9r",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: The 'target cohort' is the set of customers whose account was created during calendar year 2024 (i.e., customers.created_at/account creation date falls between 2024-01-01 and 2024-12-31 inclusive). This is a derived, time-bounded grouping, not a stored column/flag. Use this definition consistently in analyses referencing the 'target cohort' on the customers dataset.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_011Jj9E1QvcJibiVxphuCr9r",
+          "text": "{\n  \"id\": \"af40da42948fbff42704e0068f19607c\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"target cohort\" definition (customers whose account was created in calendar year 2024) is recorded as a schema_entity insight (id `af40da42948fbff42704e0068f19607c`) linked to the `memory.bench.customers` dataset, pending review before promotion to shared catalog knowledge."
+    }
+  ]
+}

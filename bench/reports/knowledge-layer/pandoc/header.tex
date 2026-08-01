@@ -7,3 +7,11 @@
 \makeatletter
 \preto{\@verbatim}{\topsep=2pt \partopsep=2pt}
 \makeatother
+
+% Long inline code — file paths like bench/reports/knowledge-layer/figures/ —
+% is a single unbreakable word in typewriter font, so TeX overflows the right
+% margin rather than breaking it. That shipped in the deposited v2.0 and v2.0.1
+% PDFs. [htt] permits hyphenation inside \texttt, and the extra emergency
+% stretch lets TeX resolve the remaining tight lines instead of overrunning.
+\usepackage[htt]{hyphenat}
+\setlength{\emergencystretch}{3em}

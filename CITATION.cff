@@ -32,9 +32,15 @@ preferred-citation:
   institution:
     name: "Deasil Works, Inc. / txn2"
   url: "https://mcp-data-platform.txn2.com/reference/benchmark-report/"
-  version: "1.1"
+  version: "2.0.1"
   doi: 10.5281/zenodo.21438044
   identifiers:
+    - type: doi
+      value: 10.5281/zenodo.21751635
+      description: "Version DOI for the v2.0.1 snapshot"
+    - type: doi
+      value: 10.5281/zenodo.21751050
+      description: "Version DOI for the v2.0 snapshot (PDF had a typesetting defect; superseded by v2.0.1)"
     - type: doi
       value: 10.5281/zenodo.21438045
       description: "Version DOI for the v1.0 snapshot"

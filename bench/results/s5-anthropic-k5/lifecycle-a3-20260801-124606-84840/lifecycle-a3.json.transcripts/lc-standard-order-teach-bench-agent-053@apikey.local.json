@@ -1,0 +1,66 @@
+{
+  "protocol_id": "lc-standard-order",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-053@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. A 'standard order' is any order whose amount is below $1,000.00 (100000 cents). Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_0138BcfGKdzhzZpC8obQjaqN",
+          "name": "search",
+          "args": {
+            "intent": "orders table amount column definition for standard order threshold"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_0138BcfGKdzhzZpC8obQjaqN",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        },\n        {\n          \"text\": \"legacy_orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n          \"score\": 0.6666666666666666,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        },\n        {\n          \"text\": \"util (api)\\nBuilt-in utility connection. Operations are handled inside the platform rather than proxied to an upstream API. `fetch_url` (`POST /util/fetch`) retrieves an arbitrary public URL server-side - a presigned download link, a generated report URL - inline via api_invoke_endpoint or streamed to a portal asset via api_export. Destinations on internal address space are refused.\",\n          \"source\": \"connections\",\n          \"ref\": \"util\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,util)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Priority Order Definition\\nA 'priority order' is any order whose amount is at least $1,000.00 (100000 cents).\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_8a15b2b5-6f88-4423-9769-5e9ed0bcf8df\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_8a15b2b5-6f88-4423-9769-5e9ed0bcf8df\"\n        },\n        {\n          \"text\": \"Clearance Set Definition\\nThe 'clearance set' is the set of completed orders placed by customers in the West region.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_06bb214e-a557-42b9-af83-886d5c85c1da\",\n          \"score\": 0.6180605320641747,\n          \"reference\": \"mcp:knowledge_page:kp_06bb214e-a557-42b9-af83-886d5c85c1da\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:9181b031-d425-44b6-8f1e-c93a5b7f33f1\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.6636131220926063,\n          \"reference\": \"mcp:prompt:c2fc9751-6040-4b31-a893-28a743f0a842\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: a 'priority order' is any order in the `orders` table (memory.bench.orders) whose `amount` is at least $1,000.00, i.e. amount \\u003e= 100000 (amount is stored in cents as an integer). Use this threshold (amount \\u003e= 100000) whenever filtering or classifying orders as priority in analysis.\",\n          \"source\": \"insights\",\n          \"ref\": \"48ee4dfce89f503bff8e3ff228a6178a\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-037@apikey.local\",\n          \"reference\": \"mcp:insight:48ee4dfce89f503bff8e3ff228a6178a\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 15,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 2,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Y7PfmRnPMVLsCAUVV5CBi5",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: a 'standard order' is any order in the `orders` table (memory.bench.orders) whose `amount` is below $1,000.00, i.e. amount \u003c 100000 (amount is stored in cents as an integer). Use this threshold (amount \u003c 100000) whenever filtering or classifying orders as standard in analysis. (Complements the 'priority order' definition: amount \u003e= 100000.)",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Y7PfmRnPMVLsCAUVV5CBi5",
+          "text": "{\n  \"id\": \"2ecddc3a4ea44199a35eff62d12b2ab9\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: a \"standard order\" = `orders.amount` \u003c 100000 cents ($1,000.00), captured as a schema_entity insight linked to `memory.bench.orders` (id `2ecddc3a4ea44199a35eff62d12b2ab9`), pending review for promotion to shared knowledge."
+    }
+  ]
+}

@@ -24,7 +24,7 @@ Every artifact belongs to exactly one study. Run-family directories under
 | **Pre-registration** | issues #930, #942-#945 | [`docs/perishable-knowledge-study-design.md`](docs/perishable-knowledge-study-design.md), [fixture](docs/perishable-knowledge-fixture.md), [estimator audit](docs/perishable-knowledge-estimator-audit.md) | the protocol above |
 | **Toolchain** | [`reports/knowledge-layer/`](reports/knowledge-layer/) — `make bench-report-knowledge-layer-pdf` | [`reports/knowledge-use/`](reports/knowledge-use/) — `make bench-report-knowledge-use-pdf` | none |
 | **Run data** | top-level families under [`results/`](results/) | [`results/knowledge-use/`](results/knowledge-use/) | [`results/api-study-pilot/`](results/api-study-pilot/) |
-| **Status** | published, report version 1.1 | published, report version 1.0, pinned to v1.116.0 | closed not planned; postmortem on #1027 |
+| **Status** | published, report version 2.0 | published, report version 1.0, pinned to v1.116.0 | closed not planned; postmortem on #1027 |
 
 Negative results and evidence-backed platform decisions are indexed in
 [`docs/findings-register.md`](docs/findings-register.md) — a retired study

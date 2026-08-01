@@ -1,0 +1,68 @@
+{
+  "protocol_id": "lc-signature-segment",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-049@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'signature segment' is the set of customers on the enterprise tier. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_019SVhCpdUBgy8owERwj9TmW",
+          "name": "search",
+          "args": {
+            "intent": "customers enterprise tier dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_019SVhCpdUBgy8owERwj9TmW",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Charter Cohort Definition\\nThe 'charter cohort' is the set of customers on the plus tier.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_24382beb-1b62-4c1d-89de-6f8ca6a0f154\",\n          \"score\": 0.8234648137553437,\n          \"reference\": \"mcp:knowledge_page:kp_24382beb-1b62-4c1d-89de-6f8ca6a0f154\"\n        },\n        {\n          \"text\": \"House Tier Definition\\nThe 'house tier' is the customer tier that placed the most orders.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_f2619aae-2d7e-4f65-bee1-27fe81913da5\",\n          \"score\": 0.8104261915974463,\n          \"reference\": \"mcp:knowledge_page:kp_f2619aae-2d7e-4f65-bee1-27fe81913da5\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:91e7f5df-b46a-4fa9-9fd5-33d5b1218680\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.959344158101816,\n          \"reference\": \"mcp:prompt:794565ec-9b49-4a87-bf33-cef55d0031fb\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7933651491484085,\n          \"reference\": \"mcp:prompt:413908a6-638a-4c3b-8c8b-4a6071a6c37a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: A 'premium order' is any order placed by a customer on the enterprise tier (i.e., an order in orders whose customer, joined via orders.customer_id -\\u003e customers, has customers.tier = 'enterprise'). This is a derived grouping, not a stored column. Use this definition consistently in analyses referencing 'premium order' on the orders/customers datasets. Distinct from related derived groupings: 'key account' = plus or enterprise tier; 'charter cohort' = plus tier only.\",\n          \"source\": \"insights\",\n          \"ref\": \"aeeeebea69106910d31170fde9a7a827\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-033@apikey.local\",\n          \"reference\": \"mcp:insight:aeeeebea69106910d31170fde9a7a827\"\n        },\n        {\n          \"text\": \"Working definition: The 'charter cohort' is the set of customers on the plus tier (customers.tier = 'plus' or equivalent plus-tier flag). This is a derived grouping, not stored as its own column. Use this definition consistently in analyses referring to the 'charter cohort' on the customers dataset. Note: distinct from 'key account', which is plus OR enterprise tier.\",\n          \"source\": \"insights\",\n          \"ref\": \"67e58f5cc5fadc3056c779121d0a8f8a\",\n          \"score\": 0.9821929495669804,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-009@apikey.local\",\n          \"reference\": \"mcp:insight:67e58f5cc5fadc3056c779121d0a8f8a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 13,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the relevant dataset: `urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)` (customers.tier column). Saving the definition now, linked to it.",
+      "tool_calls": [
+        {
+          "id": "toolu_01MBUyv3vdGyduTHb35aUXbs",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: The 'signature segment' is the set of customers on the enterprise tier (customers.tier = 'enterprise'). This is a derived grouping, not stored as its own column. Use this definition consistently in analyses referring to the 'signature segment' on the customers dataset. Distinct from related derived groupings: 'key account' = plus or enterprise tier; 'charter cohort' = plus tier only; 'premium order' = orders placed by enterprise-tier customers.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01MBUyv3vdGyduTHb35aUXbs",
+          "text": "{\n  \"id\": \"3b61890e4c5d74dcc3a5226df436a8e6\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"signature segment\" (customers on enterprise tier, `customers.tier = 'enterprise'`) is now recorded as a schema_entity insight linked to `memory.bench.customers`, pending review for promotion to shared knowledge."
+    }
+  ]
+}
