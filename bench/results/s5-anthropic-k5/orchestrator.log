@@ -1,0 +1,24 @@
+orchestrator: 5 passes, logs in build/bench-results/1139-k5-20260801-115742
+=== pass 1/5: reset ===
+=== pass 1/5: running (k=1, anthropic, claude-sonnet-5) ===
+=== pass 1/5 complete -> build/bench-results/lifecycle-a3-20260801-115803-55395/lifecycle-a3.json ===
+protocols 30  attempts 30  harness failures 0
+tokens: input 1002  output 89477  cache read 7932699  cache write 672561 (apply current model pricing for cost)
+=== pass 2/5: reset ===
+=== pass 2/5: running (k=1, anthropic, claude-sonnet-5) ===
+=== pass 2/5 complete -> build/bench-results/lifecycle-a3-20260801-122229-70556/lifecycle-a3.json ===
+protocols 30  attempts 30  harness failures 0
+tokens: input 996  output 83675  cache read 7758770  cache write 611419 (apply current model pricing for cost)
+=== pass 3/5: reset ===
+=== pass 3/5: running (k=1, anthropic, claude-sonnet-5) ===
+=== pass 3/5 complete -> build/bench-results/lifecycle-a3-20260801-124606-84840/lifecycle-a3.json ===
+protocols 30  attempts 30  harness failures 0
+tokens: input 1054  output 91278  cache read 8353149  cache write 626697 (apply current model pricing for cost)
+=== pass 4/5: reset ===
+=== pass 4/5: running (k=1, anthropic, claude-sonnet-5) ===
+=== pass 4/5 complete -> build/bench-results/lifecycle-a3-20260801-131157-631/lifecycle-a3.json ===
+protocols 30  attempts 30  harness failures 0
+tokens: input 984  output 83690  cache read 7692327  cache write 600095 (apply current model pricing for cost)
+=== pass 5/5: reset ===
+=== pass 5/5: running (k=1, anthropic, claude-sonnet-5) ===
+FATAL: pass 5 run failed; stopping. See build/bench-results/1139-k5-20260801-115742/pass5-run.log

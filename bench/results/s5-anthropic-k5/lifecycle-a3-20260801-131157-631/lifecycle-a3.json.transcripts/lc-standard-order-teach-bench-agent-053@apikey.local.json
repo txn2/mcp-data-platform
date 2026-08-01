@@ -1,0 +1,68 @@
+{
+  "protocol_id": "lc-standard-order",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-053@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. A 'standard order' is any order whose amount is below $1,000.00 (100000 cents). Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01YLEei6SEK5R6icAH6of3K5",
+          "name": "search",
+          "args": {
+            "intent": "orders table amount column definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01YLEei6SEK5R6icAH6of3K5",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Priority Order Definition\\nA 'priority order' is any order whose amount is at least $1,000.00 (100000 cents).\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_2e2a1e15-ea40-488c-8b2f-b691c7c3b378\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_2e2a1e15-ea40-488c-8b2f-b691c7c3b378\"\n        },\n        {\n          \"text\": \"Settlement Total Definition\\nThe 'settlement total' is the gross revenue (sum of amount over completed orders) for calendar quarter 4 of 2025 (October through December).\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c6a0021b-2eec-4734-859a-0ed81f249a92\",\n          \"score\": 0.7925905748595574,\n          \"reference\": \"mcp:knowledge_page:kp_c6a0021b-2eec-4734-859a-0ed81f249a92\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.723367752892536,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Premium Order Definition\\nA 'premium order' is any order placed by a customer on the enterprise tier.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_3f1e0b3f-01f1-49a7-8619-a260777c8327\",\n          \"score\": 0.693629892006899,\n          \"reference\": \"mcp:knowledge_page:kp_3f1e0b3f-01f1-49a7-8619-a260777c8327\"\n        },\n        {\n          \"text\": \"Holiday Total Definition\\nThe 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_2485a98d-eea1-4466-ab2f-5aa12d082be1\",\n          \"score\": 0.6812597460480155,\n          \"reference\": \"mcp:knowledge_page:kp_2485a98d-eea1-4466-ab2f-5aa12d082be1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:9bbd024e-dfc5-452c-bb44-0e5679dfe731\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.6999155838675438,\n          \"reference\": \"mcp:prompt:cac06187-ab9d-440f-9a92-c65841eeb1fa\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: a 'priority order' is any order whose amount is at least $1,000.00 (i.e., amount \\u003e= 100000 cents), based on the orders.amount column (stored in cents). Use this threshold consistently in analyses that classify or filter priority orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"a49dcd65a90f1bbd987bf98b06a385c5\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-037@apikey.local\",\n          \"reference\": \"mcp:insight:a49dcd65a90f1bbd987bf98b06a385c5\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 16,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 14,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the dataset (`memory.bench.orders`) and existing related definitions (e.g., \"priority order\" = amount ≥ $1,000). I'll capture the new \"standard order\" definition as schema_entity knowledge linked to that dataset.",
+      "tool_calls": [
+        {
+          "id": "toolu_01RDbm2j6z3xFSj6JNexfKwz",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: a 'standard order' is any order whose amount is below $1,000.00 (i.e., amount \u003c 100000 cents), based on the orders.amount column (stored in cents). This is the complement of the 'priority order' definition (amount \u003e= 100000 cents). Use this threshold consistently in analyses that classify or filter standard orders.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01RDbm2j6z3xFSj6JNexfKwz",
+          "text": "{\n  \"id\": \"3439e82e3a4d9c5f553fffd3786062de\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: captured the \"standard order\" definition (amount \u003c $1,000.00 / 100000 cents on the `amount` column, stored in cents) as a schema_entity insight linked to `memory.bench.orders`, pending review for promotion to shared knowledge."
+    }
+  ]
+}

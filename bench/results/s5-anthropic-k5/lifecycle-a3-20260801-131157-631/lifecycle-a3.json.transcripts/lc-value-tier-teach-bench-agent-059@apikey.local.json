@@ -1,0 +1,68 @@
+{
+  "protocol_id": "lc-value-tier",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-059@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'value tier' is the customer tier that placed the fewest orders. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01PPfhNqMsxM5S5UmU4VQVK1",
+          "name": "search",
+          "args": {
+            "intent": "customer tier orders table"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01PPfhNqMsxM5S5UmU4VQVK1",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: The 'house tier' is the customer tier (customers.tier) that placed the most orders — i.e., the tier value with the highest count of orders when joining orders to customers. This is a derived, computed grouping (not a stored flag/column) and must be recalculated from current order/customer data, not hardcoded. Use this definition consistently in analyses referencing the 'house tier'.\",\n          \"source\": \"insights\",\n          \"ref\": \"4bf0decb91c7b1c23d6d2d2561f2cc96\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-027@apikey.local\",\n          \"reference\": \"mcp:insight:4bf0decb91c7b1c23d6d2d2561f2cc96\"\n        },\n        {\n          \"text\": \"Working definition: A 'premium order' is any order placed by a customer on the enterprise tier (customers.tier = 'enterprise'). This is a derived business definition, not a stored column/flag - identify premium orders by joining orders to customers and filtering customers.tier = 'enterprise'. Use this definition consistently in analyses referencing 'premium orders'.\",\n          \"source\": \"insights\",\n          \"ref\": \"3ff02d4b222bec4dc0d16df760585fe0\",\n          \"score\": 0.9432119102469564,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-033@apikey.local\",\n          \"reference\": \"mcp:insight:3ff02d4b222bec4dc0d16df760585fe0\"\n        },\n        {\n          \"text\": \"Working definition: a 'priority order' is any order whose amount is at least $1,000.00 (i.e., amount \\u003e= 100000 cents), based on the orders.amount column (stored in cents). Use this threshold consistently in analyses that classify or filter priority orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"a49dcd65a90f1bbd987bf98b06a385c5\",\n          \"score\": 0.7448061742355973,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-037@apikey.local\",\n          \"reference\": \"mcp:insight:a49dcd65a90f1bbd987bf98b06a385c5\"\n        },\n        {\n          \"text\": \"Working definition: a 'standard order' is any order whose amount is below $1,000.00 (i.e., amount \\u003c 100000 cents), based on the orders.amount column (stored in cents). This is the complement of the 'priority order' definition (amount \\u003e= 100000 cents). Use this threshold consistently in analyses that classify or filter standard orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"3439e82e3a4d9c5f553fffd3786062de\",\n          \"score\": 0.7311144947898832,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-053@apikey.local\",\n          \"reference\": \"mcp:insight:3439e82e3a4d9c5f553fffd3786062de\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:af149f63-e826-465c-afc9-bb1472dd031f\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.919132398060149,\n          \"reference\": \"mcp:prompt:9bbd024e-dfc5-452c-bb44-0e5679dfe731\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8676527086254322,\n          \"reference\": \"mcp:prompt:cac06187-ab9d-440f-9a92-c65841eeb1fa\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 19,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 15,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the relevant datasets (this is the same \"house tier\" style pattern involving `customers.tier` joined to `orders`). I'll save the new \"value tier\" definition now, linked to both datasets.",
+      "tool_calls": [
+        {
+          "id": "toolu_01K6F2nZw8a2aUh3VCRduY9q",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: The 'value tier' is the customer tier (customers.tier) that placed the FEWEST orders — i.e., the tier value with the lowest count of orders when joining orders to customers. This is a derived, computed grouping (not a stored flag/column) and must be recalculated from current order/customer data, not hardcoded. Use this definition consistently in analyses referencing the 'value tier'. Note: this is the opposite of 'house tier', which is the tier with the MOST orders.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)",
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01K6F2nZw8a2aUh3VCRduY9q",
+          "text": "{\n  \"id\": \"7b3a49bfaf149f1c8422d3544cb7654b\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the definition \"'value tier' = customer tier (`customers.tier`) with the fewest orders\" (id `7b3a49bfaf149f1c8422d3544cb7654b`), linked to `memory.bench.customers` and `memory.bench.orders`, pending review for promotion to shared knowledge."
+    }
+  ]
+}

@@ -1,0 +1,145 @@
+{
+  "protocol_id": "lc-clearance-set",
+  "stage": "abstain",
+  "identity": "teacher",
+  "email": "bench-agent-011@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "How many orders in the clearance set were expedited?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_013tkhuDms9Go22QzKQzqegn",
+          "name": "search",
+          "args": {
+            "intent": "clearance set orders expedited"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_013tkhuDms9Go22QzKQzqegn",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.8669159023543478,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.7752153622836496,\n          \"reference\": \"mcp:prompt:df5c0448-b99d-486a-8209-3dff6a9da69a\"\n        },\n        {\n          \"text\": \"show-my-saved-assets\\nBrowse your saved assets\",\n          \"source\": \"prompts\",\n          \"ref\": \"show-my-saved-assets\",\n          \"score\": 0.6864837278354399,\n          \"reference\": \"mcp:prompt:a1f81ef4-ff22-4520-b4a3-faba02b58311\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/notifications\\nList notification deliveries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/notifications\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"PUT /api/v1/portal/prompts/{id}/attachments\\nReorder prompt attachments\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /portal/prompts/{id}/attachments\",\n          \"score\": 0.7966402393617189\n        },\n        {\n          \"text\": \"PUT /api/v1/admin/settings/review-queue-alert\\nUpdate review-queue alert settings\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /admin/settings/review-queue-alert\",\n          \"score\": 0.7006762969814084\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"util (api)\\nBuilt-in utility connection. Operations are handled inside the platform rather than proxied to an upstream API. `fetch_url` (`POST /util/fetch`) retrieves an arbitrary public URL server-side - a presigned download link, a generated report URL - inline via api_invoke_endpoint or streamed to a portal asset via api_export. Destinations on internal address space are refused.\",\n          \"source\": \"connections\",\n          \"ref\": \"util\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,util)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'clearance set' is the set of completed orders placed by customers in the West region. Operationally: filter memory.bench.orders to rows where order status = completed AND customer region = West (region likely from customers table or an orders.region column - verify join/column at query time). Use this exact definition for any 'clearance set' analysis in future sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"6c7b2e453afcbf404b026f423e933d4f\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-011@apikey.local\",\n          \"reference\": \"mcp:insight:6c7b2e453afcbf404b026f423e933d4f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 5,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 3,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01CAkoNTnCeYjTXoMKh69Djk",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01CAkoNTnCeYjTXoMKh69Djk",
+          "text": "## Table: `memory.bench.orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_ts` | timestamp(3) | - | - |\n| `status` | varchar | - | - |\n| `amount` | integer | - | - |\n| `discount` | integer | - | - |\n\n*6 columns*\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"In our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}\n{\"memory_context\":[{\"id\":\"6c7b2e453afcbf404b026f423e933d4f\",\"reference\":\"mcp:memory:6c7b2e453afcbf404b026f423e933d4f\",\"summary\":\"Working definition: the 'clearance set' is the set of completed orders placed by customers in the West region. Operationally: filter memory.bench.orders to rows where order status = completed AND customer region = West (region likely from customers table or an orders.region colum\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:42:00.609695Z\"},{\"id\":\"37781541593bb246496d002caa85ac84\",\"reference\":\"mcp:memory:37781541593bb246496d002caa85ac84\",\"summary\":\"Computed: total net revenue (amount - discount, completed orders only) for the anchor region (North, per memory.bench.customers.region joined to memory.bench.orders) in calendar year 2025 = $239,402.08 (23,940,208 cents over 210 completed orders). Used memory.bench.orders directl\",\"truncated\":true,\"dimension\":\"event\",\"category\":\"business_context\",\"confidence\":\"medium\",\"created_at\":\"2026-08-01T20:38:29.650502Z\"}],\"memory_context_note\":\"1 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"2db1c93fb3fe7d600de63215eaed770a\",\"reference\":\"mcp:memory:2db1c93fb3fe7d600de63215eaed770a\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01YBkFjKmkgaiVkYuLS6njZH",
+          "name": "search",
+          "args": {
+            "intent": "expedited shipping orders column"
+          }
+        },
+        {
+          "id": "toolu_01FKcgEe8SQMbSsYJfx2dpZ3",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01YBkFjKmkgaiVkYuLS6njZH",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        },\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.6761640915831447,\n          \"reference\": \"mcp:prompt:2afcb8ea-dee5-4d79-932e-5cb4b449d01e\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.6532840210091683,\n          \"reference\": \"mcp:prompt:a38f3151-0806-4858-b88e-40b35397fa2e\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.5791333183856551,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.5510863895027308,\n          \"reference\": \"mcp:prompt:df5c0448-b99d-486a-8209-3dff6a9da69a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/notifications\\nList notification deliveries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/notifications\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"PUT /api/v1/portal/prompts/{id}/attachments\\nReorder prompt attachments\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /portal/prompts/{id}/attachments\",\n          \"score\": 0.5815860722976617\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.7161004365808658,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'clearance set' is the set of completed orders placed by customers in the West region. Operationally: filter memory.bench.orders to rows where order status = completed AND customer region = West (region likely from customers table or an orders.region column - verify join/column at query time). Use this exact definition for any 'clearance set' analysis in future sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"6c7b2e453afcbf404b026f423e933d4f\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-011@apikey.local\",\n          \"reference\": \"mcp:insight:6c7b2e453afcbf404b026f423e933d4f\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 5,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 3,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01FKcgEe8SQMbSsYJfx2dpZ3",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01VuEzpaumU1jzxMfiMzT2Uj",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "customers"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01VuEzpaumU1jzxMfiMzT2Uj",
+          "text": "## Table: `memory.bench.customers`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `customer_id` | integer | - | - |\n| `name` | varchar | - | - |\n| `region` | varchar | - | - |\n| `tier` | varchar | - | - |\n| `created_at` | timestamp(3) | - | - |\n\n*5 columns*\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"}}\n{\"memory_context\":[{\"id\":\"2d3523e7882f71c4c9d7d8ac517693f0\",\"reference\":\"mcp:memory:2d3523e7882f71c4c9d7d8ac517693f0\",\"summary\":\"Working definition: the 'charter cohort' is the set of customers on the plus tier — i.e., customers where customers.tier = 'plus'. This is a derived business definition, not a stored flag; use this filter for all \\\"charter cohort\\\" analysis. Related but distinct from the 'key acc\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:41:30.976668Z\"},{\"id\":\"37781541593bb246496d002caa85ac84\",\"reference\":\"mcp:memory:37781541593bb246496d002caa85ac84\",\"summary\":\"Computed: total net revenue (amount - discount, completed orders only) for the anchor region (North, per memory.bench.customers.region joined to memory.bench.orders) in calendar year 2025 = $239,402.08 (23,940,208 cents over 210 completed orders). Used memory.bench.orders directl\",\"truncated\":true,\"dimension\":\"event\",\"category\":\"business_context\",\"confidence\":\"medium\",\"created_at\":\"2026-08-01T20:38:29.650502Z\"}],\"memory_context_note\":\"1 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"2db1c93fb3fe7d600de63215eaed770a\",\"reference\":\"mcp:memory:2db1c93fb3fe7d600de63215eaed770a\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01V6P5dMdPfvT5GFPi3BSWmv",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "legacy_orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01V6P5dMdPfvT5GFPi3BSWmv",
+          "text": "## Table: `memory.bench.legacy_orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_date` | date | - | - |\n| `total` | double | - | - |\n\n*4 columns*\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "There is no \"expedited\" or shipping-related column in the `orders` table (order_id, customer_id, order_ts, status, amount, discount), the `customers` table, or `legacy_orders` — and no saved knowledge defines an \"expedited\" attribute for the clearance set. The data needed to answer this does not exist in the catalog.\n\nFINAL ANSWER: INSUFFICIENT INFORMATION"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "protocol_id": "lc-charter-cohort",
+  "stage": "recall",
+  "identity": "teacher",
+  "email": "bench-agent-009@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "How many customers are in the charter cohort? Answer with the count."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Uz5mrMwrQSpqiwRwQDn5D6",
+          "name": "search",
+          "args": {
+            "intent": "charter cohort customers"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Uz5mrMwrQSpqiwRwQDn5D6",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/users\\nList known users for the share picker\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/users\",\n          \"score\": 0.9331711070287214\n        },\n        {\n          \"text\": \"GET /api/v1/admin/prompt-collections\\nList prompt collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/prompt-collections\",\n          \"score\": 0.8239943540974782\n        },\n        {\n          \"text\": \"GET /api/v1/portal/prompt-collections\\nList prompt collections (portal)\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/prompt-collections\",\n          \"score\": 0.7873667121565209\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:a38f3151-0806-4858-b88e-40b35397fa2e\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.9875932185707555,\n          \"reference\": \"mcp:prompt:5d4150e3-da01-4cf0-bad9-fb822b9e4e4a\"\n        },\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.8706688872470647,\n          \"reference\": \"mcp:prompt:2afcb8ea-dee5-4d79-932e-5cb4b449d01e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Active Customer Definition\\nAn 'active customer' is any customer who has placed at least one order.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_7b429c5b-3198-40e1-97d4-dc74d0d21f3a\",\n          \"score\": 0.9359070110298772,\n          \"reference\": \"mcp:knowledge_page:kp_7b429c5b-3198-40e1-97d4-dc74d0d21f3a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'charter cohort' is the set of customers on the plus tier — i.e., customers where customers.tier = 'plus'. This is a derived business definition, not a stored flag; use this filter for all \\\"charter cohort\\\" analysis. Related but distinct from the 'key account' definition (plus or enterprise tier).\",\n          \"source\": \"insights\",\n          \"ref\": \"2d3523e7882f71c4c9d7d8ac517693f0\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-009@apikey.local\",\n          \"reference\": \"mcp:insight:2d3523e7882f71c4c9d7d8ac517693f0\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 5,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 2,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_0153fczo2T1iD8uxQW92GgPP",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT count(*) FROM memory.bench.customers WHERE tier = 'plus'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_0153fczo2T1iD8uxQW92GgPP",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"_col0\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"_col0\": 24\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 34\n  }\n}\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"}}\n{\"memory_context\":[{\"id\":\"37781541593bb246496d002caa85ac84\",\"reference\":\"mcp:memory:37781541593bb246496d002caa85ac84\",\"summary\":\"Computed: total net revenue (amount - discount, completed orders only) for the anchor region (North, per memory.bench.customers.region joined to memory.bench.orders) in calendar year 2025 = $239,402.08 (23,940,208 cents over 210 completed orders). Used memory.bench.orders directl\",\"truncated\":true,\"dimension\":\"event\",\"category\":\"business_context\",\"confidence\":\"medium\",\"created_at\":\"2026-08-01T20:38:29.650502Z\"},{\"id\":\"2db1c93fb3fe7d600de63215eaed770a\",\"reference\":\"mcp:memory:2db1c93fb3fe7d600de63215eaed770a\",\"summary\":\"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table with that customer's ID). This is a derived business definition, not a stored column/flag on the customers table. Use this definition for\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:36:34.447711Z\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "The charter cohort is defined as customers with `tier = 'plus'` in memory.bench.customers, which returns 24 customers.\n\nFINAL ANSWER: 24"
+    }
+  ]
+}

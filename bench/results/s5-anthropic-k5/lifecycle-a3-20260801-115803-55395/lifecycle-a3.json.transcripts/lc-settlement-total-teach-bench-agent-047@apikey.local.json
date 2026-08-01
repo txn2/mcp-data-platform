@@ -1,0 +1,68 @@
+{
+  "protocol_id": "lc-settlement-total",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-047@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'settlement total' is the gross revenue (sum of amount over completed orders) for calendar quarter 4 of 2025 (October through December). Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_013muFU5xJNz2CQU7a77ZVWG",
+          "name": "search",
+          "args": {
+            "intent": "orders table with amount and order status (completed orders) for revenue calculation"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_013muFU5xJNz2CQU7a77ZVWG",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: The 'closeout total' is the gross revenue for December 2025, defined as the sum of `amount` (no discount deduction) over completed orders (orders.status = 'completed') where the order date falls in December 2025 (2025-12-01 through 2025-12-31). Note this differs from the standard 'Revenue Reporting Policy' (revenue = amount - discount); 'closeout total' is a gross-only, period-specific metric. Use this definition consistently whenever 'closeout total' is referenced in analysis on the orders dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"02e9022e2c958757975c46397fd850d7\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-013@apikey.local\",\n          \"reference\": \"mcp:insight:02e9022e2c958757975c46397fd850d7\"\n        },\n        {\n          \"text\": \"Working definition: The 'holiday total' is the gross revenue for November and December 2025, defined as the sum of `amount` (no discount deduction) over completed orders (orders.status = 'completed') where the order date falls between 2025-11-01 and 2025-12-31 inclusive. This differs from the standard 'Revenue Reporting Policy' (revenue = amount - discount) since 'holiday total' is gross-only, and it also differs from the 'closeout total' definition (Dec 2025 only) since 'holiday total' spans both Nov and Dec 2025. Use this definition consistently whenever 'holiday total' is referenced in analysis on the orders dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"0efb5e77c67f561678fea2f273a83077\",\n          \"score\": 0.8369013314570155,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-025@apikey.local\",\n          \"reference\": \"mcp:insight:0efb5e77c67f561678fea2f273a83077\"\n        },\n        {\n          \"text\": \"Working definition: a 'priority order' is any order whose amount is at least $1,000.00 (i.e., amount \\u003e= 100000 cents). Applies to the orders table's `amount` column (stored in cents). Use this threshold when filtering/classifying orders as priority in analysis.\",\n          \"source\": \"insights\",\n          \"ref\": \"191edce02fcdd085a605e96eacede578\",\n          \"score\": 0.7515296232611043,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-037@apikey.local\",\n          \"reference\": \"mcp:insight:191edce02fcdd085a605e96eacede578\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        },\n        {\n          \"text\": \"util (api)\\nBuilt-in utility connection. Operations are handled inside the platform rather than proxied to an upstream API. `fetch_url` (`POST /util/fetch`) retrieves an arbitrary public URL server-side - a presigned download link, a generated report URL - inline via api_invoke_endpoint or streamed to a portal asset via api_export. Destinations on internal address space are refused.\",\n          \"source\": \"connections\",\n          \"ref\": \"util\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,util)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:322683bf-0e1a-4016-a486-16c7d4f839a1\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8959902134432681,\n          \"reference\": \"mcp:prompt:794565ec-9b49-4a87-bf33-cef55d0031fb\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 12,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 2,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the relevant dataset: `urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)`. Similar prior definitions (\"closeout total\", \"holiday total\") exist as applied insights on this same dataset. Now saving the \"settlement total\" definition.",
+      "tool_calls": [
+        {
+          "id": "toolu_01BBbKXvdRF5KhmUXMZpjPAo",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: The 'settlement total' is the gross revenue for calendar quarter 4 of 2025 (Q4 2025), defined as the sum of `amount` (no discount deduction) over completed orders (orders.status = 'completed') where the order date falls between 2025-10-01 and 2025-12-31 inclusive (October through December 2025). This differs from the standard 'Revenue Reporting Policy' (revenue = amount - discount) since 'settlement total' is gross-only, and it differs from 'closeout total' (Dec 2025 only) and 'holiday total' (Nov-Dec 2025) by spanning the full Oct-Dec 2025 quarter. Use this definition consistently whenever 'settlement total' is referenced in analysis on the orders dataset.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01BBbKXvdRF5KhmUXMZpjPAo",
+          "text": "{\n  \"id\": \"bac7aba4ecb04ff1132922e148c88c1f\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"settlement total\" definition (gross sum of `amount` over completed orders for Oct–Dec 2025) is captured as a schema-entity insight (id `bac7aba4ecb04ff1132922e148c88c1f`) linked to `urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)`, pending review for promotion to shared knowledge."
+    }
+  ]
+}

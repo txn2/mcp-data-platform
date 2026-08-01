@@ -1,0 +1,68 @@
+{
+  "protocol_id": "lc-spring-window",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-051@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'spring window' for this study is April 2025. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01XsCFp4y924JbSZ6ra1LzYm",
+          "name": "search",
+          "args": {
+            "intent": "spring window study April 2025 seasonal date range definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01XsCFp4y924JbSZ6ra1LzYm",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'reporting cohort' is the set of orders placed in December 2025. Operationally: filter the orders table (memory.bench.orders) to rows where order_date (placement date) falls between 2025-12-01 and 2025-12-31 inclusive. Use this definition consistently for any 'reporting cohort' analysis.\",\n          \"source\": \"insights\",\n          \"ref\": \"b9722810398a5a86c5ec339cf5214839\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-043@apikey.local\",\n          \"reference\": \"mcp:insight:b9722810398a5a86c5ec339cf5214839\"\n        },\n        {\n          \"text\": \"Working definition: The 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025. Operationally: filter the orders table to rows where order status = completed AND order date falls within 2025-11-01 to 2025-12-31, then sum the amount column (no discount subtraction — this is gross, not net revenue). Use this definition consistently for any 'holiday total' analysis in later sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"a0b24d8bfc6dd5014d9e6df79685a868\",\n          \"score\": 0.765697874748167,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-025@apikey.local\",\n          \"reference\": \"mcp:insight:a0b24d8bfc6dd5014d9e6df79685a868\"\n        },\n        {\n          \"text\": \"Working definition: The 'settlement total' is the gross revenue (sum of amount over completed orders) for calendar quarter 4 of 2025 (October through December). Operationally: filter the orders table to rows where order status = completed AND order date falls within 2025-10-01 to 2025-12-31, then sum the amount column (no discount subtraction — this is gross, not net revenue). Use this definition consistently for any 'settlement total' analysis in later sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"1224d9ecc175088b763207509f44848a\",\n          \"score\": 0.7053103123876026,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-047@apikey.local\",\n          \"reference\": \"mcp:insight:1224d9ecc175088b763207509f44848a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        },\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 0.6666666666666666,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        },\n        {\n          \"text\": \"Holiday Total Definition\\nThe 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_43f62052-ccda-40c2-be9f-5cefdebc0253\",\n          \"score\": 0.5938459134822422,\n          \"reference\": \"mcp:knowledge_page:kp_43f62052-ccda-40c2-be9f-5cefdebc0253\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:c2fc9751-6040-4b31-a893-28a743f0a842\"\n        },\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.8099965414500893,\n          \"reference\": \"mcp:prompt:9181b031-d425-44b6-8f1e-c93a5b7f33f1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 14,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "This is analogous to prior seasonal-window definitions on the `memory.bench.orders` dataset (order_date-based filters). I'll capture the \"spring window\" definition the same way, linked to that dataset.",
+      "tool_calls": [
+        {
+          "id": "toolu_012HETSkQgUdCzD4X7a6SkC7",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: the 'spring window' for this study is April 2025. Operationally: filter the orders table (memory.bench.orders) to rows where order_date (placement date) falls between 2025-04-01 and 2025-04-30 inclusive. Use this definition consistently for any 'spring window' analysis in later sessions.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_012HETSkQgUdCzD4X7a6SkC7",
+          "text": "{\n  \"id\": \"5afb2f23e4b8ce6bb5a744236b0bd41b\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: captured the working definition \"'spring window' = April 2025 (order_date between 2025-04-01 and 2025-04-30 inclusive)\" as a schema_entity insight (id `5afb2f23e4b8ce6bb5a744236b0bd41b`), linked to `urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)`, pending review for promotion to shared knowledge."
+    }
+  ]
+}

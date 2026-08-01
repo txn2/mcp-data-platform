@@ -19,6 +19,7 @@ Protocol: [`docs/knowledge-layer-protocol.md`](../docs/knowledge-layer-protocol.
 | Directory | What it is |
 | --- | --- |
 | [`phase2-anthropic-k3/`](phase2-anthropic-k3/) | The four-arm S1-S3 ablation, k=3. The report's headline. |
+| [`s5-anthropic-k5/`](s5-anthropic-k5/) | S5 lifecycle at k=5 over the thirty-protocol set (#1139), five independent passes merged. Point estimates with CIs for transfer and supersede; the lifecycle evidence of record from report v2 onward. |
 | [`s5-anthropic-k3/`](s5-anthropic-k3/) | S5 lifecycle, shared knowledge store, k=3. |
 | [`s5-anthropic-k3-isolated/`](s5-anthropic-k3-isolated/) | S5 lifecycle, isolated replicate 1. |
 | [`s5-anthropic-k3-isolated-v2/`](s5-anthropic-k3-isolated-v2/) | S5 lifecycle, isolated replicate 2. Source of the published lifecycle scorecard. |

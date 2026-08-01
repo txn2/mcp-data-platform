@@ -56,7 +56,7 @@ forms a new study in the series with its own protocol.
 | Strict tool-argument schemas (reject unknown fields) | Built — #1060 | An agent burned calls on a silently-ignored misnamed field (capture corpus); the S5 probe's mis-filing decomposition reinforced the filing-reliability theme |
 | Capture-guidance priority: conventions and definitions over world-state observations | Adopt in curation guidance | Conventions are the only knowledge class used by every tier and the only class that suppresses fabrication (knowledge-use report, sections 4, 5, 8) |
 | Supersede invalidation / propagation repair (#980 A2/A5) | Unmeasured — deferred, not concluded | RQ4 never ran; the measurement that would settle it is deferred (see the deferred-extensions section above) |
-| Cross-identity reach of applied insights (#980 B2, #1130) | Built — applied insights are searchable across identities | The knowledge-layer report's 46.7% transfer rate against 84.4% personal recall (Section 5); the mechanism was confirmed in source before the change, and the effect is unmeasured until #1139 runs |
+| Cross-identity reach of applied insights (#980 B2, #1130) | Built — applied insights are searchable across identities | The knowledge-layer report's 46.7% transfer rate against 84.4% personal recall (Section 5 of report v1.1); measured by #1139 and published in report v2.0 — transfer is 98.9% CI [96.8-100.0] on v1.118.0, an across-code comparison, not a scale effect (`results/s5-anthropic-k5/`) |
 
 ## The study lifecycle these entries follow
 

@@ -1,0 +1,61 @@
+{
+  "protocol_id": "lc-standard-order",
+  "stage": "transfer",
+  "identity": "learner",
+  "email": "bench-agent-054@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "How many standard orders are there? Answer with the count."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01KCt1An4edf2Hpmr1Jaci9i",
+          "name": "search",
+          "args": {
+            "intent": "standard orders count order type"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01KCt1An4edf2Hpmr1Jaci9i",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:9bbd024e-dfc5-452c-bb44-0e5679dfe731\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8667087502509897,\n          \"reference\": \"mcp:prompt:cac06187-ab9d-440f-9a92-c65841eeb1fa\"\n        },\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.6697351761071044,\n          \"reference\": \"mcp:prompt:af149f63-e826-465c-afc9-bb1472dd031f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        },\n        {\n          \"text\": \"legacy_orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n          \"score\": 0.6666666666666666,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: a 'standard order' is any order whose amount is below $1,000.00 (i.e., amount \\u003c 100000 cents), based on the orders.amount column (stored in cents). This is the complement of the 'priority order' definition (amount \\u003e= 100000 cents). Use this threshold consistently in analyses that classify or filter standard orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"3439e82e3a4d9c5f553fffd3786062de\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-053@apikey.local\",\n          \"reference\": \"mcp:insight:3439e82e3a4d9c5f553fffd3786062de\"\n        },\n        {\n          \"text\": \"Working definition: a 'priority order' is any order whose amount is at least $1,000.00 (i.e., amount \\u003e= 100000 cents), based on the orders.amount column (stored in cents). Use this threshold consistently in analyses that classify or filter priority orders.\",\n          \"source\": \"insights\",\n          \"ref\": \"a49dcd65a90f1bbd987bf98b06a385c5\",\n          \"score\": 0.6739555528203831,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-037@apikey.local\",\n          \"reference\": \"mcp:insight:a49dcd65a90f1bbd987bf98b06a385c5\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Priority Order Definition\\nA 'priority order' is any order whose amount is at least $1,000.00 (100000 cents).\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_2e2a1e15-ea40-488c-8b2f-b691c7c3b378\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_2e2a1e15-ea40-488c-8b2f-b691c7c3b378\"\n        },\n        {\n          \"text\": \"Premium Order Definition\\nA 'premium order' is any order placed by a customer on the enterprise tier.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_3f1e0b3f-01f1-49a7-8619-a260777c8327\",\n          \"score\": 0.691700747126982,\n          \"reference\": \"mcp:knowledge_page:kp_3f1e0b3f-01f1-49a7-8619-a260777c8327\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 17,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 14,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Standard order = amount \u003c 100000 cents ($1,000.00) in orders.amount.",
+      "tool_calls": [
+        {
+          "id": "toolu_01F2VNYWiZ2e8iM6z8YCPKP3",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS cnt FROM memory.bench.orders WHERE amount \u003c 100000"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01F2VNYWiZ2e8iM6z8YCPKP3",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"cnt\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"cnt\": 380\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 25\n  }\n}\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"The 'spring window' for this study is April 2025.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}\n{\"memory_context\":[{\"id\":\"3439e82e3a4d9c5f553fffd3786062de\",\"reference\":\"mcp:memory:3439e82e3a4d9c5f553fffd3786062de\",\"summary\":\"Working definition: a 'standard order' is any order whose amount is below $1,000.00 (i.e., amount \\u003c 100000 cents), based on the orders.amount column (stored in cents). This is the complement of the 'priority order' definition (amount \\u003e= 100000 cents). Use this threshold consisten\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:33:39.156414Z\"},{\"id\":\"3ad9513243daaa10c845a8d8c22ada38\",\"reference\":\"mcp:memory:3ad9513243daaa10c845a8d8c22ada38\",\"summary\":\"Working definition: the 'spring window' for this study is April 2025 (order_ts / date between 2025-04-01 and 2025-04-30 inclusive). Use this definition consistently in future analyses referencing the 'spring window' on the orders dataset.\",\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:33:01.484439Z\"},{\"id\":\"520b217178257f9eff8c0f61c2c00223\",\"reference\":\"mcp:memory:520b217178257f9eff8c0f61c2c00223\",\"summary\":\"Working definition: the 'settlement total' is the gross revenue for calendar Q4 2025 (October through December) — i.e., SUM(amount) over orders with status = 'completed' and an order date between 2025-10-01 and 2025-12-31 inclusive. This is gross revenue (amount only, no discou\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:31:32.965127Z\"}],\"memory_context_note\":\"2 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"fade82776c7d51d61148ac4876c55698\",\"reference\":\"mcp:memory:fade82776c7d51d61148ac4876c55698\"},{\"id\":\"197cadc3b9c02b7a406d0eb24c9cf3d2\",\"reference\":\"mcp:memory:197cadc3b9c02b7a406d0eb24c9cf3d2\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "FINAL ANSWER: 380"
+    }
+  ]
+}

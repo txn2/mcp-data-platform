@@ -1,0 +1,67 @@
+{
+  "protocol_id": "lc-quiet-region",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-039@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'quiet region' is the region whose customers placed the fewest orders. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01S1Dekm5t7WGVTD4giNycnU",
+          "name": "search",
+          "args": {
+            "intent": "region customers orders dataset (e.g., customer, orders, region tables) for TPCH-like schema"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01S1Dekm5t7WGVTD4giNycnU",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        },\n        {\n          \"text\": \"util (api)\\nBuilt-in utility connection. Operations are handled inside the platform rather than proxied to an upstream API. `fetch_url` (`POST /util/fetch`) retrieves an arbitrary public URL server-side - a presigned download link, a generated report URL - inline via api_invoke_endpoint or streamed to a portal asset via api_export. Destinations on internal address space are refused.\",\n          \"source\": \"connections\",\n          \"ref\": \"util\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,util)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: The 'leading region' is the region whose customers placed the most orders. Operationally: aggregate the orders table (joined to customer region attribute) by customer region, count orders per region, and the region with the highest order count is the 'leading region'. Use this definition consistently for any 'leading region' analysis.\",\n          \"source\": \"insights\",\n          \"ref\": \"729889f71c232aed974081cb953b971a\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-029@apikey.local\",\n          \"reference\": \"mcp:insight:729889f71c232aed974081cb953b971a\"\n        },\n        {\n          \"text\": \"Working definition: The 'peak region' is the region with the most customers. Operationally: aggregate the customers table by region, count customers per region, and the region with the highest customer count is the 'peak region'. Use this definition consistently for any 'peak region' analysis.\",\n          \"source\": \"insights\",\n          \"ref\": \"8ea7593ddeaefe89dc7e8a5bad484e94\",\n          \"score\": 0.8349847054831347,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-031@apikey.local\",\n          \"reference\": \"mcp:insight:8ea7593ddeaefe89dc7e8a5bad484e94\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Peak Region Definition\\nThe 'peak region' is the region with the most customers.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_688dcea7-a260-4ba5-9173-1139adc15128\",\n          \"score\": 0.827594752228211,\n          \"reference\": \"mcp:knowledge_page:kp_688dcea7-a260-4ba5-9173-1139adc15128\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Trace Data Lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:3d35a6ff-3216-42ae-a19b-66804a706972\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8372800501454174,\n          \"reference\": \"mcp:prompt:c2fc9751-6040-4b31-a893-28a743f0a842\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /util/fetch\\nFetch a public URL server-side\",\n          \"source\": \"endpoints\",\n          \"ref\": \"util:fetch_url\",\n          \"score\": 1\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 10,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 10,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 2,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "The relevant dataset is `memory.bench.orders` (which joins to customer region). I'll save the definition linked to it.",
+      "tool_calls": [
+        {
+          "id": "toolu_01AJm2MzwKXtjyqL9JyUFx3H",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: The 'quiet region' is the region whose customers placed the fewest orders. Operationally: aggregate the orders table (joined to customer region attribute) by customer region, count orders per region, and the region with the lowest order count is the 'quiet region'. Use this definition consistently for any 'quiet region' analysis. (Complements existing 'leading region' = most orders definition.)",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01AJm2MzwKXtjyqL9JyUFx3H",
+          "text": "{\n  \"id\": \"e1d2bd5f16a261466f0be227935fb85a\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: \"quiet region\" = the region whose customers placed the fewest orders (aggregate orders joined to customer region, take the lowest count), linked to `urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)` — captured as insight `e1d2bd5f16a261466f0be227935fb85a`, pending review for promotion."
+    }
+  ]
+}

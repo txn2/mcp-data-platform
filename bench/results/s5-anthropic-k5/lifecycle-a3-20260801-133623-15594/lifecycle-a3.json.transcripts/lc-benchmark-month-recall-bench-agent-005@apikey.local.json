@@ -1,0 +1,85 @@
+{
+  "protocol_id": "lc-benchmark-month",
+  "stage": "recall",
+  "identity": "teacher",
+  "email": "bench-agent-005@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "How many orders were placed in the benchmark month? Answer with the count."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01XYoLmtC623KkpFXUWWP94S",
+          "name": "search",
+          "args": {
+            "intent": "benchmark month orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01XYoLmtC623KkpFXUWWP94S",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/performance\\nGet audit performance\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/performance\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/notifications\\nList notification deliveries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/notifications\",\n          \"score\": 0.9982537378528549\n        },\n        {\n          \"text\": \"PUT /api/v1/admin/settings/review-queue-alert\\nUpdate review-queue alert settings\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /admin/settings/review-queue-alert\",\n          \"score\": 0.8503255715665216\n        },\n        {\n          \"text\": \"GET /api/v1/admin/prompt-collections\\nList prompt collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/prompt-collections\",\n          \"score\": 0.8195160884337838\n        },\n        {\n          \"text\": \"GET /api/v1/admin/notifications/stats\\nGet notification delivery stats\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/notifications/stats\",\n          \"score\": 0.6666368878084747\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        },\n        {\n          \"text\": \"Explore Available Data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8753943850802012,\n          \"reference\": \"mcp:prompt:5f443162-535d-4da4-9b09-1dfcb62ada9f\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7959669576899909,\n          \"reference\": \"mcp:prompt:5d4150e3-da01-4cf0-bad9-fb822b9e4e4a\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.732857606537098,\n          \"reference\": \"mcp:prompt:df5c0448-b99d-486a-8209-3dff6a9da69a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'benchmark month' for this study is March 2025 (2025-03-01 through 2025-03-31). Use this as the reference/comparison month for all benchmark-related analysis on the orders data (memory.bench.orders).\",\n          \"source\": \"insights\",\n          \"ref\": \"77b1921fdb792319aef45b16339ebb7d\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-005@apikey.local\",\n          \"reference\": \"mcp:insight:77b1921fdb792319aef45b16339ebb7d\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 2,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Benchmark month = March 2025 (2025-03-01 through 2025-03-31), applying to memory.bench.orders. Let me query the orders table.",
+      "tool_calls": [
+        {
+          "id": "toolu_01VHv81LHWmVszEg2aCZFAZT",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01VHv81LHWmVszEg2aCZFAZT",
+          "text": "## Table: `memory.bench.orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_ts` | timestamp(3) | - | - |\n| `status` | varchar | - | - |\n| `amount` | integer | - | - |\n| `discount` | integer | - | - |\n\n*6 columns*\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"In our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}\n{\"memory_context\":[{\"id\":\"37781541593bb246496d002caa85ac84\",\"reference\":\"mcp:memory:37781541593bb246496d002caa85ac84\",\"summary\":\"Computed: total net revenue (amount - discount, completed orders only) for the anchor region (North, per memory.bench.customers.region joined to memory.bench.orders) in calendar year 2025 = $239,402.08 (23,940,208 cents over 210 completed orders). Used memory.bench.orders directl\",\"truncated\":true,\"dimension\":\"event\",\"category\":\"business_context\",\"confidence\":\"medium\",\"created_at\":\"2026-08-01T20:38:29.650502Z\"},{\"id\":\"2db1c93fb3fe7d600de63215eaed770a\",\"reference\":\"mcp:memory:2db1c93fb3fe7d600de63215eaed770a\",\"summary\":\"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table with that customer's ID). This is a derived business definition, not a stored column/flag on the customers table. Use this definition for\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-08-01T20:36:34.447711Z\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_019fmdtNXdoVVJ2Do2DmKw28",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS order_count FROM memory.bench.orders WHERE order_ts \u003e= TIMESTAMP '2025-03-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-04-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_019fmdtNXdoVVJ2Do2DmKw28",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"order_count\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"order_count\": 114\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 34\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.orders\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "114 orders were placed in the benchmark month (March 2025), per the working definition of \"benchmark month\" recorded in the catalog insights for `memory.bench.orders`.\n\nFINAL ANSWER: 114"
+    }
+  ]
+}

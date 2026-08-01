@@ -1,0 +1,67 @@
+{
+  "protocol_id": "lc-priority-orders",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-037@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. A 'priority order' is any order whose amount is at least $1,000.00 (100000 cents). Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01KPjwPzqAeyxu6Mrg4PXkrp",
+          "name": "search",
+          "args": {
+            "intent": "orders table amount column definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01KPjwPzqAeyxu6Mrg4PXkrp",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: 'closeout total' = gross revenue, computed as SUM(amount) over completed orders (order status = completed), restricted to December 2025 (order date in 2025-12-01 through 2025-12-31). This is gross revenue (does NOT subtract discount, unlike the general 'Revenue' definition in the Revenue Reporting Policy which is amount - discount). Use this exact definition for any 'closeout total' analysis in future sessions: SELECT SUM(amount) FROM memory.bench.orders WHERE status = 'completed' AND order_date BETWEEN '2025-12-01' AND '2025-12-31'.\",\n          \"source\": \"insights\",\n          \"ref\": \"264d22bfe42127a88c626797c7e5c39d\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-013@apikey.local\",\n          \"reference\": \"mcp:insight:264d22bfe42127a88c626797c7e5c39d\"\n        },\n        {\n          \"text\": \"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table with that customer's ID). This is a derived business definition, not a stored column/flag on the customers table. Use this definition for all \\\"active customer\\\" analysis: active customer count = count of distinct customers with \\u003e=1 row in orders (memory.bench.orders).\",\n          \"source\": \"insights\",\n          \"ref\": \"2db1c93fb3fe7d600de63215eaed770a\",\n          \"score\": 0.8888824744124776,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:2db1c93fb3fe7d600de63215eaed770a\"\n        },\n        {\n          \"text\": \"Working definition: the 'house tier' is the customer tier (customers.tier) that placed the most orders. It is derived, not a stored flag: join memory.bench.orders.customer_id to memory.bench.customers.customer_id, group by customers.tier, count orders per tier, and the tier with the highest order count is the 'house tier'. Use this exact definition for any 'house tier' analysis in future sessions.\",\n          \"source\": \"insights\",\n          \"ref\": \"920ae64d98209b9561800042ccceeecd\",\n          \"score\": 0.8411355310553783,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-027@apikey.local\",\n          \"reference\": \"mcp:insight:920ae64d98209b9561800042ccceeecd\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Premium Order Definition\\nA 'premium order' is any order placed by a customer on the enterprise tier.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9f80cd34-841a-40a8-a2cd-843c62e2173f\",\n          \"score\": 0.9588897061463908,\n          \"reference\": \"mcp:knowledge_page:kp_9f80cd34-841a-40a8-a2cd-843c62e2173f\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.9214260774387985,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/prompt-collections\\nList prompt collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/prompt-collections\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/prompt-collections\\nList prompt collections (portal)\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/prompt-collections\",\n          \"score\": 0.8841200586659207\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"Create a Report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5980fbf5-e343-490e-97d7-66792defcdf1\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 10,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 4,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "The dataset is confirmed as `memory.bench.orders` (with `amount` in cents). I'll save the \"priority order\" definition as a schema_entity insight linked to it.",
+      "tool_calls": [
+        {
+          "id": "toolu_01MmDVZFYva6ubKf9hrKQti9",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: a 'priority order' is any order whose amount is at least $1,000.00 (\u003e= 100000 cents). Amounts in memory.bench.orders are stored in US cents, consistent with the Revenue Reporting Policy. Use this exact definition for any 'priority order' analysis in future sessions: SELECT * FROM memory.bench.orders WHERE amount \u003e= 100000.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01MmDVZFYva6ubKf9hrKQti9",
+          "text": "{\n  \"id\": \"4159fb6421f7a92bd2cfa388bca16a85\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: a new insight (id `4159fb6421f7a92bd2cfa388bca16a85`) defining a **\"priority order\"** as any order with `amount \u003e= 100000` cents ($1,000.00), linked to the `memory.bench.orders` dataset — pending review for promotion to shared catalog knowledge."
+    }
+  ]
+}
