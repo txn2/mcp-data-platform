@@ -35,6 +35,48 @@ func (stubResolver) MaxLifetime(_ context.Context, _ connoauth.Key) time.Duratio
 	return 0
 }
 
+// blockingStore is a connoauth.Store whose List parks the refresher inside its
+// first tick until the test releases it. That is the only way to assert Stop's
+// deadline branch deterministically: the loop fires a tick immediately on
+// start, so a loop left to run can reach its deferred close(done) before Stop
+// selects, leaving both of Stop's cases ready and the outcome to the runtime's
+// uniform choice among them.
+type blockingStore struct {
+	entered chan struct{} // closed once the loop is inside List
+	release chan struct{} // closed by the test to let List return
+}
+
+func newBlockingStore() *blockingStore {
+	return &blockingStore{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+// List reports that the loop has reached its first tick and then blocks. It
+// deliberately ignores ctx: returning on cancellation would let the loop exit
+// and close done, which is the race this fake exists to remove. Called once per
+// test — the refresher's next tick is a full interval out.
+func (s *blockingStore) List(_ context.Context) ([]connoauth.PersistedToken, error) {
+	close(s.entered)
+	<-s.release
+	return nil, nil
+}
+
+// The remaining Store methods are unreachable from this test: the loop blocks
+// in List and never gets a row to process.
+func (*blockingStore) Get(_ context.Context, _ connoauth.Key) (*connoauth.PersistedToken, error) {
+	return nil, connoauth.ErrTokenNotFound
+}
+
+func (*blockingStore) Set(_ context.Context, _ connoauth.PersistedToken) error { return nil }
+
+func (*blockingStore) Delete(_ context.Context, _ connoauth.Key) error { return nil }
+
+func (*blockingStore) Lock(_ context.Context, _ connoauth.Key) (func(), error) {
+	return func() {}, nil
+}
+
 // newHandle builds a Handle over a sqlmock-backed *sql.DB and registers cleanup
 // that closes both the handle (reaping the prune goroutine) and the mock db.
 // The prune routine's first tick is 24h out, so the mock is never queried by it.
@@ -168,21 +210,34 @@ func TestStartRefresher_IdempotentDoesNotLeak(t *testing.T) {
 	}
 }
 
-func TestStop_WrapsErrorWhenContextAlreadyDone(t *testing.T) {
-	// Not parallel: the refresher loop goroutine is left to wind down on its
-	// own (Stop canceled its context but returned before the loop closed done);
-	// TestMain's goleak check retries long enough for it to exit.
+func TestStop_WrapsErrorWhenTheLoopDoesNotSettleBeforeTheDeadline(t *testing.T) {
+	// Not parallel: after the assertion the loop goroutine is released and winds
+	// down on its own; TestMain's goleak check retries long enough for it to exit.
 	h := newHandle(t)
+	store := newBlockingStore()
+	h.store = store
 	h.StartRefresher(stubResolver{}, connoauth.NoopLocker{})
-	// A pre-canceled wait context: Stop calls cancel() on the loop and then
-	// selects between the loop's done channel and ctx.Done(). done cannot have
-	// closed yet (the loop goroutine has not been scheduled), so the already-done
-	// ctx wins and Stop returns the wrapped error rather than a clean nil.
+	// Registered before the wait below so a loop that never ticks cannot strand
+	// this test on a channel nobody closes. By the time it runs, Stop has
+	// canceled the loop's context, so the loop exits as soon as List returns and
+	// goleak can reap it.
+	defer close(store.release)
+	// Park the loop inside its first tick. Stop cancels the loop's context and
+	// then selects between the loop's done channel and the wait context; holding
+	// the loop in List is what keeps done open, so the expired wait context is
+	// the only ready case and the assertion below is not a race against the
+	// scheduler.
+	select {
+	case <-store.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("refresher loop never reached its first tick")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err := h.Stop(ctx)
 	if err == nil {
-		t.Fatal("Stop with an already-canceled context must return the wrapped error")
+		t.Fatal("Stop must return the wrapped error when the loop has not settled before the deadline")
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Stop error = %v, want a wrapped context.Canceled", err)
