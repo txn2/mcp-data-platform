@@ -94,15 +94,17 @@ Two independence guarantees keep attempts comparable:
 
 - **Identity pool.** The search-first gate keys discovery on the
   authenticated USER, not the MCP session, so every attempt authenticates as
-  its own pool identity (`<key>-001`..`-264`, defined in the arm configs;
+  its own pool identity (`<key>-001`..`-320`, defined in the arm configs;
   `-identity-keys` must match, and a run refuses to start when tasks x k
-  exceeds the pool). The pool is sized to the full phase-2 task set at k=3 (87
-  tasks x 3 = 261 attempts); to resize it, run this from `bench/` (and set the
-  matching `-identity-keys`):
+  exceeds the pool). The pool is sized to the thirty-protocol lifecycle suite at
+  k=5, its largest single consumer (30 protocols x 5 x 2 identities = 300
+  attempts), which also covers the full phase-2 task set at k=3 (87 tasks x 3 =
+  261 attempts); to resize it, run this from `bench/` (and set the matching
+  `-identity-keys`):
 
   ```python
   import re, glob
-  N = 264  # >= tasks x k for the largest single run
+  N = 320  # >= identities needed by the largest single run
   entries = "\n".join(
       f'      - {{key: "${{API_KEY_ADMIN}}-{i:03d}", name: "bench-agent-{i:03d}", roles: ["admin"]}}'
       for i in range(1, N + 1)) + "\n"
@@ -352,19 +354,19 @@ treat the k = 5 column as the floor for a headline claim, not a guarantee.
 learner), so a run needs `2 × protocols × k` keys and refuses to start otherwise.
 For the thirty-protocol set:
 
-| k | identities needed (2 × 30 × k) | fits the 264-key pool? |
+| k | identities needed (2 × 30 × k) | fits the 320-key pool? |
 | --- | --- | --- |
 | 3 | 180 | yes |
 | 4 | 240 | yes |
-| 5 | 300 | no — grow the pool |
+| 5 | 300 | yes |
 
-The committed pool in `bench/config/platform.bench.a*.yaml` is 264 keys (sized for
-the S1–S3 task set, 87 × 3 = 261). It covers the thirty-protocol lifecycle through
-k = 4. A k = 5 run — the size the power analysis recommends for a firm transfer
-claim — needs the pool grown to ≥ 300 (round to 320 for headroom) across the four
-arm configs; `-identity-keys` must be raised to match. That pool growth is the one
-prerequisite for the budget-gated k = 5 evaluation run and is intentionally left
-to that run rather than pre-committed here.
+The committed pool in `bench/config/platform.bench.a*.yaml` is 320 keys, grown from
+264 for the k = 5 lifecycle run (#1139) — the size the power analysis recommends
+for a firm transfer claim, needing 300 identities, with the remainder as headroom
+against a protocol set that grows again. The `-identity-keys` default matches it
+(`bench/benchrun/main.go`), so the lifecycle target, which passes no such flag,
+inherits the right pool. A run that would exceed the pool refuses to start rather
+than sharing a discovery scope between attempts.
 
 ## Supersede sub-benchmark (#964)
 

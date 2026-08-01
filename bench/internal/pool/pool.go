@@ -15,6 +15,15 @@ import "fmt"
 // credential rotation couples to the same convention.
 const NamePrefix = "bench-agent"
 
+// Size is the number of identities the committed arm configs define, and the
+// default for benchrun's -identity-keys. The flag is a claim ABOUT the configs:
+// a runner only checks its own flag against what a run needs, so a flag larger
+// than the real pool authenticates an attempt as an identity no config defines
+// and fails partway through a paid run. TestArmConfigsDefineExactlySize keeps
+// the two in step. Sized for the thirty-protocol lifecycle at k=5 (30 x 5 x 2 =
+// 300 identities) with headroom; see bench/docs/knowledge-layer-protocol.md.
+const Size = 320
+
 // Credential returns the bearer token for one attempt: the base credential when
 // identity rotation is off (identityKeys == 0), or the zero-padded pool key
 // "<base>-NNN" matching the arm configs' pool.
