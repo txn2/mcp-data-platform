@@ -10,7 +10,7 @@ it comes from.*
 | **Author** | Craig Johnston (cj@imti.co), Deasil Works, Inc. / txn2 — ORCID [0009-0000-9041-4079](https://orcid.org/0009-0000-9041-4079) |
 | **Published** | 2026-07-19; version 2.0 published 2026-08-01 |
 | **Report version** | 2.0 |
-| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept DOI, resolves to the latest version) |
+| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept DOI, resolves to the latest version). This version: [10.5281/zenodo.21751050](https://doi.org/10.5281/zenodo.21751050). |
 | **Subject under test** | The platform's semantic knowledge layer (cross-enrichment, `search`, and the memory / `apply_knowledge` lifecycle), not the whole platform. |
 | **Platform builds** | **This report spans two platform generations and the sections are not mutually comparable.** Section 5 (lifecycle) ran on `v1.118.0-4-g445e3abc`; Sections 3 and 4 are pinned to release tag `v1.102.2`, whose application code is byte-identical to the cold-start build. Within that tag the ablation ran on `v1.102.0` platform logic and cold-start on `v1.102.1` (the superseded v1.1 lifecycle run was also `v1.102.0`); the only deltas from the tag are portal-pagination plumbing (#974) and a pprof diagnostic endpoint, neither of which is in the cross-enrichment, `search`, or knowledge-lifecycle path under test (Section 6). Exact build strings, commits, seeds, and task-set hashes are pinned in each run's manifest (Section 9). |
 | **How to cite** | [Section 10](#10-how-to-cite-this-report) |
@@ -665,6 +665,7 @@ remains valid for the source and the raw data.
   valid; section names are checked mechanically by `TestHarnessCitationsResolve`.
   No statistic, figure, table value, or conclusion changed, so the report
   version is unchanged at 1.1 and the deposited snapshots are unaffected.
+  (v1.1 was never deposited; the deposited versions are v1.0 and v2.0.)
 
 ## 11. Related work
 

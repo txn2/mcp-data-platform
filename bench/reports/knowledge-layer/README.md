@@ -40,8 +40,13 @@ tool, deliberately not part of `make verify`.
 
 The report is archived on Zenodo under the concept DOI
 [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044), which always
-resolves to the latest published version (the v1.0 snapshot carries version DOI
-[10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045)). To rebuild the
+resolves to the latest published version. Each version also carries its own DOI:
+v2.0 is [10.5281/zenodo.21751050](https://doi.org/10.5281/zenodo.21751050) and the
+v1.0 snapshot is [10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045).
+There is no v1.1 DOI: v1.1 was a markdown-only revision that was never
+deposited, so the concept DOI resolved to v1.0 until v2.0 was published.
+**Record every new version DOI here and in `CITATION.cff` when you publish
+one.** To rebuild the
 deposit artifacts (for example for a future report version):
 
 ```bash
