@@ -1,11 +1,13 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/coldstart"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycle"
 	"github.com/txn2/mcp-data-platform/bench/internal/report"
 )
@@ -375,5 +377,94 @@ func TestGateOnBaselineRejectsArmMismatch(t *testing.T) {
 	cand := results("a0", report.SuiteSummary{Suite: "s3", Graded: 10, Accuracy: 0.43, PassKRate: 0.40, MedianToolCalls: 16})
 	if err := gateOnBaseline(cand, baselineFile(t, base)); err == nil {
 		t.Fatal("cross-arm baseline was accepted")
+	}
+}
+
+// captureStdout runs fn with os.Stdout redirected and returns what it printed.
+func captureStdout(t *testing.T, fn func() error) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	runErr := fn()
+	os.Stdout = orig
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runErr != nil {
+		t.Fatalf("summarize: %v", runErr)
+	}
+	return string(out)
+}
+
+// TestSummarizeRederivesMetricsFromRecords proves -summarize re-aggregates
+// before printing, so a results file written by an older harness renders under
+// the current metric definitions. Written without any capture decomposition
+// (the pre-#1136 shape), the file must still summarize with a capture rate and
+// an attributed miss, both derived from the lesson records it does carry.
+func TestSummarizeRederivesMetricsFromRecords(t *testing.T) {
+	res := &coldstart.Results{
+		Manifest: coldstart.Manifest{CurriculumID: "cs-test", Arm: "a3", K: 1},
+		Lessons: []coldstart.LessonRecord{
+			{LessonID: "cs-a", Captured: new(true), CaptureAttempted: new(true), BudgetExhausted: new(false)},
+			{LessonID: "cs-b", Captured: new(false), CaptureAttempted: new(false), BudgetExhausted: new(true)},
+		},
+	}
+	// Deliberately NOT aggregated: the stored metrics block is the zero value,
+	// exactly as an older harness's file looks for a metric it never computed.
+	path := filepath.Join(t.TempDir(), "cold.json")
+	if err := res.WriteJSON(path); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() error {
+		return runSummarize(config{coldStart: true, summarize: path})
+	})
+	if !strings.Contains(out, "capture rate") || !strings.Contains(out, "(1/2)") {
+		t.Errorf("summary did not re-derive the capture rate from the lesson records:\n%s", out)
+	}
+	if !strings.Contains(out, "capture misses (1)") {
+		t.Errorf("summary did not attribute the capture miss:\n%s", out)
+	}
+}
+
+// TestSummarizeLifecycleRederivesMetrics is the lifecycle and supersede half of
+// the same contract: both summaries re-derive their scorecard from the stored
+// protocol runs, so an older file reports the capture decomposition too.
+func TestSummarizeLifecycleRederivesMetrics(t *testing.T) {
+	runs := []lifecycle.ProtocolRun{
+		{ProtocolID: "lc-a", Captured: new(true), CaptureAttempted: new(true), TeachBudgetExhausted: new(false), RecallCorrect: new(true)},
+		{ProtocolID: "lc-b", Captured: new(false), CaptureAttempted: new(false), TeachBudgetExhausted: new(true)},
+	}
+	dir := t.TempDir()
+
+	life := &lifecycle.Results{Manifest: lifecycle.Manifest{Arm: "a3", K: 1}, Runs: runs}
+	lifePath := filepath.Join(dir, "life.json")
+	if err := life.WriteJSON(lifePath); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() error {
+		return runSummarize(config{lifecycle: true, summarize: lifePath})
+	})
+	if !strings.Contains(out, "capture rate") || !strings.Contains(out, "capture misses (1)") {
+		t.Errorf("lifecycle summary did not re-derive the capture decomposition:\n%s", out)
+	}
+
+	sup := &lifecycle.SupersedeResults{Manifest: lifecycle.Manifest{Arm: "a3", K: 1}, Runs: runs}
+	supPath := filepath.Join(dir, "sup.json")
+	if err := sup.WriteJSON(supPath); err != nil {
+		t.Fatal(err)
+	}
+	out = captureStdout(t, func() error {
+		return runSummarize(config{supersede: true, summarize: supPath})
+	})
+	if !strings.Contains(out, "capture attempted") || !strings.Contains(out, "capture misses (1)") {
+		t.Errorf("supersede summary did not re-derive the capture decomposition:\n%s", out)
 	}
 }

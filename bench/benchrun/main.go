@@ -162,7 +162,13 @@ func runReadOnly(cfg config) (bool, error) {
 }
 
 // runSummarize prints the human summary of an existing results JSON, choosing
-// the result shape from the run-mode flags.
+// the result shape from the run-mode flags. The lifecycle, supersede, and
+// cold-start summaries re-aggregate from the per-attempt records the file
+// carries before printing, so a results file written by an older harness renders
+// under the CURRENT metric definitions instead of showing a zero for a metric
+// that did not exist when it was written (the capture decomposition, #1136).
+// Aggregation is deterministic and derives only from those records, so
+// re-deriving never changes what a file written by this harness reports.
 func runSummarize(cfg config) error {
 	switch {
 	case cfg.coldStart:
@@ -170,18 +176,21 @@ func runSummarize(cfg config) error {
 		if err != nil {
 			return err
 		}
+		res.Aggregate()
 		fmt.Print(res.HumanSummary())
 	case cfg.supersede:
 		res, err := lifecycle.LoadSupersedeJSON(cfg.summarize)
 		if err != nil {
 			return err
 		}
+		res.Aggregate()
 		fmt.Print(res.HumanSummary())
 	case cfg.lifecycle:
 		res, err := lifecycle.LoadJSON(cfg.summarize)
 		if err != nil {
 			return err
 		}
+		res.Aggregate()
 		fmt.Print(res.HumanSummary())
 	default:
 		res, err := report.LoadJSON(cfg.summarize)

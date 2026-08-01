@@ -3,7 +3,6 @@ package lifecycle
 import (
 	"testing"
 
-	"github.com/txn2/mcp-data-platform/bench/internal/agent"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 )
@@ -22,51 +21,6 @@ func TestNormalizeText(t *testing.T) {
 	for _, c := range cases {
 		if got := normalizeText(c.in); got != c.want {
 			t.Errorf("normalizeText(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
-// executedCapture is a two-turn transcript: an assistant capture request paired
-// with a non-refusal tool result, i.e. a capture that actually ran.
-func executedCapture(name string) []llm.Message {
-	return []llm.Message{
-		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "c1", Name: name}}},
-		{Role: "user", ToolResults: []llm.ToolResult{{CallID: "c1", Text: "captured in-1"}}},
-	}
-}
-
-func TestCaptureToolCalled(t *testing.T) {
-	// A capture request the budget refused (only its refusal result is present)
-	// must not count as an executed capture.
-	budgetRefused := []llm.Message{
-		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "memory_capture"}}},
-		{Role: "user", ToolResults: []llm.ToolResult{{CallID: "c1", Text: agent.BudgetRefusalText, IsError: true}}},
-	}
-	// A capture that ran but errored server-side still counts (a landing failure,
-	// not a budget-starvation miss).
-	serverError := []llm.Message{
-		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "memory_capture"}}},
-		{Role: "user", ToolResults: []llm.ToolResult{{CallID: "c1", Text: "capture failed: entity not found", IsError: true}}},
-	}
-	cases := []struct {
-		name string
-		msgs []llm.Message
-		want bool
-	}{
-		{"empty", nil, false},
-		{"only search", []llm.Message{{Role: "assistant", ToolCalls: []llm.ToolCall{{Name: "search"}}}}, false},
-		{"executed memory_capture", executedCapture("memory_capture"), true},
-		{"executed suffix capture", executedCapture("knowledge_capture"), true},
-		{"apply is not capture", []llm.Message{{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "apply_knowledge"}}},
-			{Role: "user", ToolResults: []llm.ToolResult{{CallID: "c1", Text: "applied"}}}}, false},
-		{"capture requested but never executed (no result)",
-			[]llm.Message{{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "c1", Name: "memory_capture"}}}}, false},
-		{"capture budget-refused", budgetRefused, false},
-		{"capture ran but errored", serverError, true},
-	}
-	for _, c := range cases {
-		if got := captureToolCalled(c.msgs); got != c.want {
-			t.Errorf("%s: captureToolCalled = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

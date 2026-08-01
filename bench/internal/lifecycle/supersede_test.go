@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/capture"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
@@ -37,6 +38,36 @@ func TestSupersedeCIComplement(t *testing.T) {
 	empty.Aggregate()
 	if sr := empty.Metrics.SupersedeRate; sr.CILow != 0 || sr.CIHigh != 0 {
 		t.Fatalf("empty supersede CI = [%v,%v], want [0,0]", sr.CILow, sr.CIHigh)
+	}
+}
+
+// TestSupersedeCaptureSplit proves the sub-benchmark carries the same capture
+// decomposition the full S5 scorecard does (issue #1136): capture gates every
+// supersede attempt, so a thin supersede denominator must be readable against
+// why capture missed rather than against a bare rate.
+func TestSupersedeCaptureSplit(t *testing.T) {
+	res := &SupersedeResults{Manifest: Manifest{K: 1}, Runs: []ProtocolRun{
+		{ProtocolID: "lc-a", Captured: new(true), CaptureAttempted: new(true), TeachBudgetExhausted: new(false), Duplicated: new(false)},
+		{ProtocolID: "lc-b", Captured: new(false), CaptureAttempted: new(true), TeachBudgetExhausted: new(false)},
+		{ProtocolID: "lc-c", Captured: new(false), CaptureAttempted: new(false), TeachBudgetExhausted: new(true)},
+	}}
+	res.Aggregate()
+	m := res.Metrics
+	if m.Capture.AttemptRate.Num != 2 || m.Capture.AttemptRate.Den != 3 {
+		t.Errorf("capture attempted = %d/%d, want 2/3", m.Capture.AttemptRate.Num, m.Capture.AttemptRate.Den)
+	}
+	if got, want := m.Capture.Misses, (capture.Misses{Total: 2, AttemptedFailed: 1, BudgetStarved: 1}); got != want {
+		t.Errorf("capture misses = %+v, want %+v", got, want)
+	}
+	// The supersede/duplicate intervals must be untouched by the appended split.
+	if m.DuplicateRate.Den != 1 || m.SupersedeRate.CILow != 1-m.DuplicateRate.CIHigh {
+		t.Errorf("supersede CI drifted from the duplicate complement: %+v vs %+v", m.SupersedeRate, m.DuplicateRate)
+	}
+	out := res.HumanSummary()
+	for _, w := range []string{"capture attempted", "landed given attempt", "capture misses (2)"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("supersede summary missing %q:\n%s", w, out)
+		}
 	}
 }
 
