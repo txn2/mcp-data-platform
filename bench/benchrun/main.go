@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycle"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/pipeline"
+	"github.com/txn2/mcp-data-platform/bench/internal/pool"
 	"github.com/txn2/mcp-data-platform/bench/internal/report"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
@@ -101,7 +102,7 @@ func parseFlags() config {
 	flag.DurationVar(&cfg.llmTimeout, "llm-timeout", 5*time.Minute, "model API request timeout")
 	flag.DurationVar(&cfg.auditTimeout, "audit-timeout", 15*time.Second, "audit read-back timeout per session")
 	flag.DurationVar(&cfg.sinkTimeout, "sink-timeout", 0, "post-apply sink read-back window for promotions (0 = the promote default, 15s); raise for a store that serves reads slowly")
-	flag.IntVar(&cfg.identityKeys, "identity-keys", 264, "per-attempt identity pool size matching the arm config (0 = single identity)")
+	flag.IntVar(&cfg.identityKeys, "identity-keys", pool.Size, "per-attempt identity pool size matching the arm config (0 = single identity)")
 	flag.StringVar(&cfg.summarize, "summarize", "", "print the human summary of an existing results JSON and exit")
 	flag.StringVar(&cfg.compare, "compare", "", "comma-separated per-arm results JSON files: render the cross-arm comparison and exit")
 	flag.StringVar(&cfg.compareOut, "compare-out", "", "write the cross-arm comparison markdown to this path (with -compare)")
