@@ -251,6 +251,64 @@ export function useSetKnowledgePageRefs(id: string) {
   });
 }
 
+/**
+ * KnowledgeGraphNode is one vertex of the corpus graph: a knowledge page, or an
+ * entity some page references. Its id is the entity's serialized reference URN
+ * (mcp:knowledge_page:<id> for a page), so page and entity vertices share one
+ * namespace and a page-to-page reference lands on the page's own node.
+ */
+export interface KnowledgeGraphNode {
+  id: string;
+  type: string;
+  label: string;
+  /** False for a reference whose target no longer exists (a broken reference). */
+  exists: boolean;
+  /** True for a node backed by a knowledge page in this listing. */
+  page: boolean;
+  tags?: string[];
+  updated_at?: string;
+}
+
+/** KnowledgeGraphEdge is one stored reference, from a page to what it references. */
+export interface KnowledgeGraphEdge {
+  source: string;
+  target: string;
+  type: string;
+  /** How the reference came to be: promoted, manual, or inline. */
+  ref_source: string;
+}
+
+/**
+ * KnowledgeGraphResponse is the corpus graph. Entities the viewer cannot access
+ * are absent (neither node nor edge). Truncation is explicit: `truncated` with a
+ * human-readable `notice`, never a silent cut.
+ */
+export interface KnowledgeGraphResponse {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+  total_pages: number;
+  truncated: boolean;
+  notice?: string;
+}
+
+/**
+ * useKnowledgeGraph loads the knowledge corpus as a graph (#1162): the pages and
+ * the entities they reference, in one access-filtered request. The tag filter is
+ * applied server-side (it narrows which pages are in the graph at all); free-text
+ * search is a client-side focus over the returned nodes, so it does not refetch.
+ */
+export function useKnowledgeGraph(params?: { tag?: string; limit?: number }) {
+  const sp = new URLSearchParams();
+  if (params?.tag) sp.set("tag", params.tag);
+  if (params?.limit) sp.set("limit", String(params.limit));
+  const qs = sp.toString();
+  return useQuery({
+    queryKey: ["knowledge-graph", params?.tag ?? "", params?.limit ?? 0],
+    queryFn: () => apiFetch<KnowledgeGraphResponse>(`/knowledge-pages/graph${qs ? `?${qs}` : ""}`),
+    staleTime: 30_000,
+  });
+}
+
 /** KnowledgeBacklink is a knowledge page that references an entity (reverse lookup). */
 export interface KnowledgeBacklink {
   id: string;

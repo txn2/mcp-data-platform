@@ -785,6 +785,7 @@ introduced.
 | GET | `/knowledge-pages/search?q=` | any user | Relevance search over page content (hybrid when an embedding provider is configured) |
 | GET | `/knowledge-pages/{id}` | any user | Get a page |
 | GET | `/knowledge-pages/{id}/versions` | any user | List version history |
+| GET | `/knowledge-pages/graph` | any user | The corpus as typed nodes and edges for the portal's graph view (filter by `tag`, `limit`) |
 | POST | `/knowledge-pages` | apply_knowledge | Create a page |
 | PUT | `/knowledge-pages/{id}` | apply_knowledge | Edit a page (snapshots a new version) |
 | DELETE | `/knowledge-pages/{id}` | apply_knowledge | Soft-delete a page |
@@ -792,6 +793,14 @@ introduced.
 Embeddings are produced off the request path by the shared `indexjobs` reconciler
 (`source_kind=portal-knowledge-pages`); an edit clears the page's vector so the
 reconciler re-embeds the new content.
+
+The graph read returns the pages plus every entity their references point at, as
+one access-filtered response, so a client draws the whole corpus without an N+1
+sweep of the per-page refs endpoint. An entity the viewer cannot access is absent
+from it entirely — neither node nor edge — the same visibility rule the per-page
+refs and backlinks reads apply. Both the page window and the total node count are
+capped, and either cap is reported in the response (`truncated` plus a
+human-readable `notice`) rather than applied silently.
 
 ---
 

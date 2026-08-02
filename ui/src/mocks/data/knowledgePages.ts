@@ -122,7 +122,7 @@ export const mockKnowledgePages: KnowledgePage[] = [
     slug: "net-revenue-definition",
     title: "Net Revenue Definition",
     summary: "net_revenue is gross sales minus returns, discounts, and tax. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.",
-    body: "# Net Revenue Definition\n\nnet_revenue is gross sales minus returns, discounts, and tax. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD), served from mcp:connection:(trino,acme-warehouse).\n\nRelated pages: [Revenue Definition](mcp:knowledge_page:kp-seed-2), [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5).\n",
+    body: "# Net Revenue Definition\n\nnet_revenue is gross sales minus returns, discounts, and tax. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.\n\n## Related\n\nThe authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD), served from mcp:connection:(trino,acme-warehouse). The board view of this figure is [Q4 Revenue Dashboard](mcp:asset:ast-001).\n\nRelated pages: [Revenue Definition](mcp:knowledge_page:kp-seed-2), [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5).\n",
     tags: ["finance","revenue","metrics","reporting"],
     created_by: "sarah.chen@example.com",
     updated_by: "marcus.johnson@example.com",

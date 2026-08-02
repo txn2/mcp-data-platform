@@ -14,16 +14,20 @@ var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
 // Search result limits, mirroring pkg/portal so every ranked surface clamps the
 // same way. DefaultSearchLimit is the top-K when the caller does not specify
-// one; maxSearchLimit bounds an explicit request.
+// one; MaxHonoredLimit bounds an explicit request.
 const (
 	DefaultSearchLimit = 20
-	maxSearchLimit     = 100
+	// MaxHonoredLimit is the largest limit the store honors. A larger request is
+	// NOT clamped down to it — it falls back to DefaultSearchLimit — so a caller
+	// that offers its own page-window parameter must bound it by this value, or
+	// asking for more will return fewer.
+	MaxHonoredLimit = 100
 )
 
-// clampSearchLimit clamps a requested limit into [1, maxSearchLimit], defaulting
+// clampSearchLimit clamps a requested limit into [1, MaxHonoredLimit], defaulting
 // an unset or out-of-range value to DefaultSearchLimit.
 func clampSearchLimit(limit int) int {
-	if limit <= 0 || limit > maxSearchLimit {
+	if limit <= 0 || limit > MaxHonoredLimit {
 		return DefaultSearchLimit
 	}
 	return limit

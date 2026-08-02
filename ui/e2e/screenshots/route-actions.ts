@@ -30,3 +30,69 @@ export async function openShareDialogWithRecipient(page: Page): Promise<void> {
     await page.waitForTimeout(400);
   }
 }
+
+/**
+ * openFeedbackMentionComposer opens an asset's feedback panel and starts a new
+ * thread whose body carries an @-mention, which is the only state showing the
+ * audience-scoped type-ahead (#627).
+ */
+export async function openFeedbackMentionComposer(page: Page): Promise<void> {
+  const btn = page.getByRole("main").getByRole("button", { name: /Feedback/ }).first();
+  if (!(await btn.isVisible())) return;
+  await btn.click();
+  const newBtn = page.getByRole("button", { name: "New", exact: true });
+  if (!(await newBtn.isVisible())) return;
+  await newBtn.click();
+  await page.getByPlaceholder("Describe your feedback").fill("cc @marcus");
+  await page.waitForTimeout(500);
+}
+
+/**
+ * openKnowledgeGraph switches the knowledge-pages surface to its graph layout
+ * and brings the canvas into the viewport: it sits below the hub header, so a
+ * capture of the top of the page would show only its first third.
+ */
+export async function openKnowledgeGraph(page: Page): Promise<void> {
+  await page
+    .getByRole("radio", { name: "Graph" })
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(600);
+  await page
+    .getByRole("application", { name: "Knowledge graph" })
+    .scrollIntoViewIfNeeded({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(400);
+}
+
+/**
+ * openInsightReviewDrawer switches the insights tab from its "My Insights"
+ * default (cards, no table) to the reviewer "Review queue" sub-tab and opens the
+ * first row's InsightDrawer. Each click may no-op when a drawer is already open
+ * from the prior theme (light and dark share one page and a same-hash navigation
+ * does not reload); the open drawer is what the capture wants, so failures are
+ * swallowed.
+ */
+export async function openInsightReviewDrawer(page: Page): Promise<void> {
+  await page
+    .getByRole("button", { name: /Review queue/i })
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(400);
+  const row = page.locator("table tbody tr").first();
+  await row.click({ timeout: 3_000 }).catch(() => {});
+  await page.waitForTimeout(600);
+}
+
+/**
+ * openKnowledgeGraphCorpus opens the graph and switches it to the whole-corpus
+ * overview, where the detected clusters are drawn as regions.
+ */
+export async function openKnowledgeGraphCorpus(page: Page): Promise<void> {
+  await openKnowledgeGraph(page);
+  await page
+    .getByRole("radio", { name: "Whole corpus" })
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(900);
+}

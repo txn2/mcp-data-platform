@@ -95,5 +95,12 @@ export function KnowledgePagesPage({
       />
     );
   }
-  return <KnowledgePageList canEdit={canEdit} onOpen={openDetail} onCreate={() => setMode({ view: "create" })} />;
+  return (
+    <KnowledgePageList
+      canEdit={canEdit}
+      onOpen={openDetail}
+      onCreate={() => setMode({ view: "create" })}
+      onNavigate={onNavigate}
+    />
+  );
 }

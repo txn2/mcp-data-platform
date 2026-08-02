@@ -1,5 +1,12 @@
 import { type Page } from "@playwright/test";
-import { openShareDialog, openShareDialogWithRecipient } from "./route-actions";
+import {
+  openFeedbackMentionComposer,
+  openInsightReviewDrawer,
+  openKnowledgeGraph,
+  openKnowledgeGraphCorpus,
+  openShareDialog,
+  openShareDialogWithRecipient,
+} from "./route-actions";
 
 export interface ScreenshotRoute {
   slug: string;
@@ -131,16 +138,7 @@ export const routes: ScreenshotRoute[] = [
     slug: "asset-feedback-mention",
     path: "/portal/assets/ast-001",
     category: "user",
-    beforeCapture: async (page) => {
-      const btn = page.getByRole("main").getByRole("button", { name: /Feedback/ }).first();
-      if (!(await btn.isVisible())) return;
-      await btn.click();
-      const newBtn = page.getByRole("button", { name: "New", exact: true });
-      if (!(await newBtn.isVisible())) return;
-      await newBtn.click();
-      await page.getByPlaceholder("Describe your feedback").fill("cc @marcus");
-      await page.waitForTimeout(500);
-    },
+    beforeCapture: openFeedbackMentionComposer,
   },
   {
     // KnowledgeHub (#661): one /knowledge route, three hash-driven tabs plus
@@ -163,6 +161,22 @@ export const routes: ScreenshotRoute[] = [
         await page.waitForTimeout(900);
       }
     },
+  },
+  {
+    // The knowledge corpus drawn as a graph (#1162): the alternate layout to the
+    // card list, showing which pages cluster around an entity and which stand alone.
+    slug: "knowledge-graph",
+    path: "/portal/knowledge/pages",
+    category: "user",
+    beforeCapture: openKnowledgeGraph,
+  },
+  {
+    // The same graph in its whole-corpus overview, where the detected clusters
+    // are drawn as regions rather than reported one node at a time.
+    slug: "knowledge-graph-corpus",
+    path: "/portal/knowledge/pages",
+    category: "user",
+    beforeCapture: openKnowledgeGraphCorpus,
   },
   {
     slug: "prompts",
@@ -549,21 +563,7 @@ export const routes: ScreenshotRoute[] = [
     slug: "knowledge-insight-detail",
     path: "/portal/knowledge#insights",
     category: "admin",
-    beforeCapture: async (page) => {
-      // The insights tab defaults to "My Insights" (cards, no table). Switch to
-      // the reviewer "Review queue" sub-tab, whose table rows open the
-      // InsightDrawer. The click may no-op when a drawer is already open from
-      // the prior theme (light/dark share one page, same-hash nav doesn't
-      // reload) — the open drawer is what we want, so swallow failures.
-      await page
-        .getByRole("button", { name: /Review queue/i })
-        .click({ timeout: 3_000 })
-        .catch(() => {});
-      await page.waitForTimeout(400);
-      const row = page.locator("table tbody tr").first();
-      await row.click({ timeout: 3_000 }).catch(() => {});
-      await page.waitForTimeout(600);
-    },
+    beforeCapture: openInsightReviewDrawer,
   },
   {
     // Catalog "Add spec" modal (upload/paste/URL a component spec into the

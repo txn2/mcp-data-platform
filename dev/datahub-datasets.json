@@ -1,0 +1,220 @@
+[
+  {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)",
+    "datasetProperties": {
+      "value": {
+        "name": "daily_sales",
+        "qualifiedName": "iceberg.retail.daily_sales",
+        "description": "One row per store per day, partitioned by date in UTC. The primary source of truth for revenue reporting. Backfills land about two days late, so the most recent 48 hours are fresh but not final.",
+        "customProperties": { "grain": "store/day", "partitioned_by": "date", "sla": "06:00 UTC" }
+      }
+    },
+    "globalTags": { "value": { "tags": [{ "tag": "urn:li:tag:retail" }, { "tag": "urn:li:tag:revenue" }] } },
+    "ownership": {
+      "value": {
+        "owners": [{ "owner": "urn:li:corpuser:data-eng", "type": "DATAOWNER" }],
+        "lastModified": { "time": 0, "actor": "urn:li:corpuser:__datahub_system" }
+      }
+    },
+    "schemaMetadata": {
+      "value": {
+        "schemaName": "iceberg.retail.daily_sales",
+        "platform": "urn:li:dataPlatform:trino",
+        "version": 0,
+        "hash": "",
+        "platformSchema": { "com.linkedin.schema.OtherSchema": { "rawSchema": "" } },
+        "fields": [
+          { "fieldPath": "date", "nativeDataType": "date", "type": { "type": { "com.linkedin.schema.DateType": {} } }, "description": "Partition key, in UTC." },
+          { "fieldPath": "store_id", "nativeDataType": "varchar", "type": { "type": { "com.linkedin.schema.StringType": {} } }, "description": "Store identifier. Join key to the store dimension." },
+          { "fieldPath": "amount", "nativeDataType": "decimal(18,2)", "type": { "type": { "com.linkedin.schema.NumberType": {} } }, "description": "Gross margin before returns, NOT gross revenue. Use net_revenue for top-line reporting." },
+          { "fieldPath": "net_revenue", "nativeDataType": "decimal(18,2)", "type": { "type": { "com.linkedin.schema.NumberType": {} } }, "description": "Gross sales minus returns, discounts, and tax. The figure used in board-level reporting." },
+          { "fieldPath": "channel", "nativeDataType": "varchar", "type": { "type": { "com.linkedin.schema.StringType": {} } }, "description": "Controlled vocabulary; the free-text values were retired in FY2025." }
+        ]
+      }
+    }
+  },
+  {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.sales_mart,PROD)",
+    "datasetProperties": {
+      "value": {
+        "name": "sales_mart",
+        "qualifiedName": "iceberg.retail.sales_mart",
+        "description": "Reporting mart built from daily_sales with cleanup and conformance already applied, so downstream reporting does not repeat it. Feeds the executive dashboard.",
+        "customProperties": { "upstream": "iceberg.retail.daily_sales", "sla": "06:00 UTC" }
+      }
+    },
+    "globalTags": { "value": { "tags": [{ "tag": "urn:li:tag:retail" }, { "tag": "urn:li:tag:reporting" }] } },
+    "ownership": {
+      "value": {
+        "owners": [{ "owner": "urn:li:corpuser:data-eng", "type": "DATAOWNER" }],
+        "lastModified": { "time": 0, "actor": "urn:li:corpuser:__datahub_system" }
+      }
+    }
+  },
+  {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.refunds,PROD)",
+    "datasetProperties": {
+      "value": {
+        "name": "refunds",
+        "qualifiedName": "iceberg.retail.refunds",
+        "description": "Returns and refunds. Each row carries a negative amount and a reason_code. Returns net against revenue in the reporting layer, not at ingest.",
+        "customProperties": { "sign_convention": "negative amount" }
+      }
+    },
+    "globalTags": { "value": { "tags": [{ "tag": "urn:li:tag:retail" }, { "tag": "urn:li:tag:finance" }] } },
+    "ownership": {
+      "value": {
+        "owners": [{ "owner": "urn:li:corpuser:finance-eng", "type": "DATAOWNER" }],
+        "lastModified": { "time": 0, "actor": "urn:li:corpuser:__datahub_system" }
+      }
+    },
+    "schemaMetadata": {
+      "value": {
+        "schemaName": "iceberg.retail.refunds",
+        "platform": "urn:li:dataPlatform:trino",
+        "version": 0,
+        "hash": "",
+        "platformSchema": { "com.linkedin.schema.OtherSchema": { "rawSchema": "" } },
+        "fields": [
+          { "fieldPath": "amount", "nativeDataType": "decimal(18,2)", "type": { "type": { "com.linkedin.schema.NumberType": {} } }, "description": "Always negative." },
+          { "fieldPath": "reason_code", "nativeDataType": "varchar", "type": { "type": { "com.linkedin.schema.StringType": {} } }, "description": "Why the item was returned." }
+        ]
+      }
+    }
+  },
+  {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.price_adjustments,PROD)",
+    "datasetProperties": {
+      "value": {
+        "name": "price_adjustments",
+        "qualifiedName": "iceberg.retail.price_adjustments",
+        "description": "Every list-price change with an effective timestamp. To get the price in effect on a date, take the most recent row at or before that date.",
+        "customProperties": { "grain": "price change" }
+      }
+    },
+    "globalTags": { "value": { "tags": [{ "tag": "urn:li:tag:retail" }, { "tag": "urn:li:tag:pricing" }] } },
+    "ownership": {
+      "value": {
+        "owners": [{ "owner": "urn:li:corpuser:data-eng", "type": "DATAOWNER" }],
+        "lastModified": { "time": 0, "actor": "urn:li:corpuser:__datahub_system" }
+      }
+    }
+  },
+  {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.store_transactions,PROD)",
+    "datasetProperties": {
+      "value": {
+        "name": "store_transactions",
+        "qualifiedName": "iceberg.retail.store_transactions",
+        "description": "Raw point-of-sale transactions, one row per line item. daily_sales aggregates from here; it keeps only current state, with history in the events table.",
+        "customProperties": { "grain": "line item" }
+      }
+    },
+    "globalTags": { "value": { "tags": [{ "tag": "urn:li:tag:retail" }] } },
+    "ownership": {
+      "value": {
+        "owners": [{ "owner": "urn:li:corpuser:data-eng", "type": "DATAOWNER" }],
+        "lastModified": { "time": 0, "actor": "urn:li:corpuser:__datahub_system" }
+      }
+    }
+  },
+  {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.inventory_levels,PROD)",
+    "datasetProperties": {
+      "value": {
+        "name": "inventory_levels",
+        "qualifiedName": "iceberg.inventory.inventory_levels",
+        "description": "One row per SKU per store per day. on_hand is the end-of-day position; intraday movements are not captured here.",
+        "customProperties": { "grain": "sku/store/day" }
+      }
+    },
+    "globalTags": { "value": { "tags": [{ "tag": "urn:li:tag:inventory" }] } },
+    "ownership": {
+      "value": {
+        "owners": [{ "owner": "urn:li:corpuser:supply-chain", "type": "DATAOWNER" }],
+        "lastModified": { "time": 0, "actor": "urn:li:corpuser:__datahub_system" }
+      }
+    },
+    "schemaMetadata": {
+      "value": {
+        "schemaName": "iceberg.inventory.inventory_levels",
+        "platform": "urn:li:dataPlatform:trino",
+        "version": 0,
+        "hash": "",
+        "platformSchema": { "com.linkedin.schema.OtherSchema": { "rawSchema": "" } },
+        "fields": [
+          { "fieldPath": "sku", "nativeDataType": "varchar", "type": { "type": { "com.linkedin.schema.StringType": {} } }, "description": "Stock keeping unit." },
+          { "fieldPath": "on_hand", "nativeDataType": "integer", "type": { "type": { "com.linkedin.schema.NumberType": {} } }, "description": "End-of-day position, not a running balance." }
+        ]
+      }
+    }
+  },
+  {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD)",
+    "datasetProperties": {
+      "value": {
+        "name": "supply_chain_orders",
+        "qualifiedName": "iceberg.inventory.supply_chain_orders",
+        "description": "Purchase orders to suppliers, with placed and expected dates. Lead time is measured from placement to receipt, not to the expected date.",
+        "customProperties": { "grain": "purchase order" }
+      }
+    },
+    "globalTags": { "value": { "tags": [{ "tag": "urn:li:tag:inventory" }, { "tag": "urn:li:tag:supply-chain" }] } },
+    "ownership": {
+      "value": {
+        "owners": [{ "owner": "urn:li:corpuser:supply-chain", "type": "DATAOWNER" }],
+        "lastModified": { "time": 0, "actor": "urn:li:corpuser:__datahub_system" }
+      }
+    }
+  },
+  {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)",
+    "datasetProperties": {
+      "value": {
+        "name": "customer_segments",
+        "qualifiedName": "iceberg.analytics.customer_segments",
+        "description": "A Type-2 slowly changing dimension: filter is_current = true for the latest segment assignment. Refreshed daily from the ML pipeline and feeds regional_performance via a nightly ETL job. Masked columns carry a _masked suffix.",
+        "customProperties": { "scd": "type 2", "current_flag": "is_current" }
+      }
+    },
+    "globalTags": { "value": { "tags": [{ "tag": "urn:li:tag:PII" }, { "tag": "urn:li:tag:analytics" }] } },
+    "ownership": {
+      "value": {
+        "owners": [{ "owner": "urn:li:corpuser:analytics-eng", "type": "DATAOWNER" }],
+        "lastModified": { "time": 0, "actor": "urn:li:corpuser:__datahub_system" }
+      }
+    },
+    "schemaMetadata": {
+      "value": {
+        "schemaName": "iceberg.analytics.customer_segments",
+        "platform": "urn:li:dataPlatform:trino",
+        "version": 0,
+        "hash": "",
+        "platformSchema": { "com.linkedin.schema.OtherSchema": { "rawSchema": "" } },
+        "fields": [
+          { "fieldPath": "customer_id", "nativeDataType": "varchar", "type": { "type": { "com.linkedin.schema.StringType": {} } }, "description": "Join key. Route through the identity map to avoid double-counting." },
+          { "fieldPath": "is_current", "nativeDataType": "boolean", "type": { "type": { "com.linkedin.schema.BooleanType": {} } }, "description": "Type-2 current-row flag. Filter on this for the latest assignment." },
+          { "fieldPath": "email_masked", "nativeDataType": "varchar", "type": { "type": { "com.linkedin.schema.StringType": {} } }, "description": "Masked PII; the _masked suffix marks every masked column." }
+        ]
+      }
+    }
+  },
+  {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.regional_performance,PROD)",
+    "datasetProperties": {
+      "value": {
+        "name": "regional_performance",
+        "qualifiedName": "iceberg.analytics.regional_performance",
+        "description": "Regional roll-up fed nightly from customer_segments. Regions follow the reporting hierarchy, not the store's postal region.",
+        "customProperties": { "upstream": "iceberg.analytics.customer_segments" }
+      }
+    },
+    "globalTags": { "value": { "tags": [{ "tag": "urn:li:tag:analytics" }, { "tag": "urn:li:tag:reporting" }] } },
+    "ownership": {
+      "value": {
+        "owners": [{ "owner": "urn:li:corpuser:analytics-eng", "type": "DATAOWNER" }],
+        "lastModified": { "time": 0, "actor": "urn:li:corpuser:__datahub_system" }
+      }
+    }
+  }
+]

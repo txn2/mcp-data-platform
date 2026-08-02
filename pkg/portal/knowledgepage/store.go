@@ -264,7 +264,7 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Page, int, e
 	qb := applyFilter(psq.Select(pageColumns).From("portal_knowledge_pages"), filter).
 		Where("deleted_at IS NULL").
 		OrderBy("updated_at DESC", "id ASC").
-		Limit(uint64(clampSearchLimit(filter.Limit))) // #nosec G115 -- clampSearchLimit bounds to [1, maxSearchLimit]
+		Limit(uint64(clampSearchLimit(filter.Limit))) // #nosec G115 -- clampSearchLimit bounds to [1, MaxHonoredLimit]
 	if filter.Offset > 0 {
 		qb = qb.Offset(uint64(filter.Offset)) // #nosec G115 -- offset guarded > 0
 	}
@@ -476,7 +476,7 @@ func (s *postgresStore) ListVersions(ctx context.Context, pageID string, limit, 
 		From("portal_knowledge_page_versions").
 		Where(sq.Eq{"page_id": pageID}).
 		OrderBy("version DESC").
-		Limit(uint64(clampSearchLimit(limit))) // #nosec G115 -- clampSearchLimit bounds to [1, maxSearchLimit]
+		Limit(uint64(clampSearchLimit(limit))) // #nosec G115 -- clampSearchLimit bounds to [1, MaxHonoredLimit]
 	if offset > 0 {
 		qb = qb.Offset(uint64(offset)) // #nosec G115 -- offset guarded > 0
 	}

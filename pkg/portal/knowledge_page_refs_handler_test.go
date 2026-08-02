@@ -180,7 +180,7 @@ func TestResolveKnowledgePageRefs(t *testing.T) {
 }
 
 func TestResolveKnowledgePageRefs_PageNotFound(t *testing.T) {
-	// A reference to a deleted page resolves as non-existent.
+	// A reference to a page that no longer exists resolves as non-existent.
 	h := newKnowledgePageHandler(&mockKnowledgePageStore{}, kpViewer) // nil page -> ErrNotFound
 	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve", `{"urns":["mcp:knowledge_page:gone"]}`)
 	require.Equal(t, http.StatusOK, w.Code)
@@ -189,6 +189,23 @@ func TestResolveKnowledgePageRefs_PageNotFound(t *testing.T) {
 	require.Len(t, resp.Refs, 1)
 	assert.False(t, resp.Refs[0].Exists)
 	assert.Equal(t, "gone", resp.Refs[0].Label)
+}
+
+func TestResolveKnowledgePageRefs_SoftDeletedPageIsBroken(t *testing.T) {
+	// Get returns soft-deleted pages so callers can inspect them, but a citation
+	// to a removed page is a broken reference: resolving it as live would put the
+	// removed page's title back in front of readers on every surface that renders
+	// references.
+	deleted := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	store := &mockKnowledgePageStore{page: &knowledgepage.Page{ID: "kp-gone", Title: "Retired Policy", DeletedAt: &deleted}}
+	h := newKnowledgePageHandler(store, kpViewer)
+	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve", `{"urns":["mcp:knowledge_page:kp-gone"]}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp resolveResp
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Refs, 1)
+	assert.False(t, resp.Refs[0].Exists)
+	assert.NotContains(t, resp.Refs[0].Label, "Retired Policy")
 }
 
 type backlinksResp struct {

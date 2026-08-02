@@ -14,7 +14,11 @@ import { ListSkeleton } from "./catalog/primitives";
  * and the selected connection is write-enabled; the API enforces the same.
  */
 export function CatalogTab({ conn, onConnChange }: { conn: string; onConnChange: (c: string) => void }) {
-  const [urn, setUrn] = useState<string | null>(null);
+  // The open entity is URL-addressable (?urn=...), so a catalog reference
+  // anywhere in the portal — a knowledge-page chip, a node in the knowledge
+  // graph — can link straight to it. Held in state as well so opening one from
+  // the list does not depend on a router.
+  const [urn, setUrn] = useState<string | null>(() => urnFromLocation());
   const writable = useConnectionWritable(conn);
   const hasWriteTool = useAuthStore(
     (s) => (s.user?.tools?.includes("datahub_update") ?? false) || s.isAdmin(),
@@ -25,12 +29,42 @@ export function CatalogTab({ conn, onConnChange }: { conn: string; onConnChange:
     <div className="space-y-4">
       <DataHubConnectionSelect value={conn} onChange={onConnChange} />
       {!conn ? null : urn ? (
-        <CatalogEntityDetail conn={conn} urn={urn} canEdit={canEdit} onBack={() => setUrn(null)} />
+        <CatalogEntityDetail
+          conn={conn}
+          urn={urn}
+          canEdit={canEdit}
+          onBack={() => {
+            setUrn(null);
+            clearURNFromLocation();
+          }}
+        />
       ) : (
         <CatalogList conn={conn} onOpen={setUrn} />
       )}
     </div>
   );
+}
+
+/** CATALOG_URN_PARAM is the query parameter that deep-links one catalog entity. */
+export const CATALOG_URN_PARAM = "urn";
+
+/** urnFromLocation reads the deep-linked entity URN, if any. Only a well-formed
+ * `urn:` value is accepted, so nothing else in the query string can be coerced
+ * into a catalog lookup. */
+function urnFromLocation(): string | null {
+  if (typeof window === "undefined") return null;
+  const value = new URLSearchParams(window.location.search).get(CATALOG_URN_PARAM);
+  return value && value.startsWith("urn:") ? value : null;
+}
+
+/** clearURNFromLocation drops the deep link when the reader goes back to the
+ * list, so a refresh does not reopen the entity they just left. */
+function clearURNFromLocation() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has(CATALOG_URN_PARAM)) return;
+  url.searchParams.delete(CATALOG_URN_PARAM);
+  window.history.replaceState(window.history.state, "", url.toString());
 }
 
 function CatalogEntityDetail({

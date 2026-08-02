@@ -3296,6 +3296,69 @@ definitions:
       updated_at:
         type: string
     type: object
+  portal.knowledgeGraphEdge:
+    properties:
+      ref_source:
+        description: 'RefSource is how the reference came to be: promoted, manual,
+          or inline.'
+        type: string
+      source:
+        type: string
+      target:
+        type: string
+      type:
+        description: |-
+          Type is the reference's target type, so the client can filter edges by the
+          kind of thing they point at without re-deriving it from the node.
+        type: string
+    type: object
+  portal.knowledgeGraphNode:
+    properties:
+      exists:
+        description: Exists is false for a reference whose target is gone (a broken
+          reference).
+        type: boolean
+      id:
+        type: string
+      label:
+        type: string
+      page:
+        description: |-
+          Page is true for a node backed by a knowledge page in this listing; the
+          fields below are populated only for those.
+        type: boolean
+      tags:
+        items:
+          type: string
+        type: array
+      type:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  portal.knowledgeGraphResponse:
+    properties:
+      edges:
+        items:
+          $ref: '#/definitions/portal.knowledgeGraphEdge'
+        type: array
+      nodes:
+        items:
+          $ref: '#/definitions/portal.knowledgeGraphNode'
+        type: array
+      notice:
+        type: string
+      total_pages:
+        description: |-
+          TotalPages is how many live pages match the filter, which exceeds the pages
+          actually in the graph when the window truncated the corpus.
+        type: integer
+      truncated:
+        description: |-
+          Truncated reports that the graph is not the whole matching corpus; Notice
+          says what was left out. Truncation is never silent.
+        type: boolean
+    type: object
   portal.knowledgePageLineageResponse:
     properties:
       changesets:
@@ -10912,6 +10975,43 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List knowledge pages that reference an entity
+      tags:
+      - Knowledge
+  /portal/knowledge-pages/graph:
+    get:
+      description: Returns the knowledge pages and the entities they reference as
+        typed nodes and edges, for the portal's graph view. Entities the viewer cannot
+        access are absent (neither node nor edge), the same visibility rule the per-page
+        refs and backlinks reads apply. Node and page caps are reported via truncated/notice
+        rather than applied silently.
+      parameters:
+      - description: Only include pages carrying this tag
+        in: query
+        name: tag
+        type: string
+      - description: Maximum pages to include (default and max 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.knowledgeGraphResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: The knowledge corpus as a graph
       tags:
       - Knowledge
   /portal/knowledge-pages/refs/resolve:

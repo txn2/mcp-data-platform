@@ -52,6 +52,13 @@ func (h *Handler) registerKnowledgePageRoutes() {
 	h.mux.HandleFunc("PUT /api/v1/portal/knowledge-pages/{id}/refs", h.setKnowledgePageRefs)
 	h.mux.HandleFunc("POST /api/v1/portal/knowledge-pages/refs/resolve", h.resolveKnowledgePageRefs)
 	h.mux.HandleFunc("GET /api/v1/portal/knowledge-pages/backlinks", h.knowledgePageBacklinks)
+	// Corpus-wide reference graph (#1162), the alternate layout to the cards view.
+	// Registered only on a store that can serve the bulk reference read, and the
+	// reader is bound here so the handler never has to re-assert it.
+	if reader, ok := h.deps.KnowledgePageStore.(knowledgepage.GraphReader); ok {
+		h.mux.HandleFunc("GET /api/v1/portal/knowledge-pages/graph",
+			func(w http.ResponseWriter, r *http.Request) { h.knowledgeGraph(w, r, reader) })
+	}
 }
 
 // knowledgePageRequest is the create/update payload.

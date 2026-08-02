@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -125,6 +126,21 @@ func NewRefID() string { return "kpr_" + uuid.New().String() }
 
 const entityRefColumns = `id, page_id, target_type, asset_id, prompt_id, collection_id, ref_page_id, ` +
 	`connection_kind, connection_name, entity_urn, source, created_by, created_at`
+
+// prefixedEntityRefColumns is entityRefColumns qualified with the "r" alias, for
+// the reads that join the refs table to portal_knowledge_pages. It is derived
+// from entityRefColumns rather than written out again so the two projections
+// cannot drift apart and desynchronize scanEntityRef.
+var prefixedEntityRefColumns = qualifyColumns(entityRefColumns, "r")
+
+// qualifyColumns prefixes each comma-separated column in list with "<alias>.".
+func qualifyColumns(list, alias string) string {
+	cols := strings.Split(list, ", ")
+	for i, c := range cols {
+		cols[i] = alias + "." + c
+	}
+	return strings.Join(cols, ", ")
+}
 
 // ListEntityRefs returns all references of a page, oldest first.
 func (s *postgresStore) ListEntityRefs(ctx context.Context, pageID string) ([]EntityRef, error) { //nolint:revive // interface impl

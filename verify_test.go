@@ -11,6 +11,7 @@
 package mcp_data_platform_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -658,4 +659,52 @@ func TestResearchPagesCarryWorkingPaperBanner(t *testing.T) {
 	})
 	require.NoError(t, walkErr)
 	assert.NotZero(t, found, "docs/research/ exists but holds no pages to check")
+}
+
+// TestDevSeedCatalogCitationsAreSeeded keeps the dev fixtures internally
+// consistent: every catalog dataset a seeded knowledge page cites must also be
+// in dev/datahub-datasets.json, which dev/seed-datahub.sh ingests.
+//
+// Without this the two files drift apart silently. They already had: the seeded
+// pages cited nine iceberg.* datasets that nothing in the dev stack created, so
+// with a real DataHub attached every catalog citation resolved to an entity the
+// catalog had never heard of — the knowledge graph drew them as ordinary live
+// nodes and the catalog search found nothing. Adding a citation without a
+// fixture is the same bug, so it fails here instead.
+func TestDevSeedCatalogCitationsAreSeeded(t *testing.T) {
+	seed, err := os.ReadFile(filepath.Join("dev", "seed.sql"))
+	if err != nil {
+		t.Fatalf("read dev/seed.sql: %v", err)
+	}
+	fixture, err := os.ReadFile(filepath.Join("dev", "datahub-datasets.json"))
+	if err != nil {
+		t.Fatalf("read dev/datahub-datasets.json: %v", err)
+	}
+
+	var datasets []struct {
+		URN string `json:"urn"`
+	}
+	if err := json.Unmarshal(fixture, &datasets); err != nil {
+		t.Fatalf("parse dev/datahub-datasets.json: %v", err)
+	}
+	seeded := make(map[string]bool, len(datasets))
+	for _, d := range datasets {
+		seeded[d.URN] = true
+	}
+
+	cited := regexp.MustCompile(`urn:li:dataset:\([^)]*\)`).FindAllString(string(seed), -1)
+	if len(cited) == 0 {
+		t.Fatal("no dataset citations found in dev/seed.sql; the pattern has drifted")
+	}
+
+	missing := map[string]bool{}
+	for _, urn := range cited {
+		if !seeded[urn] {
+			missing[urn] = true
+		}
+	}
+	for urn := range missing {
+		t.Errorf("dev/seed.sql cites %s, which dev/datahub-datasets.json does not create.\n"+
+			"Add it to the fixture, or the dev catalog will not have the dataset the pages describe.", urn)
+	}
 }

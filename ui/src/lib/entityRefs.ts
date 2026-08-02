@@ -43,8 +43,35 @@ export function entityHref(type: string, id: string): string | null {
       // browser back/forward works, and the reference graph is wiki-navigable.
       return `/knowledge/pages/${id}`;
     default:
-      return null; // connection, datahub: no in-app destination
+      // Connections have no per-instance portal page. A DataHub URN does, but it
+      // is keyed by the whole URN rather than a simple id, so it is built by
+      // catalogHref instead.
+      return null;
   }
+}
+
+/**
+ * catalogHref returns the in-app path that opens one catalog entity in the
+ * Knowledge > Catalog tab. A DataHub reference is keyed by its whole URN, not by
+ * a simple id, so it cannot go through entityHref's id-based route table.
+ *
+ * Returns null for anything that is not a URN, so a malformed reference is
+ * treated as non-navigable rather than interpolated into a link.
+ */
+export function catalogHref(urn: string): string | null {
+  const trimmed = urn.trim();
+  if (!trimmed.startsWith(externalURNPrefix)) return null;
+  return `/knowledge/catalog?urn=${encodeURIComponent(trimmed)}`;
+}
+
+/** externalURNPrefix marks a catalog (DataHub) reference. */
+const externalURNPrefix = "urn:";
+
+/** refHref returns the destination for any parsed reference: the id-based route
+ * for internal entities, the catalog deep link for a DataHub URN. One door, so
+ * every surface that renders a reference navigates the same way. */
+export function refHref(type: string, id: string, urn: string): string | null {
+  return type === "datahub" ? catalogHref(urn) : entityHref(type, id);
 }
 
 /** ResolvedRef is the server's resolution of a reference URN to a display label. */

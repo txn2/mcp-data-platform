@@ -132,7 +132,39 @@ make frontend-dev
 
 # Seed data manually
 psql -h localhost -U platform -d mcp_platform -f dev/seed.sql
+
+# Seed the catalog manually (loopback DataHub only; see below)
+DATAHUB_ENDPOINT=http://localhost:8080 bash dev/seed-datahub.sh
 ```
+
+## DataHub and the Catalog Seed
+
+`make dev` provisions no DataHub of its own. Set `DATAHUB_ENABLED=true` and
+`DATAHUB_ENDPOINT` to attach one.
+
+The seeded knowledge pages cite catalog datasets by URN
+(`iceberg.retail.daily_sales` and eight others). Nothing else in the dev stack
+creates those datasets, so `dev/seed-datahub.sh` ingests them from
+`dev/datahub-datasets.json` during `make dev`. Without it the catalog half of
+every page — and every catalog node in the knowledge graph — points at an entity
+the catalog has never heard of.
+
+The two files are kept in step by `TestDevSeedCatalogCitationsAreSeeded`: adding
+a dataset citation to `dev/seed.sql` without a matching fixture fails the build.
+
+**The seed writes only to a loopback DataHub.** `DATAHUB_ENDPOINT` is a personal
+setting and may well point at a shared or production catalog; injecting fixture
+datasets into one of those on a `make dev` would be an incident, not an
+inconvenience. A non-local endpoint is refused by name and the run continues.
+Override deliberately, never by default:
+
+```bash
+DEV_DATAHUB_SEED_FORCE=1 bash dev/seed-datahub.sh
+```
+
+Pointed at a remote catalog without that flag, the dev stack still works — the
+catalog citations simply will not resolve, and the knowledge graph reports each
+one as a dataset the catalog does not have.
 
 ## Mock Conformance
 
