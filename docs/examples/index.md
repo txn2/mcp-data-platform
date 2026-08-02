@@ -92,7 +92,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst"]
     tools:
-      allow: ["trino_query", "trino_describe_*", "datahub_*"]
+      allow: ["*"]
       deny: ["*_delete_*", "*_drop_*"]
 ```
 
@@ -120,28 +120,29 @@ auth:
     role_prefix: "dp_"  # Only roles starting with dp_ are considered
 
 personas:
-  # Tier 1: Read-only analysts
+  # Tier 1: Read-only analysts. An enumerated allow-list, so both halves of
+  # the discovery pair are named: search finds, fetch reads the result in full.
   viewer:
     display_name: "Data Viewer"
     roles: ["dp_viewer"]
     tools:
-      allow: ["datahub_search", "datahub_get_*"]
-      deny: ["*"]
+      allow: ["platform_info", "search", "fetch", "datahub_get_*"]
+      deny: ["trino_*", "s3_*"]
 
   # Tier 2: Query-capable analysts
   analyst:
     display_name: "Data Analyst"
     roles: ["dp_analyst"]
     tools:
-      allow: ["trino_query", "trino_browse", "trino_describe_*", "trino_list_connections", "datahub_*"]
-      deny: ["*_delete_*", "*_drop_*", "*_put_*"]
+      allow: ["*"]
+      deny: ["*_delete_*", "*_drop_*", "*_put_*", "trino_execute"]
 
   # Tier 3: Data engineers with write access
   engineer:
     display_name: "Data Engineer"
     roles: ["dp_engineer"]
     tools:
-      allow: ["trino_*", "datahub_*", "s3_*"]
+      allow: ["*"]
       deny: ["*_delete_*"]
 
   # Tier 4: Administrators
@@ -272,17 +273,7 @@ personas:
     display_name: "Business Analyst"
     roles: ["analyst", "business"]
     tools:
-      allow:
-        - "datahub_search"
-        - "datahub_get_entity"
-        - "datahub_get_schema"
-        - "datahub_get_lineage"
-        - "datahub_get_glossary_term"
-        - "datahub_browse"
-        - "trino_query"
-        - "trino_execute"
-        - "trino_browse"
-        - "trino_describe_*"
+      allow: ["*"]
       deny:
         - "*_delete_*"
         - "*_drop_*"
@@ -364,26 +355,23 @@ personas:
     display_name: "Cross-Team Analyst"
     roles: ["cross_team"]
     tools:
-      allow:
-        - "datahub_*"
-        - "trino_query:marketing"      # Explicit cluster access
-        - "trino_query:sales"
-        - "trino_browse"
-        - "trino_describe_*"
-        - "trino_list_connections"
+      allow: ["*"]
       deny:
-        - "trino_query:finance"        # No finance access
         - "*_delete_*"
+    # Cluster scoping is the connection axis, not a tool pattern: tool names
+    # never carry a ":connection" suffix. Connections are deny-by-default.
+    connections:
+      allow: ["marketing", "sales"]    # No finance access
 
   finance_analyst:
     display_name: "Finance Analyst"
     roles: ["finance"]
     tools:
-      allow:
-        - "datahub_*"
-        - "trino_*"                    # All clusters including finance
+      allow: ["*"]
       deny:
         - "*_delete_*"
+    connections:
+      allow: ["*"]                     # All clusters including finance
 ```
 
 ### New Employee Onboarding Workflow
@@ -396,17 +384,10 @@ personas:
     display_name: "New Team Member"
     roles: ["new_hire", "onboarding"]
     tools:
-      allow:
-        - "datahub_search"
-        - "datahub_get_entity"
-        - "datahub_get_schema"
-        - "datahub_get_lineage"
-        - "datahub_get_glossary_term"
-        - "datahub_browse"
-        - "trino_browse"
-        - "trino_describe_*"
-        # No direct query access yet
+      allow: ["*"]
       deny:
+        # No direct query access yet. Discovery (search/fetch) stays open so
+        # they can still read what the platform already knows.
         - "trino_query"
         - "trino_execute"
         - "*_delete_*"
@@ -487,20 +468,11 @@ personas:
     display_name: "ML Data Agent"
     roles: ["ml_agent", "automated"]
     tools:
-      allow:
-        - "datahub_search"
-        - "datahub_get_entity"
-        - "datahub_get_schema"
-        - "datahub_get_lineage"
-        - "datahub_get_queries"        # See popular queries
-        - "datahub_browse"
-        - "trino_query"
-        - "trino_browse"
-        - "trino_describe_*"
-        - "trino_explain"              # Query planning
+      allow: ["*"]
       deny:
         - "*_delete_*"
         - "*_put_*"
+        - "trino_execute"              # Read-only: no DDL/DML
 
     context:
       description_prefix: |
@@ -544,9 +516,7 @@ personas:
     display_name: "ML Engineer"
     roles: ["ml_engineer"]
     tools:
-      allow:
-        - "datahub_*"
-        - "trino_*"
+      allow: ["*"]
       deny:
         - "*_delete_*"
 
@@ -590,11 +560,7 @@ personas:
     display_name: "Data Engineer"
     roles: ["data_engineer"]
     tools:
-      allow:
-        - "datahub_get_lineage"
-        - "datahub_get_entity"
-        - "datahub_search"
-        - "trino_*"
+      allow: ["*"]
       deny:
         - "*_delete_*"
 

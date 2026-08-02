@@ -1,9 +1,11 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -932,4 +934,141 @@ func TestTestPersonaAccess(t *testing.T) {
 		h.testPersonaAccess(w, req)
 		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	})
+}
+
+// TestPersonaWriteWarnsOnIncoherentToolSet drives the real HTTP handlers so it
+// proves the warning fires on the actual write path, not merely that
+// persona.CheckCoherence works when handed the right input.
+func TestPersonaWriteWarnsOnIncoherentToolSet(t *testing.T) {
+	searchToolkit := &mockToolkitRegistry{
+		allResult: []mockToolkit{
+			{kind: "search", name: "primary", tools: []string{"search", "fetch"}},
+			{kind: "trino", name: "prod", tools: []string{"trino_query"}},
+		},
+	}
+
+	tests := []struct {
+		name        string
+		method      string
+		target      string
+		body        string
+		toolkits    ToolkitRegistry
+		wantStatus  int
+		wantWarning []string
+		noWarning   bool
+	}{
+		{
+			name:        "create with search but no fetch warns",
+			method:      http.MethodPost,
+			target:      "/api/v1/admin/personas",
+			body:        `{"name":"analyst","display_name":"Data Analyst","roles":["analyst"],"allow_tools":["search","trino_*"]}`,
+			toolkits:    searchToolkit,
+			wantStatus:  http.StatusCreated,
+			wantWarning: []string{"persona grants a capability it cannot complete", "persona=analyst", "granted=search", "missing=fetch"},
+		},
+		{
+			name:       "create with search and fetch does not warn",
+			method:     http.MethodPost,
+			target:     "/api/v1/admin/personas",
+			body:       `{"name":"analyst","display_name":"Data Analyst","roles":["analyst"],"allow_tools":["search","fetch"]}`,
+			toolkits:   searchToolkit,
+			wantStatus: http.StatusCreated,
+			noWarning:  true,
+		},
+		{
+			name:        "update that drops fetch warns",
+			method:      http.MethodPut,
+			target:      "/api/v1/admin/personas/admin",
+			body:        `{"display_name":"Administrator","roles":["admin"],"allow_tools":["*"],"deny_tools":["fetch"]}`,
+			toolkits:    searchToolkit,
+			wantStatus:  http.StatusOK,
+			wantWarning: []string{"granted=search", "missing=fetch"},
+		},
+		{
+			// No toolkit registry means no registered tool set to judge
+			// against; the write must still succeed.
+			name:       "create with no toolkit registry does not warn",
+			method:     http.MethodPost,
+			target:     "/api/v1/admin/personas",
+			body:       `{"name":"analyst","display_name":"Data Analyst","roles":["analyst"],"allow_tools":["search"]}`,
+			toolkits:   nil,
+			wantStatus: http.StatusCreated,
+			noWarning:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			oldLogger := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+			defer slog.SetDefault(oldLogger)
+
+			deps := Deps{
+				PersonaRegistry: &mockPersonaRegistry{allResult: testPersonas("admin")},
+				Config:          testConfig(),
+				ConfigStore:     &mockConfigStore{mode: "database"},
+			}
+			if tt.toolkits != nil {
+				deps.ToolkitRegistry = tt.toolkits
+			}
+			h := NewHandler(deps, nil)
+
+			req := httptest.NewRequestWithContext(context.Background(), tt.method, tt.target, strings.NewReader(tt.body))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			require.Equal(t, tt.wantStatus, w.Code, "body: %s", w.Body.String())
+
+			if tt.noWarning {
+				assert.Empty(t, buf.String(), "expected no warning")
+				return
+			}
+			for _, want := range tt.wantWarning {
+				assert.Contains(t, buf.String(), want)
+			}
+		})
+	}
+}
+
+// TestRevertToFilePersonaWarnsOnIncoherentToolSet covers the third write path:
+// deleting a database override re-registers the file version, so the persona
+// now in force is not the one any earlier write logged about.
+func TestRevertToFilePersonaWarnsOnIncoherentToolSet(t *testing.T) {
+	var buf bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(oldLogger)
+
+	p := testPersonas("analyst")[0]
+	p.Source = "both"
+	cfg := testConfig()
+	cfg.Personas.Definitions = map[string]platform.PersonaDef{
+		"analyst": {
+			DisplayName: "File Analyst",
+			Roles:       []string{"analyst"},
+			// The file version discovers but cannot read what it discovers.
+			Tools: platform.ToolRulesDef{Allow: []string{"search", "trino_*"}},
+		},
+	}
+	h := NewHandler(Deps{
+		PersonaRegistry:  &mockPersonaRegistry{allResult: []*persona.Persona{p}},
+		Config:           cfg,
+		ConfigStore:      &mockConfigStore{mode: "database"},
+		PersonaStore:     &mockPersonaStore{},
+		FilePersonaNames: map[string]bool{"analyst": true},
+		ToolkitRegistry: &mockToolkitRegistry{
+			allResult: []mockToolkit{{kind: "search", name: "primary", tools: []string{"search", "fetch"}}},
+		},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/analyst", http.NoBody)
+	req.SetPathValue("name", "analyst")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, buf.String(), "persona grants a capability it cannot complete")
+	assert.Contains(t, buf.String(), "persona=analyst")
+	assert.Contains(t, buf.String(), "missing=fetch")
 }

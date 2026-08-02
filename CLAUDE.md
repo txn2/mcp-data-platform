@@ -296,9 +296,12 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst", "data_engineer"]
     tools:
-      # Grant "search": with the search-first gate on by default, a query-capable
-      # persona must be able to call the discovery front door it is steered to.
-      allow: ["search", "trino_*", "datahub_*"]
+      # Prefer "*" with a targeted deny. An enumerated allow-list silently
+      # loses every tool a later upgrade adds, and it drops the tools others
+      # depend on: the search-first gate refuses trino_query until "search" is
+      # called, and "fetch" is the only tool that dereferences a search result's
+      # reference. See docs/personas/overview.md#some-tools-are-a-unit.
+      allow: ["*"]
       deny: ["*_delete_*"]
     context:
       description_prefix: "You are helping a data analyst."

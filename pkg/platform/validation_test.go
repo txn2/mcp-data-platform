@@ -7,6 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -145,5 +146,107 @@ func TestHasKnownPrefix(t *testing.T) {
 				t.Errorf("hasKnownPrefix(%q) = %v, want %v", tt.token, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestValidatePersonaCoherence(t *testing.T) {
+	tests := []struct {
+		name         string
+		tools        []string
+		allow        []string
+		deny         []string
+		wantWarnings []string // substrings expected in log output
+		noWarnings   bool
+	}{
+		{
+			name:       "wildcard persona warns about nothing",
+			tools:      []string{"search", "fetch", "memory_capture"},
+			allow:      []string{"*"},
+			noWarnings: true,
+		},
+		{
+			name:         "search without fetch warns naming persona, tool and remedy",
+			tools:        []string{"search", "fetch"},
+			allow:        []string{"search"},
+			wantWarnings: []string{"persona grants a capability it cannot complete", "subject", "granted=search", "missing=fetch", "tools.allow"},
+		},
+		{
+			name:         "memory_capture without search warns",
+			tools:        []string{"search", "memory_capture"},
+			allow:        []string{"memory_capture"},
+			wantWarnings: []string{"granted=memory_capture", "missing=search"},
+		},
+		{
+			// The check is scoped to registered tools, so a deployment that
+			// never registered fetch is not nagged about withholding it.
+			name:       "unregistered fetch produces no warning",
+			tools:      []string{"search"},
+			allow:      []string{"search"},
+			noWarnings: true,
+		},
+		{
+			name:       "no registered tools produces no warning",
+			tools:      nil,
+			allow:      []string{"*"},
+			noWarnings: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			oldLogger := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+			defer slog.SetDefault(oldLogger)
+
+			reg := registry.NewRegistry()
+			if len(tt.tools) > 0 {
+				_ = reg.Register(&mockToolkitForValidation{kind: "test", name: "primary", tools: tt.tools})
+			}
+
+			personas := persona.NewRegistry()
+			if err := personas.Register(&persona.Persona{
+				Name:  "subject",
+				Tools: persona.ToolRules{Allow: tt.allow, Deny: tt.deny},
+			}); err != nil {
+				t.Fatalf("registering persona: %v", err)
+			}
+
+			p := &Platform{toolkitRegistry: reg, personaRegistry: personas}
+
+			p.validatePersonaCoherence()
+
+			logOutput := buf.String()
+			if tt.noWarnings {
+				if logOutput != "" {
+					t.Errorf("expected no warnings, got: %s", logOutput)
+				}
+				return
+			}
+			for _, want := range tt.wantWarnings {
+				if !bytes.Contains(buf.Bytes(), []byte(want)) {
+					t.Errorf("expected warning containing %q, got: %s", want, logOutput)
+				}
+			}
+		})
+	}
+}
+
+// TestValidatePersonaCoherenceNilRegistry proves the startup path tolerates a
+// platform assembled without personas, which the stdio no-auth shape produces.
+func TestValidatePersonaCoherenceNilRegistry(t *testing.T) {
+	var buf bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(oldLogger)
+
+	reg := registry.NewRegistry()
+	_ = reg.Register(&mockToolkitForValidation{kind: "test", name: "primary", tools: []string{"search", "fetch"}})
+
+	p := &Platform{toolkitRegistry: reg}
+	p.validatePersonaCoherence()
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no warnings with no persona registry, got: %s", buf.String())
 	}
 }

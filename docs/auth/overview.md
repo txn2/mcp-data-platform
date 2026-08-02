@@ -209,7 +209,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst"]
     tools:
-      allow: ["trino_query", "trino_execute", "trino_explain", "datahub_*"]
+      allow: ["*"]
       deny: ["*_delete_*"]
 ```
 

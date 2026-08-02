@@ -1892,7 +1892,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst", "data_engineer"]
     tools:
-      allow: ["search", "trino_*", "datahub_*"]
+      allow: ["*"]
       deny: ["*_delete_*"]
   admin:
     display_name: "Administrator"
@@ -1919,6 +1919,16 @@ Patterns support wildcards:
 - `*_delete_*` matches any delete tool
 
 Evaluation order: deny patterns are checked first, then allow patterns.
+
+Prefer `allow: ["*"]` with a targeted `deny`. An enumerated allow-list has to name every tool the persona will ever hold, so it silently loses each tool a later upgrade adds; the persona keeps working with less of the platform than the operator thinks it has.
+
+## Some tools are a unit
+
+A few tools produce work that only another tool can consume, so granting one without the other is a configuration error rather than a tightening: `search` needs `fetch` (search returns navigational pointers carrying a `reference` and fetch is the only tool that dereferences one, so without it the persona discovers that an answer exists and can never read it, and cannot follow a knowledge page's outbound references); `memory_capture` needs `search` (search is the retrieval front door for captured memory, so without it the persona writes knowledge nobody, including itself, can retrieve); `apply_knowledge` needs `search` (the review workflow's documented first step is discovery).
+
+The platform evaluates these pairs against the tools it actually registered — at startup for every persona, and again on each persona write through the admin API — and logs a warning naming the persona, the granted tool, the missing tool, why the pair matters, and the fix (`persona.CheckCoherence`, `pkg/persona/coherence.go`). It is advisory, never a gate: a restricted persona may be intended, and a deployment that never registered the missing tool is never warned about it. The warning exists because the loss is otherwise silent — the instruction baseline names a tool only when the caller can reach it, so a persona missing `fetch` is simply never told that reading a result in full is possible, and the only other symptom is an `unauthorized` audit row if an agent guesses the tool name unprompted.
+
+Relatedly, the search-first gate refuses `trino_query` and `trino_execute` until `search` has been called in the session, so a persona granted query tools but not `search` cannot open that gate and is refused permanently.
 
 ## Connection Access Control
 

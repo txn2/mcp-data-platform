@@ -193,7 +193,7 @@ p, err := platform.New(
         DisplayName: "Data Analyst",
         Roles:       []string{"analyst"},
         Tools: persona.ToolRules{
-            Allow: []string{"trino_*", "datahub_*"},
+            Allow: []string{"*"},
             Deny:  []string{"*_delete_*"},
         },
     }),
@@ -282,7 +282,7 @@ func main() {
             DisplayName: "Data Analyst",
             Roles:       []string{"analyst"},
             Tools: persona.ToolRules{
-                Allow: []string{"trino_*", "datahub_*", "s3_list_*", "s3_get_*"},
+                Allow: []string{"*"},
                 Deny:  []string{"s3_put_*", "s3_delete_*"},
             },
         }),

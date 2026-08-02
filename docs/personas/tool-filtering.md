@@ -167,16 +167,19 @@ Analysts can query and explore, but not modify:
 ```yaml
 analyst:
   tools:
-    allow:
-      - "trino_*"
-      - "datahub_*"
-      - "s3_list_*"
-      - "s3_get_*"
+    allow: ["*"]
     deny:
       - "s3_put_*"
       - "s3_delete_*"
       - "s3_copy_*"
 ```
+
+Prefer `allow: ["*"]` with a targeted `deny` over an enumerated allow-list: an
+enumeration has to name every tool the persona will ever hold, so it silently
+loses each tool a later upgrade adds. Enumerate only for a persona that is
+deliberately confined to a short, fixed list, as `data_steward` and `viewer` are
+below — and when you do, keep both halves of every pair (`search` with `fetch`).
+See [Some tools are a unit](overview.md#some-tools-are-a-unit).
 
 ### Data Steward Persona
 
@@ -186,10 +189,13 @@ Data stewards can view metadata but not execute queries:
 data_steward:
   tools:
     allow:
+      - "platform_info"
+      - "search"
+      - "fetch"
+      - "list_connections"
       - "datahub_*"
       - "trino_browse"
       - "trino_describe_*"
-      - "trino_list_connections"
     deny:
       - "trino_query"
       - "trino_execute"
@@ -215,7 +221,9 @@ Viewers can only search and browse:
 viewer:
   tools:
     allow:
-      - "datahub_search"
+      - "platform_info"
+      - "search"
+      - "fetch"
       - "datahub_get_entity"
       - "datahub_browse"
       - "trino_browse"
@@ -237,6 +245,9 @@ personas:
     roles: ["marketing_team"]
     tools:
       allow:
+        - "platform_info"
+        - "search"                # Required: the search-first gate refuses
+        - "fetch"                 #   trino_query until search has been called
         - "trino_query"           # Native: read warehouse data
         - "datahub_get_*"         # Native: look up metadata
         - "vendor__list_*"        # Gateway: read vendor objects
@@ -276,16 +287,36 @@ To verify your rules work as expected, check which tools are available for each 
 Or test programmatically by checking the tool filter logic:
 
 ```go
-filter := persona.NewToolFilter(persona.ToolRules{
-    Allow: []string{"trino_*"},
-    Deny:  []string{"trino_query"},
-})
+p := &persona.Persona{
+    Name: "analyst",
+    Tools: persona.ToolRules{
+        Allow: []string{"trino_*"},
+        Deny:  []string{"trino_query"},
+    },
+}
+filter := persona.NewToolFilter(nil)
 
-filter.Allows("trino_browse")         // true
-filter.Allows("trino_describe_table") // true
-filter.Allows("trino_query")         // false
-filter.Allows("datahub_search")      // false
+filter.IsAllowed(p, "trino_browse")         // true
+filter.IsAllowed(p, "trino_describe_table") // true
+filter.IsAllowed(p, "trino_query")          // false — deny wins
+filter.IsAllowed(p, "search")               // false — no allow pattern matches
 ```
+
+`WhyAllowed` returns the same decision with the pattern that produced it and
+which clause it came from (`allow`, `deny`, or the fail-closed `default`), which
+is what the admin Tools page renders.
+
+To check a persona for the tool pairs that must be granted together, pass the
+tools the deployment registered:
+
+```go
+for _, f := range persona.CheckCoherence(p, registry.AllTools()) {
+    log.Printf("%s grants %s without %s: %s", f.Persona, f.Granted, f.Missing, f.Remedy)
+}
+```
+
+The platform runs this at startup for every persona and on each persona write
+through the admin API; see [Some tools are a unit](overview.md#some-tools-are-a-unit).
 
 ## Next Steps
 

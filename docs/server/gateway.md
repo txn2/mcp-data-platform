@@ -125,6 +125,9 @@ personas:
     roles: ["marketing_team"]
     tools:
       allow:
+        - "platform_info"
+        - "search"                # Required: the search-first gate refuses
+        - "fetch"                 #   trino_query until search has been called
         - "trino_query"           # Native: read warehouse
         - "vendor__list_*"        # Gateway: read vendor objects
         - "vendor__send_*"        # Gateway: trigger vendor sends

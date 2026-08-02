@@ -359,6 +359,7 @@ pkg/persona -> pkg/middleware
 pkg/pkcestore -> pkg/connoauth
 pkg/platform -> apps
 pkg/platform -> internal/apidocs
+pkg/platform -> internal/logsan
 pkg/platform -> internal/platform/branding
 pkg/platform -> internal/platform/browserauth
 pkg/platform -> internal/platform/completionlayer

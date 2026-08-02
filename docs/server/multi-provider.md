@@ -201,9 +201,7 @@ personas:
     display_name: Data Analyst
     roles: ["analyst"]
     tools:
-      allow:
-        - "trino_*"
-        - "datahub_*"
+      allow: ["*"]
       deny: []
 
   staging_user:
@@ -211,15 +209,22 @@ personas:
     roles: ["staging"]
     tools:
       allow:
-        - "trino_query"           # Can query
-        - "trino_browse"          # Can explore catalogs/schemas/tables
-        - "trino_describe_*"      # Can describe tables
-        - "trino_list_connections" # Can list connections
+        - "platform_info"
+        - "search"              # Required: the search-first gate refuses
+        - "fetch"               #   trino_query until search has been called
+        - "trino_query"         # Can query
+        - "trino_browse"        # Can explore catalogs/schemas/tables
+        - "trino_describe_*"    # Can describe tables
+        - "list_connections"    # Can list connections
       deny:
-        - "trino_explain"     # Cannot see execution plans
+        - "trino_explain"       # Cannot see execution plans
 ```
 
-Note: Connection-level filtering requires custom middleware. The built-in persona system filters by tool name patterns only.
+Tool patterns are one of two axes. Personas also restrict which toolkit
+connections a caller may reach, through `connections.allow` / `connections.deny`
+— connections are deny-by-default, so a persona that should use data must list
+the connections it may use. See
+[Connection Access Control](../personas/overview.md#connection-access-control).
 
 ## Practical Examples
 
