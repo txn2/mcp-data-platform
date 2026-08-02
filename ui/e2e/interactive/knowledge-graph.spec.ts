@@ -28,6 +28,28 @@ function inspector(page: Page) {
   return page.getByRole("complementary");
 }
 
+/**
+ * waitForSettledLayout blocks until the force simulation has stopped moving the
+ * named node. The layout animates, so a test that measures a node and then
+ * presses where it was can find it has drifted out from under the pointer — on a
+ * slow runner that turns a drag into a press on empty canvas.
+ */
+async function waitForSettledLayout(page: Page, name: string): Promise<void> {
+  const target = node(page, name);
+  let previous: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        const current = await target.getAttribute("transform");
+        const unchanged = current !== null && current === previous;
+        previous = current;
+        return unchanged;
+      },
+      { timeout: 20_000, intervals: [250] },
+    )
+    .toBe(true);
+}
+
 /** parseTranslate reads the x/y out of a `translate(x,y)` transform attribute. */
 function parseTranslate(transform: string | null): { x: number; y: number } {
   const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(transform ?? "");
@@ -226,31 +248,41 @@ test.describe("Knowledge graph", () => {
   test("dragging a node moves it and leaves it where it is dropped", async ({ page }) => {
     await gotoGraph(page);
     const target = node(page, "Page: Net Revenue Definition");
-    const before = await target.getAttribute("transform");
-    const start = parseTranslate(before);
+    // The layout must be still before the node is measured and pressed, or the
+    // press lands where the node WAS and the drag never starts.
+    await waitForSettledLayout(page, "Page: Net Revenue Definition");
 
-    // hover() presses on a point that actually hits the node (its bounding box
+    // hover() presses on a point that actually hits the node: its bounding box
     // spans the mark and the label below it, so the box centre can fall between
-    // the two). The graph layer is at the identity transform on load, so a
-    // pointer delta in pixels is the same delta in graph coordinates.
+    // the two. It also SCROLLS the node into view, which moves the canvas
+    // relative to the viewport — so the canvas is measured after the hover, not
+    // before, or every drop coordinate is off by the scroll distance.
+    await target.hover();
     const svgBox = await page
       .getByRole("application", { name: "Knowledge graph" })
       .boundingBox();
     expect(svgBox).not.toBeNull();
-    await target.hover();
+
+    // A fixed destination well inside the canvas, so the pointer cannot leave
+    // the surface mid-drag (which would end the drag early) whatever the
+    // measured canvas width is.
+    const DROP_X = 120;
+    const DROP_Y = 140;
     await page.mouse.down();
-    await page.mouse.move(svgBox!.x + start.x - 180, svgBox!.y + start.y + 110, { steps: 10 });
+    await page.mouse.move(svgBox!.x + DROP_X, svgBox!.y + DROP_Y, { steps: 10 });
     await page.mouse.up();
 
+    // The node goes exactly where it was dropped, not merely somewhere else.
     const dropped = parseTranslate(await target.getAttribute("transform"));
-    expect(Math.hypot(dropped.x - start.x, dropped.y - start.y)).toBeGreaterThan(80);
+    expect(dropped.x).toBeCloseTo(DROP_X, 0);
+    expect(dropped.y).toBeCloseTo(DROP_Y, 0);
 
     // The simulation keeps running after the drop; a dragged node is pinned, so
     // it must stay put rather than drift back into the pack.
     await page.waitForTimeout(2000);
     const settled = parseTranslate(await target.getAttribute("transform"));
-    expect(settled.x).toBeCloseTo(dropped.x, 0);
-    expect(settled.y).toBeCloseTo(dropped.y, 0);
+    expect(settled.x).toBeCloseTo(DROP_X, 0);
+    expect(settled.y).toBeCloseTo(DROP_Y, 0);
   });
 
   test("the canvas measures its container instead of using a fixed width", async ({ page }) => {
