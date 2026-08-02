@@ -474,9 +474,13 @@ func (h *Handler) resolvePromptRef(r *http.Request, user *User, id string, out *
 }
 
 // resolvePageRef sets a knowledge page's title; a missing page is a broken
-// reference (pages are org-shared, so this is not an access concern).
+// reference (pages are org-shared, so this is not an access concern). A
+// soft-deleted page is missing for this purpose: Get returns deleted rows so
+// callers can inspect them, but a citation to a removed page is broken, and
+// reporting it as live would put a deleted page back in front of readers through
+// every surface that renders references.
 func (h *Handler) resolvePageRef(ctx context.Context, id string, out *resolvedRef) {
-	if p, err := h.deps.KnowledgePageStore.Get(ctx, id); err == nil {
+	if p, err := h.deps.KnowledgePageStore.Get(ctx, id); err == nil && p.DeletedAt == nil {
 		out.Label = p.Title
 		return
 	}

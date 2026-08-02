@@ -77,3 +77,47 @@ func TestPages_RealDB_CRUDAndBodySearch(t *testing.T) {
 	}
 	assert.ErrorIs(t, store.SoftDelete(ctx, page.ID), ErrNotFound)
 }
+
+// TestGraph_RealDB_ListEntityRefsForPages exercises the corpus-wide reference
+// read against the real schema. sqlmock does not parse SQL, so only a real
+// database proves that the ANY($1) page binding and the join that excludes a
+// soft-deleted page's references actually behave as the graph endpoint assumes.
+func TestGraph_RealDB_ListEntityRefsForPages(t *testing.T) {
+	store := &postgresStore{db: testdb.New(t)}
+	ctx := context.Background()
+
+	live := Page{ID: NewID(), Title: "Live Page", Body: "b", CreatedBy: "a@example.com"}
+	gone := Page{ID: NewID(), Title: "Removed Page", Body: "b", CreatedBy: "a@example.com"}
+	other := Page{ID: NewID(), Title: "Unrequested Page", Body: "b", CreatedBy: "a@example.com"}
+	for _, p := range []Page{live, gone, other} {
+		require.NoError(t, store.Insert(ctx, p))
+	}
+	require.NoError(t, store.AddEntityRefs(ctx, live.ID, []EntityRef{
+		DataHubRef("urn:li:dataset:(trino,sales.orders,PROD)", RefSourcePromoted),
+		{TargetType: RefTargetKnowledgePage, RefPageID: other.ID, Source: RefSourceManual},
+	}))
+	require.NoError(t, store.AddEntityRefs(ctx, gone.ID, []EntityRef{
+		DataHubRef("urn:li:dataset:(trino,hr.salaries,PROD)", RefSourcePromoted),
+	}))
+	require.NoError(t, store.AddEntityRefs(ctx, other.ID, []EntityRef{
+		DataHubRef("urn:li:dataset:(trino,marketing.leads,PROD)", RefSourcePromoted),
+	}))
+	require.NoError(t, store.SoftDelete(ctx, gone.ID))
+
+	refs, err := store.ListEntityRefsForPages(ctx, []string{live.ID, gone.ID})
+	require.NoError(t, err)
+
+	urns := make([]string, 0, len(refs))
+	for _, r := range refs {
+		assert.Equal(t, live.ID, r.PageID, "a removed page contributes no references")
+		urns = append(urns, r.URN())
+	}
+	assert.ElementsMatch(t, []string{
+		"urn:li:dataset:(trino,sales.orders,PROD)",
+		"mcp:knowledge_page:" + other.ID,
+	}, urns, "the requested live page's references are returned in full")
+
+	empty, err := store.ListEntityRefsForPages(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+}

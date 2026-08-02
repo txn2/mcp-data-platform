@@ -17,7 +17,7 @@ import (
 type SearchQuery struct {
 	Embedding []float32 // query vector; nil selects lexical-only ranking
 	QueryText string    // raw query text for the lexical arm
-	Limit     int       // max results; clamped into [1, maxSearchLimit]
+	Limit     int       // max results; clamped into [1, MaxHonoredLimit]
 }
 
 // EffectiveLimit clamps the requested limit into the search bounds.

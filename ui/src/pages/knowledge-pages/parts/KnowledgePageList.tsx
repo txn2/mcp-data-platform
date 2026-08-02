@@ -10,12 +10,28 @@ import type { KnowledgePage } from "@/api/portal/types";
 import { FilterChip } from "@/components/FilterChip";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { useDebounced } from "@/lib/useDebounced";
+import { KnowledgeGraphView } from "../graph/KnowledgeGraphView";
 import { visibleFacetTags } from "../tagFacet";
 import { PageCard } from "./PageCard";
+import { ViewToggle, type KnowledgeView } from "./ViewToggle";
 
-export function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; onOpen: (id: string) => void; onCreate: () => void }) {
+export function KnowledgePageList({
+  canEdit,
+  onOpen,
+  onCreate,
+  onNavigate,
+}: {
+  canEdit: boolean;
+  onOpen: (id: string) => void;
+  onCreate: () => void;
+  // Navigate to an in-app path, for graph nodes that are not knowledge pages.
+  onNavigate?: (path: string) => void;
+}) {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState("");
+  // Cards or graph. The search and tag state live above this choice, so
+  // switching layouts keeps the reader's current narrowing of the corpus.
+  const [view, setView] = useState<KnowledgeView>("cards");
   // Whether the tag facet shows every tag or just the top TAG_FACET_LIMIT.
   const [tagsExpanded, setTagsExpanded] = useState(false);
   // Debounce the input and require a minimum length before searching, so the
@@ -23,7 +39,11 @@ export function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: bool
   // keystroke. The hook enforces the same floor as a backstop.
   const debouncedQuery = useDebounced(query, 250);
   const trimmed = debouncedQuery.trim();
-  const searching = trimmed.length >= MIN_SEARCH_LEN;
+  const cards = view === "cards";
+  // "Searching" is a cards-view mode: it swaps browse for ranked results. In the
+  // graph the same box focuses nodes client-side, so the content search must not
+  // run there — it would issue a request per pause whose result nothing renders.
+  const searching = cards && trimmed.length >= MIN_SEARCH_LEN;
   // Searching hides the facet; collapse it so returning to browse starts from the
   // compact top-N view rather than a stale expansion from before the search.
   useEffect(() => {
@@ -35,7 +55,7 @@ export function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: bool
   // load, an improvement over the previous single fixed request that the store
   // silently capped at 20.
   const list = useInfiniteKnowledgePages();
-  const search = useSearchKnowledgePages(trimmed, { limit: 25 });
+  const search = useSearchKnowledgePages(searching ? trimmed : "", { limit: 25 });
 
   const allPages = useMemo(() => list.data?.data ?? [], [list.data]);
   const total = list.data?.total ?? allPages.length;
@@ -64,9 +84,10 @@ export function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: bool
     : browsePages;
   const loading = searching ? search.isLoading : list.isLoading;
 
-  // Open-feedback-thread counts for the visible pages, so each card can badge
-  // pages that have feedback awaiting attention.
-  const pageIds = useMemo(() => pages.map((p) => p.id), [pages]);
+  // Open-feedback-thread counts for the visible cards, so each card can badge
+  // pages that have feedback awaiting attention. The graph draws no cards, so it
+  // asks for none.
+  const pageIds = useMemo(() => (cards ? pages.map((p) => p.id) : []), [cards, pages]);
   const threadCounts = useThreadCounts("knowledge_page", pageIds);
 
   return (
@@ -83,14 +104,17 @@ export function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: bool
             </>
           )}
         </p>
-        {canEdit && (
-          <button
-            onClick={onCreate}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
-          >
-            <Plus className="h-4 w-4" /> New page
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          <ViewToggle value={view} onChange={setView} />
+          {canEdit && (
+            <button
+              onClick={onCreate}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+            >
+              <Plus className="h-4 w-4" /> New page
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="relative">
@@ -98,14 +122,19 @@ export function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: bool
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search knowledge by content..."
+          placeholder={
+            cards ? "Search knowledge by content..." : "Find nodes in the graph..."
+          }
           className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary/40"
         />
       </div>
 
-      {/* Tag browse (browse mode only). Cap the facet at TAG_FACET_LIMIT chips
-          with a reveal for the rest, so a large tag set does not push the page
-          list off-screen (#707). */}
+      {/* Tag browse. Cap the facet at TAG_FACET_LIMIT chips with a reveal for
+          the rest, so a large tag set does not push the page list off-screen
+          (#707). The cards view replaces browse with ranked results while
+          searching, so the facet is hidden there; the graph keeps it, because
+          there the query focuses nodes inside the tag-filtered corpus rather
+          than replacing it (`searching` is false in the graph for that reason). */}
       {!searching && tagCounts.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <FilterChip label="All" active={tag === ""} onClick={() => setTag("")} />
@@ -130,7 +159,9 @@ export function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: bool
         </div>
       )}
 
-      {(searching ? search.isError : list.isError) ? (
+      {!cards ? (
+        <KnowledgeGraphView tag={tag} query={query} onOpenPage={onOpen} onNavigate={onNavigate} />
+      ) : (searching ? search.isError : list.isError) ? (
         <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
           Failed to load knowledge pages. Please try again.
         </p>
@@ -182,7 +213,7 @@ export function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: bool
           Rendered outside the list conditional so it also offers "Load more"
           when a client-side tag filter empties the loaded set but more pages
           remain (InfiniteFooter renders nothing once every page is loaded). */}
-      {!searching && (
+      {cards && !searching && (
         <InfiniteFooter
           hasMore={list.hasNextPage}
           isLoadingMore={list.isFetchingNextPage}

@@ -40,6 +40,7 @@ import {
   deleteDoc,
 } from "./data/datahub";
 import { mockKnowledgePages } from "./data/knowledgePages";
+import { mockKnowledgeGraph } from "./data/knowledgeGraph";
 import { mockContent } from "./data/content";
 import { mockCollections, mockSharedCollections } from "./data/collections";
 import {
@@ -879,6 +880,13 @@ export const handlers = [
     );
     return HttpResponse.json({ pages, total: pages.length });
   }),
+  // Corpus-wide reference graph (#1162), the alternate layout to the cards view.
+  http.get(`${PORTAL_BASE}/knowledge-pages/graph`, ({ request }) => {
+    const sp = new URL(request.url).searchParams;
+    return HttpResponse.json(
+      mockKnowledgeGraph(sp.get("tag") ?? "", Number(sp.get("limit") ?? 0)),
+    );
+  }),
   http.get(`${PORTAL_BASE}/knowledge-pages/search`, ({ request }) => {
     const q = new URL(request.url).searchParams.get("q")?.toLowerCase() ?? "";
     const scored = mockKnowledgePages
@@ -960,7 +968,12 @@ export const handlers = [
   http.get(`${PORTAL_BASE}/datahub/:conn/catalog/entity`, ({ request }) => {
     const u = new URL(request.url).searchParams.get("urn") ?? "";
     const entity = catalogEntity(u);
-    return entity ? HttpResponse.json(entity) : new HttpResponse(null, { status: 502 });
+    // DataHub has no not-found for an entity read: it answers an unknown URN
+    // with the URN echoed back and no metadata, which is what the real backend
+    // relays (verified against a live stack). Mirroring that here is what lets
+    // the "cited but not in the catalog" path be exercised at all; returning a
+    // 502 instead would mock an error the platform never actually produces.
+    return HttpResponse.json(entity ?? { urn: u, context: { urn: u } });
   }),
   http.get(`${PORTAL_BASE}/datahub/:conn/catalog/lookup/tags`, ({ request }) => {
     const q = new URL(request.url).searchParams.get("q") ?? "";

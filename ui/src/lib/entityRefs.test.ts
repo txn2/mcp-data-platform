@@ -1,12 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  extractRefUrns,
-  parseRef,
-  isRefUrn,
-  buildRefUrn,
-  entityHref,
-  trimRefToken,
-} from "./entityRefs";
+import { buildRefUrn, catalogHref, entityHref, extractRefUrns, isRefUrn, parseRef, refHref, trimRefToken } from "./entityRefs";
 
 describe("entityHref", () => {
   it("routes asset/collection/prompt/knowledge_page to their views and nothing else", () => {
@@ -114,5 +107,42 @@ describe("trimRefToken", () => {
     expect(trimRefToken("urn:li:tag:revenue?!")).toBe("urn:li:tag:revenue");
     expect(trimRefToken("mcp:asset:a.b.c.")).toBe("mcp:asset:a.b.c"); // internal dots kept
     expect(trimRefToken("mcp:connection:(trino,acme)")).toBe("mcp:connection:(trino,acme)"); // no-op
+  });
+});
+
+describe("catalogHref", () => {
+  it("deep-links a catalog entity by its whole URN", () => {
+    const urn = "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)";
+    expect(catalogHref(urn)).toBe(`/knowledge/catalog?urn=${encodeURIComponent(urn)}`);
+  });
+
+  it("refuses anything that is not a URN", () => {
+    // The value lands in a query string that drives a catalog lookup, so only a
+    // real URN may be interpolated into it.
+    expect(catalogHref("mcp:asset:a1")).toBeNull();
+    expect(catalogHref("")).toBeNull();
+    expect(catalogHref("../../admin")).toBeNull();
+  });
+
+  it("tolerates surrounding whitespace", () => {
+    expect(catalogHref("  urn:li:dataset:x  ")).toBe("/knowledge/catalog?urn=urn%3Ali%3Adataset%3Ax");
+  });
+});
+
+describe("refHref", () => {
+  it("sends a catalog reference to the catalog tab", () => {
+    const urn = "urn:li:dataset:(trino,sales,PROD)";
+    expect(refHref("datahub", "", urn)).toBe(`/knowledge/catalog?urn=${encodeURIComponent(urn)}`);
+  });
+
+  it("sends an internal reference to its id-based route", () => {
+    expect(refHref("asset", "a1", "mcp:asset:a1")).toBe("/assets/a1");
+    expect(refHref("knowledge_page", "kp1", "mcp:knowledge_page:kp1")).toBe("/knowledge/pages/kp1");
+  });
+
+  it("has no destination for a connection", () => {
+    // Connections have no per-instance portal page, so the reference is drawn
+    // and labelled but never presented as a link.
+    expect(refHref("connection", "", "mcp:connection:(trino,wh)")).toBeNull();
   });
 });

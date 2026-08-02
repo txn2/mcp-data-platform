@@ -1,6 +1,6 @@
 import { FileText, MessageSquareText, FolderOpen, BookOpen, Plug, Database, Link2, Unlink } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { parseRef, entityHref, type ResolvedRef, type RefType } from "@/lib/entityRefs";
+import { parseRef, refHref, type ResolvedRef, type RefType } from "@/lib/entityRefs";
 
 const TYPE_ICONS: Record<RefType, LucideIcon> = {
   asset: FileText,
@@ -53,7 +53,9 @@ export function EntityChip({
   );
 
   // A live (non-broken) reference deep-links when it has a route and a navigator.
-  const href = broken ? null : parsed && onNavigate ? entityHref(parsed.type, parsed.id) : null;
+  // A catalog citation is navigable too: it opens the entity in the Catalog
+  // tab, so a DataHub reference is a link everywhere a reference is rendered.
+  const href = broken ? null : parsed && onNavigate ? refHref(parsed.type, parsed.id, parsed.urn) : null;
   if (href && onNavigate) {
     return (
       <a

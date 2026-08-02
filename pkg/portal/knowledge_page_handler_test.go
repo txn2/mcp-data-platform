@@ -31,6 +31,9 @@ type mockKnowledgePageStore struct {
 	inserted *knowledgepage.Page
 	updated  *knowledgepage.Update
 	deleted  string
+	// lastFilter records the most recent List filter, so a caller that derives it
+	// from query parameters can be asserted on.
+	lastFilter *knowledgepage.Filter
 
 	refs            []knowledgepage.EntityRef
 	refsErr         error
@@ -63,7 +66,8 @@ func (*mockKnowledgePageStore) GetBySlug(_ context.Context, _ string) (*knowledg
 	return nil, knowledgepage.ErrNotFound
 }
 
-func (m *mockKnowledgePageStore) List(_ context.Context, _ knowledgepage.Filter) ([]knowledgepage.Page, int, error) {
+func (m *mockKnowledgePageStore) List(_ context.Context, f knowledgepage.Filter) ([]knowledgepage.Page, int, error) {
+	m.lastFilter = &f
 	if m.listErr != nil {
 		return nil, 0, m.listErr
 	}
