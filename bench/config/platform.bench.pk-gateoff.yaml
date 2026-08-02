@@ -221,7 +221,10 @@ personas:
     display_name: "Bench Perishable Knowledge (PK)"
     roles: ["admin"]
     tools:
-      allow: ["platform_info", "search", "list_connections", "api_list_specs", "api_list_endpoints", "api_get_endpoint_schema", "api_invoke_endpoint", "memory_*"]
+      # fetch travels with search: search returns references that only fetch
+      # can dereference. An arm that grants search without it measures a
+      # delivery architecture the platform does not ship (#1176).
+      allow: ["platform_info", "search", "fetch", "list_connections", "api_list_specs", "api_list_endpoints", "api_get_endpoint_schema", "api_invoke_endpoint", "memory_*"]
     connections:
       allow: ["*"]
   default_persona: admin

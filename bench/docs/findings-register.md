@@ -14,6 +14,16 @@ the same PR as the finding it records.
 | Agent reliance on stored knowledge is governed by derivability (strong tier) and inverted by capability (weak tier); delivered conventions are used and fabrication-suppressing; stale world-state notes are strictly worse than nothing on the weak tier | `results/knowledge-use/` (7 run families, headline cells replicated on a v1.116.0 tag build) | `docs/reference/benchmark-report-knowledge-use.md` (2026-07-26, DOI 10.5281/zenodo.21614059) |
 | The knowledge layer lifts trap accuracy +56 points where business context is required and is neutral elsewhere; cold-start teaching unlocks each trap class at its own promotion checkpoint | `results/` top-level families (paths frozen by the deposited PDF) | `docs/reference/benchmark-report.md` (2026-07-19, DOI 10.5281/zenodo.21438044) |
 
+## Instrument defects
+
+Defects in the harness or its configurations that shaped what a published
+study could measure. Each row states the defect, the evidence, and what was
+done about the published record — which is not always a re-run.
+
+| Defect | Evidence | Disposition |
+| --- | --- | --- |
+| Every arm persona of both published studies denied `fetch`: the enumerated allow-lists in `config/platform.bench.a2.yaml`, `a3.yaml`, and `pk.yaml` omitted it (the a-arms also omitted `list_connections`), so both reports measured search-only, single-hop delivery and neither said so (#1176) | 19 `fetch` attempts across all 4,173 archived transcripts, 19 denials with `not authorized: tool not allowed for persona: admin`, zero successes — attempted unprompted in 18 episodes even though the harness instructions never named the tool | Configs corrected and guarded (`config/config_test.go`); erratum on the knowledge-layer report; threats entry on the knowledge-use report. No re-run: the denial was uniform across arms, so every published contrast stands as a contrast under search-only delivery; whether full-document delivery moves any result is a study question, not an erratum |
+
 ## Retired study candidates (negative results — concluded, not abandoned)
 
 | Candidate | Why it died | Evidence | Recorded |
