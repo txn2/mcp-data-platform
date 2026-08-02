@@ -650,6 +650,25 @@ remains valid for the source and the raw data.
 
 ### Errata
 
+- **2026-08-02.** Every run in this report executed with `fetch` absent from
+  every arm persona's tool allow-list (#1176). For the no-discovery arms `a0`
+  and `a1` that is their ablation design; for `a2` and `a3`, which this report
+  presents as the shipped semantic-first platform, it was a configuration
+  defect (`bench/config/platform.bench.a2.yaml` and `a3.yaml`, which likewise
+  omitted `list_connections`). Measured
+  across all 4,173 archived transcripts: 19 `fetch` attempts, 19 authorization
+  denials, zero successes. Search results therefore returned document
+  references that were never dereferenced, and knowledge pages' outbound
+  references were never followed: every arm measured the knowledge layer under
+  search-only, single-hop delivery rather than the search-then-fetch surface
+  the platform ships. The denial applied identically to every arm — no arm
+  could traverse — so the reported contrasts are valid as contrasts between
+  arms under search-only delivery; what this narrows is the report's
+  architectural coverage, not any number. The configs now grant both tools,
+  and a config guard (`bench/config/config_test.go`) enforces it, so future
+  runs measure the shipped delivery surface. No statistic, figure value, or
+  conclusion changed, so the report version is unchanged and the deposited
+  snapshots are unaffected.
 - **2026-08-01 (version 2.0.1).** Typesetting only. The v2.0 deposit's PDF
   rendered the Section 5 table with its columns overflowing, so metric names
   overprinted their own values; the markdown, the HTML, and every statistic

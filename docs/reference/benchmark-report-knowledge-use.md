@@ -313,6 +313,17 @@ client version (CLI runs), seed-set hash, and k.
   (control fabrication 6/8 to 8/8; haiku stale-note outright trust 6/8 to
   8/8). The raw-API runs were not repeated on the tag; their role is
   client-confound elimination, and they remain pinned to their commit.
+- **Search-only delivery.** Every run executed with `fetch` denied by the
+  arm persona: `platform.bench.pk.yaml` omitted it from the tool
+  allow-list, and across the archived transcripts of both published
+  studies 19 fetch attempts drew 19 authorization denials (#1176).
+  References returned by `search` could therefore never be dereferenced
+  into full documents: every rate here was measured under search-only,
+  single-hop delivery, not the search-then-fetch surface the platform
+  ships. The denial was uniform across cells, so the contrasts between
+  cells stand; whether full-document delivery moves any rate is
+  unmeasured. The configs now grant `fetch`, guarded by
+  `bench/config/config_test.go`.
 
 ## 11. How to cite this report
 

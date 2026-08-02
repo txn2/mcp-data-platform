@@ -27,7 +27,7 @@ surface is the ablation mechanism. All four ablate one layer at a time:
 | --- | --- | --- |
 | `a0` | `platform.bench.a0.yaml` | Raw toolkit tools only (`trino_*`, `s3_*`); no semantic provider, no search, all cross-enrichment off, search-first gate off. Equivalent to wiring the standalone toolkit libraries. |
 | `a1` | `platform.bench.a1.yaml` | A0 plus semantic cross-enrichment: `trino_*`/`s3_*` results carry DataHub context automatically, but the agent still has no `search` and no `datahub_*` tools (the persona withholds them; the datahub instance exists only to feed enrichment). Isolates enrichment from discovery. |
-| `a2` | `platform.bench.a2.yaml` | The shipped semantic-first platform: A1 plus the `search` tool, the search-first gate, and seeded knowledge pages. |
+| `a2` | `platform.bench.a2.yaml` | The shipped semantic-first platform: A1 plus the discovery surface (`search`, `fetch`, `list_connections`), the search-first gate, and seeded knowledge pages. Runs before #1176 omitted `fetch` and `list_connections` from the persona allow-list, so the published knowledge-layer runs measured search-only delivery; the report's Errata section records the scope note. |
 | `a3` | `platform.bench.a3.yaml` | A2 plus the lifecycle surface: `memory_*` and `apply_knowledge`. On the single-episode S1–S4 suites A3 has nothing seeded to recall, so it tracks A2; the lifecycle's effect is measured by the S5 protocols (#944, below). |
 
 The search-first gate is not persona-aware, so the arms without a discovery
