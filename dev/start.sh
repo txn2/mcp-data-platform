@@ -410,6 +410,13 @@ ok "Database seeded"
 bash dev/seed-s3.sh
 ok "Asset content uploaded to S3"
 
+# The seeded knowledge pages cite catalog datasets by URN. Nothing else creates
+# them, so without this the catalog half of every page (and of the knowledge
+# graph) points at entities the catalog has never heard of. The script writes
+# only to a loopback DataHub and refuses a remote one by name, so pointing dev at
+# a shared catalog never injects fixtures into it.
+bash dev/seed-datahub.sh
+
 # Register the dev-mock MCP gateway connection through the admin API.
 # Going through the admin API (rather than just an INSERT in seed.sql)
 # triggers the toolkit's AddConnection path, which discovers the

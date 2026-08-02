@@ -1275,7 +1275,7 @@ VALUES
    NOW() - interval '10 days', NOW() - interval '6 days', NULL),
   ('ins-admin-06', 'admin@example.com', 'admin', 'knowledge', 'schema_entity', 'correction',
    'customer_segments is a Type-2 SCD; filter is_current = true for the latest segment assignment.',
-   'high', 'user', '["urn:li:dataset:(urn:li:dataPlatform:trino,retail.customer_segments,PROD)"]'::jsonb,
+   'high', 'user', '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)"]'::jsonb,
    '[]'::jsonb,
    jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com',
                       'applied_by', 'admin@example.com', 'changeset_ref', 'cs-seed-02'), 'active',

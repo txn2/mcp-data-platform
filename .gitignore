@@ -55,6 +55,9 @@ e2e-test-output.log
 test/e2e/**/*.log
 ui/e2e/screenshots/output/
 ui/test-results/
+# Playwright writes its traces/attachments to <repo>/test-results (the screenshot
+# config's outputDir resolves there); it is scratch, never committed.
+/test-results/
 
 # SAST artifacts
 codeql-results.sarif
