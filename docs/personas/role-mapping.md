@@ -145,14 +145,15 @@ personas:
     roles: ["viewer", "guest"]
     priority: 1
     tools:
-      allow: ["datahub_search", "datahub_get_*"]
+      # search discovers; fetch is the only tool that reads a result in full.
+      allow: ["platform_info", "search", "fetch", "datahub_get_*"]
 
   analyst:
     display_name: "Data Analyst"
     roles: ["analyst", "data-team"]
     priority: 10
     tools:
-      allow: ["trino_*", "datahub_*"]
+      allow: ["*"]
       deny: ["*_delete_*"]
 
   data_engineer:

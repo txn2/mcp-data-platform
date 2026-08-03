@@ -182,10 +182,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst"]
     tools:
-      allow:
-        - "trino_*"
-        - "datahub_*"
-        - "memory_capture"        # Can capture knowledge
+      allow: ["*"]                # includes search, fetch, memory_capture
       deny:
         - "apply_knowledge"       # Cannot apply changes
 
@@ -193,13 +190,16 @@ personas:
     display_name: "Administrator"
     roles: ["admin"]
     tools:
-      allow: ["*"]               # Full access including apply_knowledge
+      allow: ["*"]                # Full access including apply_knowledge
 
   etl_service:
     display_name: "ETL Service"
     roles: ["service"]
     tools:
       allow:
+        - "platform_info"
+        - "search"                # required: the search-first gate refuses
+        - "fetch"                 #   trino_query until search has been called
         - "trino_*"
       deny:
         - "memory_capture"        # Automated processes should not capture

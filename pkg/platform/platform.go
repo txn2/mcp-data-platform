@@ -2882,6 +2882,9 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Validate agent_instructions references against registered tools
 	p.validateAgentInstructions()
 
+	// Warn on personas that grant a capability they cannot complete (#1174).
+	p.validatePersonaCoherence()
+
 	// One-time knowledge-page reference backfill (#664 Phase 5), guarded by a
 	// sentinel and run in the background so it never delays startup.
 	if p.db != nil && p.knowledge.Toolkit() != nil {

@@ -98,7 +98,21 @@ database:
 # persona here reaches nothing — no tools, and no portal. There is no fallback
 # persona, so granting someone access means granting them a role one of these
 # personas lists.
+#
+# Some tools are a unit and must be granted together. `search` returns
+# navigational pointers carrying a `reference`; `fetch` is the only tool that
+# dereferences one. Granting `search` without `fetch` is a configuration error,
+# not a tightening: the persona discovers that an answer exists and can never
+# read it, and cannot follow a knowledge page's outbound references at all.
+# The same applies to `memory_capture` and `apply_knowledge`, which both write
+# into a body of knowledge that `search` is the only way back into. The server
+# logs a warning naming the persona and the missing tool at startup and on
+# every persona write.
 personas:
+  # The preferred shape: grant everything, then deny what this persona must not
+  # reach. An enumerated allow-list silently loses every tool added by a later
+  # upgrade — which is how `fetch` came to be withheld from personas that were
+  # written before it existed.
   analyst:
     display_name: "Data Analyst"
     roles:
@@ -106,12 +120,11 @@ personas:
       - data_engineer
     tools:
       allow:
-        - "search"
-        - "trino_*"
-        - "datahub_*"
-        - "s3_list_*"
+        - "*"
       deny:
         - "s3_delete_*"
+        - "s3_put_object"
+        - "apply_knowledge"      # analysts capture insights; curators apply them
     connections:
       allow:
         - "production"
@@ -127,6 +140,10 @@ personas:
         trino_query/trino_execute until you have called search in the session.
         Use trino_describe_table to get schema with business context.
 
+  # An enumerated allow-list, for a deployment that needs one. Every tool the
+  # persona will ever hold has to be listed, including both halves of any pair:
+  # `search` and `fetch` are here together, and a later upgrade that adds a tool
+  # will not reach this persona until an operator adds it by name.
   executive:
     display_name: "Executive"
     roles:
@@ -134,7 +151,9 @@ personas:
       - business_analyst
     tools:
       allow:
+        - "platform_info"
         - "search"
+        - "fetch"
         - "datahub_get_entity"
         - "datahub_browse"
       deny: []

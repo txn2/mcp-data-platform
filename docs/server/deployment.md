@@ -233,7 +233,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst"]
     tools:
-      allow: ["trino_*", "datahub_*"]
+      allow: ["*"]
       deny: ["*_delete_*"]
   admin:
     display_name: "Administrator"

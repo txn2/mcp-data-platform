@@ -97,7 +97,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst"]
     tools:
-      allow: ["trino_*", "datahub_*"]
+      allow: ["*"]
 ```
 
 The `system/info` endpoint reports:
@@ -196,7 +196,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst"]
     tools:
-      allow: ["trino_*", "datahub_*"]
+      allow: ["*"]
   admin:
     display_name: "Administrator"
     roles: ["admin"]

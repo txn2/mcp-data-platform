@@ -1008,7 +1008,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst", "data_engineer"]
     tools:
-      allow: ["search", "trino_*", "datahub_*"]
+      allow: ["*"]
       deny: ["*_delete_*", "*_drop_*"]
   admin:
     display_name: "Administrator"
@@ -1033,6 +1033,9 @@ personas:
     A caller whose roles match no persona has **no access at all**: tool calls resolve to the built-in deny-all persona and are refused, the portal answers `403` with a branded page, and the managed-resources API refuses the request. There is no fallback persona, so every user who should reach anything needs a role one of your personas lists.
 
     `personas.default_persona` was removed. It assigned its persona to every caller whose roles matched nothing, including accounts carrying no claims. A config that still sets it is refused at startup with an error naming the key.
+
+!!! warning "Some tools must be granted together"
+    `search` returns references and `fetch` is the only tool that dereferences one; `memory_capture` and `apply_knowledge` both write into a body of knowledge that `search` is the only way back into. Granting one half of a pair without the other leaves the persona able to start something it can never finish, so the server logs a warning naming the persona, the missing tool, and the fix — at startup and on every persona write. Prefer `allow: ["*"]` with a targeted `deny`, as `analyst` does above: an enumerated allow-list silently loses each tool a later upgrade adds. See [Personas: some tools are a unit](../personas/overview.md#some-tools-are-a-unit).
 
 ## Knowledge Capture Configuration
 
@@ -1488,7 +1491,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst"]
     tools:
-      allow: ["search", "trino_query", "trino_execute", "trino_explain", "datahub_*"]
+      allow: ["*"]
       deny: ["*_delete_*"]
   admin:
     display_name: "Administrator"

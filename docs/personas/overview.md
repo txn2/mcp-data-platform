@@ -44,9 +44,7 @@ personas:
     description: "Read-only access to query and explore data"
     roles: ["analyst", "data_user"]
     tools:
-      allow:
-        - "trino_*"
-        - "datahub_*"
+      allow: ["*"]
       deny:
         - "*_delete_*"
     context:
@@ -66,7 +64,9 @@ personas:
     roles: ["viewer", "guest"]
     tools:
       allow:
-        - "datahub_search"
+        - "platform_info"
+        - "search"
+        - "fetch"
         - "datahub_get_*"
         - "s3_list_*"
         - "s3_get_object_metadata"
@@ -75,6 +75,57 @@ personas:
         - "trino_execute"
         - "s3_get_object"
 ```
+
+Prefer `allow: ["*"]` with a targeted `deny`, as `analyst` does above. An
+enumerated allow-list has to name every tool the persona will ever hold, so it
+silently loses each tool a later upgrade adds — the persona keeps working, just
+with less of the platform than the operator thinks it has. Enumerate only when
+the persona is deliberately confined to a short, fixed list, as `viewer` is.
+
+## Some tools are a unit
+
+A few tools produce work that only another tool can consume. Granting one
+without the other is a configuration error, not a tightening — the persona can
+start something it can never finish:
+
+| Granted | Also required | Because |
+|---------|---------------|---------|
+| `search` | `fetch` | `search` returns navigational pointers carrying a `reference`; `fetch` is the only tool that dereferences one. Without it the persona discovers that an answer exists and can never read it, and cannot follow a knowledge page's outbound references at all. |
+| `memory_capture` | `search` | `search` is the retrieval front door for captured memory. Without it the persona writes knowledge that nobody, including itself, can retrieve. |
+| `apply_knowledge` | `search` | The review workflow's documented first step is to discover what is already known before applying it. |
+
+The server evaluates these pairs against the tools it actually registered — at
+startup for every persona, and again on each persona write through the admin
+API — and logs a warning naming the persona, the missing tool, and the fix:
+
+```text
+level=WARN msg="persona grants a capability it cannot complete"
+  persona=analyst granted=search missing=fetch
+  why="search returns navigational pointers carrying a reference and fetch is the
+       only tool that dereferences one, so this persona can discover that an answer
+       exists and never read it, ..."
+  remedy="add \"fetch\" to persona \"analyst\"'s tools.allow, or remove the
+          tools.deny pattern that withholds it"
+```
+
+It is a warning, not a gate: a restricted persona may be exactly what you
+intended, and startup continues either way. A deployment that never registered
+the missing tool is never warned about it.
+
+The warning exists because the failure is otherwise invisible. The agent
+instructions the platform hands out name a tool only when the caller can reach
+it, so a persona missing `fetch` is simply never told that reading a result in
+full is possible. Nothing errors. The only other symptom is an `unauthorized`
+audit row, and only if an agent guesses the tool name unprompted.
+
+!!! warning "The search-first gate needs `search`"
+
+    `trino_query` and `trino_execute` are refused until `search` has been called
+    in the session (see
+    [Search-First Gate Configuration](../server/configuration.md#search-first-gate-configuration)).
+    A persona granted query tools but not `search` cannot open that gate and is
+    refused permanently. Grant `search` and `fetch` to every persona that
+    queries, or turn the gate off with `workflow.require_search: false`.
 
 ## No persona means no access
 
@@ -224,7 +275,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst"]
     tools:
-      allow: ["trino_*", "datahub_*"]
+      allow: ["*"]
     connections:
       allow: ["prod-*"]
       deny: ["prod-admin-*"]
@@ -279,10 +330,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst"]
     tools:
-      allow:
-        - "trino_*"
-        - "datahub_*"
-        - "memory_capture"        # Can capture knowledge
+      allow: ["*"]                # includes search, fetch, memory_capture
       deny:
         - "apply_knowledge"       # Cannot apply changes
 
@@ -290,18 +338,25 @@ personas:
     display_name: "Administrator"
     roles: ["admin"]
     tools:
-      allow: ["*"]               # Full access including apply_knowledge
+      allow: ["*"]                # Full access including apply_knowledge
 
   etl_service:
     display_name: "ETL Service"
     roles: ["service"]
     tools:
       allow:
+        - "platform_info"
+        - "search"                # required: the search-first gate refuses
+        - "fetch"                 #   trino_query until search has been called
         - "trino_*"
       deny:
         - "memory_capture"        # Automated processes should not capture
         - "apply_knowledge"
 ```
+
+`etl_service` shows the enumerated form done correctly: it withholds the
+knowledge-write tools, which is a narrowing, while keeping `search` and `fetch`,
+without which it could not run a query at all.
 
 See [Knowledge Capture](../knowledge/overview.md) for the full feature documentation.
 
@@ -313,9 +368,7 @@ personas:
     display_name: "Sales Domain Analyst"
     roles: ["sales_team"]
     tools:
-      allow:
-        - "trino_*"
-        - "datahub_*"
+      allow: ["*"]
       deny: []
     context:
       description_prefix: |
@@ -327,9 +380,7 @@ personas:
     display_name: "Marketing Domain Analyst"
     roles: ["marketing_team"]
     tools:
-      allow:
-        - "trino_*"
-        - "datahub_*"
+      allow: ["*"]
       deny: []
     context:
       description_prefix: |

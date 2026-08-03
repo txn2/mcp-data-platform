@@ -241,6 +241,7 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to register persona")
 		return
 	}
+	h.warnIncoherentPersona(p)
 	if h.deps.ReloadNotifier != nil {
 		h.deps.ReloadNotifier.PublishPersonaReload()
 	}
@@ -301,6 +302,7 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update persona")
 		return
 	}
+	h.warnIncoherentPersona(p)
 	if h.deps.ReloadNotifier != nil {
 		h.deps.ReloadNotifier.PublishPersonaReload()
 	}
@@ -423,6 +425,36 @@ func (h *Handler) revertToFilePersona(name string) {
 	}
 	if err := h.deps.PersonaRegistry.Register(p); err != nil {
 		slog.Warn("failed to revert persona to file version", logKeyName, logsan.SanitizeForLog(name), logKeyError, err) // #nosec G706 -- name is sanitized
+		return
+	}
+	// The persona now in force is the file version, not the one any earlier
+	// write logged about, so it gets its own coherence check.
+	h.warnIncoherentPersona(p)
+}
+
+// warnIncoherentPersona logs a warning per coherence finding for a persona
+// just written through the admin API (#1174), so an operator who narrows a
+// persona into a shape that cannot complete its own capability finds out at
+// write time rather than from an unauthorized audit row weeks later.
+//
+// Advisory only: the write has already succeeded and is never rolled back. A
+// restricted persona may be exactly what the operator intended, and the rules
+// describe an incoherent tool set, not an unauthorized one.
+//
+// Findings are scoped to the tools this deployment actually registered, so a
+// deployment with no search toolkit never warns about withholding fetch.
+func (h *Handler) warnIncoherentPersona(p *persona.Persona) {
+	if h.deps.ToolkitRegistry == nil {
+		return
+	}
+	for _, f := range persona.CheckCoherence(p, h.deps.ToolkitRegistry.AllTools()) {
+		slog.Warn("persona grants a capability it cannot complete",
+			"persona", logsan.SanitizeForLog(f.Persona),
+			"granted", f.Granted,
+			"missing", f.Missing,
+			"why", f.Why,
+			"remedy", logsan.SanitizeForLog(f.Remedy),
+		)
 	}
 }
 

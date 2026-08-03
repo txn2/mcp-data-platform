@@ -640,9 +640,9 @@ Returns a single persona with resolved tool list.
   "description": "Read-only data access",
   "roles": ["analyst"],
   "priority": 0,
-  "allow_tools": ["trino_*", "datahub_*"],
+  "allow_tools": ["*"],
   "deny_tools": ["*_delete_*"],
-  "tools": ["trino_query", "trino_describe_table", "datahub_search"],
+  "tools": ["datahub_browse", "fetch", "search", "trino_describe_table", "trino_query"],
   "description_prefix": "You are helping a data analyst.",
   "agent_instructions_suffix": "Prefer aggregations for large tables."
 }
@@ -664,7 +664,7 @@ Creates a new persona. Only available in `database` config mode.
   "display_name": "Data Viewer",
   "description": "Read-only access to DataHub",
   "roles": ["viewer"],
-  "allow_tools": ["datahub_*"],
+  "allow_tools": ["platform_info", "search", "fetch", "datahub_*"],
   "deny_tools": []
 }
 ```
@@ -679,6 +679,12 @@ Creates a new persona. Only available in `database` config mode.
 | `deny_tools` | array | no | Tool deny patterns |
 | `priority` | int | no | Resolution priority (higher wins) |
 
+Some tools must be granted together — `search` with `fetch`, and `memory_capture`
+or `apply_knowledge` with `search`. A write that breaks a pair still succeeds
+(the check is advisory, not a gate) and the server logs a warning naming the
+persona, the missing tool, and the fix. See
+[Some tools are a unit](../personas/overview.md#some-tools-are-a-unit).
+
 **Response** (`201 Created`):
 
 ```json
@@ -688,9 +694,9 @@ Creates a new persona. Only available in `database` config mode.
   "description": "Read-only access to DataHub",
   "roles": ["viewer"],
   "priority": 0,
-  "allow_tools": ["datahub_*"],
+  "allow_tools": ["platform_info", "search", "fetch", "datahub_*"],
   "deny_tools": [],
-  "tools": ["datahub_search", "datahub_get_entity", "datahub_get_schema", "datahub_get_lineage", "datahub_browse"],
+  "tools": ["datahub_browse", "datahub_get_entity", "datahub_get_lineage", "datahub_get_schema", "fetch", "search"],
   "source": "database"
 }
 ```

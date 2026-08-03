@@ -39,17 +39,19 @@ memory:
 
 ## Persona Configuration
 
-Memory tools (`memory_capture`, `memory_manage`) are opt-in. Add `memory_*` to a persona's `tools.allow` list (reading memory back is served by `search`):
+Memory tools (`memory_capture`, `memory_manage`) are opt-in. Add `memory_*` to a persona's `tools.allow` list — together with `search`, which is how memory is read back, and `fetch`, which reads a search result in full:
 
 ```yaml
 personas:
   analyst:
     tools:
-      allow: ["trino_*", "datahub_*", "memory_*"]
+      allow: ["*"]        # includes search, fetch, and memory_*
   admin:
     tools:
       allow: ["*"]
 ```
+
+A persona granted `memory_capture` without `search` writes memory that nobody, including itself, can retrieve. The server logs a warning naming the persona and the missing tool at startup and on every persona write; see [Personas: some tools are a unit](../personas/overview.md#some-tools-are-a-unit).
 
 ## Embedding Provider
 
