@@ -1,19 +1,21 @@
 import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { useCatalogEntity } from "@/api/portal/datahub";
-import { DataHubConnectionSelect, useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
+import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
 import { useAuthStore } from "@/stores/auth";
 import { CatalogList } from "./catalog/CatalogList";
 import { EntityBody } from "./catalog/sections";
 import { ListSkeleton } from "./catalog/primitives";
 
 /**
- * CatalogTab is the Knowledge > Catalog sub-tab (#719): browse/search DataHub
- * datasets and view/edit their metadata. Editing (description, tags, owners,
- * glossary terms, domain) is shown only when the persona grants datahub_update
- * and the selected connection is write-enabled; the API enforces the same.
+ * CatalogTab is the Tables tab of the Catalog section (#719, #1194):
+ * browse/search the catalog's tables and view/edit their metadata. Editing
+ * (description, tags, owners, glossary terms, domain) is shown only when the
+ * persona grants datahub_update and the selected connection is write-enabled;
+ * the API enforces the same. The connection is chosen by CatalogSection, which
+ * renders this only once one is selected.
  */
-export function CatalogTab({ conn, onConnChange }: { conn: string; onConnChange: (c: string) => void }) {
+export function CatalogTab({ conn }: { conn: string }) {
   // The open entity is URL-addressable (?urn=...), so a catalog reference
   // anywhere in the portal — a knowledge-page chip, a node in the knowledge
   // graph — can link straight to it. Held in state as well so opening one from
@@ -27,8 +29,7 @@ export function CatalogTab({ conn, onConnChange }: { conn: string; onConnChange:
 
   return (
     <div className="space-y-4">
-      <DataHubConnectionSelect value={conn} onChange={onConnChange} />
-      {!conn ? null : urn ? (
+      {urn ? (
         <CatalogEntityDetail
           conn={conn}
           urn={urn}
@@ -86,7 +87,7 @@ function CatalogEntityDetail({
         onClick={onBack}
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
       >
-        <ArrowLeft className="h-4 w-4" /> Back to catalog
+        <ArrowLeft className="h-4 w-4" /> Back to tables
       </button>
 
       {isError || !data ? (

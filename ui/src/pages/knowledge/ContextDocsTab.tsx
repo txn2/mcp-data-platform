@@ -12,7 +12,7 @@ import {
   type ContextDocument,
   type DocumentInput,
 } from "@/api/portal/datahub";
-import { DataHubConnectionSelect, useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
+import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
 import { useAuthStore } from "@/stores/auth";
 import { useDebounced } from "@/lib/useDebounced";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
@@ -37,12 +37,14 @@ type Mode =
   | { view: "edit"; id: string };
 
 /**
- * ContextDocsTab is the Knowledge > Context Docs sub-tab (#720): browse/search
- * DataHub context documents and manage them with full CRUD. Create/edit/delete
- * affordances appear only when the persona grants the matching datahub tool and
- * the connection is write-enabled; the API enforces the same.
+ * ContextDocsTab is the Context Docs tab of the Catalog section (#720, #1194):
+ * browse/search DataHub context documents and manage them with full CRUD.
+ * Create/edit/delete affordances appear only when the persona grants the
+ * matching datahub tool and the connection is write-enabled; the API enforces
+ * the same. The connection is chosen by CatalogSection, which renders this only
+ * once one is selected.
  */
-export function ContextDocsTab({ conn, onConnChange }: { conn: string; onConnChange: (c: string) => void }) {
+export function ContextDocsTab({ conn }: { conn: string }) {
   const [mode, setMode] = useState<Mode>({ view: "list" });
   const writable = useConnectionWritable(conn);
   const tools = useAuthStore((s) => s.user?.tools);
@@ -54,8 +56,7 @@ export function ContextDocsTab({ conn, onConnChange }: { conn: string; onConnCha
 
   return (
     <div className="space-y-4">
-      <DataHubConnectionSelect value={conn} onChange={onConnChange} />
-      {!conn ? null : mode.view === "create" ? (
+      {mode.view === "create" ? (
         <DocForm conn={conn} onDone={() => setMode({ view: "list" })} />
       ) : mode.view === "edit" ? (
         <DocForm conn={conn} editId={mode.id} onDone={(id) => setMode({ view: "doc", id: id ?? mode.id })} />

@@ -10,12 +10,9 @@ vi.mock("@/api/portal/datahub", () => ({
   useDeleteTag: vi.fn(),
   useUpdateDescription: vi.fn(),
 }));
+// The connection picker lives on CatalogSection, not here; only the writable
+// lookup is still read from this module.
 vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
-  // Stand in a button that switches connection, so the tab's own reaction to a
-  // connection change is testable without the real select's data fetch.
-  DataHubConnectionSelect: ({ onChange }: { onChange: (c: string) => void }) => (
-    <button onClick={() => onChange("other")}>switch connection</button>
-  ),
   useConnectionWritable: vi.fn(() => true),
 }));
 
@@ -68,7 +65,7 @@ beforeEach(() => {
 
 describe("TagsTab", () => {
   it("lists tags with their descriptions", () => {
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     expect(screen.getByText("certified")).toBeInTheDocument();
     expect(screen.getByText("Reviewed by the data team.")).toBeInTheDocument();
     // A tag with no description says so rather than rendering an empty line.
@@ -84,7 +81,7 @@ describe("TagsTab", () => {
       vi.mocked(useTagList).mockImplementation(
         ((_conn: string, query: string) => q(query ? [] : [certified, pii])) as never,
       );
-      render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+      render(<TagsTab conn="primary" />);
       fireEvent.change(screen.getByPlaceholderText("Filter tags by name…"), {
         target: { value: "cert" },
       });
@@ -101,14 +98,14 @@ describe("TagsTab", () => {
     }
   });
 
-  it("opens a tag and shows the datasets carrying it", () => {
+  it("opens a tag and shows the tables carrying it", () => {
     const onNavigate = vi.fn();
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} onNavigate={onNavigate} />);
+    render(<TagsTab conn="primary" onNavigate={onNavigate} />);
     fireEvent.click(screen.getByText("certified"));
 
     expect(screen.getByRole("heading", { name: /certified/ })).toBeInTheDocument();
     expect(screen.getByText("urn:li:tag:certified")).toBeInTheDocument();
-    expect(screen.getByText("Datasets carrying this tag")).toBeInTheDocument();
+    expect(screen.getByText("Tables carrying this tag")).toBeInTheDocument();
 
     // The carrier deep-links into the catalog entity editor rather than
     // reloading the page.
@@ -120,9 +117,9 @@ describe("TagsTab", () => {
 
   it("reports an empty usage list instead of an empty section", () => {
     vi.mocked(useTagUsage).mockReturnValue(q([]));
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     fireEvent.click(screen.getByText("certified"));
-    expect(screen.getByText("No dataset in this connection carries this tag.")).toBeInTheDocument();
+    expect(screen.getByText("No table in this connection carries this tag.")).toBeInTheDocument();
   });
 
   it("creates a tag with its name and description", () => {
@@ -133,7 +130,7 @@ describe("TagsTab", () => {
       isError: false,
       error: null,
     } as never);
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     fireEvent.click(screen.getByRole("button", { name: "New tag" }));
 
     // Create is refused until the tag has a name.
@@ -161,7 +158,7 @@ describe("TagsTab", () => {
       isSuccess: false,
       error: null,
     } as never);
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     fireEvent.click(screen.getByText("certified"));
     fireEvent.click(screen.getByRole("button", { name: "Edit description" }));
 
@@ -184,12 +181,12 @@ describe("TagsTab", () => {
       isError: false,
       error: null,
     } as never);
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     fireEvent.click(screen.getByText("certified"));
     fireEvent.click(screen.getByRole("button", { name: "Delete tag" }));
 
     expect(
-      screen.getByText(/1 dataset in this connection carries this tag/),
+      screen.getByText(/1 table in this connection carries this tag/),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
     expect(mutate).toHaveBeenCalledWith("urn:li:tag:certified", expect.anything());
@@ -201,25 +198,11 @@ describe("TagsTab", () => {
       isLoading: false,
       isError: true,
     } as never);
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     fireEvent.click(screen.getByText("certified"));
     fireEvent.click(screen.getByRole("button", { name: "Delete tag" }));
     expect(screen.getByText(/effect of deleting it is unknown/)).toBeInTheDocument();
-    expect(screen.queryByText(/No dataset in this connection carries/)).not.toBeInTheDocument();
-  });
-
-  it("returns to the list when the connection changes", () => {
-    const onConnChange = vi.fn();
-    render(<TagsTab conn="primary" onConnChange={onConnChange} />);
-    fireEvent.click(screen.getByText("certified"));
-    expect(screen.getByRole("heading", { name: /certified/ })).toBeInTheDocument();
-
-    // A tag belongs to one connection, so the open detail must not survive a
-    // switch, or its usage would be read from the new connection.
-    fireEvent.click(screen.getByRole("button", { name: "switch connection" }));
-    expect(onConnChange).toHaveBeenCalledWith("other");
-    expect(screen.queryByRole("heading", { name: /certified/ })).not.toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Filter tags by name…")).toBeInTheDocument();
+    expect(screen.queryByText(/No table in this connection carries/)).not.toBeInTheDocument();
   });
 
   it("surfaces a failed delete instead of silently returning", () => {
@@ -229,27 +212,27 @@ describe("TagsTab", () => {
       isError: true,
       error: null,
     } as never);
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     fireEvent.click(screen.getByText("certified"));
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
   it("hides every write affordance on a read-only connection", () => {
     vi.mocked(useConnectionWritable).mockReturnValue(false);
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     expect(screen.queryByRole("button", { name: "New tag" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("certified"));
     expect(screen.queryByRole("button", { name: "Delete tag" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit description" })).not.toBeInTheDocument();
     // The read surfaces stay.
-    expect(screen.getByText("Datasets carrying this tag")).toBeInTheDocument();
+    expect(screen.getByText("Tables carrying this tag")).toBeInTheDocument();
     expect(screen.getByText("Reviewed by the data team.")).toBeInTheDocument();
   });
 
   it("hides each write affordance the persona does not grant", () => {
     mockIsAdmin = false;
     mockTools = ["datahub_update"];
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     // Update alone grants the description edit, not create or delete.
     expect(screen.queryByRole("button", { name: "New tag" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("certified"));
@@ -263,7 +246,7 @@ describe("TagsTab", () => {
       name: `t${i}`,
     }));
     vi.mocked(useTagList).mockReturnValue(q(many));
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     expect(
       screen.getByText(new RegExp(`Showing the first ${TAG_LIST_LIMIT} tags`)),
     ).toBeInTheDocument();
@@ -275,11 +258,11 @@ describe("TagsTab", () => {
       name: `d${i}`,
     }));
     vi.mocked(useTagUsage).mockReturnValue(q(many));
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     fireEvent.click(screen.getByText("certified"));
     fireEvent.click(screen.getByRole("button", { name: "Delete tag" }));
     expect(
-      screen.getByText(new RegExp(`At least ${TAG_LIST_LIMIT} datasets`)),
+      screen.getByText(new RegExp(`At least ${TAG_LIST_LIMIT} tables`)),
     ).toBeInTheDocument();
   });
 
@@ -289,12 +272,7 @@ describe("TagsTab", () => {
       isLoading: false,
       isError: true,
     } as never);
-    render(<TagsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<TagsTab conn="primary" />);
     expect(screen.getByText("Failed to load tags.")).toBeInTheDocument();
-  });
-
-  it("renders nothing until a connection is selected", () => {
-    render(<TagsTab conn="" onConnChange={vi.fn()} />);
-    expect(screen.queryByPlaceholderText("Filter tags by name…")).not.toBeInTheDocument();
   });
 });
