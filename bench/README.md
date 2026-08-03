@@ -20,11 +20,11 @@ Every artifact belongs to exactly one study. Run-family directories under
 | **Question** | Does a semantic knowledge layer make an agent measurably more correct? | When an agent is handed stored knowledge, does it use it? | When a stored insight is wrong, do other identities adopt it over a co-present correct source? | Does connection architecture change an agent's accuracy over a large API? |
 | **Published report** | [`benchmark-report.md`](../docs/reference/benchmark-report.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report/)) | [`benchmark-report-knowledge-use.md`](../docs/reference/benchmark-report-knowledge-use.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-use/)) | none yet | none |
 | **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept) | [10.5281/zenodo.21614059](https://doi.org/10.5281/zenodo.21614059) | not yet minted | none |
-| **Protocol** | [`docs/knowledge-layer-protocol.md`](docs/knowledge-layer-protocol.md) | [`docs/knowledge-use-protocol.md`](docs/knowledge-use-protocol.md) | pending (#1166) | [`docs/api-connection-study-design.md`](docs/api-connection-study-design.md) |
-| **Pre-registration** | issues #930, #942-#945 | [`docs/perishable-knowledge-study-design.md`](docs/perishable-knowledge-study-design.md), [fixture](docs/perishable-knowledge-fixture.md), [estimator audit](docs/perishable-knowledge-estimator-audit.md) | issue #1163 (filed after its premise probe held) | the protocol above |
+| **Protocol** | [`docs/knowledge-layer-protocol.md`](docs/knowledge-layer-protocol.md) | [`docs/knowledge-use-protocol.md`](docs/knowledge-use-protocol.md) | [`docs/knowledge-pollution-study-design.md`](docs/knowledge-pollution-study-design.md) | [`docs/api-connection-study-design.md`](docs/api-connection-study-design.md) |
+| **Pre-registration** | issues #930, #942-#945 | [`docs/perishable-knowledge-study-design.md`](docs/perishable-knowledge-study-design.md), [fixture](docs/perishable-knowledge-fixture.md), [estimator audit](docs/perishable-knowledge-estimator-audit.md) | issue #1163 (filed after its premise probe held), then [`docs/knowledge-pollution-study-design.md`](docs/knowledge-pollution-study-design.md) (the confirmatory matrix, its estimator audit in section 6) | the protocol above |
 | **Toolchain** | [`reports/knowledge-layer/`](reports/knowledge-layer/) — `make bench-report-knowledge-layer-pdf` | [`reports/knowledge-use/`](reports/knowledge-use/) — `make bench-report-knowledge-use-pdf` | pending (#1168) | none |
 | **Run data** | top-level families under [`results/`](results/) | [`results/knowledge-use/`](results/knowledge-use/) | [`results/knowledge-pollution/`](results/knowledge-pollution/) | [`results/api-study-pilot/`](results/api-study-pilot/) |
-| **Status** | published, report version 2.0 | published, report version 1.0, pinned to v1.116.0 | in progress: premise probe held, harness merged (#1163) | closed not planned; postmortem on #1027 |
+| **Status** | published, report version 2.0 | published, report version 1.0, pinned to v1.116.0 | in progress: premise probe held, harness merged, protocol pre-registered (#1163) | closed not planned; postmortem on #1027 |
 
 Negative results and evidence-backed platform decisions are indexed in
 [`docs/findings-register.md`](docs/findings-register.md) — a retired study
@@ -133,7 +133,7 @@ gate itself is a platform config: `bench/config/platform.bench.pk-gateoff.yaml`
 is the pk arm's single-deviation copy with `workflow.require_search: false`,
 selected with `make bench-pk-up BENCH_PK_CONFIG=bench/config/platform.bench.pk-gateoff.yaml`.
 
-**Knowledge pollution** (protocol pending, #1166) — the `a3` arm on a
+**Knowledge pollution** ([protocol](docs/knowledge-pollution-study-design.md)) — the `a3` arm on a
 disposable database. The evaluation arms are ordinary `benchrun` runs over the
 committed S3 tasks; what differs between them is the stack, which
 `bench/pollutionplant` changes:
