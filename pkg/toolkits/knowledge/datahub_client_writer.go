@@ -916,6 +916,24 @@ func (w *DataHubClientWriter) UpsertStructuredProperties(ctx context.Context, ur
 	return nil
 }
 
+// CreateGlossaryNode creates a glossary node — a directory in the business
+// glossary — under parentNode, or at the root when parentNode is empty, and
+// returns its URN (#1155, mcp-datahub v1.15.0). DataHub stores a node's text in
+// the glossaryNodeInfo aspect's "definition" field, so definition is what
+// description is on other entity types.
+//
+// Deliberately not on the DataHubWriter interface: the knowledge apply path does
+// not author glossary structure, and DataHubWriter is exported, so growing it
+// would break every external implementation for a method none of them needs. The
+// portal glossary editor holds the concrete writer and calls this directly.
+func (w *DataHubClientWriter) CreateGlossaryNode(ctx context.Context, name, definition, parentNode string) (string, error) {
+	urn, err := w.client.CreateGlossaryNode(ctx, name, definition, parentNode)
+	if err != nil {
+		return "", fmt.Errorf("creating glossary node %s: %w", name, err)
+	}
+	return urn, nil
+}
+
 // DeleteTag removes a tag definition entirely (#726).
 func (w *DataHubClientWriter) DeleteTag(ctx context.Context, tagURN string) error {
 	if err := w.client.DeleteTag(ctx, tagURN); err != nil {

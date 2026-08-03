@@ -295,6 +295,23 @@ The **Context Docs** sub-tab manages DataHub context documents: markdown notes a
 
 Both tabs are backed by the portal DataHub REST API at `/api/v1/portal/datahub/{connection}/...`. Reads require DataHub access on your persona; a write is permitted only when your persona grants the matching MCP tool **and** the target connection is write-enabled (`read_only: false`). Both checks are enforced server-side regardless of what the UI shows, and every write is recorded in the audit log. Tag and glossary-term edits are applied as batched add/remove sets so concurrent edits do not clobber one another. The pickers are backed by name-search lookup endpoints (`catalog/lookup/tags`, `catalog/lookup/glossary-terms`, `catalog/lookup/domains`). A malformed metadata value is rejected with `400 Bad Request`; `502 Bad Gateway` is reserved for genuine upstream DataHub failures.
 
+#### Glossary hierarchy endpoints
+
+The business glossary is a tree — nodes containing sub-nodes and terms — and the name-search picker above flattens it. These endpoints expose the structure itself, so a client can browse the glossary rather than only search it. They require mcp-datahub v1.15.0 or later.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET catalog/glossary/roots` | The top of the tree: the nodes and the terms with no parent. Nodes and terms carry separate totals (`nodes_total`, `terms_total`) because DataHub pages the two independently. |
+| `GET catalog/glossary/children?urn=` | One page of the nodes and terms directly under a glossary node. DataHub pages a node's children as one mixed collection, so `start`, `count`, and `total` describe the combined page rather than either slice. |
+| `GET catalog/glossary/parents?urn=` | The ancestor nodes of a glossary term or node, direct parent first, so a client can render a breadcrumb without walking the tree. Each node carries its own parent URN, the next link up. |
+| `POST catalog/glossary/nodes` | Creates a node from `{name, definition, parent_node}` and returns its URN. An empty `parent_node` creates it at the root. Gated on `datahub_create` and a write-enabled connection. |
+
+Each node in a read carries `terms_count` and `nodes_count`, DataHub's own tally of its direct children, so a browser can render an expandable branch without first fetching it.
+
+A URN of the wrong kind is a `400` — children hang off a node only, while a parent chain exists for either kind of glossary entity — and a node DataHub does not know is a `404`, not a `502`.
+
+A node's children come from DataHub's graph index, which is populated asynchronously: a term or node created moments earlier may not appear under its parent yet. The parent chain reads the entity itself and is immediately consistent, so it is the reliable way to confirm a just-written parent.
+
 ### Insights
 
 The review pipeline for insights, which are the only memories that cross between users. A pending-review count is badged on the sidebar Knowledge item and the Insights tab so reviewers notice work without opening it.

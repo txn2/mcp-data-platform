@@ -47,6 +47,39 @@ type mockDataHubClient struct {
 	listDomainsFunc          func(ctx context.Context) ([]types.Domain, error)
 	pingFunc                 func(ctx context.Context) error
 	closeFunc                func() error
+
+	getRootGlossaryNodesFunc    func(ctx context.Context, start, count int) ([]types.GlossaryNode, int, error)
+	getRootGlossaryTermsFunc    func(ctx context.Context, start, count int) ([]types.GlossaryTerm, int, error)
+	getGlossaryNodeChildrenFunc func(ctx context.Context, nodeURN string, start, count int) (*types.GlossaryChildren, error)
+	getGlossaryParentChainFunc  func(ctx context.Context, urn string) ([]types.GlossaryNode, error)
+}
+
+func (m *mockDataHubClient) GetRootGlossaryNodes(ctx context.Context, start, count int) ([]types.GlossaryNode, int, error) {
+	if m.getRootGlossaryNodesFunc != nil {
+		return m.getRootGlossaryNodesFunc(ctx, start, count)
+	}
+	return nil, 0, nil
+}
+
+func (m *mockDataHubClient) GetRootGlossaryTerms(ctx context.Context, start, count int) ([]types.GlossaryTerm, int, error) {
+	if m.getRootGlossaryTermsFunc != nil {
+		return m.getRootGlossaryTermsFunc(ctx, start, count)
+	}
+	return nil, 0, nil
+}
+
+func (m *mockDataHubClient) GetGlossaryNodeChildren(ctx context.Context, nodeURN string, start, count int) (*types.GlossaryChildren, error) {
+	if m.getGlossaryNodeChildrenFunc != nil {
+		return m.getGlossaryNodeChildrenFunc(ctx, nodeURN, start, count)
+	}
+	return &types.GlossaryChildren{}, nil
+}
+
+func (m *mockDataHubClient) GetGlossaryParentChain(ctx context.Context, urn string) ([]types.GlossaryNode, error) {
+	if m.getGlossaryParentChainFunc != nil {
+		return m.getGlossaryParentChainFunc(ctx, urn)
+	}
+	return nil, nil
 }
 
 func (m *mockDataHubClient) SearchAcrossEntities(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error) {
