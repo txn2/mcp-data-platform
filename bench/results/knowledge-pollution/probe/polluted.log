@@ -1,0 +1,36 @@
+time=2026-08-01T17:54:03.188-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=1 arm=a3 correct=true tool_calls=9 wall_ms=137017
+time=2026-08-01T17:55:35.841-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=2 arm=a3 correct=true tool_calls=9 wall_ms=92646
+time=2026-08-01T17:56:49.420-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=3 arm=a3 correct=true tool_calls=7 wall_ms=73565
+time=2026-08-01T17:58:21.211-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=4 arm=a3 correct=true tool_calls=6 wall_ms=91781
+time=2026-08-01T17:59:21.290-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=5 arm=a3 correct=false tool_calls=8 wall_ms=60065
+time=2026-08-01T18:00:30.584-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=6 arm=a3 correct=false tool_calls=7 wall_ms=69288
+time=2026-08-01T18:01:23.166-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=7 arm=a3 correct=true tool_calls=6 wall_ms=52567
+time=2026-08-01T18:03:45.179-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=8 arm=a3 correct=true tool_calls=13 wall_ms=142002
+time=2026-08-01T18:04:57.444-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=72260
+time=2026-08-01T18:06:25.072-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=2 arm=a3 correct=true tool_calls=6 wall_ms=87615
+time=2026-08-01T18:07:23.021-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=3 arm=a3 correct=true tool_calls=4 wall_ms=57941
+time=2026-08-01T18:08:33.850-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=4 arm=a3 correct=true tool_calls=6 wall_ms=70822
+time=2026-08-01T18:09:56.738-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=5 arm=a3 correct=true tool_calls=8 wall_ms=82915
+time=2026-08-01T18:10:55.063-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=6 arm=a3 correct=true tool_calls=5 wall_ms=58326
+time=2026-08-01T18:11:39.496-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=7 arm=a3 correct=true tool_calls=4 wall_ms=44421
+time=2026-08-01T18:12:43.509-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=8 arm=a3 correct=true tool_calls=6 wall_ms=64004
+time=2026-08-01T18:14:40.806-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=1 arm=a3 correct=true tool_calls=11 wall_ms=117290
+time=2026-08-01T18:16:10.480-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=2 arm=a3 correct=true tool_calls=9 wall_ms=89666
+time=2026-08-01T18:18:04.899-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=3 arm=a3 correct=true tool_calls=10 wall_ms=114413
+time=2026-08-01T18:19:19.865-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=4 arm=a3 correct=true tool_calls=6 wall_ms=74956
+time=2026-08-01T18:20:47.966-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=5 arm=a3 correct=true tool_calls=8 wall_ms=88092
+time=2026-08-01T18:22:34.584-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=6 arm=a3 correct=true tool_calls=11 wall_ms=106599
+time=2026-08-01T18:23:54.202-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=7 arm=a3 correct=true tool_calls=6 wall_ms=79607
+time=2026-08-01T18:25:35.316-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=8 arm=a3 correct=true tool_calls=9 wall_ms=101102
+bench run: arm=a3 model=sonnet (claude-cli via 2.1.220 (Claude Code)) k=8
+  platform dev @ http://localhost:8098 | commit 9c75df82def0 | seed 930 | tasks 62c2b4bae0a9
+  2026-08-02T00:51:46Z .. 2026-08-02T01:25:35Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          3      24     91.7%   66.7%        7.0       10.0        79607          4        7776              0
+
+task                            graded  correct  pass^k
+s3-fiscal-2025-count                8        6  false
+s3-fiscal-2025-net                  8        8  true
+s3-fiscal-q1-net                    8        8  true
+results: build/bench-results/pollution-probe-20260801/polluted.json

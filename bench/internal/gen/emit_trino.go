@@ -2,7 +2,6 @@ package gen
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -73,31 +72,10 @@ func (d *Dataset) emitDailyRevenueSQL(b *strings.Builder) {
 	b.WriteString("\nDROP TABLE IF EXISTS memory.bench.daily_region_revenue;\n")
 	b.WriteString("CREATE TABLE memory.bench.daily_region_revenue (\n" +
 		"    day DATE,\n    region VARCHAR,\n    gross_revenue_usd DOUBLE\n);\n")
-	byID := d.customerByID()
-	type key struct {
-		day    string
-		region string
-	}
-	sums := map[key]int64{}
-	for _, o := range d.Orders {
-		if o.Status != "completed" || o.TS.After(freshnessCutoff) {
-			continue
-		}
-		sums[key{o.TS.Format("2006-01-02"), byID[o.CustomerID].Region}] += o.Amount
-	}
-	keys := make([]key, 0, len(sums))
-	for k := range sums {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].day != keys[j].day {
-			return keys[i].day < keys[j].day
-		}
-		return keys[i].region < keys[j].region
-	})
-	rows := make([]string, len(keys))
-	for i, k := range keys {
-		rows[i] = fmt.Sprintf("(DATE '%s', '%s', %.2f)", k.day, k.region, float64(sums[k])/100.0)
+	indexRows := d.DailyIndexRows()
+	rows := make([]string, len(indexRows))
+	for i, r := range indexRows {
+		rows[i] = fmt.Sprintf("(DATE '%s', '%s', %.2f)", r.Day, r.Region, r.GrossUSD())
 	}
 	writeInserts(b, "memory.bench.daily_region_revenue", rows)
 }

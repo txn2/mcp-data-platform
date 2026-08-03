@@ -6,9 +6,11 @@ import "time"
 // tasks. Each mirrors the reference SQL recorded on its task: integer-cent sums
 // divided by 100 at the end (exact to the cent), averages rounded to cents.
 
-// netUSD sums policy net revenue (amount - discount, completed only) over
-// [from, to), in USD.
-func (d *Dataset) netUSD(from, to time.Time) float64 {
+// NetUSD sums policy net revenue (amount - discount, completed only) over
+// [from, to), in USD. The window is a parameter because a study that plants a
+// wrong reporting window needs the figure under that window computed from the
+// same rows the correct one is.
+func (d *Dataset) NetUSD(from, to time.Time) float64 {
 	var cents int64
 	for _, c := range d.netCentsByRegion(from, to) {
 		cents += c
@@ -67,7 +69,7 @@ func fiscalQuarter2025(q int) (time.Time, time.Time) {
 // FiscalQuarter2025NetUSD is policy net revenue for fiscal quarter q of FY2025.
 func (d *Dataset) FiscalQuarter2025NetUSD(q int) float64 {
 	from, to := fiscalQuarter2025(q)
-	return d.netUSD(from, to)
+	return d.NetUSD(from, to)
 }
 
 // FiscalYear2025Region is FY2025 policy net revenue for one region.
@@ -79,14 +81,7 @@ func (d *Dataset) FiscalYear2025Region(region string) float64 {
 // FiscalYear2025CompletedCount counts completed orders in the FY2025 window (a
 // fiscal-boundary question with no revenue policy involved).
 func (d *Dataset) FiscalYear2025CompletedCount() int {
-	from, to := fiscalYear2025()
-	n := 0
-	for _, o := range d.Orders {
-		if o.Status == "completed" && inRange(o.TS, from, to) {
-			n++
-		}
-	}
-	return n
+	return d.CompletedOrderCount(fiscalYear2025())
 }
 
 // DecemberGrossUSD, Q4GrossUSD, NovDecGrossUSD, and FullYearGrossUSD are the

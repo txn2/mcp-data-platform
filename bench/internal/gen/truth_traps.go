@@ -1,6 +1,9 @@
 package gen
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // Ground-truth computations for the three phase-2 trap classes (#943):
 // fiscal_calendar, freshness_cutoff, and tier_boundary. Each mirrors the
@@ -30,6 +33,69 @@ var freshnessCutoff = time.Date(2025, 11, 30, 23, 59, 59, 0, time.UTC)
 // top tier (enterprise) under-counts. Ordered for deterministic SQL emission.
 var keyAccountTiers = []string{"plus", "enterprise"}
 
+// FiscalYearStartMonth is the month the seeded company fiscal year begins.
+// Exported so a study that plants a claim ABOUT the convention states the true
+// one from the fixture rather than from a second copy that could drift from it.
+func FiscalYearStartMonth() time.Month { return fiscalYearStartMonth }
+
+// LegacyExtractCount is the number of rows the deprecated legacy_orders
+// extract carries (the first orders of the fact table, copied). Exported for
+// the same reason: a study that plants a claim about how many records the
+// current table holds computes the claimed figure from the fixture rather than
+// restating a number that a regeneration could move.
+func LegacyExtractCount() int { return legacyCount }
+
+// IndexRow is one row of the pre-aggregated daily_region_revenue index: gross
+// (discount-inclusive) completed revenue for a day and region, as the seeded
+// table carries it.
+type IndexRow struct {
+	Day    string
+	Region string
+	Cents  int64
+}
+
+// GrossUSD is the row's value as the seeded DOUBLE column holds it.
+func (r IndexRow) GrossUSD() float64 { return centsToUSD(r.Cents) }
+
+// DailyIndexRows computes the index's rows in the seeded order (day, then
+// region). It is the single definition of the index's contents, so a figure
+// computed from the index and the rows the Trino seed emits cannot disagree.
+func (d *Dataset) DailyIndexRows() []IndexRow {
+	byID := d.customerByID()
+	type key struct{ day, region string }
+	sums := map[key]int64{}
+	for _, o := range d.Orders {
+		if o.Status != "completed" || o.TS.After(freshnessCutoff) {
+			continue
+		}
+		sums[key{day: o.TS.Format("2006-01-02"), region: byID[o.CustomerID].Region}] += o.Amount
+	}
+	rows := make([]IndexRow, 0, len(sums))
+	for k, cents := range sums {
+		rows = append(rows, IndexRow{Day: k.day, Region: k.region, Cents: cents})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Day != rows[j].Day {
+			return rows[i].Day < rows[j].Day
+		}
+		return rows[i].Region < rows[j].Region
+	})
+	return rows
+}
+
+// CompletedOrderCount counts completed orders in [from, to). The window is a
+// parameter because a study that plants a wrong reporting window needs the count
+// under that window computed from the same rows the correct one is.
+func (d *Dataset) CompletedOrderCount(from, to time.Time) int {
+	n := 0
+	for _, o := range d.Orders {
+		if o.Status == "completed" && inRange(o.TS, from, to) {
+			n++
+		}
+	}
+	return n
+}
+
 // fiscalYear2025 returns the fiscal-2025 range [Feb 1 2025, Feb 1 2026).
 func fiscalYear2025() (time.Time, time.Time) {
 	from := time.Date(2025, fiscalYearStartMonth, 1, 0, 0, 0, 0, time.UTC)
@@ -39,12 +105,7 @@ func fiscalYear2025() (time.Time, time.Time) {
 // FiscalYear2025NetUSD is the fiscal-calendar truth: policy net revenue
 // (amount - discount, completed only) over fiscal year 2025.
 func (d *Dataset) FiscalYear2025NetUSD() float64 {
-	from, to := fiscalYear2025()
-	var cents int64
-	for _, c := range d.netCentsByRegion(from, to) {
-		cents += c
-	}
-	return centsToUSD(cents)
+	return d.NetUSD(fiscalYear2025())
 }
 
 // january2025NetCents is the difference between the calendar-2025 and
