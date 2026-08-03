@@ -23,10 +23,12 @@ const shortName = (u: string) => u.split(":").pop() ?? u;
 const tagRefs = (tags: string[]): EntityRef[] => tags.map((u) => ({ urn: u, name: shortName(u) }));
 
 // Lookup fixtures for the metadata pickers (#785): name-searchable tags/terms/domains.
+// The tag list is also the Tags governance surface's read (#1156), so it is
+// mutable: a create appends and a delete removes.
 const mockTags: EntityRef[] = [
-  { urn: "urn:li:tag:certified", name: "certified" },
+  { urn: "urn:li:tag:certified", name: "certified", description: "Reviewed and approved by the data team." },
   { urn: "urn:li:tag:finance", name: "finance" },
-  { urn: "urn:li:tag:pii", name: "pii" },
+  { urn: "urn:li:tag:pii", name: "pii", description: "Contains personally identifiable information." },
   { urn: "urn:li:tag:reviewed", name: "reviewed" },
 ];
 const mockGlossaryTerms: EntityRef[] = [
@@ -41,6 +43,34 @@ const mockDomains: EntityRef[] = [
 export function lookupTags(q: string): EntityRef[] {
   const needle = q.trim().toLowerCase();
   return mockTags.filter((t) => t.name.toLowerCase().includes(needle) || !needle);
+}
+
+// createTag appends a tag definition, mirroring the backend's 201 {urn} (#1156).
+// DataHub derives the URN from the name.
+export function createTag(name: string, description?: string): string {
+  const tagUrn = `urn:li:tag:${name}`;
+  if (!mockTags.some((t) => t.urn === tagUrn)) {
+    mockTags.push({ urn: tagUrn, name, description });
+  }
+  return tagUrn;
+}
+
+// deleteTag removes a tag definition. It reports whether the tag existed so the
+// handler can answer a delete of an unknown tag the way the backend would.
+export function deleteTag(tagUrn: string): boolean {
+  const i = mockTags.findIndex((t) => t.urn === tagUrn);
+  if (i < 0) return false;
+  mockTags.splice(i, 1);
+  return true;
+}
+
+// setTagDescription applies an entity-description edit aimed at a tag URN, which
+// is how the Tags surface edits a tag's description.
+export function setTagDescription(tagUrn: string, description: string): boolean {
+  const tag = mockTags.find((t) => t.urn === tagUrn);
+  if (!tag) return false;
+  tag.description = description;
+  return true;
 }
 
 export function lookupGlossaryTerms(q: string): EntityRef[] {
@@ -118,13 +148,22 @@ export function catalogBrowse(): TableSearchResult[] {
   return Object.values(catalog).map(searchResult);
 }
 
-export function catalogSearch(q: string): TableSearchResult[] {
+// catalogSearch narrows the catalog by free text and, when given, by the tag
+// URNs the caller filtered on. "*" is the match-all query the browse-style reads
+// send (the Tags surface sends it with a tag filter, where the filter and not
+// the text selects the rows).
+export function catalogSearch(q: string, tags: string[] = []): TableSearchResult[] {
   const needle = q.toLowerCase();
-  return catalogBrowse().filter(
-    (r) =>
-      r.name.toLowerCase().includes(needle) ||
-      (r.description ?? "").toLowerCase().includes(needle),
-  );
+  const matchesText = (r: TableSearchResult) =>
+    q === "*" ||
+    r.name.toLowerCase().includes(needle) ||
+    (r.description ?? "").toLowerCase().includes(needle);
+  const matchesTags = (r: TableSearchResult) => {
+    if (tags.length === 0) return true;
+    const carried = new Set((catalogEntity(r.urn)?.context?.tag_refs ?? []).map((t) => t.urn));
+    return tags.every((t) => carried.has(t));
+  };
+  return catalogBrowse().filter((r) => matchesText(r) && matchesTags(r));
 }
 
 export function catalogEntity(entityUrn: string): CatalogEntity | undefined {
@@ -144,6 +183,12 @@ export function applyCatalogChange(
     clear_domain?: boolean;
   },
 ): boolean {
+  // A description edit aimed at a tag URN is how the Tags surface documents a
+  // tag: the backend's entity-description route takes any entity URN, so the
+  // mock has to accept a non-dataset target too.
+  if (field === "description" && body.urn.startsWith("urn:li:tag:")) {
+    return setTagDescription(body.urn, body.description ?? "");
+  }
   const e = catalog[body.urn];
   if (!e || !e.context) return false;
   const ctx = e.context;
