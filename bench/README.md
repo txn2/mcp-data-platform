@@ -15,16 +15,16 @@ answers "how much" (throughput, latency, memory). This one answers "how well".
 Every artifact belongs to exactly one study. Run-family directories under
 [`results/`](results/) are never shared between them.
 
-| | Knowledge-layer effectiveness | Knowledge use | API-connection architecture |
-| --- | --- | --- | --- |
-| **Question** | Does a semantic knowledge layer make an agent measurably more correct? | When an agent is handed stored knowledge, does it use it? | Does connection architecture change an agent's accuracy over a large API? |
-| **Published report** | [`benchmark-report.md`](../docs/reference/benchmark-report.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report/)) | [`benchmark-report-knowledge-use.md`](../docs/reference/benchmark-report-knowledge-use.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-use/)) | none |
-| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept) | [10.5281/zenodo.21614059](https://doi.org/10.5281/zenodo.21614059) | none |
-| **Protocol** | [`docs/knowledge-layer-protocol.md`](docs/knowledge-layer-protocol.md) | [`docs/knowledge-use-protocol.md`](docs/knowledge-use-protocol.md) | [`docs/api-connection-study-design.md`](docs/api-connection-study-design.md) |
-| **Pre-registration** | issues #930, #942-#945 | [`docs/perishable-knowledge-study-design.md`](docs/perishable-knowledge-study-design.md), [fixture](docs/perishable-knowledge-fixture.md), [estimator audit](docs/perishable-knowledge-estimator-audit.md) | the protocol above |
-| **Toolchain** | [`reports/knowledge-layer/`](reports/knowledge-layer/) — `make bench-report-knowledge-layer-pdf` | [`reports/knowledge-use/`](reports/knowledge-use/) — `make bench-report-knowledge-use-pdf` | none |
-| **Run data** | top-level families under [`results/`](results/) | [`results/knowledge-use/`](results/knowledge-use/) | [`results/api-study-pilot/`](results/api-study-pilot/) |
-| **Status** | published, report version 2.0 | published, report version 1.0, pinned to v1.116.0 | closed not planned; postmortem on #1027 |
+| | Knowledge-layer effectiveness | Knowledge use | Knowledge pollution | API-connection architecture |
+| --- | --- | --- | --- | --- |
+| **Question** | Does a semantic knowledge layer make an agent measurably more correct? | When an agent is handed stored knowledge, does it use it? | When a stored insight is wrong, do other identities adopt it over a co-present correct source? | Does connection architecture change an agent's accuracy over a large API? |
+| **Published report** | [`benchmark-report.md`](../docs/reference/benchmark-report.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report/)) | [`benchmark-report-knowledge-use.md`](../docs/reference/benchmark-report-knowledge-use.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-use/)) | none yet | none |
+| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept) | [10.5281/zenodo.21614059](https://doi.org/10.5281/zenodo.21614059) | not yet minted | none |
+| **Protocol** | [`docs/knowledge-layer-protocol.md`](docs/knowledge-layer-protocol.md) | [`docs/knowledge-use-protocol.md`](docs/knowledge-use-protocol.md) | pending (#1166) | [`docs/api-connection-study-design.md`](docs/api-connection-study-design.md) |
+| **Pre-registration** | issues #930, #942-#945 | [`docs/perishable-knowledge-study-design.md`](docs/perishable-knowledge-study-design.md), [fixture](docs/perishable-knowledge-fixture.md), [estimator audit](docs/perishable-knowledge-estimator-audit.md) | issue #1163 (filed after its premise probe held) | the protocol above |
+| **Toolchain** | [`reports/knowledge-layer/`](reports/knowledge-layer/) — `make bench-report-knowledge-layer-pdf` | [`reports/knowledge-use/`](reports/knowledge-use/) — `make bench-report-knowledge-use-pdf` | pending (#1168) | none |
+| **Run data** | top-level families under [`results/`](results/) | [`results/knowledge-use/`](results/knowledge-use/) | [`results/knowledge-pollution/`](results/knowledge-pollution/) | [`results/api-study-pilot/`](results/api-study-pilot/) |
+| **Status** | published, report version 2.0 | published, report version 1.0, pinned to v1.116.0 | in progress: premise probe held, harness merged (#1163) | closed not planned; postmortem on #1027 |
 
 Negative results and evidence-backed platform decisions are indexed in
 [`docs/findings-register.md`](docs/findings-register.md) — a retired study
@@ -133,6 +133,26 @@ gate itself is a platform config: `bench/config/platform.bench.pk-gateoff.yaml`
 is the pk arm's single-deviation copy with `workflow.require_search: false`,
 selected with `make bench-pk-up BENCH_PK_CONFIG=bench/config/platform.bench.pk-gateoff.yaml`.
 
+**Knowledge pollution** (protocol pending, #1166) — the `a3` arm on a
+disposable database. The evaluation arms are ordinary `benchrun` runs over the
+committed S3 tasks; what differs between them is the stack, which
+`bench/pollutionplant` changes:
+
+```bash
+cd bench && go run ./pollutionplant -mode table            # the attribution table, computed from the fixtures
+cd bench && go run ./pollutionplant -mode check            # matrix vs the committed graders
+cd bench && go run ./pollutionplant -mode plant \
+  -treatment fiscal-boundary-wrong -url http://localhost:8098 > planted.json
+cd bench && go run ./pollutionplant -mode remediate \
+  -treatment fiscal-boundary-wrong -remediation rollback -planted planted.json
+```
+
+A plant is not complete until a second identity has been shown to reach the
+claim, and a remediation is not complete until the claim's status and its
+reachability have been read back; both refuse rather than report a state they
+could not verify. Planting writes to the stack, so run it against a database a
+measured run will not reuse without a reset.
+
 Every run writes into its own timestamped directory under
 `build/bench-results/`, and the runners refuse an output path that already
 exists, so a re-run can never overwrite paid-for results.
@@ -189,6 +209,7 @@ bench/
 ├── epmcp/               per-endpoint MCP server used by the #1027 b0 arm
 ├── pkcorpus/            capture-corpus runner CLI (knowledge use, stage 1)
 ├── pkrun/               cell runner CLI (knowledge use)
+├── pollutionplant/      plant / remediate / attribution-table CLI (knowledge pollution)
 ├── config/              arm profiles (a0/a1/a2/a3 and the pk profile)
 ├── seed/                generated seed artifacts (committed; bench-gen)
 ├── specs/               generated fixture OpenAPI specs + world/fixture data (committed; bench-api-gen)
@@ -210,6 +231,7 @@ bench/
     ├── pkplant/         plants a delivered belief as the identity that will be asked
     ├── pkcell/          cells, derived correct behavior, ground truths, deterministic grading
     ├── pkrun/           cell runner: plant, move the world, ask, grade
+    ├── pollutionplant/  knowledge pollution: treatments, cells, plant, remediation drivers
     ├── task/            task schema, loader, task-set hash
     ├── protocol/        S5 lifecycle protocol schema, loader, protocol-set hash
     ├── curriculum/      cold-start curriculum schema, loader, curriculum-set hash

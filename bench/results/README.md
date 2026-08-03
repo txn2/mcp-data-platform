@@ -41,6 +41,14 @@ Protocol: [`docs/knowledge-use-protocol.md`](../docs/knowledge-use-protocol.md).
 All seven families are under [`knowledge-use/`](knowledge-use/), indexed by
 [`knowledge-use/README.md`](knowledge-use/README.md).
 
+## Knowledge pollution (in progress)
+
+Epic: issue #1163. No report and no DOI yet; the protocol is pre-registered
+separately and the confirmatory runs have not been executed.
+
+All families are under [`knowledge-pollution/`](knowledge-pollution/), indexed
+by [`knowledge-pollution/README.md`](knowledge-pollution/README.md).
+
 ## Search-first gate probe (closed)
 
 Summary: [`pk-gateprobe/pk-gateprobe-SUMMARY.md`](pk-gateprobe/pk-gateprobe-SUMMARY.md).

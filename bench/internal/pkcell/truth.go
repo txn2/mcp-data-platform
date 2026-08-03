@@ -72,9 +72,19 @@ func trendTotal(f *apigen.Fixture, w apigen.World, field func(apigen.TrendPoint)
 // shared with the delivered belief text, so the convention the agent
 // reads and the answer the grader expects cannot disagree.
 func positiveCoverageDays(f *apigen.Fixture) int64 {
+	return PositiveCoverageDaysAt(f, pkseed.PositiveCoverageThreshold)
+}
+
+// PositiveCoverageDaysAt counts the Brand mentions monitor's days at or
+// above an arbitrary threshold. The threshold is a parameter for the
+// knowledge-pollution study, which plants a WRONG one and needs the day
+// count it implies computed from the same fixture the correct count is —
+// a second implementation of the count could drift and would silently
+// mislabel which threshold an answer came from.
+func PositiveCoverageDaysAt(f *apigen.Fixture, threshold int64) int64 {
 	var days int64
 	for _, p := range f.Trend[f.Monitors[0].ID] {
-		if p.SentimentScore >= pkseed.PositiveCoverageThreshold {
+		if p.SentimentScore >= threshold {
 			days++
 		}
 	}
