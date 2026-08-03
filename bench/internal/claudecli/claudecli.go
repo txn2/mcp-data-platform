@@ -290,6 +290,7 @@ func (r *Runner) buildArgs(cfgPath, system string) []string {
 		"--mcp-config", cfgPath,
 		"--strict-mcp-config",
 		"--permission-mode", r.opts.PermissionMode,
+		"--settings", silentNotifications,
 		"--allowedTools", serverToolPrefix(r.opts.ServerName),
 	}
 	if len(r.opts.DisallowedTools) > 0 {
@@ -301,6 +302,21 @@ func (r *Runner) buildArgs(cfgPath, system string) []string {
 	args = append(args, r.opts.ExtraArgs...)
 	return args
 }
+
+// silentNotifications is a --settings overlay every child runs under: a
+// headless benchmark process must not notify the operator.
+//
+// Without it each child inherits the operator's own notification preference
+// and announces itself, and the notification is NOT bound to the controlling
+// terminal — detaching the run from its TTY does not stop it. A run is
+// hundreds of episodes and each episode makes several tool calls, so the
+// operator gets a notification every few seconds for hours. The key and value
+// are Claude Code's own (`preferredNotifChannel`, `notifications_disabled`).
+//
+// It is passed per child rather than set in the operator's settings so the
+// benchmark silences itself without silencing the notifications they asked
+// for.
+const silentNotifications = `{"preferredNotifChannel":"notifications_disabled"}`
 
 // codeModeAllowedTools are Claude Code's built-in tools the b2 arm grants:
 // code execution plus workspace file tools, nothing else.
@@ -332,6 +348,7 @@ func (r *Runner) buildCodeModeArgs(system string) []string {
 		"--model", r.opts.Model,
 		"--strict-mcp-config",
 		"--permission-mode", r.opts.PermissionMode,
+		"--settings", silentNotifications,
 		"--allowedTools", strings.Join(codeModeAllowedTools, ","),
 		"--disallowedTools", strings.Join(codeModeDisallowedTools, ","),
 	}
