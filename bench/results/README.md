@@ -43,8 +43,9 @@ All seven families are under [`knowledge-use/`](knowledge-use/), indexed by
 
 ## Knowledge pollution (in progress)
 
-Epic: issue #1163. No report and no DOI yet; the protocol is pre-registered
-separately and the confirmatory runs have not been executed.
+Epic: issue #1163. No report and no DOI yet. The protocol is pre-registered in
+[`docs/knowledge-pollution-study-design.md`](../docs/knowledge-pollution-study-design.md)
+and the confirmatory runs have not been executed.
 
 All families are under [`knowledge-pollution/`](knowledge-pollution/), indexed
 by [`knowledge-pollution/README.md`](knowledge-pollution/README.md).
