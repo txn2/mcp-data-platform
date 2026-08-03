@@ -62,6 +62,13 @@ type fakePlatform struct {
 	// pages is what the page-sink read-back sees.
 	pages    []lifecycleapi.KnowledgePage
 	pagesErr error
+	// changesets is what the store snapshot's changeset read sees.
+	changesets    []lifecycleapi.Changeset
+	changesetsErr error
+	// createPageErr fails the seed create; createPageSummary overrides the
+	// summary the store reports back, for the seed's read-back check.
+	createPageErr     error
+	createPageSummary string
 	// searchBody and entityBody are what the read-back surfaces return;
 	// the refuse/err fields drive their failure paths.
 	searchBody    string
@@ -147,9 +154,40 @@ func (s *fakeSession) Close() error {
 	return nil
 }
 
-// ListInsights answers the store read-back.
+// ListInsights answers the store read-back. An empty filter lists every
+// identity's insights, as the admin API does: the store snapshot reads
+// unfiltered, and a fake that returned nothing for it would report an empty
+// store as a clean one.
 func (f *fakePlatform) ListInsights(_ context.Context, filter lifecycleapi.InsightFilter) ([]lifecycleapi.Insight, error) {
-	return f.stored[filter.CapturedBy], nil
+	if filter.CapturedBy != "" {
+		return f.stored[filter.CapturedBy], nil
+	}
+	var all []lifecycleapi.Insight
+	for _, in := range f.stored {
+		all = append(all, in...)
+	}
+	return all, nil
+}
+
+// CreateKnowledgePage answers the correct-source seed, storing the page so a
+// later list read sees it, as the real portal API does.
+func (f *fakePlatform) CreateKnowledgePage(_ context.Context, page lifecycleapi.NewKnowledgePage) (*lifecycleapi.KnowledgePage, error) {
+	if f.createPageErr != nil {
+		return nil, f.createPageErr
+	}
+	created := lifecycleapi.KnowledgePage{
+		ID: "page-" + page.Slug, Slug: page.Slug, Title: page.Title, Summary: page.Summary,
+	}
+	if f.createPageSummary != "" {
+		created.Summary = f.createPageSummary
+	}
+	f.pages = append(f.pages, created)
+	return &created, nil
+}
+
+// ListChangesets answers the store snapshot's changeset read.
+func (f *fakePlatform) ListChangesets(context.Context, lifecycleapi.ChangesetFilter) ([]lifecycleapi.Changeset, error) {
+	return f.changesets, f.changesetsErr
 }
 
 // ListKnowledgePages answers the page-sink read-back.

@@ -120,11 +120,14 @@ func Run(ctx context.Context, opts Options) (*report.Results, error) {
 		Arm:           opts.Arm,
 		LLMProvider:   opts.LLMProvider,
 		ClientVersion: opts.ClientVersion,
-		Seed:          gen.Seed,
-		TaskSetHash:   task.Hash(tasks),
-		Tier:          opts.Tier,
-		K:             opts.K,
-		Suite:         opts.Suite,
+		// Read off the runner rather than from an option, so the manifest
+		// cannot claim a tool surface the client was not invoked with.
+		DisallowedTools: claudecli.EffectiveDisallowedTools(opts.ClaudeCLI),
+		Seed:            gen.Seed,
+		TaskSetHash:     task.Hash(tasks),
+		Tier:            opts.Tier,
+		K:               opts.K,
+		Suite:           opts.Suite,
 	}}
 	if err := validateRun(opts, len(tasks)); err != nil {
 		return nil, err

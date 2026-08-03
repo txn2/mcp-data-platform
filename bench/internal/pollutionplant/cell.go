@@ -400,6 +400,12 @@ func checkCellAgainstFixture(c Cell, tasks map[string]task.Task) error {
 // apply the convention to.
 const coverageWorld = "monitors-3"
 
+// CoverageWorld is the world the cross-fixture arm runs in. The runner needs
+// it to build the arm's cell, and it must be the world the discriminants were
+// computed against or the cell would grade an answer from one world against
+// values from another.
+func CoverageWorld() string { return coverageWorld }
+
 // checkCoverageAgainstQuestion checks the API cell's correct value against
 // the perishable-knowledge study's ground truth for the same question.
 func checkCoverageAgainstQuestion(c Cell, want float64) error {

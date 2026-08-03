@@ -80,7 +80,9 @@ type dialer func(ctx context.Context, seq int) (session, error)
 type platformReader interface {
 	ListInsights(ctx context.Context, f lifecycleapi.InsightFilter) ([]lifecycleapi.Insight, error)
 	GetInsight(ctx context.Context, id string) (*lifecycleapi.Insight, error)
+	ListChangesets(ctx context.Context, f lifecycleapi.ChangesetFilter) ([]lifecycleapi.Changeset, error)
 	ListKnowledgePages(ctx context.Context) ([]lifecycleapi.KnowledgePage, error)
+	CreateKnowledgePage(ctx context.Context, page lifecycleapi.NewKnowledgePage) (*lifecycleapi.KnowledgePage, error)
 }
 
 // applier approves a captured insight and applies it to the treatment's
@@ -432,6 +434,13 @@ func applyLive(ctx context.Context, dial dialer, insights *lifecycleapi.Client,
 		Sink:      tr.Sink,
 		Fact:      tr.Text,
 		Page:      tr.Page,
-		Notes:     "knowledge-pollution study plant: " + tr.ID,
+		// The API fixture seeds a correct source stating the same convention
+		// (seed.go), so a planted page is a near-duplicate of it by
+		// construction and the create-time gate would block the promotion.
+		// The study wants both pages: their co-presence is the conflict the
+		// arm measures, and force_new is the affordance the gate itself
+		// names for exactly this.
+		ForceNewPage: true,
+		Notes:        "knowledge-pollution study plant: " + tr.ID,
 	}, insightID)
 }

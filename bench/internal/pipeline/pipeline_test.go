@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -289,8 +290,13 @@ func TestClaudeCLIAttempt(t *testing.T) {
 	tasksDir := t.TempDir()
 	writeTaskFiles(t, tasksDir) // t-numeric (s3) + t-entity (s1)
 
+	disallowed, err := claudecli.DisallowTools("ToolSearch")
+	if err != nil {
+		t.Fatalf("DisallowTools: %v", err)
+	}
 	runner, err := claudecli.New(claudecli.Options{
-		Model: "claude-sonnet-5",
+		Model:           "claude-sonnet-5",
+		DisallowedTools: disallowed,
 		Exec: func(context.Context, claudecli.CommandSpec) ([]byte, []byte, error) {
 			return []byte(claudeNumericStream), nil, nil
 		},
@@ -318,6 +324,17 @@ func TestClaudeCLIAttempt(t *testing.T) {
 	}
 	if res.Manifest.ClientVersion != "2.1.208 (Claude Code)" {
 		t.Errorf("ClientVersion = %q", res.Manifest.ClientVersion)
+	}
+	// The archive has to say what tool surface the arm ran under, and it must
+	// come off the runner: an arm whose transcript shows a tool the manifest
+	// claims was forbidden is a reproducibility failure the archive must be
+	// able to expose.
+	if !slices.Equal(res.Manifest.DisallowedTools, runner.DisallowedTools()) {
+		t.Errorf("DisallowedTools = %v, want the runner's effective list %v",
+			res.Manifest.DisallowedTools, runner.DisallowedTools())
+	}
+	if !slices.Contains(res.Manifest.DisallowedTools, "ToolSearch") {
+		t.Errorf("the arm's added tool is missing from the manifest: %v", res.Manifest.DisallowedTools)
 	}
 	if res.Manifest.Model != "claude-sonnet-5" {
 		t.Errorf("Model = %q", res.Manifest.Model)

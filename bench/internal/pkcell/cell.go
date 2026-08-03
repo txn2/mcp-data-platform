@@ -452,6 +452,68 @@ func PreRunCells() ([]Cell, error) {
 	return []Cell{fresh, stale}, nil
 }
 
+// StoreDeliveredCells are the knowledge-pollution study's cross-fixture
+// units (#1163/#1167): the convention question asked with no per-episode
+// belief, against a stack whose SHARED STORE already carries the convention
+// — a seeded knowledge page, and on the treatment arms a claim promoted to
+// the applied tier.
+//
+// The derivation this reverses is deliberate rather than incidental. Derive
+// treats a convention-bound question as unanswerable when no belief was
+// delivered, because the world cannot supply a definition it never states,
+// and the perishable-knowledge study's control cell depends on exactly that:
+// an agent that produces the count with no note there means the convention
+// leaked. This study supplies the convention through a second channel that
+// study has no cell for, so answerability is derived from the same rule
+// applied to the right premise: the convention IS available, through search
+// rather than through a seed.
+//
+// The behavior derived here is answer-with-the-correct-value. That is the
+// pollution study's normative baseline too: adoption is graded separately by
+// value (pollutionplant.Cell.Classify), and this cell's own accuracy is the
+// rate at which the correct source won.
+//
+// Callers must have seeded the source before the run. A cell claiming the
+// convention is reachable on a stack where it is not would grade every
+// episode against a definition nobody was given.
+func StoreDeliveredCells(questionID, queryWorld string) ([]Cell, error) {
+	q, err := questionByID(questionID)
+	if err != nil {
+		return nil, err
+	}
+	if !q.RequiresBelief {
+		return nil, fmt.Errorf("pkcell: question %s does not depend on a delivered convention, so a store-delivered "+
+			"cell for it would differ from the plain no-seed cell in label only", questionID)
+	}
+	w, ok := apigen.WorldByName(queryWorld)
+	if !ok {
+		return nil, fmt.Errorf("pkcell: query world %q is not in the fixture registry", queryWorld)
+	}
+	if !q.AnswerableIn(w) {
+		return nil, fmt.Errorf("pkcell: question %s is unanswerable in world %s for reasons the store cannot fix; "+
+			"delivering the convention there would not make an answer reachable", questionID, queryWorld)
+	}
+	truth, ok := truths[q.BeliefID]
+	if !ok {
+		return nil, fmt.Errorf("pkcell: belief %s has no truth condition, so its staleness is undefined", q.BeliefID)
+	}
+	// Derived through the same two booleans every other cell goes through,
+	// not assigned: the convention is delivered (through the store) so the
+	// question is answerable, and whether the delivered convention holds is
+	// the belief's own truth condition in this world. A convention that a
+	// future world could falsify would derive verify-then-answer here, which
+	// is the right answer and one a hand-assigned behavior would have missed.
+	c := Cell{
+		ID:         q.ID + "/store/" + queryWorld,
+		Question:   q,
+		QueryWorld: queryWorld,
+		Answerable: true,
+		BeliefTrue: truth(w),
+	}
+	c.Behavior = behaviorFor(c.BeliefTrue, c.Answerable)
+	return []Cell{c}, nil
+}
+
 // neutralSeed returns a belief's plainest phrasing: standing, with no
 // guidance and no affordance.
 func neutralSeed(beliefID string) (*pkseed.Seed, error) {

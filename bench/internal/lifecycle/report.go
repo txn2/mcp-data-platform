@@ -44,11 +44,15 @@ type Manifest struct {
 	// ClientVersion records the external client path (claude-cli: the
 	// `claude --version` string), empty for in-process adapters. See the S1-S3
 	// report.Manifest for the comparability rationale.
-	ClientVersion   string `json:"client_version,omitempty"`
-	Model           string `json:"model"`
-	Seed            int64  `json:"seed"`
-	ProtocolSetHash string `json:"protocol_set_hash"`
-	K               int    `json:"k"`
+	ClientVersion string `json:"client_version,omitempty"`
+	// DisallowedTools is the client tool surface the run forbade, as the
+	// client was actually invoked. Empty for in-process adapters. See the
+	// S1-S3 report.Manifest for why the surface belongs on the archive.
+	DisallowedTools []string `json:"disallowed_tools,omitempty"`
+	Model           string   `json:"model"`
+	Seed            int64    `json:"seed"`
+	ProtocolSetHash string   `json:"protocol_set_hash"`
+	K               int      `json:"k"`
 }
 
 // EpisodeRecord captures one episode's execution for the transcript and audit

@@ -468,3 +468,27 @@ func TestSummarizeLifecycleRederivesMetrics(t *testing.T) {
 		t.Errorf("supersede summary did not re-derive the capture decomposition:\n%s", out)
 	}
 }
+
+// TestBuildClaudeRunnerRejectsBadDisallowList proves a malformed -disallow-tools
+// value stops the run instead of quietly forbidding one nonexistent tool: an arm
+// whose tool surface is not the one that was asked for produces episodes that
+// cannot be compared with the rest of the matrix.
+func TestBuildClaudeRunnerRejectsBadDisallowList(t *testing.T) {
+	if _, _, err := buildClaudeRunner(config{model: "sonnet", disallowTools: "ToolSearch ReadMcpResourceTool"}); err == nil {
+		t.Error("a space-separated disallow list was accepted")
+	}
+}
+
+// TestBuildClaudeRunnerRejectsDisallowInCodeMode proves the combination is
+// refused rather than silently dropped: code mode passes its own tool lists, so
+// an operator list would have no effect and the manifest would say otherwise.
+func TestBuildClaudeRunnerRejectsDisallowInCodeMode(t *testing.T) {
+	cfg := config{model: "sonnet", arm: "b2", disallowTools: "ToolSearch", codeSpec: "spec.json", fixtureURL: "http://f"}
+	_, _, err := buildClaudeRunner(cfg)
+	if err == nil {
+		t.Fatal("-disallow-tools with -arm b2 was accepted")
+	}
+	if !strings.Contains(err.Error(), "code mode") {
+		t.Errorf("error does not explain the refusal: %v", err)
+	}
+}

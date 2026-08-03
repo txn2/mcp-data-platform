@@ -474,3 +474,44 @@ func TestReviewerVerifyRolledBackFails(t *testing.T) {
 		t.Error("a rolled-back changeset must not count as promoted")
 	}
 }
+
+// force_new is off unless a fixture asks for it: a suite that promotes one
+// fact per slug wants the duplicate gate, and a blocked promotion there is a
+// real finding rather than something to route around.
+func TestBuildApplyArgsOmitsForceNewByDefault(t *testing.T) {
+	args := BuildApplyArgs(Target{
+		Sink: protocol.SinkKnowledgePage,
+		Page: &protocol.PagePayload{Slug: "s", Title: "T", Summary: "S", Body: "B"},
+	}, "ins-3")
+	page, ok := args["page"].(map[string]any)
+	if !ok {
+		t.Fatalf("page payload wrong: %+v", args["page"])
+	}
+	if _, present := page["force_new"]; present {
+		t.Errorf("force_new was sent without being asked for: %+v", page)
+	}
+}
+
+// The pollution fixture deliberately wants two pages stating incompatible
+// versions of one convention, so the plant carries the affordance the gate
+// itself names.
+func TestBuildApplyArgsSendsForceNewWhenAsked(t *testing.T) {
+	args := BuildApplyArgs(Target{
+		Sink: protocol.SinkKnowledgePage, ForceNewPage: true,
+		Page: &protocol.PagePayload{Slug: "s", Title: "T", Summary: "S", Body: "B"},
+	}, "ins-4")
+	page, ok := args["page"].(map[string]any)
+	if !ok || page["force_new"] != true {
+		t.Fatalf("force_new not sent: %+v", args["page"])
+	}
+}
+
+// force_new is a page-sink concept; a datahub apply must not grow one.
+func TestBuildApplyArgsIgnoresForceNewOnTheDataHubSink(t *testing.T) {
+	args := BuildApplyArgs(Target{
+		Sink: protocol.SinkDataHub, EntityURN: "urn:x", Fact: "f", ForceNewPage: true,
+	}, "ins-5")
+	if _, present := args["page"]; present {
+		t.Errorf("datahub apply carried a page payload: %+v", args)
+	}
+}

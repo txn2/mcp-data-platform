@@ -204,6 +204,55 @@ func (c *Client) ListKnowledgePages(ctx context.Context) ([]KnowledgePage, error
 	}
 }
 
+// NewKnowledgePage is a page to create through the portal REST API: a
+// curated artifact written directly by an operator, with no capture and no
+// insight behind it. Fixture pages are seeded this way on purpose — a page
+// promoted through capture-and-apply would carry capture provenance, and a
+// study contrasting curated sources with agent-captured claims cannot seed
+// its curated source through the agent path.
+type NewKnowledgePage struct {
+	Slug    string   `json:"slug,omitempty"`
+	Title   string   `json:"title"`
+	Summary string   `json:"summary,omitempty"`
+	Body    string   `json:"body,omitempty"`
+	Tags    []string `json:"tags,omitempty"`
+	// ForceNew overrides the create-time near-duplicate gate. A seeded page
+	// that states the same convention as another page is a near-duplicate by
+	// construction, and blocking it is the gate working as designed; the
+	// fixture wants both pages present anyway.
+	ForceNew bool `json:"force_new,omitempty"`
+}
+
+// CreateKnowledgePage creates a portal knowledge page and returns it as
+// stored. A slug that already names a live page is a 409, surfaced as an
+// error rather than silently updating it: a seed that quietly overwrote a
+// page would change a fixture the run believes it is holding constant.
+func (c *Client) CreateKnowledgePage(ctx context.Context, page NewKnowledgePage) (*KnowledgePage, error) {
+	body, err := json.Marshal(page)
+	if err != nil {
+		return nil, fmt.Errorf("marshal knowledge page: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/v1/portal/knowledge-pages", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("build create-page request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("create-page request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("create knowledge page %q: status %d: %.300s", page.Slug, resp.StatusCode, string(raw))
+	}
+	var created KnowledgePage
+	if err := json.Unmarshal(raw, &created); err != nil {
+		return nil, fmt.Errorf("parse created knowledge page: %w", err)
+	}
+	return &created, nil
+}
+
 // GetChangeset returns one changeset by ID.
 func (c *Client) GetChangeset(ctx context.Context, id string) (*Changeset, error) {
 	var cs Changeset

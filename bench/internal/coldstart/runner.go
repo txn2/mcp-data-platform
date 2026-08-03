@@ -116,6 +116,7 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 	res.Manifest.PlatformVersion = env.platformVersion
 	res.Manifest.Model = env.model
 	res.Manifest.ClientVersion = opts.ClientVersion
+	res.Manifest.DisallowedTools = claudecli.EffectiveDisallowedTools(opts.ClaudeCLI)
 	res.Aggregate()
 	if failures > 0 {
 		return res, fmt.Errorf("%d cold-start episode(s) failed at the harness level; see lessons[].error and checkpoints[].attempts[].error", failures)
