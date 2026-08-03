@@ -250,8 +250,17 @@ fi
 # system bash on macOS) treats an empty array's expansion as an unbound
 # variable and aborts, which would kill the sensitivity cell — the one cell
 # that runs with no added disallow list — before it ran an episode.
+# The audit read-back window. The 15s default is tuned for the a* suites on a
+# quiet machine; here the DataHub quickstart competes for the same host and the
+# faster tiers finish an episode sooner, so an asynchronous audit write can land
+# after the default gives up and a good episode fails as a harness error. The
+# invariant is unchanged -- an episode whose rows never arrive still fails, and
+# 23 of 24 episodes on the arm that hit this had every call audited -- this only
+# stops a slow write being read as a lost one. Tier-independent, so it cannot
+# interact with anything the study measures.
 build/benchrun \
 	-url "$BENCH_URL" -credential "$BENCH_KEY" \
+	-audit-timeout 60s \
 	-arm a3 -suite s3 -tasks "$TASKS_DIR" -k "$K" \
 	-llm claude-cli -model "$TIER" -identity-keys 320 \
 	-git-commit "$COMMIT" \
