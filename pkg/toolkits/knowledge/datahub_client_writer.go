@@ -934,6 +934,22 @@ func (w *DataHubClientWriter) CreateGlossaryNode(ctx context.Context, name, defi
 	return urn, nil
 }
 
+// CreateTag creates a tag definition and returns its URN (#1156). The URN is
+// DataHub's to assign, so it is read from the response rather than built here.
+//
+// Deliberately not on the DataHubWriter interface, for the reason recorded on
+// CreateGlossaryNode: the knowledge apply path assigns tags but never authors
+// them, and DataHubWriter is exported, so growing it would break every external
+// implementation for a method none of them needs. The portal tag editor holds
+// the concrete writer and calls this directly.
+func (w *DataHubClientWriter) CreateTag(ctx context.Context, name, description string) (string, error) {
+	urn, err := w.client.CreateTag(ctx, name, description)
+	if err != nil {
+		return "", fmt.Errorf("creating tag %s: %w", name, err)
+	}
+	return urn, nil
+}
+
 // DeleteTag removes a tag definition entirely (#726).
 func (w *DataHubClientWriter) DeleteTag(ctx context.Context, tagURN string) error {
 	if err := w.client.DeleteTag(ctx, tagURN); err != nil {

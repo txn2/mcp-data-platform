@@ -37,7 +37,9 @@ const (
 	errDataHubWriteForbidden = "this operation requires the matching datahub tool grant"
 	errDataHubReadForbidden  = "this connection requires datahub access on your persona"
 	errDataHubURNRequired    = "urn is required"
-	errGlossaryNameRequired  = "name is required"
+	// errNameRequired is the 400 for a create whose name is missing, shared by
+	// every named governance entity (glossary node, tag).
+	errNameRequired = "name is required"
 )
 
 // List/body bounds.
@@ -101,6 +103,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+base+"/{conn}/catalog/glossary/children", h.browseGlossaryChildren)
 	mux.HandleFunc("GET "+base+"/{conn}/catalog/glossary/parents", h.getGlossaryParents)
 	mux.HandleFunc("POST "+base+"/{conn}/catalog/glossary/nodes", h.createGlossaryNode)
+	// Tag governance (#1156). The list read is GET .../catalog/lookup/tags and the
+	// description edit is PUT .../catalog/entity/description; see tags.go.
+	mux.HandleFunc("POST "+base+"/{conn}/catalog/tags", h.createTag)
+	mux.HandleFunc("DELETE "+base+"/{conn}/catalog/tags", h.deleteTag)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/description", h.updateCatalogDescription)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/tags", h.updateCatalogTags)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/owners", h.updateCatalogOwners)
@@ -448,7 +454,7 @@ func (h *Handler) browseGlossaryChildren(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	urn, ok := requireGlossaryURN(w, r, glossaryNodeURNTypes)
+	urn, ok := requireURNParam(w, r, glossaryNodeURNTypes)
 	if !ok {
 		return
 	}
@@ -481,7 +487,7 @@ func (h *Handler) getGlossaryParents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	urn, ok := requireGlossaryURN(w, r, glossaryEntityURNTypes)
+	urn, ok := requireURNParam(w, r, glossaryEntityURNTypes)
 	if !ok {
 		return
 	}
@@ -527,7 +533,7 @@ func (h *Handler) createGlossaryNode(w http.ResponseWriter, r *http.Request) {
 	req.Definition = strings.TrimSpace(req.Definition)
 	req.ParentNode = strings.TrimSpace(req.ParentNode)
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, errGlossaryNameRequired)
+		writeError(w, http.StatusBadRequest, errNameRequired)
 		return
 	}
 	// A malformed parent is a client error: reject it here rather than forwarding
@@ -550,11 +556,11 @@ func (h *Handler) createGlossaryNode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"urn": urn})
 }
 
-// requireGlossaryURN reads and validates the urn query parameter, writing the 400
+// requireURNParam reads and validates the urn query parameter, writing the 400
 // and returning ok=false when it is missing or not one of allowedTypes. Rejecting
-// a non-glossary URN here keeps a dataset URN from reaching DataHub and coming
-// back as a 502.
-func requireGlossaryURN(w http.ResponseWriter, r *http.Request, allowedTypes []string) (string, bool) {
+// a URN of the wrong kind here keeps it from reaching DataHub and coming back as
+// a 502.
+func requireURNParam(w http.ResponseWriter, r *http.Request, allowedTypes []string) (string, bool) {
 	urn := strings.TrimSpace(r.URL.Query().Get("urn"))
 	if urn == "" {
 		writeError(w, http.StatusBadRequest, errDataHubURNRequired)
