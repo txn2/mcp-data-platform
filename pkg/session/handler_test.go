@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -352,7 +353,9 @@ func TestHandler_Delete(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	assert.True(t, inner.wasCalled(), "inner handler should be called for DELETE")
+	assert.Equal(t, http.StatusNoContent, w.Code, "successful termination reports 204")
+	assert.False(t, inner.wasCalled(),
+		"DELETE is answered by AwareHandler; the stateless inner handler rejects non-POST")
 
 	got, err := store.Get(ctx, "delete-me")
 	require.NoError(t, err)
@@ -367,7 +370,42 @@ func TestHandler_Delete_NoSessionID(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	assert.True(t, inner.wasCalled(), "DELETE without session ID should still forward to inner")
+	assert.Equal(t, http.StatusBadRequest, w.Code, "DELETE without a session ID is a bad request")
+	assert.False(t, inner.wasCalled(), "DELETE without session ID must not reach inner")
+}
+
+// TestHandler_Delete_RealStatelessSDK pins the DELETE contract against the
+// actual SDK handler AwareHandler is mounted over in database-session mode,
+// not a stub. go-sdk v1.7.0 made stateless servers POST-only (SEP-2575), so a
+// forwarded DELETE returns 405 with Allow: POST — this asserts the client
+// still sees 204 for a termination that did in fact remove the stored session.
+func TestHandler_Delete_RealStatelessSDK(t *testing.T) {
+	ctx := context.Background()
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "session-test", Version: "0.0.1"}, nil)
+	stateless := mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return mcpServer },
+		&mcp.StreamableHTTPOptions{Stateless: true},
+	)
+
+	store := NewMemoryStore(handlerTestTTL)
+	handler := NewAwareHandler(stateless, HandlerConfig{Store: store, TTL: handlerTestTTL})
+
+	sess := newTestSession("real-sdk-delete", handlerTestTTL)
+	sess.UserID = ""
+	require.NoError(t, store.Create(ctx, sess))
+
+	req := httptest.NewRequestWithContext(ctx, http.MethodDelete, handlerTestPath, http.NoBody)
+	req.Header.Set(sessionIDHeader, "real-sdk-delete")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.Empty(t, w.Header().Get("Allow"), "no 405 Allow header should leak through")
+
+	got, err := store.Get(ctx, "real-sdk-delete")
+	require.NoError(t, err)
+	assert.Nil(t, got, "session row is gone")
 }
 
 func TestSessionIDWriter_Flush(_ *testing.T) {
@@ -697,7 +735,9 @@ func TestHandler_ReviveSession_CreateError(t *testing.T) {
 
 // TestHandler_Delete_StoreError exercises the delete-failure branch: a
 // store Delete error is logged (session ID sanitized via logsan) but is
-// non-fatal, so the DELETE still forwards to the inner handler.
+// non-fatal, so the client still sees 204. Termination is best effort — the
+// row expires at TTL regardless — and this is the status the request received
+// before the handler stopped forwarding to the SDK.
 func TestHandler_Delete_StoreError(t *testing.T) {
 	es := &errStore{
 		MemoryStore: NewMemoryStore(handlerTestTTL),
@@ -712,7 +752,8 @@ func TestHandler_Delete_StoreError(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	assert.True(t, inner.wasCalled(), "DELETE should still forward to inner even when store delete fails")
+	assert.Equal(t, http.StatusNoContent, w.Code, "store failure is non-fatal for termination")
+	assert.False(t, inner.wasCalled(), "DELETE is never forwarded to the stateless inner handler")
 }
 
 // flushRecorder is httptest.ResponseRecorder + http.Flusher so the SSE

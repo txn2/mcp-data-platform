@@ -88,6 +88,11 @@ type HandlerConfig struct {
 // AwareHandler wraps an HTTP handler to manage MCP sessions against
 // an external Store. It is used when the SDK runs in stateless mode to
 // provide session persistence (e.g. for zero-downtime restarts).
+//
+// The wrapped handler must be a stateless SDK handler. AwareHandler owns the
+// session lifecycle end to end: it mints the ID, validates ownership, and
+// terminates on DELETE without consulting inner, so a stateful inner handler
+// would keep a session map this one never updates.
 type AwareHandler struct {
 	inner       http.Handler
 	store       Store
@@ -426,15 +431,23 @@ func writeSSEEvent(w http.ResponseWriter, ev Event) error {
 	return nil
 }
 
-// handleDelete removes the session and forwards the DELETE to the SDK.
+// handleDelete terminates the session: 204 once the row is gone, 400 when the
+// session-ID header is absent. A store failure is logged but not fatal, since
+// the row expires at TTL regardless.
+//
+// The request is answered here rather than forwarded, because a stateless SDK
+// handler serves POST only and rejects DELETE with 405 (go-sdk v1.7.0,
+// SEP-2575) — which would report failure for a termination that succeeded.
 func (h *AwareHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get(sessionIDHeader)
-	if sessionID != "" {
-		if err := h.store.Delete(r.Context(), sessionID); err != nil {
-			slog.Debug("session: delete failed", sessionIDKey, logsan.SanitizeForLog(sessionID), slogKeyError, err) // #nosec G706 -- sessionID sanitized via logsan.SanitizeForLog
-		}
+	if sessionID == "" {
+		http.Error(w, "Bad Request: DELETE requires an Mcp-Session-Id header", http.StatusBadRequest)
+		return
 	}
-	h.inner.ServeHTTP(w, r)
+	if err := h.store.Delete(r.Context(), sessionID); err != nil {
+		slog.Debug("session: delete failed", sessionIDKey, logsan.SanitizeForLog(sessionID), slogKeyError, err) // #nosec G706 -- sessionID sanitized via logsan.SanitizeForLog
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // reviveSession recreates an expired or missing session using the same ID.
