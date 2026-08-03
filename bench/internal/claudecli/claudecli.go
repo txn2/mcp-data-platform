@@ -290,6 +290,7 @@ func (r *Runner) buildArgs(cfgPath, system string) []string {
 		"--mcp-config", cfgPath,
 		"--strict-mcp-config",
 		"--permission-mode", r.opts.PermissionMode,
+		"--setting-sources", noSettingSources,
 		"--settings", silentNotifications,
 		"--allowedTools", serverToolPrefix(r.opts.ServerName),
 	}
@@ -302,6 +303,21 @@ func (r *Runner) buildArgs(cfgPath, system string) []string {
 	args = append(args, r.opts.ExtraArgs...)
 	return args
 }
+
+// noSettingSources stops a child loading the operator's settings files at all
+// (user, project, local). Two reasons, and the second is the more important:
+//
+// A hook the operator has configured -- on stop, on subagent stop -- fires
+// inside every child, because each headless `claude -p` is a session that
+// starts and stops. A benchmark run is hundreds of those, so an operator with
+// a completion hook gets it fired every few seconds for hours, and no
+// notification setting suppresses it because a hook is not a notification.
+//
+// Beyond that, a benchmark that silently inherits the operator's personal
+// configuration is not reproducible. Everything an episode needs is passed
+// explicitly -- model, MCP config, tool lists, permission mode, system prompt
+// -- so there is nothing in a settings file the run should be reading.
+const noSettingSources = ""
 
 // silentNotifications is a --settings overlay every child runs under: a
 // headless benchmark process must not notify the operator.
@@ -348,6 +364,7 @@ func (r *Runner) buildCodeModeArgs(system string) []string {
 		"--model", r.opts.Model,
 		"--strict-mcp-config",
 		"--permission-mode", r.opts.PermissionMode,
+		"--setting-sources", noSettingSources,
 		"--settings", silentNotifications,
 		"--allowedTools", strings.Join(codeModeAllowedTools, ","),
 		"--disallowedTools", strings.Join(codeModeDisallowedTools, ","),

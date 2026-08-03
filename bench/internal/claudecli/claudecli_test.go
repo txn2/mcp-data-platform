@@ -359,4 +359,14 @@ func assertSilenced(t *testing.T, args []string) {
 	if got["preferredNotifChannel"] != "notifications_disabled" {
 		t.Errorf("child notifications not disabled: %v", got)
 	}
+	// The operator's settings files must not load at all. A completion hook
+	// configured there fires on every child, which no notification setting
+	// suppresses, and an inherited setting makes the run unreproducible.
+	j := slices.Index(args, "--setting-sources")
+	if j < 0 || j == len(args)-1 {
+		t.Fatalf("no --setting-sources in child args: %v", args)
+	}
+	if args[j+1] != "" {
+		t.Errorf("child loads setting sources %q; want none", args[j+1])
+	}
 }
