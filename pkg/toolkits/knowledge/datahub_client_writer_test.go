@@ -1450,6 +1450,83 @@ func TestDataHubClientWriter_CreateCuratedQuery(t *testing.T) {
 	assert.Equal(t, "urn:li:query:abc123", urn)
 }
 
+// TestDataHubClientWriter_CreateGlossaryNode proves the create reaches DataHub
+// with the node's name, definition, and parent, and returns the new URN (#1155).
+func TestDataHubClientWriter_CreateGlossaryNode(t *testing.T) {
+	var gotInput map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables struct {
+				Input map[string]any `json:"input"`
+			} `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		gotInput = req.Variables.Input
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"createGlossaryNode": "urn:li:glossaryNode:finance"}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateGlossaryNode(context.Background(), "Finance", "Money terms", "urn:li:glossaryNode:corp")
+
+	require.NoError(t, err)
+	assert.Equal(t, "urn:li:glossaryNode:finance", urn)
+	assert.Equal(t, "Finance", gotInput["name"])
+	assert.Equal(t, "Money terms", gotInput["description"])
+	assert.Equal(t, "urn:li:glossaryNode:corp", gotInput["parentNode"])
+}
+
+// TestDataHubClientWriter_CreateGlossaryNode_Root confirms an empty parent
+// creates the node at the root: no parentNode is sent at all, rather than an
+// empty string DataHub would reject.
+func TestDataHubClientWriter_CreateGlossaryNode_Root(t *testing.T) {
+	var gotInput map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables struct {
+				Input map[string]any `json:"input"`
+			} `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		gotInput = req.Variables.Input
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"createGlossaryNode": "urn:li:glossaryNode:root-level"}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateGlossaryNode(context.Background(), "Root Level", "", "")
+
+	require.NoError(t, err)
+	assert.Equal(t, "urn:li:glossaryNode:root-level", urn)
+	_, hasParent := gotInput["parentNode"]
+	assert.False(t, hasParent, "parentNode must be omitted for a root node")
+}
+
+// TestDataHubClientWriter_CreateGlossaryNode_Error confirms a backend refusal
+// surfaces as an error naming the operation, not an empty URN and nil error.
+func TestDataHubClientWriter_CreateGlossaryNode_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Errors: []any{map[string]any{"message": "permission denied"}},
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateGlossaryNode(context.Background(), "Finance", "", "")
+
+	assert.Error(t, err)
+	assert.Empty(t, urn)
+	assert.Contains(t, err.Error(), "creating glossary node Finance")
+}
+
 func TestDataHubClientWriter_CreateCuratedQuery_Error(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

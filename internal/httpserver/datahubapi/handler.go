@@ -2,6 +2,7 @@ package datahubapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -9,6 +10,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	dhclient "github.com/txn2/mcp-datahub/pkg/client"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -33,6 +37,7 @@ const (
 	errDataHubWriteForbidden = "this operation requires the matching datahub tool grant"
 	errDataHubReadForbidden  = "this connection requires datahub access on your persona"
 	errDataHubURNRequired    = "urn is required"
+	errGlossaryNameRequired  = "name is required"
 )
 
 // List/body bounds.
@@ -92,6 +97,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+base+"/{conn}/catalog/lookup/tags", h.lookupTags)
 	mux.HandleFunc("GET "+base+"/{conn}/catalog/lookup/glossary-terms", h.lookupGlossaryTerms)
 	mux.HandleFunc("GET "+base+"/{conn}/catalog/lookup/domains", h.lookupDomains)
+	mux.HandleFunc("GET "+base+"/{conn}/catalog/glossary/roots", h.browseGlossaryRoots)
+	mux.HandleFunc("GET "+base+"/{conn}/catalog/glossary/children", h.browseGlossaryChildren)
+	mux.HandleFunc("GET "+base+"/{conn}/catalog/glossary/parents", h.getGlossaryParents)
+	mux.HandleFunc("POST "+base+"/{conn}/catalog/glossary/nodes", h.createGlossaryNode)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/description", h.updateCatalogDescription)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/tags", h.updateCatalogTags)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/owners", h.updateCatalogOwners)
@@ -379,6 +388,195 @@ func (h *Handler) lookupDomains(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"results": refs})
+}
+
+// --- glossary hierarchy (#1155) ---
+
+// glossaryRootsResponse is the top of the glossary tree. Root nodes and root
+// terms carry separate totals because DataHub pages the two independently, so a
+// single total would misreport how much is left of either.
+type glossaryRootsResponse struct {
+	Nodes      []semantic.GlossaryNode `json:"nodes"`
+	NodesTotal int                     `json:"nodes_total"`
+	Terms      []semantic.GlossaryTerm `json:"terms"`
+	TermsTotal int                     `json:"terms_total"`
+}
+
+// browseGlossaryRoots returns the top of the glossary: the nodes and the terms
+// with no parent. The two reads are independent upstream calls, so they run
+// concurrently and the handler fails on the first error.
+func (h *Handler) browseGlossaryRoots(w http.ResponseWriter, r *http.Request) {
+	reader, ok := h.dataHubReader(w, r)
+	if !ok {
+		return
+	}
+	offset := parseOffset(r.URL.Query().Get(qpOffset))
+	limit := clampLimit(r.URL.Query().Get(qpLimit))
+
+	var resp glossaryRootsResponse
+	g, ctx := errgroup.WithContext(r.Context())
+	g.Go(func() error {
+		nodes, total, err := reader.ListRootGlossaryNodes(ctx, offset, limit)
+		resp.Nodes, resp.NodesTotal = nodes, total
+		if err != nil {
+			return fmt.Errorf("root glossary nodes: %w", err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		terms, total, err := reader.ListRootGlossaryTerms(ctx, offset, limit)
+		resp.Terms, resp.TermsTotal = terms, total
+		if err != nil {
+			return fmt.Errorf("root glossary terms: %w", err)
+		}
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		writeError(w, http.StatusBadGateway, "glossary roots read failed: "+err.Error())
+		return
+	}
+	resp.Nodes = orEmpty(resp.Nodes)
+	resp.Terms = orEmpty(resp.Terms)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// browseGlossaryChildren returns one page of the nodes and terms directly under a
+// glossary node. Children are served from DataHub's asynchronously populated
+// graph index, so an entity created moments earlier may not appear yet.
+func (h *Handler) browseGlossaryChildren(w http.ResponseWriter, r *http.Request) {
+	reader, ok := h.dataHubReader(w, r)
+	if !ok {
+		return
+	}
+	urn, ok := requireGlossaryURN(w, r, glossaryNodeURNTypes)
+	if !ok {
+		return
+	}
+	children, err := reader.ListGlossaryNodeChildren(r.Context(), urn,
+		parseOffset(r.URL.Query().Get(qpOffset)), clampLimit(r.URL.Query().Get(qpLimit)))
+	if err != nil {
+		writeGlossaryReadError(w, "glossary children read failed", err)
+		return
+	}
+	if children == nil {
+		children = &semantic.GlossaryChildren{}
+	}
+	// Build the response rather than normalizing in place: the reader owns the
+	// value it returned, and a caching implementation would see its own page
+	// mutated.
+	writeJSON(w, http.StatusOK, semantic.GlossaryChildren{
+		Nodes: orEmpty(children.Nodes),
+		Terms: orEmpty(children.Terms),
+		Start: children.Start,
+		Count: children.Count,
+		Total: children.Total,
+	})
+}
+
+// getGlossaryParents returns the ancestor nodes of a glossary term or node,
+// direct parent first, so the UI can render the breadcrumb for an entity it
+// reached without walking the tree.
+func (h *Handler) getGlossaryParents(w http.ResponseWriter, r *http.Request) {
+	reader, ok := h.dataHubReader(w, r)
+	if !ok {
+		return
+	}
+	urn, ok := requireGlossaryURN(w, r, glossaryEntityURNTypes)
+	if !ok {
+		return
+	}
+	chain, err := reader.GetGlossaryParentChain(r.Context(), urn)
+	if err != nil {
+		writeGlossaryReadError(w, "glossary parent chain read failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"parents": orEmpty(chain)})
+}
+
+// orEmpty returns a non-nil slice so a glossary response always renders a JSON
+// array. The reader is an interface: a nil slice from any implementation would
+// otherwise reach the client as null, which a caller has to special-case.
+func orEmpty[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}
+
+// glossaryNodeRequest creates a glossary node. Definition is DataHub's name for
+// a node's descriptive text (the glossaryNodeInfo aspect's "definition" field).
+// An empty ParentNode creates the node at the root of the glossary.
+type glossaryNodeRequest struct {
+	Name       string `json:"name"`
+	Definition string `json:"definition"`
+	ParentNode string `json:"parent_node,omitempty"`
+}
+
+// createGlossaryNode adds a directory to the business glossary. Gated on the
+// datahub_create grant, like every other create on this surface.
+func (h *Handler) createGlossaryNode(w http.ResponseWriter, r *http.Request) {
+	auth, ok := h.authorizeWrite(w, r, datahubCreateTool)
+	if !ok {
+		return
+	}
+	var req glossaryNodeRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Definition = strings.TrimSpace(req.Definition)
+	req.ParentNode = strings.TrimSpace(req.ParentNode)
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, errGlossaryNameRequired)
+		return
+	}
+	// A malformed parent is a client error: reject it here rather than forwarding
+	// it to DataHub, which would surface as a misleading 502.
+	if req.ParentNode != "" && !isURNOfType(req.ParentNode, glossaryNodeURNTypes) {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("invalid parent node: %q must be a %s", req.ParentNode, urnHint(glossaryNodeURNTypes)))
+		return
+	}
+	urn, err := auth.writer.CreateGlossaryNode(r.Context(), req.Name, req.Definition, req.ParentNode)
+	h.audit(r, auth, datahubCreateTool, map[string]any{
+		"entity_type": "glossaryNode",
+		"name":        req.Name,
+		"parent_node": req.ParentNode,
+	}, err)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "glossary node create failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"urn": urn})
+}
+
+// requireGlossaryURN reads and validates the urn query parameter, writing the 400
+// and returning ok=false when it is missing or not one of allowedTypes. Rejecting
+// a non-glossary URN here keeps a dataset URN from reaching DataHub and coming
+// back as a 502.
+func requireGlossaryURN(w http.ResponseWriter, r *http.Request, allowedTypes []string) (string, bool) {
+	urn := strings.TrimSpace(r.URL.Query().Get("urn"))
+	if urn == "" {
+		writeError(w, http.StatusBadRequest, errDataHubURNRequired)
+		return "", false
+	}
+	if !isURNOfType(urn, allowedTypes) {
+		writeError(w, http.StatusBadRequest,
+			fmt.Sprintf("invalid urn: %q must be a %s", urn, urnHint(allowedTypes)))
+		return "", false
+	}
+	return urn, true
+}
+
+// writeGlossaryReadError maps an upstream glossary read failure to a status. A
+// URN that DataHub does not know is a 404 rather than a 502: the request was
+// well-formed and the backend answered, the entity simply is not there.
+func writeGlossaryReadError(w http.ResponseWriter, label string, err error) {
+	if errors.Is(err, dhclient.ErrNotFound) {
+		writeError(w, http.StatusNotFound, label+": "+err.Error())
+		return
+	}
+	writeError(w, http.StatusBadGateway, label+": "+err.Error())
 }
 
 func (h *Handler) searchDocuments(w http.ResponseWriter, r *http.Request) {
@@ -693,6 +891,11 @@ var (
 	glossaryURNTypes = []string{"glossaryTerm"}
 	domainURNTypes   = []string{"domain"}
 	ownerURNTypes    = []string{"corpuser", "corpGroup"}
+
+	// Glossary hierarchy reads (#1155). Children hang off a node only; a parent
+	// chain exists for either kind of glossary entity.
+	glossaryNodeURNTypes   = []string{"glossaryNode"}
+	glossaryEntityURNTypes = []string{"glossaryTerm", "glossaryNode"}
 )
 
 // validateURNValues returns a human-readable 400 message if any value across the

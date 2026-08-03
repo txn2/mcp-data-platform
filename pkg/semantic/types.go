@@ -149,6 +149,33 @@ type GlossaryTerm struct {
 	Description string `json:"description,omitempty"`
 }
 
+// GlossaryNode is a directory in the business glossary: it holds glossary terms
+// and other glossary nodes. TermsCount and NodesCount are the backend's own
+// tally of the direct children, so a browser can render an expandable branch
+// without first fetching it (#1155).
+type GlossaryNode struct {
+	URN         string `json:"urn"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// ParentNode is the URN of the containing node, empty at the root.
+	ParentNode string `json:"parent_node,omitempty"`
+	TermsCount int    `json:"terms_count"`
+	NodesCount int    `json:"nodes_count"`
+}
+
+// GlossaryChildren is a page of what sits directly under a glossary node. The
+// backend pages nodes and terms as one mixed collection, so Start, Count, and
+// Total describe the combined page rather than either slice on its own: a
+// caller pages by Start/Count against Total and reads whichever slices the page
+// happened to contain.
+type GlossaryChildren struct {
+	Nodes []GlossaryNode `json:"nodes"`
+	Terms []GlossaryTerm `json:"terms"`
+	Start int            `json:"start"`
+	Count int            `json:"count"`
+	Total int            `json:"total"`
+}
+
 // Domain represents a data domain.
 type Domain struct {
 	URN         string `json:"urn"`

@@ -108,6 +108,7 @@ func TestClientWriter_Delegates(t *testing.T) {
 	_ = cw.ApplyGlossaryTermChanges(ctx, urn, []string{"urn:li:glossaryTerm:Y"}, nil)
 	_ = cw.SetDomain(ctx, urn, "urn:li:domain:d")
 	_ = cw.UnsetDomain(ctx, urn)
+	_, _ = cw.CreateGlossaryNode(ctx, "Finance", "money", "")
 	doc, err := cw.UpsertContextDocument(ctx, DocumentInput{ID: "d1", EntityURN: urn, Title: "T", Content: "C"})
 	if err != nil || doc == nil {
 		t.Fatalf("upsert (update path) should succeed: doc=%+v err=%v", doc, err)
@@ -133,8 +134,12 @@ func TestClientWriter_ErrorsWrapped(t *testing.T) {
 		"ApplyOwnerChanges": func() error {
 			return cw.ApplyOwnerChanges(ctx, urn, []OwnerChange{{OwnerURN: "urn:li:corpuser:a"}}, nil)
 		},
-		"SetDomain":             func() error { return cw.SetDomain(ctx, urn, "urn:li:domain:d") },
-		"UnsetDomain":           func() error { return cw.UnsetDomain(ctx, urn) },
+		"SetDomain":   func() error { return cw.SetDomain(ctx, urn, "urn:li:domain:d") },
+		"UnsetDomain": func() error { return cw.UnsetDomain(ctx, urn) },
+		"CreateGlossaryNode": func() error {
+			_, e := cw.CreateGlossaryNode(ctx, "Finance", "money", "")
+			return e
+		},
 		"DeleteContextDocument": func() error { return cw.DeleteContextDocument(ctx, "d1") },
 		"UpsertContextDocument": func() error {
 			_, e := cw.UpsertContextDocument(ctx, DocumentInput{EntityURN: urn, Title: "T", Content: "C"})
