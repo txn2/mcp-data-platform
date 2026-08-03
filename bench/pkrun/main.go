@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/pkcell"
 	"github.com/txn2/mcp-data-platform/bench/internal/pkplant"
 	"github.com/txn2/mcp-data-platform/bench/internal/pkrun"
+	"github.com/txn2/mcp-data-platform/bench/internal/pollutionplant"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
 )
 
@@ -29,82 +30,114 @@ func main() {
 		fixtureKey  = flag.String("fixture-key", "", "fixture X-API-Key")
 		model       = flag.String("model", "sonnet", "model alias or id (claude-cli alias, or full id with -llm anthropic)")
 		llmKind     = flag.String("llm", "claude-cli", "episode driver: claude-cli (subscription, default) or anthropic (raw API, metered)")
-		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep, answersweep, bridge, bridge-directive, staleanswer")
+		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep, answersweep, bridge, bridge-directive, pollution-coverage, staleanswer")
 		scaffold    = flag.String("scaffold", "default", "episode system prompt: default, or no-discovery (gate probe: drops the harness's own search bullet)")
 		k           = flag.Int("k", 8, "replicates per cell")
 		identityKey = flag.Int("identity-keys", 150, "configured identity pool size")
 		out         = flag.String("out", "", "output directory (required)")
 		gitCommit   = flag.String("git-commit", "", "git commit recorded in the manifest")
+		disallow    = flag.String("disallow-tools", "", "comma-separated client tools to forbid IN ADDITION to the built-in disallow list (-llm claude-cli); the effective list is recorded on the manifest")
 	)
 	flag.Parse()
-	if err := run(*url, *credential, *fixtureURL, *fixtureKey, *model, *cellSet, *scaffold, *out, *gitCommit, *llmKind, *k, *identityKey); err != nil {
+	cfg := runConfig{
+		url: *url, credential: *credential, fixtureURL: *fixtureURL, fixtureKey: *fixtureKey,
+		model: *model, cellSet: *cellSet, scaffold: *scaffold, out: *out, gitCommit: *gitCommit,
+		llmKind: *llmKind, disallowTools: *disallow, k: *k, identityKeys: *identityKey,
+	}
+	if err := run(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, "pkrun:", err)
 		os.Exit(1)
 	}
 }
 
+// runConfig is the parsed command line.
+type runConfig struct {
+	url           string
+	credential    string
+	fixtureURL    string
+	fixtureKey    string
+	model         string
+	cellSet       string
+	scaffold      string
+	out           string
+	gitCommit     string
+	llmKind       string
+	disallowTools string
+	k             int
+	identityKeys  int
+}
+
 // run wires the clients and executes the cell set.
-func run(url, credential, fixtureURL, fixtureKey, model, cellSet, scaffold, out, gitCommit, llmKind string, k, identityKeys int) error {
-	if out == "" {
+func run(cfg runConfig) error {
+	if cfg.out == "" {
 		return errors.New("-out is required")
 	}
-	cells, exploratory, err := selectCells(cellSet)
+	cells, exploratory, err := selectCells(cfg.cellSet)
 	if err != nil {
 		return err
 	}
-	scaffoldText, err := selectScaffold(scaffold)
+	scaffoldText, err := selectScaffold(cfg.scaffold)
 	if err != nil {
 		return err
 	}
-	tgt := target.Target{BaseURL: url, Credential: credential}
+	tgt := target.Target{BaseURL: cfg.url, Credential: cfg.credential}
 	ctx := context.Background()
-	runner, version, err := buildRunner(ctx, llmKind, model)
+	runner, version, disallowed, err := buildRunner(ctx, cfg.llmKind, cfg.model, cfg.disallowTools)
 	if err != nil {
 		return err
 	}
-	insights := lifecycleapi.New(url, tgt.HTTPClient(30*time.Second))
+	insights := lifecycleapi.New(cfg.url, tgt.HTTPClient(30*time.Second))
 	res, runErr := pkrun.Run(ctx, pkrun.Options{
-		Target:        tgt,
-		IdentityKeys:  identityKeys,
-		Fixture:       fixturectl.New(fixtureURL, fixtureKey, 30*time.Second),
-		Planter:       pkplant.New(tgt, identityKeys, insights, 30*time.Second),
-		Insights:      insights,
-		Runner:        runner,
-		Cells:         cells,
-		Scaffold:      scaffoldText,
-		K:             k,
-		OutDir:        out,
-		GitCommit:     gitCommit,
-		ClientVersion: version,
-		Log:           slog.Default(),
+		Target:          tgt,
+		IdentityKeys:    cfg.identityKeys,
+		Fixture:         fixturectl.New(cfg.fixtureURL, cfg.fixtureKey, 30*time.Second),
+		Planter:         pkplant.New(tgt, cfg.identityKeys, insights, 30*time.Second),
+		Insights:        insights,
+		Runner:          runner,
+		Cells:           cells,
+		Scaffold:        scaffoldText,
+		K:               cfg.k,
+		OutDir:          cfg.out,
+		GitCommit:       cfg.gitCommit,
+		ClientVersion:   version,
+		DisallowedTools: disallowed,
+		Log:             slog.Default(),
 	})
 	if res != nil {
 		res.Manifest.Exploratory = exploratory
-		summarize(res, out)
+		summarize(res, cfg.out)
 	}
 	return runErr
 }
 
-// buildRunner constructs the episode driver. The claude-cli path records
-// the client version in the manifest; the raw-API path has no client to
-// version, which is the point of running it.
-func buildRunner(ctx context.Context, llmKind, model string) (pkrun.EpisodeRunner, string, error) {
+// buildRunner constructs the episode driver. The claude-cli path records the
+// client version and the effective tool-disallow list in the manifest; the
+// raw-API path has neither a client to version nor a client tool surface to
+// close, which is the point of running it.
+func buildRunner(ctx context.Context, llmKind, model, disallowTools string) (pkrun.EpisodeRunner, string, []string, error) {
 	switch llmKind {
 	case "claude-cli":
-		runner, err := claudecli.New(claudecli.Options{Model: model})
+		disallowed, err := claudecli.DisallowTools(disallowTools)
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
+		}
+		runner, err := claudecli.New(claudecli.Options{Model: model, DisallowedTools: disallowed})
+		if err != nil {
+			return nil, "", nil, err
 		}
 		version, err := runner.Version(ctx)
 		if err != nil {
-			return nil, "", fmt.Errorf("claude --version: %w", err)
+			return nil, "", nil, fmt.Errorf("claude --version: %w", err)
 		}
-		return runner, version, nil
+		return runner, version, runner.DisallowedTools(), nil
 	case "anthropic":
+		if disallowTools != "" {
+			return nil, "", nil, errors.New("-disallow-tools applies to -llm claude-cli only: the raw-API driver exposes no client tools")
+		}
 		runner, err := pkrun.NewLoopRunner(model, 120*time.Second)
-		return runner, "", err
+		return runner, "", nil, err
 	default:
-		return nil, "", fmt.Errorf("unknown -llm %q", llmKind)
+		return nil, "", nil, fmt.Errorf("unknown -llm %q", llmKind)
 	}
 }
 
@@ -138,6 +171,15 @@ func selectCells(name string) ([]pkcell.Cell, bool, error) {
 	case "bridge-directive":
 		cells, err := pkcell.BridgeDirectiveProbeCells()
 		return cells, true, err
+	case "pollution-coverage":
+		// The knowledge-pollution study's cross-fixture unit (#1163): the
+		// convention question with no per-episode belief, on a stack whose
+		// shared store carries the convention. Confirmatory for that study,
+		// so it is not marked exploratory; its adoption classification is
+		// applied to the archived answers afterwards.
+		cells, err := pkcell.StoreDeliveredCells(
+			pollutionplant.QuestionCoverageDays, pollutionplant.CoverageWorld())
+		return cells, false, err
 	case "staleanswer":
 		cells, err := pkcell.StaleAnswerCells()
 		return cells, true, err

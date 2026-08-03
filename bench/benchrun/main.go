@@ -39,6 +39,7 @@ type config struct {
 	maxTokens     int64
 	claudeBin     string
 	mcpServerName string
+	disallowTools string
 	script        string
 	tasksDir      string
 	fixtureURL    string
@@ -90,6 +91,7 @@ func parseFlags() config {
 	flag.Int64Var(&cfg.maxTokens, "max-tokens", 8192, "max tokens per completion (-llm anthropic)")
 	flag.StringVar(&cfg.claudeBin, "claude-bin", "claude", "claude executable for -llm claude-cli")
 	flag.StringVar(&cfg.mcpServerName, "mcp-server-name", "bench", "MCP server key in the generated per-attempt config for -llm claude-cli")
+	flag.StringVar(&cfg.disallowTools, "disallow-tools", "", "comma-separated client tools to forbid IN ADDITION to the built-in disallow list (-llm claude-cli); the effective list is recorded on the manifest")
 	flag.StringVar(&cfg.script, "script", "", "playback script for -llm scripted")
 	flag.StringVar(&cfg.tasksDir, "tasks", "tasks", "task YAML directory")
 	flag.StringVar(&cfg.fixtureURL, "fixture-url", "", "fixture service base URL: marks an API-connection study run (#1027) with per-attempt reset, state/refusal grading, retrieval and failure-taxonomy analysis (b* arms; use with -tasks tasks-api)")
@@ -788,14 +790,25 @@ const claudeCLIProvider = "claude-cli"
 // version for the manifest, so a subscription run made through Claude Code is
 // never silently compared against a raw Messages API run.
 func buildClaudeRunner(cfg config) (*claudecli.Runner, string, error) {
+	disallowed, err := claudecli.DisallowTools(cfg.disallowTools)
+	if err != nil {
+		return nil, "", err
+	}
 	opts := claudecli.Options{
-		Bin:        cfg.claudeBin,
-		Model:      cfg.model,
-		ServerName: cfg.mcpServerName,
+		Bin:             cfg.claudeBin,
+		Model:           cfg.model,
+		ServerName:      cfg.mcpServerName,
+		DisallowedTools: disallowed,
 	}
 	// The b2 arm is code mode (#1027): no MCP server; the workspace carries
 	// the tier spec and the model calls the fixture API itself.
 	if cfg.arm == "b2" {
+		// Code mode passes its own allow/disallow pair, so an operator list
+		// would be silently dropped. Refuse rather than run an arm whose
+		// tool surface is not the one that was asked for.
+		if cfg.disallowTools != "" {
+			return nil, "", errors.New("-disallow-tools is not applicable to -arm b2: code mode passes its own tool lists")
+		}
 		if cfg.codeSpec == "" {
 			return nil, "", errors.New("-arm b2 requires -code-spec (the tier spec fixture for the workspace)")
 		}

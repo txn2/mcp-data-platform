@@ -34,11 +34,18 @@ type Manifest struct {
 	// runs made through Claude Code from being silently compared against raw
 	// Messages API runs, whose numbers move independently of the platform.
 	ClientVersion string `json:"client_version,omitempty"`
-	Model         string `json:"model"`
-	Seed          int64  `json:"seed"`
-	TaskSetHash   string `json:"task_set_hash"`
-	K             int    `json:"k"`
-	Suite         string `json:"suite,omitempty"` // filter, "" = all
+	// DisallowedTools is the client tool surface the run forbade, as the
+	// client was actually invoked. It is recorded because the surface is an
+	// arm property rather than a client property: claude-cli exposes
+	// meta-tools past --allowedTools, so two runs of the same arm on
+	// different client builds are comparable only if each archive says what
+	// it closed off. Empty for adapters with no external client.
+	DisallowedTools []string `json:"disallowed_tools,omitempty"`
+	Model           string   `json:"model"`
+	Seed            int64    `json:"seed"`
+	TaskSetHash     string   `json:"task_set_hash"`
+	K               int      `json:"k"`
+	Suite           string   `json:"suite,omitempty"` // filter, "" = all
 }
 
 // Attempt is one task execution.

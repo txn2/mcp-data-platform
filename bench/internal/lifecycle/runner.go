@@ -147,6 +147,7 @@ func (e *runEnv) finishManifest(m *Manifest) {
 	m.PlatformVersion = e.platformVersion
 	m.Model = e.model
 	m.ClientVersion = e.opts.ClientVersion
+	m.DisallowedTools = claudecli.EffectiveDisallowedTools(e.opts.ClaudeCLI)
 }
 
 // runAll executes every protocol k times, appending each run to res and

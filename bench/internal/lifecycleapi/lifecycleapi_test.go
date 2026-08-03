@@ -290,3 +290,50 @@ func TestServerErrorSurfaces(t *testing.T) {
 		t.Fatalf("expected 500 error, got %v", err)
 	}
 }
+
+// TestCreateKnowledgePage proves the seed path posts the page as the portal
+// API expects and returns it as stored, so a caller can read back what
+// actually landed rather than what it sent.
+func TestCreateKnowledgePage(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/portal/knowledge-pages" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(w, KnowledgePage{ID: "kp-1", Slug: "s", Title: "T", Summary: "stored summary"})
+	}))
+	t.Cleanup(srv.Close)
+	page, err := New(srv.URL, srv.Client()).CreateKnowledgePage(context.Background(), NewKnowledgePage{
+		Slug: "s", Title: "T", Summary: "sent summary", Body: "B", Tags: []string{"policy"}, ForceNew: true,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if got["slug"] != "s" || got["force_new"] != true {
+		t.Errorf("posted body wrong: %+v", got)
+	}
+	// The stored summary, not the sent one: a store that normalized the text
+	// must be visible to the caller's read-back.
+	if page.Summary != "stored summary" {
+		t.Errorf("returned page = %+v", page)
+	}
+}
+
+// A slug collision is a 409, and it must surface rather than be treated as a
+// silent update: a seed that quietly overwrote a page would change a fixture
+// the run believes it is holding constant.
+func TestCreateKnowledgePageSurfacesConflict(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "a knowledge page with that slug already exists", http.StatusConflict)
+	}))
+	t.Cleanup(srv.Close)
+	if _, err := New(srv.URL, srv.Client()).CreateKnowledgePage(context.Background(), NewKnowledgePage{Slug: "s", Title: "T"}); err == nil {
+		t.Fatal("a 409 was reported as a successful create")
+	}
+}

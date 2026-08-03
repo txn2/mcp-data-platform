@@ -106,6 +106,10 @@ type Options struct {
 	OutDir        string
 	GitCommit     string
 	ClientVersion string
+	// DisallowedTools is the client tool surface the run forbade, as the
+	// client was actually invoked, recorded on the manifest. Empty for
+	// drivers with no external client.
+	DisallowedTools []string
 	// Scaffold is the system prompt every episode runs under. Empty means
 	// System, the study's default. A run's scaffold is a treatment, so the
 	// text used is recorded verbatim in the manifest.
@@ -121,6 +125,7 @@ type Manifest struct {
 	PlatformVersion string    `json:"platform_version,omitempty"`
 	Model           string    `json:"model"`
 	ClientVersion   string    `json:"client_version,omitempty"`
+	DisallowedTools []string  `json:"disallowed_tools,omitempty"`
 	SeedHash        string    `json:"seed_hash"`
 	Cells           int       `json:"cells"`
 	K               int       `json:"k"`
@@ -194,7 +199,8 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 		Manifest: Manifest{
 			StartedAt: time.Now().UTC(), GitCommit: opts.GitCommit,
 			Model: opts.Runner.Model(), ClientVersion: opts.ClientVersion,
-			SeedHash: pkseedHash(), Cells: len(opts.Cells), K: opts.K,
+			DisallowedTools: opts.DisallowedTools,
+			SeedHash:        pkseedHash(), Cells: len(opts.Cells), K: opts.K,
 			Scaffold: opts.scaffold(),
 		},
 		Cells: opts.Cells,

@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
@@ -39,6 +40,47 @@ import (
 var defaultDisallowedTools = []string{
 	"Bash", "Edit", "Write", "NotebookEdit", "Read", "Glob", "Grep",
 	"WebFetch", "WebSearch", "Task", "TodoWrite",
+}
+
+// DefaultDisallowedTools returns a copy of the built-in disallow list. It is
+// the base an arm adds to: a caller that means "also forbid these" must not
+// replace the list, because dropping the built-ins would hand the model the
+// filesystem, the shell, and the web mid-study.
+func DefaultDisallowedTools() []string { return slices.Clone(defaultDisallowedTools) }
+
+// DisallowTools resolves an operator's comma-separated list of extra tools to
+// forbid into the effective disallow list: the built-in defaults plus the
+// named tools, de-duplicated, defaults first. It is the one parse shared by
+// every runner that offers the flag, so two runners cannot disagree about
+// what an arm's tool surface means.
+//
+// A name carrying whitespace is refused rather than passed through: an
+// operator who writes the list space-separated would otherwise forbid one
+// nonexistent tool and none of the intended ones, and the run would look
+// correct in its manifest while granting the surface it meant to close.
+func DisallowTools(extra string) ([]string, error) {
+	out := DefaultDisallowedTools()
+	if strings.TrimSpace(extra) == "" {
+		return out, nil
+	}
+	added := 0
+	for name := range strings.SplitSeq(extra, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if strings.ContainsAny(name, " \t") {
+			return nil, fmt.Errorf("claudecli: disallowed tool %q carries whitespace; the list is comma-separated", name)
+		}
+		added++
+		if !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	if added == 0 {
+		return nil, fmt.Errorf("claudecli: disallowed-tool list %q names no tool", extra)
+	}
+	return out, nil
 }
 
 // Options configures the runner. Zero values fall back to the documented
@@ -137,6 +179,31 @@ func (r *Runner) CodeMode() bool { return r.opts.CodeMode }
 
 // ServerName returns the MCP server key used in generated configs.
 func (r *Runner) ServerName() string { return r.opts.ServerName }
+
+// DisallowedTools returns the list this runner actually passes to
+// `--disallowedTools`, which in code mode is the code-mode list rather than
+// the configured one. A manifest records the tool surface an arm ran under,
+// so it must read the effective list from the runner rather than restate the
+// operator's intent: a transcript showing a tool the arm was meant to forbid
+// is a reproducibility failure the archive has to be able to detect.
+func (r *Runner) DisallowedTools() []string {
+	if r.opts.CodeMode {
+		return slices.Clone(codeModeDisallowedTools)
+	}
+	return slices.Clone(r.opts.DisallowedTools)
+}
+
+// EffectiveDisallowedTools reports a runner's effective disallow list, or nil
+// when there is no external client (the in-process adapters expose no tools
+// of their own to forbid). Every run mode's manifest reads the surface
+// through this one accessor, so no mode can record a list the client was not
+// invoked with, or quietly omit one.
+func EffectiveDisallowedTools(r *Runner) []string {
+	if r == nil {
+		return nil
+	}
+	return r.DisallowedTools()
+}
 
 // Request is one episode's inputs.
 type Request struct {

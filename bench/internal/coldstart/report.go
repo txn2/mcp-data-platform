@@ -33,13 +33,17 @@ type Manifest struct {
 	LLMProvider     string    `json:"llm_provider"`
 	// ClientVersion records the external client path (claude-cli: the
 	// `claude --version` string), empty for in-process adapters.
-	ClientVersion  string `json:"client_version,omitempty"`
-	Model          string `json:"model"`
-	Seed           int64  `json:"seed"`
-	CurriculumID   string `json:"curriculum_id"`
-	CurriculumHash string `json:"curriculum_hash"`
-	EvalSuite      string `json:"eval_suite"`
-	TaskSetHash    string `json:"task_set_hash"`
+	ClientVersion string `json:"client_version,omitempty"`
+	// DisallowedTools is the client tool surface the run forbade, as the
+	// client was actually invoked. Empty for in-process adapters. See the
+	// S1-S3 report.Manifest for why the surface belongs on the archive.
+	DisallowedTools []string `json:"disallowed_tools,omitempty"`
+	Model           string   `json:"model"`
+	Seed            int64    `json:"seed"`
+	CurriculumID    string   `json:"curriculum_id"`
+	CurriculumHash  string   `json:"curriculum_hash"`
+	EvalSuite       string   `json:"eval_suite"`
+	TaskSetHash     string   `json:"task_set_hash"`
 	// K is the number of fresh evaluator identities per checkpoint; each answers
 	// the whole eval set, so a checkpoint's accuracy averages over K x eval-tasks.
 	K int `json:"k"`

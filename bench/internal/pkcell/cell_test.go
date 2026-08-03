@@ -567,3 +567,56 @@ func TestStaleAnswerCellPremise(t *testing.T) {
 		t.Errorf("control: seed=%v behavior=%s; counting an empty account is answerable", control.Seed, control.Behavior)
 	}
 }
+
+// The store-delivered cell reverses Derive's no-seed rule on purpose, so its
+// premise must be checked rather than assumed: a question that needs no
+// delivered convention gains nothing from the store channel, and a world
+// where the question is unanswerable for other reasons cannot be rescued by
+// delivering one.
+func TestStoreDeliveredCellsRequireAConventionBoundQuestion(t *testing.T) {
+	if _, err := StoreDeliveredCells("monitor-count", "monitors-3"); err == nil {
+		t.Error("a question with no convention dependence was accepted")
+	}
+	if _, err := StoreDeliveredCells("no-such-question", "monitors-3"); err == nil {
+		t.Error("an unknown question was accepted")
+	}
+	if _, err := StoreDeliveredCells("positive-coverage-days", "no-such-world"); err == nil {
+		t.Error("an unknown world was accepted")
+	}
+}
+
+// monitors-0 has no provisioned monitor, so there is no trend to apply any
+// threshold to: the store cannot make that answerable.
+func TestStoreDeliveredCellsRefuseAnUnanswerableWorld(t *testing.T) {
+	if _, err := StoreDeliveredCells("positive-coverage-days", "monitors-0"); err == nil {
+		t.Error("a world with nothing to measure was accepted")
+	}
+}
+
+func TestStoreDeliveredCellsDeriveAnswer(t *testing.T) {
+	cells, err := StoreDeliveredCells("positive-coverage-days", "monitors-3")
+	if err != nil {
+		t.Fatalf("StoreDeliveredCells: %v", err)
+	}
+	if len(cells) != 1 {
+		t.Fatalf("got %d cells, want 1", len(cells))
+	}
+	c := cells[0]
+	if c.Behavior != BehaviorAnswer || !c.Answerable || c.Seed != nil || c.Stale() {
+		t.Errorf("cell = %+v; want an answerable, seedless, non-stale cell", c)
+	}
+	// The plain no-seed cell for the same question must still derive as
+	// unanswerable: the perishable-knowledge control depends on it, and this
+	// addition must not have moved it.
+	q, err := questionByID("positive-coverage-days")
+	if err != nil {
+		t.Fatalf("questionByID: %v", err)
+	}
+	plain, err := Derive(q, nil, pkseed.Metadata{}, "monitors-3")
+	if err != nil {
+		t.Fatalf("Derive: %v", err)
+	}
+	if plain.Behavior != BehaviorProbeRefuse {
+		t.Errorf("the no-seed control now derives %s; it must stay probe-then-refuse", plain.Behavior)
+	}
+}

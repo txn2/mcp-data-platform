@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -217,5 +218,99 @@ func TestDisallowedToolsOverride(t *testing.T) {
 	args := strings.Join(cr.last.Args, " ")
 	if !strings.Contains(args, "--disallowedTools Bash ") && !strings.HasSuffix(args, "--disallowedTools Bash") {
 		t.Errorf("disallowed override not applied: %s", args)
+	}
+}
+
+func TestDisallowToolsAppendsToDefaults(t *testing.T) {
+	got, err := DisallowTools("ToolSearch, ReadMcpResourceTool")
+	if err != nil {
+		t.Fatalf("DisallowTools: %v", err)
+	}
+	for _, want := range append(DefaultDisallowedTools(), "ToolSearch", "ReadMcpResourceTool") {
+		if !slices.Contains(got, want) {
+			t.Errorf("effective list %v is missing %q", got, want)
+		}
+	}
+	// The built-ins must come first and stay intact: an arm that adds to the
+	// list must not be able to drop the filesystem and shell guards.
+	if !slices.Equal(got[:len(DefaultDisallowedTools())], DefaultDisallowedTools()) {
+		t.Errorf("defaults were reordered or dropped: %v", got)
+	}
+}
+
+func TestDisallowToolsEmptyIsTheDefaults(t *testing.T) {
+	got, err := DisallowTools("  ")
+	if err != nil {
+		t.Fatalf("DisallowTools: %v", err)
+	}
+	if !slices.Equal(got, DefaultDisallowedTools()) {
+		t.Errorf("empty list changed the defaults: %v", got)
+	}
+}
+
+func TestDisallowToolsDeduplicates(t *testing.T) {
+	got, err := DisallowTools("ToolSearch,Bash,ToolSearch")
+	if err != nil {
+		t.Fatalf("DisallowTools: %v", err)
+	}
+	n := 0
+	for _, name := range got {
+		if name == "ToolSearch" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("ToolSearch appears %d times in %v; a repeated name must collapse", n, got)
+	}
+	if len(got) != len(DefaultDisallowedTools())+1 {
+		t.Errorf("Bash is already a default; the list grew by more than the one new name: %v", got)
+	}
+}
+
+// A space-separated list would forbid one nonexistent tool and none of the
+// intended ones, and the manifest would record a surface the run never had.
+func TestDisallowToolsRefusesWhitespaceNames(t *testing.T) {
+	if _, err := DisallowTools("ToolSearch ReadMcpResourceTool"); err == nil {
+		t.Fatal("expected a space-separated list to be refused")
+	}
+}
+
+func TestDisallowToolsRefusesNoNames(t *testing.T) {
+	if _, err := DisallowTools(",,"); err == nil {
+		t.Fatal("expected a list naming no tool to be refused")
+	}
+}
+
+func TestRunnerReportsEffectiveDisallowedTools(t *testing.T) {
+	r, err := New(Options{Model: "sonnet", DisallowedTools: []string{"Bash", "ToolSearch"}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if got := r.DisallowedTools(); !slices.Equal(got, []string{"Bash", "ToolSearch"}) {
+		t.Errorf("DisallowedTools() = %v", got)
+	}
+	// Code mode passes its own pair, so the manifest must report that list
+	// rather than the configured one it never used.
+	code, err := New(Options{Model: "sonnet", CodeMode: true, DisallowedTools: []string{"Bash"}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if got := code.DisallowedTools(); !slices.Equal(got, codeModeDisallowedTools) {
+		t.Errorf("code-mode DisallowedTools() = %v, want the code-mode list", got)
+	}
+}
+
+func TestRunnerDisallowedToolsIsACopy(t *testing.T) {
+	r, err := New(Options{Model: "sonnet"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	got := r.DisallowedTools()
+	got[0] = "mutated"
+	if r.DisallowedTools()[0] == "mutated" {
+		t.Error("DisallowedTools() handed out the runner's own slice")
+	}
+	if DefaultDisallowedTools()[0] == "mutated" {
+		t.Error("the package default was mutated through a caller's copy")
 	}
 }

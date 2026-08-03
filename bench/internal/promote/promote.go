@@ -70,6 +70,15 @@ type Target struct {
 	Fact string
 	// Page is the knowledge_page payload (required for the page sink).
 	Page *protocol.PagePayload
+	// ForceNewPage passes page.force_new on a knowledge-page apply, which is
+	// the affordance the duplicate gate itself offers a reviewer ("set
+	// page.force_new: true to create a separate page anyway"). Off by
+	// default: a suite that promotes one fact per slug wants the gate, and a
+	// blocked promotion there is a real finding. It is set by a fixture that
+	// deliberately wants two pages stating incompatible versions of the same
+	// convention, where a near-duplicate block is the gate working correctly
+	// against a fixture that needs both pages present.
+	ForceNewPage bool
 	// Notes is the reviewer approval note recorded on the insight status update.
 	// Each suite sets its own fixed string so the recorded reason is stable.
 	Notes string
@@ -308,7 +317,7 @@ func BuildApplyArgs(t Target, insightID string) map[string]any {
 	}
 	if t.Sink == protocol.SinkKnowledgePage {
 		args["sink"] = "knowledge_page"
-		args["page"] = map[string]any{
+		page := map[string]any{
 			"slug":  t.Page.Slug,
 			"title": t.Page.Title,
 			// The summary is what search renders next to the title; on tool
@@ -317,6 +326,10 @@ func BuildApplyArgs(t Target, insightID string) map[string]any {
 			"summary": t.Page.Summary,
 			"body":    t.Page.Body,
 		}
+		if t.ForceNewPage {
+			page["force_new"] = true
+		}
+		args["page"] = page
 		return args
 	}
 	args["sink"] = "datahub"
