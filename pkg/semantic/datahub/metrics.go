@@ -31,6 +31,11 @@ const (
 	opGetDocument         = "get_document"
 	opListTags            = "list_tags"
 	opListDomains         = "list_domains"
+
+	opGetRootGlossaryNodes    = "get_root_glossary_nodes"
+	opGetRootGlossaryTerms    = "get_root_glossary_terms"
+	opGetGlossaryNodeChildren = "get_glossary_node_children"
+	opGetGlossaryParentChain  = "get_glossary_parent_chain"
 )
 
 // SetMetrics wraps the adapter's client in an instrumenting decorator
@@ -185,4 +190,40 @@ func (c *instrumentedClient) ListDomains(ctx context.Context) ([]types.Domain, e
 	start := time.Now()
 	d, err := c.Client.ListDomains(ctx)
 	return d, c.finish(ctx, span, opListDomains, start, err)
+}
+
+// GetRootGlossaryNodes records a get_root_glossary_nodes observation and
+// delegates (#1155 glossary hierarchy).
+func (c *instrumentedClient) GetRootGlossaryNodes(ctx context.Context, start, count int) ([]types.GlossaryNode, int, error) {
+	ctx, span := c.startSpan(ctx, opGetRootGlossaryNodes)
+	began := time.Now()
+	nodes, total, err := c.Client.GetRootGlossaryNodes(ctx, start, count)
+	return nodes, total, c.finish(ctx, span, opGetRootGlossaryNodes, began, err)
+}
+
+// GetRootGlossaryTerms records a get_root_glossary_terms observation and
+// delegates (#1155 glossary hierarchy).
+func (c *instrumentedClient) GetRootGlossaryTerms(ctx context.Context, start, count int) ([]types.GlossaryTerm, int, error) {
+	ctx, span := c.startSpan(ctx, opGetRootGlossaryTerms)
+	began := time.Now()
+	terms, total, err := c.Client.GetRootGlossaryTerms(ctx, start, count)
+	return terms, total, c.finish(ctx, span, opGetRootGlossaryTerms, began, err)
+}
+
+// GetGlossaryNodeChildren records a get_glossary_node_children observation and
+// delegates (#1155 glossary hierarchy).
+func (c *instrumentedClient) GetGlossaryNodeChildren(ctx context.Context, nodeURN string, start, count int) (*types.GlossaryChildren, error) {
+	ctx, span := c.startSpan(ctx, opGetGlossaryNodeChildren)
+	began := time.Now()
+	children, err := c.Client.GetGlossaryNodeChildren(ctx, nodeURN, start, count)
+	return children, c.finish(ctx, span, opGetGlossaryNodeChildren, began, err)
+}
+
+// GetGlossaryParentChain records a get_glossary_parent_chain observation and
+// delegates (#1155 glossary hierarchy).
+func (c *instrumentedClient) GetGlossaryParentChain(ctx context.Context, urn string) ([]types.GlossaryNode, error) {
+	ctx, span := c.startSpan(ctx, opGetGlossaryParentChain)
+	began := time.Now()
+	chain, err := c.Client.GetGlossaryParentChain(ctx, urn)
+	return chain, c.finish(ctx, span, opGetGlossaryParentChain, began, err)
 }

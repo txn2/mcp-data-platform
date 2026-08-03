@@ -38,6 +38,10 @@ type Reader interface {
 	SearchTags(ctx context.Context, query string, limit int) ([]semantic.EntityRef, error)
 	SearchGlossaryTerms(ctx context.Context, query string, limit int) ([]semantic.EntityRef, error)
 	ListDomains(ctx context.Context) ([]semantic.EntityRef, error)
+	ListRootGlossaryNodes(ctx context.Context, offset, limit int) ([]semantic.GlossaryNode, int, error)
+	ListRootGlossaryTerms(ctx context.Context, offset, limit int) ([]semantic.GlossaryTerm, int, error)
+	ListGlossaryNodeChildren(ctx context.Context, nodeURN string, offset, limit int) (*semantic.GlossaryChildren, error)
+	GetGlossaryParentChain(ctx context.Context, urn string) ([]semantic.GlossaryNode, error)
 	SearchDocuments(ctx context.Context, query string, limit int) ([]semantic.DocumentResult, error)
 	BrowseDocuments(ctx context.Context, offset, limit int) ([]semantic.DocumentResult, int, error)
 	GetDocument(ctx context.Context, urn string) (*semantic.DocumentResult, error)
@@ -72,6 +76,10 @@ type Writer interface {
 	ApplyOwnerChanges(ctx context.Context, urn string, add []OwnerChange, remove []string) error
 	SetDomain(ctx context.Context, entityURN, domainURN string) error
 	UnsetDomain(ctx context.Context, entityURN string) error
+	// CreateGlossaryNode adds a directory to the business glossary, under
+	// parentNode or at the root when it is empty, returning the new node's URN
+	// (#1155).
+	CreateGlossaryNode(ctx context.Context, name, definition, parentNode string) (string, error)
 	UpsertContextDocument(ctx context.Context, in DocumentInput) (*semantic.DocumentResult, error)
 	DeleteContextDocument(ctx context.Context, documentID string) error
 }
@@ -203,6 +211,15 @@ func (cw clientWriter) UnsetDomain(ctx context.Context, entityURN string) error 
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil
+}
+
+// CreateGlossaryNode creates a glossary node and returns its URN.
+func (cw clientWriter) CreateGlossaryNode(ctx context.Context, name, definition, parentNode string) (string, error) {
+	urn, err := cw.w.CreateGlossaryNode(ctx, name, definition, parentNode)
+	if err != nil {
+		return "", fmt.Errorf(errWriter, err)
+	}
+	return urn, nil
 }
 
 // UpsertContextDocument creates or updates a context document.

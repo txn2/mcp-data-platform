@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 
+	dhclient "github.com/txn2/mcp-datahub/pkg/client"
+
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -41,6 +43,16 @@ type fakeDataHub struct {
 	readErr      error
 	columnsErr   error
 	calls        []string
+
+	// Glossary hierarchy (#1155). rootTermsErr fails only the root-terms leg so
+	// the concurrent roots read can be tested one leg at a time.
+	rootNodes    []semantic.GlossaryNode
+	rootTerms    []semantic.GlossaryTerm
+	rootTermsErr error
+	children     map[string]*semantic.GlossaryChildren
+	parents      map[string][]semantic.GlossaryNode
+	childrenPage [2]int
+	createdNode  glossaryNodeRequest
 }
 
 func newFakeDataHub() *fakeDataHub {
@@ -98,6 +110,62 @@ func (f *fakeDataHub) SearchGlossaryTerms(_ context.Context, _ string, _ int) ([
 
 func (f *fakeDataHub) ListDomains(_ context.Context) ([]semantic.EntityRef, error) {
 	return f.refs, f.readErr
+}
+
+// --- glossary hierarchy (#1155) ---
+//
+// The fake mirrors the upstream client's contract: an unknown glossary node is
+// ErrNotFound (DataHub answers the lookup with an empty stub, which the client
+// converts), not an empty child set, so the handler's 404 path is exercised
+// against the behavior the real backend has.
+
+func (f *fakeDataHub) ListRootGlossaryNodes(_ context.Context, _, _ int) ([]semantic.GlossaryNode, int, error) {
+	if f.readErr != nil {
+		return nil, 0, f.readErr
+	}
+	return f.rootNodes, len(f.rootNodes), nil
+}
+
+func (f *fakeDataHub) ListRootGlossaryTerms(_ context.Context, _, _ int) ([]semantic.GlossaryTerm, int, error) {
+	if f.rootTermsErr != nil {
+		return nil, 0, f.rootTermsErr
+	}
+	if f.readErr != nil {
+		return nil, 0, f.readErr
+	}
+	return f.rootTerms, len(f.rootTerms), nil
+}
+
+func (f *fakeDataHub) ListGlossaryNodeChildren(_ context.Context, nodeURN string, offset, limit int) (*semantic.GlossaryChildren, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
+	children, ok := f.children[nodeURN]
+	if !ok {
+		return nil, fmt.Errorf("glossary node %s: %w", nodeURN, dhclient.ErrNotFound)
+	}
+	f.mu.Lock()
+	f.childrenPage = [2]int{offset, limit}
+	f.mu.Unlock()
+	return children, nil
+}
+
+func (f *fakeDataHub) GetGlossaryParentChain(_ context.Context, urn string) ([]semantic.GlossaryNode, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
+	return f.parents[urn], nil
+}
+
+func (f *fakeDataHub) CreateGlossaryNode(_ context.Context, name, definition, parentNode string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "CreateGlossaryNode")
+	if f.writeErr != nil {
+		return "", f.writeErr
+	}
+	f.createdNode = glossaryNodeRequest{Name: name, Definition: definition, ParentNode: parentNode}
+	return "urn:li:glossaryNode:" + name, nil
 }
 
 func (f *fakeDataHub) SearchDocuments(_ context.Context, _ string, _ int) ([]semantic.DocumentResult, error) {

@@ -81,6 +81,10 @@ type Client interface {
 	GetLineage(ctx context.Context, urn string, opts ...dhclient.LineageOption) (*types.LineageResult, error)
 	GetColumnLineage(ctx context.Context, urn string) (*types.ColumnLineage, error)
 	GetGlossaryTerm(ctx context.Context, urn string) (*types.GlossaryTerm, error)
+	GetRootGlossaryNodes(ctx context.Context, start, count int) ([]types.GlossaryNode, int, error)
+	GetRootGlossaryTerms(ctx context.Context, start, count int) ([]types.GlossaryTerm, int, error)
+	GetGlossaryNodeChildren(ctx context.Context, nodeURN string, start, count int) (*types.GlossaryChildren, error)
+	GetGlossaryParentChain(ctx context.Context, urn string) ([]types.GlossaryNode, error)
 	GetQueries(ctx context.Context, urn string) (*types.QueryList, error)
 	ListTags(ctx context.Context, filter string) ([]types.Tag, error)
 	ListDomains(ctx context.Context) ([]types.Domain, error)
@@ -332,6 +336,107 @@ func (a *Adapter) ListDomains(ctx context.Context) ([]semantic.EntityRef, error)
 		refs = append(refs, a.entityRef(d.URN, d.Name, d.Description))
 	}
 	return refs, nil
+}
+
+// --- glossary hierarchy (#1155) ---
+
+// ListRootGlossaryNodes returns the top of the glossary tree: the nodes with no
+// parent. It returns the requested page plus the total number of root nodes so a
+// browser can page. Backed by mcp-datahub's GetRootGlossaryNodes (v1.15.0+).
+func (a *Adapter) ListRootGlossaryNodes(ctx context.Context, offset, limit int) ([]semantic.GlossaryNode, int, error) {
+	nodes, total, err := a.client.GetRootGlossaryNodes(ctx, clampGlossaryOffset(offset), clampRefLimit(limit))
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing datahub root glossary nodes: %w", err)
+	}
+	return a.glossaryNodes(nodes), total, nil
+}
+
+// ListRootGlossaryTerms returns the glossary terms with no parent node — terms
+// that sit at the top of the tree rather than inside a node — plus the total so a
+// browser can page. Root terms are a distinct read from root nodes because
+// DataHub pages the two separately.
+func (a *Adapter) ListRootGlossaryTerms(ctx context.Context, offset, limit int) ([]semantic.GlossaryTerm, int, error) {
+	terms, total, err := a.client.GetRootGlossaryTerms(ctx, clampGlossaryOffset(offset), clampRefLimit(limit))
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing datahub root glossary terms: %w", err)
+	}
+	return a.glossaryTerms(terms), total, nil
+}
+
+// ListGlossaryNodeChildren returns one page of the nodes and terms directly under
+// nodeURN. DataHub pages a node's children as one mixed collection, so the
+// returned Start/Count/Total describe the combined page rather than either slice.
+//
+// The children come from DataHub's graph index, which is populated
+// asynchronously: an entity created moments earlier may not appear yet. Confirm a
+// just-written parent with GetGlossaryParentChain, which reads the entity itself
+// and is immediately consistent.
+func (a *Adapter) ListGlossaryNodeChildren(ctx context.Context, nodeURN string, offset, limit int) (*semantic.GlossaryChildren, error) {
+	children, err := a.client.GetGlossaryNodeChildren(ctx, strings.TrimSpace(nodeURN),
+		clampGlossaryOffset(offset), clampRefLimit(limit))
+	if err != nil {
+		return nil, fmt.Errorf("listing datahub glossary node children: %w", err)
+	}
+	if children == nil {
+		return &semantic.GlossaryChildren{Nodes: []semantic.GlossaryNode{}, Terms: []semantic.GlossaryTerm{}}, nil
+	}
+	return &semantic.GlossaryChildren{
+		Nodes: a.glossaryNodes(children.Nodes),
+		Terms: a.glossaryTerms(children.Terms),
+		Start: children.Start,
+		Count: children.Count,
+		Total: children.Total,
+	}, nil
+}
+
+// GetGlossaryParentChain returns the ancestor nodes of a glossary term or node,
+// ordered from the direct parent up to the root, so a browser can show where an
+// entity sits without walking the tree. A root entity has an empty chain.
+func (a *Adapter) GetGlossaryParentChain(ctx context.Context, urn string) ([]semantic.GlossaryNode, error) {
+	chain, err := a.client.GetGlossaryParentChain(ctx, strings.TrimSpace(urn))
+	if err != nil {
+		return nil, fmt.Errorf("reading datahub glossary parent chain: %w", err)
+	}
+	return a.glossaryNodes(chain), nil
+}
+
+// glossaryNodes maps upstream nodes to the sanitized semantic shape, preserving
+// the parent URN and the backend's own child tallies.
+func (a *Adapter) glossaryNodes(nodes []types.GlossaryNode) []semantic.GlossaryNode {
+	out := make([]semantic.GlossaryNode, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, semantic.GlossaryNode{
+			URN:         n.URN,
+			Name:        a.sanitizer.SanitizeString(n.Name),
+			Description: a.sanitizer.SanitizeDescription(n.Description),
+			ParentNode:  n.ParentNode,
+			TermsCount:  n.TermsCount,
+			NodesCount:  n.NodesCount,
+		})
+	}
+	return out
+}
+
+// glossaryTerms maps upstream terms to the sanitized semantic shape.
+func (a *Adapter) glossaryTerms(terms []types.GlossaryTerm) []semantic.GlossaryTerm {
+	out := make([]semantic.GlossaryTerm, 0, len(terms))
+	for _, t := range terms {
+		out = append(out, semantic.GlossaryTerm{
+			URN:         t.URN,
+			Name:        a.sanitizer.SanitizeString(t.Name),
+			Description: a.sanitizer.SanitizeDescription(t.Description),
+		})
+	}
+	return out
+}
+
+// clampGlossaryOffset floors a page offset at zero so a negative offset does not
+// reach DataHub as a negative start.
+func clampGlossaryOffset(offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	return offset
 }
 
 // convertTagRefs maps an entity's tags to URN + display-name refs for the catalog
