@@ -41,6 +41,8 @@ When `store: database` is set:
 
 Clients see no change. The `Mcp-Session-Id` header works transparently.
 
+Session termination is served by the same handler: `DELETE /` with an `Mcp-Session-Id` removes the row and answers `204 No Content`, and a `DELETE` without that header is a `400`. The request is not forwarded to the SDK, whose stateless handler serves `POST` only and would answer `405 Method Not Allowed` for a termination that had already succeeded.
+
 ## Configuration
 
 ```yaml
