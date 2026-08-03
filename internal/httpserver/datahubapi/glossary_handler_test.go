@@ -91,15 +91,27 @@ func TestGlossaryRoots_EmptyTree(t *testing.T) {
 }
 
 // TestGlossaryRoots_LegFailure proves the concurrent roots read fails the whole
-// request when either leg fails: a partial tree reported as complete would read
-// as "the glossary has no terms".
+// request when either leg fails on its own. A partial tree reported as complete
+// would read as "the glossary has no terms" (or no nodes), which is worse than
+// an error: the caller cannot tell it from an empty glossary.
 func TestGlossaryRoots_LegFailure(t *testing.T) {
-	backend := glossaryBackend()
-	backend.rootTermsErr = errors.New("datahub down")
-	h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
-	rec := serve(h, viewer, "GET", glossaryBase+"/roots", "")
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadGateway, rec.Body.String())
+	tests := []struct {
+		name string
+		fail func(*fakeDataHub)
+	}{
+		{"nodes leg fails", func(f *fakeDataHub) { f.rootNodesErr = errors.New("datahub down") }},
+		{"terms leg fails", func(f *fakeDataHub) { f.rootTermsErr = errors.New("datahub down") }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backend := glossaryBackend()
+			tt.fail(backend)
+			h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
+			rec := serve(h, viewer, "GET", glossaryBase+"/roots", "")
+			if rec.Code != http.StatusBadGateway {
+				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadGateway, rec.Body.String())
+			}
+		})
 	}
 }
 
@@ -151,6 +163,28 @@ func TestGlossaryChildren_EmptyLeaf(t *testing.T) {
 	}
 	if page.Nodes != nil || page.Terms != nil {
 		t.Errorf("handler mutated the reader's page: %+v", page)
+	}
+}
+
+// TestGlossaryChildren_NilPage covers the defensive branch for a reader that
+// reports neither a page nor an error: the handler answers with an empty page
+// rather than dereferencing nil.
+func TestGlossaryChildren_NilPage(t *testing.T) {
+	const leaf = "urn:li:glossaryNode:nilpage"
+	backend := glossaryBackend()
+	backend.children[leaf] = nil
+	h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
+
+	rec := serve(h, viewer, "GET", glossaryBase+"/children?urn="+leaf, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var got semantic.GlossaryChildren
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf(glossaryDecodeError, err)
+	}
+	if len(got.Nodes) != 0 || len(got.Terms) != 0 || got.Total != 0 {
+		t.Errorf("nil page = %+v, want an empty page", got)
 	}
 }
 

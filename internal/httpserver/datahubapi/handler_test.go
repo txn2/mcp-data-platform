@@ -44,10 +44,12 @@ type fakeDataHub struct {
 	columnsErr   error
 	calls        []string
 
-	// Glossary hierarchy (#1155). rootTermsErr fails only the root-terms leg so
-	// the concurrent roots read can be tested one leg at a time.
+	// Glossary hierarchy (#1155). rootNodesErr and rootTermsErr fail one leg of
+	// the concurrent roots read each, so either leg's failure can be tested on
+	// its own rather than only the both-fail case.
 	rootNodes    []semantic.GlossaryNode
 	rootTerms    []semantic.GlossaryTerm
+	rootNodesErr error
 	rootTermsErr error
 	children     map[string]*semantic.GlossaryChildren
 	parents      map[string][]semantic.GlossaryNode
@@ -120,6 +122,9 @@ func (f *fakeDataHub) ListDomains(_ context.Context) ([]semantic.EntityRef, erro
 // against the behavior the real backend has.
 
 func (f *fakeDataHub) ListRootGlossaryNodes(_ context.Context, _, _ int) ([]semantic.GlossaryNode, int, error) {
+	if f.rootNodesErr != nil {
+		return nil, 0, f.rootNodesErr
+	}
 	if f.readErr != nil {
 		return nil, 0, f.readErr
 	}
