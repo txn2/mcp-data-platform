@@ -80,6 +80,14 @@ type Writer interface {
 	// parentNode or at the root when it is empty, returning the new node's URN
 	// (#1155).
 	CreateGlossaryNode(ctx context.Context, name, definition, parentNode string) (string, error)
+	// CreateTag defines a new tag and returns its URN (#1156). Editing a tag's
+	// description is UpdateDescription with the tag's URN, which is why there is
+	// no tag-specific update here.
+	CreateTag(ctx context.Context, name, description string) (string, error)
+	// DeleteTag removes a tag definition. Nothing here checks what still carries
+	// the tag, which is why the portal shows a tag's current usage before
+	// offering the delete.
+	DeleteTag(ctx context.Context, tagURN string) error
 	UpsertContextDocument(ctx context.Context, in DocumentInput) (*semantic.DocumentResult, error)
 	DeleteContextDocument(ctx context.Context, documentID string) error
 }
@@ -220,6 +228,23 @@ func (cw clientWriter) CreateGlossaryNode(ctx context.Context, name, definition,
 		return "", fmt.Errorf(errWriter, err)
 	}
 	return urn, nil
+}
+
+// CreateTag creates a tag definition and returns its URN.
+func (cw clientWriter) CreateTag(ctx context.Context, name, description string) (string, error) {
+	urn, err := cw.w.CreateTag(ctx, name, description)
+	if err != nil {
+		return "", fmt.Errorf(errWriter, err)
+	}
+	return urn, nil
+}
+
+// DeleteTag removes a tag definition.
+func (cw clientWriter) DeleteTag(ctx context.Context, tagURN string) error {
+	if err := cw.w.DeleteTag(ctx, tagURN); err != nil {
+		return fmt.Errorf(errWriter, err)
+	}
+	return nil
 }
 
 // UpsertContextDocument creates or updates a context document.

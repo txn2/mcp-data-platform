@@ -6,6 +6,7 @@ import { entityHref } from "@/lib/entityRefs";
 import { KnowledgePagesPage } from "@/pages/knowledge-pages/KnowledgePagesPage";
 import { CatalogTab } from "@/pages/knowledge/CatalogTab";
 import { ContextDocsTab } from "@/pages/knowledge/ContextDocsTab";
+import { TagsTab } from "@/pages/knowledge/TagsTab";
 import { useDataHubConnections } from "@/api/portal/datahub";
 import {
   MyKnowledgeSection,
@@ -36,7 +37,7 @@ const TABS: { key: Tab; label: string }[] = [
 // The Knowledge tab is itself split into sub-tabs so federated search, the page
 // browse, the DataHub catalog, context docs, and changesets each get their own
 // space and explanation rather than stacking on one screen.
-type KnowledgeSubTab = "search" | "pages" | "catalog" | "context_docs" | "changesets";
+type KnowledgeSubTab = "search" | "pages" | "catalog" | "tags" | "context_docs" | "changesets";
 
 // subRoutePath maps the URL-addressable sub-tabs (#709, #719, #720) to their
 // first-class routes. Sub-tabs not listed here live in-page under /knowledge and
@@ -44,12 +45,80 @@ type KnowledgeSubTab = "search" | "pages" | "catalog" | "context_docs" | "change
 const subRoutePath: Partial<Record<KnowledgeSubTab, string>> = {
   pages: "/knowledge/pages",
   catalog: "/knowledge/catalog",
+  tags: "/knowledge/tags",
   context_docs: "/knowledge/context-docs",
 };
 
 // DH_CONN_STORAGE_KEY persists the selected DataHub connection across the remount
 // that a Catalog<->Context Docs route switch triggers, and across refreshes.
 const DH_CONN_STORAGE_KEY = "mcp-portal-datahub-conn";
+
+// SubTabMeta is one Knowledge sub-tab: its key, its label, and the explanation
+// shown under the tab bar.
+interface SubTabMeta {
+  key: KnowledgeSubTab;
+  label: string;
+  description: string;
+}
+
+// knowledgeSubTabsFor lists the Knowledge sub-tabs available to this reader: the
+// DataHub tabs only where a DataHub connection exists, and Changesets only for a
+// reviewer (it is the apply audit). It sits outside the component because it is
+// a pure function of those two capabilities.
+function knowledgeSubTabsFor({
+  hasDataHub,
+  canApply,
+}: {
+  hasDataHub: boolean;
+  canApply: boolean;
+}): SubTabMeta[] {
+  return [
+    {
+      key: "search",
+      label: "Search All",
+      description:
+        "The same discovery your agent uses to find what the platform already knows, surfaced here for you to audit, review, and reference. One query fans across every source it can access (the DataHub catalog, knowledge pages, memory, captured insights, saved assets, prompts, API endpoints, and connections), grouped by source. It ranks semantically when an embedding provider is configured and falls back to keyword search otherwise.",
+    },
+    {
+      key: "pages",
+      label: "Knowledge Pages",
+      description:
+        "Canonical business and domain knowledge, written as markdown and stored in the portal. Pages are one of the two knowledge sinks; technical and entity knowledge lives in the DataHub catalog instead. Holders of apply_knowledge can create, edit, and remove pages.",
+    },
+    ...(hasDataHub
+      ? [
+          {
+            key: "catalog" as const,
+            label: "Catalog",
+            description:
+              "The DataHub catalog: datasets and their metadata (description, tags, owners, glossary terms, domain, and columns). Browse or search a connection, open an entity, and edit its metadata when your persona grants datahub_update and the connection is writable. Datasets originate in source systems, so this is metadata editing, not dataset create/delete.",
+          },
+          {
+            key: "tags" as const,
+            label: "Tags",
+            description:
+              "The DataHub tag vocabulary itself, rather than the tags carried by one dataset. Browse or filter the tags on a connection, open one to see what it means and which datasets carry it, and create, describe, or retire a tag when your persona grants the matching datahub tool and the connection is writable.",
+          },
+          {
+            key: "context_docs" as const,
+            label: "Context Docs",
+            description:
+              "DataHub context documents: markdown notes attached to a dataset, glossary term, glossary node, or container. Browse or search a connection and manage documents with full create, edit, and delete when your persona grants the matching datahub tool and the connection is writable.",
+          },
+        ]
+      : []),
+    ...(canApply
+      ? [
+          {
+            key: "changesets" as const,
+            label: "Changesets",
+            description:
+              "The record of insights promoted into knowledge: the catalog and knowledge-page changes applied when your agent runs apply_knowledge. Roll back a changeset to undo its writes.",
+          },
+        ]
+      : []),
+  ];
+}
 
 /**
  * KnowledgeHub is the single home for the Memory to Insight to Knowledge
@@ -136,51 +205,7 @@ export function KnowledgeHub({
   const insightStats = useInsightStats({ enabled: isAdmin });
   const pendingReviews = isAdmin ? (insightStats.data?.total_pending ?? 0) : 0;
 
-  // Knowledge sub-tabs. Changesets is reviewer-only (it is the apply audit).
-  const knowledgeSubTabs: {
-    key: KnowledgeSubTab;
-    label: string;
-    description: string;
-  }[] = [
-    {
-      key: "search",
-      label: "Search All",
-      description:
-        "The same discovery your agent uses to find what the platform already knows, surfaced here for you to audit, review, and reference. One query fans across every source it can access (the DataHub catalog, knowledge pages, memory, captured insights, saved assets, prompts, API endpoints, and connections), grouped by source. It ranks semantically when an embedding provider is configured and falls back to keyword search otherwise.",
-    },
-    {
-      key: "pages",
-      label: "Knowledge Pages",
-      description:
-        "Canonical business and domain knowledge, written as markdown and stored in the portal. Pages are one of the two knowledge sinks; technical and entity knowledge lives in the DataHub catalog instead. Holders of apply_knowledge can create, edit, and remove pages.",
-    },
-    ...(hasDataHub
-      ? [
-          {
-            key: "catalog" as const,
-            label: "Catalog",
-            description:
-              "The DataHub catalog: datasets and their metadata (description, tags, owners, glossary terms, domain, and columns). Browse or search a connection, open an entity, and edit its metadata when your persona grants datahub_update and the connection is writable. Datasets originate in source systems, so this is metadata editing, not dataset create/delete.",
-          },
-          {
-            key: "context_docs" as const,
-            label: "Context Docs",
-            description:
-              "DataHub context documents: markdown notes attached to a dataset, glossary term, glossary node, or container. Browse or search a connection and manage documents with full create, edit, and delete when your persona grants the matching datahub tool and the connection is writable.",
-          },
-        ]
-      : []),
-    ...(canApply
-      ? [
-          {
-            key: "changesets" as const,
-            label: "Changesets",
-            description:
-              "The record of insights promoted into knowledge: the catalog and knowledge-page changes applied when your agent runs apply_knowledge. Roll back a changeset to undo its writes.",
-          },
-        ]
-      : []),
-  ];
+  const knowledgeSubTabs = knowledgeSubTabsFor({ hasDataHub, canApply });
   // A routed sub-tab is selected by the URL; the others by in-page state. Honor
   // the routed sub-tab only when it is actually available (e.g. a deep-link to
   // /knowledge/catalog on a deployment with no DataHub connections falls back to
@@ -341,6 +366,9 @@ export function KnowledgeHub({
             <KnowledgePagesPage openPageId={initialPageId} onNavigate={onNavigate} />
           )}
           {activeSub === "catalog" && <CatalogTab conn={dhConn} onConnChange={setDhConn} />}
+          {activeSub === "tags" && (
+            <TagsTab conn={dhConn} onConnChange={setDhConn} onNavigate={onNavigate} />
+          )}
           {activeSub === "context_docs" && (
             <ContextDocsTab conn={dhConn} onConnChange={setDhConn} />
           )}

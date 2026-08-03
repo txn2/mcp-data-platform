@@ -234,14 +234,17 @@ export function AppShell() {
   // DataHub Catalog and Context Docs sub-tab routes (#719/#720), first-class like
   // /knowledge/pages so they deep-link and survive refresh.
   const catalogRoute = route === "/knowledge/catalog";
+  const tagsRoute = route === "/knowledge/tags";
   const contextDocsRoute = route === "/knowledge/context-docs";
   const knowledgeRouteSub = knowledgePagesList || knowledgePageMatch
     ? "pages"
     : catalogRoute
       ? "catalog"
-      : contextDocsRoute
-        ? "context_docs"
-        : undefined;
+      : tagsRoute
+        ? "tags"
+        : contextDocsRoute
+          ? "context_docs"
+          : undefined;
   // Collection routes: /collections/:id and /collections/:id/edit
   const collectionEditMatch = route.match(/^\/collections\/([^/]+)\/edit$/);
   const collectionViewMatch = !collectionEditMatch && !collectionAssetMatch
@@ -258,7 +261,7 @@ export function AppShell() {
           ? "Collection"
           : promptViewMatch
             ? "Prompt"
-            : knowledgePagesList || knowledgePageMatch || catalogRoute || contextDocsRoute
+            : knowledgePagesList || knowledgePageMatch || catalogRoute || tagsRoute || contextDocsRoute
               ? "Knowledge"
               : (pageTitles[route] ?? "Assets");
 
@@ -337,6 +340,7 @@ export function AppShell() {
               knowledgePagesList ||
               knowledgePageMatch ||
               catalogRoute ||
+              tagsRoute ||
               contextDocsRoute) && (
               <KnowledgeHub
                 key={currentPath}

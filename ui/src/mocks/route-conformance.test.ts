@@ -51,7 +51,7 @@ function key(method: string, normalizedPath: string): string {
 // proven by the cited Go source; the test rejects an allowlist entry that no
 // mock actually emits, so this list cannot silently rot.
 const ALLOWLIST = new Set<string>([
-  // pkg/portal/datahubapi/handler.go RegisterRoutes (portal DataHub proxy mux).
+  // internal/httpserver/datahubapi/handler.go Register (portal DataHub proxy mux).
   "GET /portal/datahub/connections",
   "GET /portal/datahub/{}/catalog/browse",
   "GET /portal/datahub/{}/catalog/search",
@@ -59,6 +59,8 @@ const ALLOWLIST = new Set<string>([
   "GET /portal/datahub/{}/catalog/lookup/tags",
   "GET /portal/datahub/{}/catalog/lookup/glossary-terms",
   "GET /portal/datahub/{}/catalog/lookup/domains",
+  "POST /portal/datahub/{}/catalog/tags",
+  "DELETE /portal/datahub/{}/catalog/tags",
   "PUT /portal/datahub/{}/catalog/entity/description",
   "PUT /portal/datahub/{}/catalog/entity/tags",
   "PUT /portal/datahub/{}/catalog/entity/owners",

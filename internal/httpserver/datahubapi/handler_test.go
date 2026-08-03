@@ -55,6 +55,10 @@ type fakeDataHub struct {
 	parents      map[string][]semantic.GlossaryNode
 	childrenPage [2]int
 	createdNode  glossaryNodeRequest
+
+	// Tag governance (#1156).
+	createdTag tagRequest
+	deletedTag string
 }
 
 func newFakeDataHub() *fakeDataHub {
@@ -171,6 +175,30 @@ func (f *fakeDataHub) CreateGlossaryNode(_ context.Context, name, definition, pa
 	}
 	f.createdNode = glossaryNodeRequest{Name: name, Definition: definition, ParentNode: parentNode}
 	return "urn:li:glossaryNode:" + name, nil
+}
+
+// --- tags (#1156) ---
+
+func (f *fakeDataHub) CreateTag(_ context.Context, name, description string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "CreateTag")
+	if f.writeErr != nil {
+		return "", f.writeErr
+	}
+	f.createdTag = tagRequest{Name: name, Description: description}
+	return "urn:li:tag:" + name, nil
+}
+
+func (f *fakeDataHub) DeleteTag(_ context.Context, tagURN string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "DeleteTag")
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	f.deletedTag = tagURN
+	return nil
 }
 
 func (f *fakeDataHub) SearchDocuments(_ context.Context, _ string, _ int) ([]semantic.DocumentResult, error) {

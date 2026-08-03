@@ -1527,6 +1527,53 @@ func TestDataHubClientWriter_CreateGlossaryNode_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "creating glossary node Finance")
 }
 
+// TestDataHubClientWriter_CreateTag proves the create reaches DataHub with the
+// tag's name and description and returns the URN DataHub assigned (#1156).
+func TestDataHubClientWriter_CreateTag(t *testing.T) {
+	var gotInput map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables struct {
+				Input map[string]any `json:"input"`
+			} `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		gotInput = req.Variables.Input
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"createTag": "urn:li:tag:certified"}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateTag(context.Background(), "certified", "reviewed by the data team")
+
+	require.NoError(t, err)
+	assert.Equal(t, "urn:li:tag:certified", urn)
+	assert.Equal(t, "certified", gotInput["name"])
+	assert.Equal(t, "reviewed by the data team", gotInput["description"])
+}
+
+// TestDataHubClientWriter_CreateTag_Error confirms a backend refusal surfaces as
+// an error naming the tag, not an empty URN and a nil error.
+func TestDataHubClientWriter_CreateTag_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Errors: []any{map[string]any{"message": "permission denied"}},
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateTag(context.Background(), "certified", "")
+
+	assert.Error(t, err)
+	assert.Empty(t, urn)
+	assert.Contains(t, err.Error(), "creating tag certified")
+}
+
 func TestDataHubClientWriter_CreateCuratedQuery_Error(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

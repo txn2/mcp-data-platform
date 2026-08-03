@@ -123,6 +123,8 @@ const keys = {
     ["datahub", conn, "catalog", "search", q, limit] as const,
   entity: (conn: string, urn: string) => ["datahub", conn, "catalog", "entity", urn] as const,
   lookupTags: (conn: string, q: string) => ["datahub", conn, "catalog", "lookup", "tags", q] as const,
+  tagList: (conn: string, q: string) => ["datahub", conn, "catalog", "tags", q] as const,
+  tagUsage: (conn: string, urn: string) => ["datahub", conn, "catalog", "tags", "usage", urn] as const,
   lookupGlossary: (conn: string, q: string) =>
     ["datahub", conn, "catalog", "lookup", "glossary", q] as const,
   lookupDomains: (conn: string) => ["datahub", conn, "catalog", "lookup", "domains"] as const,
@@ -232,6 +234,86 @@ export function useDomainLookup(conn: string, enabled: boolean) {
       apiFetch<{ results: EntityRef[] }>(`${base(conn)}/catalog/lookup/domains`).then(
         (r) => r.results ?? [],
       ),
+  });
+}
+
+// --- tag governance (#1156) ---
+
+// TAG_LIST_LIMIT is the page the Tags surface asks for. It is the largest page
+// the read actually returns: the DataHub adapter clamps a ref lookup to
+// maxRefLimit (pkg/semantic/datahub/adapter.go), so asking for more would report
+// a page size the server never honours. A full page means there may be more, and
+// the surface says so rather than presenting a truncated list as complete.
+export const TAG_LIST_LIMIT = 100;
+
+// useTagList lists the tags on a connection for the Tags surface, optionally
+// name-filtered. It shares the picker's lookup route (the backend read is the
+// same one) but not its query key or its minimum-length gate: the management
+// list renders every tag before anything is typed.
+export function useTagList(conn: string, query: string) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: keys.tagList(conn, q),
+    enabled: !!conn,
+    queryFn: () =>
+      apiFetch<{ results: EntityRef[] }>(
+        `${base(conn)}/catalog/lookup/tags?q=${enc(q)}&limit=${TAG_LIST_LIMIT}`,
+      ).then((r) => r.results ?? []),
+  });
+}
+
+// useTagUsage lists the datasets carrying a tag, through the catalog search's
+// tags filter (the adapter maps it to DataHub's `tags` filter field). The query
+// is "*" because the filter, not the text, selects the rows.
+export function useTagUsage(conn: string, urn: string | null) {
+  return useQuery({
+    queryKey: keys.tagUsage(conn, urn ?? ""),
+    enabled: !!conn && !!urn,
+    queryFn: () =>
+      apiFetch<{ results: TableSearchResult[] }>(
+        `${base(conn)}/catalog/search?q=*&tags=${enc(urn!)}&limit=${TAG_LIST_LIMIT}`,
+      ).then((r) => r.results ?? []),
+  });
+}
+
+// useInvalidateTags drops every cached catalog read for the connection. The tag
+// list, the pickers, and each entity's tag chips all read tag state, so a tag
+// definition change has to reach all of them.
+function useInvalidateTags(conn: string) {
+  const qc = useQueryClient();
+  return () => void qc.invalidateQueries({ queryKey: ["datahub", conn, "catalog"] });
+}
+
+// useCreateTag defines a new tag. DataHub indexes tags asynchronously, so the
+// tag may not appear in a re-listed page immediately; the returned URN is
+// authoritative in the meantime.
+export function useCreateTag(conn: string) {
+  const invalidate = useInvalidateTags(conn);
+  return useMutation({
+    mutationFn: (v: { name: string; description?: string }) =>
+      apiFetch<{ urn: string }>(`${base(conn)}/catalog/tags`, {
+        method: "POST",
+        body: JSON.stringify(v),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeleteTag(conn: string) {
+  const invalidate = useInvalidateTags(conn);
+  return useMutation({
+    // apiFetchRaw resolves the Response on any status, so a rejected DELETE must
+    // be turned into a thrown error here or the mutation would report success.
+    mutationFn: async (urn: string) => {
+      const res = await apiFetchRaw(`${base(conn)}/catalog/tags?urn=${enc(urn)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new ApiError(res.status, body.detail || res.statusText, body);
+      }
+    },
+    onSuccess: () => invalidate(),
   });
 }
 

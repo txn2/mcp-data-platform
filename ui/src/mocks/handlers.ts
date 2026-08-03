@@ -29,6 +29,8 @@ import {
   catalogSearch,
   catalogEntity,
   lookupTags,
+  createTag,
+  deleteTag,
   lookupGlossaryTerms,
   lookupDomains,
   applyCatalogChange,
@@ -962,8 +964,12 @@ export const handlers = [
     HttpResponse.json({ results: catalogBrowse() }),
   ),
   http.get(`${PORTAL_BASE}/datahub/:conn/catalog/search`, ({ request }) => {
-    const q = new URL(request.url).searchParams.get("q") ?? "";
-    return HttpResponse.json({ results: catalogSearch(q) });
+    const params = new URL(request.url).searchParams;
+    const q = params.get("q") ?? "";
+    // The backend accepts `tags` repeated or comma-separated; the Tags surface
+    // sends one tag URN to list what carries it (#1156).
+    const tags = params.getAll("tags").flatMap((v) => v.split(",")).filter(Boolean);
+    return HttpResponse.json({ results: catalogSearch(q, tags) });
   }),
   http.get(`${PORTAL_BASE}/datahub/:conn/catalog/entity`, ({ request }) => {
     const u = new URL(request.url).searchParams.get("urn") ?? "";
@@ -994,6 +1000,22 @@ export const handlers = [
       return HttpResponse.json({ status: "ok" });
     }),
   ),
+  // Tag governance (#1156): the list read is the picker's lookup route above.
+  http.post(`${PORTAL_BASE}/datahub/:conn/catalog/tags`, async ({ request }) => {
+    const body = (await request.json()) as { name?: string; description?: string };
+    const name = (body.name ?? "").trim();
+    if (!name) return HttpResponse.json({ detail: "name is required" }, { status: 400 });
+    return HttpResponse.json({ urn: createTag(name, body.description) }, { status: 201 });
+  }),
+  http.delete(`${PORTAL_BASE}/datahub/:conn/catalog/tags`, ({ request }) => {
+    const tagUrn = new URL(request.url).searchParams.get("urn") ?? "";
+    if (!tagUrn.startsWith("urn:li:tag:") || tagUrn === "urn:li:tag:") {
+      return HttpResponse.json({ detail: `invalid urn: ${tagUrn}` }, { status: 400 });
+    }
+    return deleteTag(tagUrn)
+      ? HttpResponse.json({ status: "deleted" })
+      : HttpResponse.json({ detail: "tag delete failed" }, { status: 502 });
+  }),
   http.get(`${PORTAL_BASE}/datahub/:conn/documents/browse`, () => HttpResponse.json(docsBrowse())),
   http.get(`${PORTAL_BASE}/datahub/:conn/documents/search`, ({ request }) => {
     const q = new URL(request.url).searchParams.get("q") ?? "";
