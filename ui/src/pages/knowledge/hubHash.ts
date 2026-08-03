@@ -33,3 +33,32 @@ export function normalizeInsightSub(raw?: string): InsightSubTab {
 export function insightSubHash(sub: InsightSubTab): string {
   return sub === "review" ? REVIEW_HASH : "insights";
 }
+
+// The Catalog section's inner tabs (#1194). Catalog is one route holding every
+// DataHub-backed surface, so the surface within it is carried in the hash the
+// same way the top tabs are: /knowledge/catalog#tags re-opens the tag
+// vocabulary, and /knowledge/catalog?urn=...  still opens that entity on Tables.
+export type CatalogSubTab = "tables" | "context_docs" | "tags";
+
+// catalogSubHashes spells each inner tab for a URL. The type members are
+// identifiers, so context_docs cannot carry the hyphen the URL wants.
+const catalogSubHashes: Record<CatalogSubTab, string> = {
+  tables: "tables",
+  context_docs: "context-docs",
+  tags: "tags",
+};
+
+// normalizeCatalogSub picks the Catalog inner tab a hash addresses, defaulting
+// to Tables for anything unrecognized (including no hash at all, which is what
+// a bare /knowledge/catalog and every ?urn= deep link arrive with).
+export function normalizeCatalogSub(raw?: string): CatalogSubTab {
+  for (const [sub, hash] of Object.entries(catalogSubHashes)) {
+    if (raw === hash) return sub as CatalogSubTab;
+  }
+  return "tables";
+}
+
+// catalogSubHash is the hash that re-opens the given Catalog inner tab.
+export function catalogSubHash(sub: CatalogSubTab): string {
+  return catalogSubHashes[sub];
+}

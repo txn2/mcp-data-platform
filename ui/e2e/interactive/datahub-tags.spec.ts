@@ -1,14 +1,16 @@
 import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
 
-// Interactive coverage for the Knowledge > Tags sub-tab (#1156): list and filter
-// the tag vocabulary, open a tag to see what carries it, and create, describe,
-// and retire one. Runs against MSW, whose /portal/me returns an admin so the
-// write controls are visible and whose "primary" connection is writable.
+// Interactive coverage for the Tags tab of the Catalog section (#1156, #1194):
+// list and filter the tag vocabulary, open a tag to see what carries it, and
+// create, describe, and retire one. Runs against MSW, whose /portal/me returns
+// an admin so the write controls are visible and whose "primary" connection is
+// writable.
 
 async function gotoTags(page: Page): Promise<void> {
   await authenticate(page);
-  await page.goto("/portal/knowledge/tags");
+  // Tags is an inner tab of the one Catalog route, addressed in the hash.
+  await page.goto("/portal/knowledge/catalog#tags");
   await expect(page.getByLabel("DataHub connection")).toBeVisible();
 }
 
@@ -29,7 +31,7 @@ test.describe("DataHub Tags", () => {
     await expect(page.getByRole("button", { name: /certified/ })).toHaveCount(0);
   });
 
-  test("opens a tag and lists the datasets carrying it", async ({ page }) => {
+  test("opens a tag and lists the tables carrying it", async ({ page }) => {
     await page.getByRole("button", { name: /^pii/ }).click();
     await expect(page.getByRole("heading", { name: /pii/ })).toBeVisible();
     await expect(page.getByText("urn:li:tag:pii")).toBeVisible();
@@ -67,7 +69,7 @@ test.describe("DataHub Tags", () => {
     await page.getByRole("button", { name: /^finance/ }).click();
     await page.getByRole("button", { name: "Delete tag" }).click();
     // The confirmation states the blast radius: daily_sales carries finance.
-    await expect(page.getByText(/1 dataset in this connection carries this tag/)).toBeVisible();
+    await expect(page.getByText(/1 table in this connection carries this tag/)).toBeVisible();
     await page.getByRole("button", { name: "Confirm delete" }).click();
     // Deleting returns to the list, without the retired tag.
     await expect(page.getByPlaceholder(/Filter tags by name/)).toBeVisible();

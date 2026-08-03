@@ -1,12 +1,10 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useInsightStats } from "@/api/admin/hooks";
 import { useAuthStore } from "@/stores/auth";
 import type { SearchHit } from "@/api/portal/types";
 import { entityHref } from "@/lib/entityRefs";
 import { KnowledgePagesPage } from "@/pages/knowledge-pages/KnowledgePagesPage";
-import { CatalogTab } from "@/pages/knowledge/CatalogTab";
-import { ContextDocsTab } from "@/pages/knowledge/ContextDocsTab";
-import { TagsTab } from "@/pages/knowledge/TagsTab";
+import { CatalogSection } from "@/pages/knowledge/CatalogSection";
 import { useDataHubConnections } from "@/api/portal/datahub";
 import {
   MyKnowledgeSection,
@@ -35,23 +33,19 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 // The Knowledge tab is itself split into sub-tabs so federated search, the page
-// browse, the DataHub catalog, context docs, and changesets each get their own
-// space and explanation rather than stacking on one screen.
-type KnowledgeSubTab = "search" | "pages" | "catalog" | "tags" | "context_docs" | "changesets";
+// browse, the catalog, and changesets each get their own space and explanation
+// rather than stacking on one screen. The row stops at four because every
+// DataHub-backed surface lives inside Catalog (#1194); anything the portal's own
+// database backs stays outside it.
+type KnowledgeSubTab = "search" | "pages" | "catalog" | "changesets";
 
-// subRoutePath maps the URL-addressable sub-tabs (#709, #719, #720) to their
+// subRoutePath maps the URL-addressable sub-tabs (#709, #719) to their
 // first-class routes. Sub-tabs not listed here live in-page under /knowledge and
 // are carried in the URL hash instead.
 const subRoutePath: Partial<Record<KnowledgeSubTab, string>> = {
   pages: "/knowledge/pages",
   catalog: "/knowledge/catalog",
-  tags: "/knowledge/tags",
-  context_docs: "/knowledge/context-docs",
 };
-
-// DH_CONN_STORAGE_KEY persists the selected DataHub connection across the remount
-// that a Catalog<->Context Docs route switch triggers, and across refreshes.
-const DH_CONN_STORAGE_KEY = "mcp-portal-datahub-conn";
 
 // SubTabMeta is one Knowledge sub-tab: its key, its label, and the explanation
 // shown under the tab bar.
@@ -61,8 +55,8 @@ interface SubTabMeta {
   description: string;
 }
 
-// knowledgeSubTabsFor lists the Knowledge sub-tabs available to this reader: the
-// DataHub tabs only where a DataHub connection exists, and Changesets only for a
+// knowledgeSubTabsFor lists the Knowledge sub-tabs available to this reader:
+// Catalog only where a DataHub connection exists, and Changesets only for a
 // reviewer (it is the apply audit). It sits outside the component because it is
 // a pure function of those two capabilities.
 function knowledgeSubTabsFor({
@@ -91,19 +85,7 @@ function knowledgeSubTabsFor({
             key: "catalog" as const,
             label: "Catalog",
             description:
-              "The DataHub catalog: datasets and their metadata (description, tags, owners, glossary terms, domain, and columns). Browse or search a connection, open an entity, and edit its metadata when your persona grants datahub_update and the connection is writable. Datasets originate in source systems, so this is metadata editing, not dataset create/delete.",
-          },
-          {
-            key: "tags" as const,
-            label: "Tags",
-            description:
-              "The DataHub tag vocabulary itself, rather than the tags carried by one dataset. Browse or filter the tags on a connection, open one to see what it means and which datasets carry it, and create, describe, or retire a tag when your persona grants the matching datahub tool and the connection is writable.",
-          },
-          {
-            key: "context_docs" as const,
-            label: "Context Docs",
-            description:
-              "DataHub context documents: markdown notes attached to a dataset, glossary term, glossary node, or container. Browse or search a connection and manage documents with full create, edit, and delete when your persona grants the matching datahub tool and the connection is writable.",
+              "Your data catalog, and the second of the two knowledge sinks: the tables it holds, the context documents attached to them, and the tag vocabulary that describes them. Pick a connection once and it applies across the whole section.",
           },
         ]
       : []),
@@ -125,9 +107,9 @@ function knowledgeSubTabsFor({
  * lifecycle (#661). It merges the former /knowledge-pages, /my-knowledge, and
  * /admin/knowledge surfaces into three capability-gated tabs:
  *
- *   - Knowledge (default): three sub-tabs - Search All (federated search),
- *     Knowledge Pages (browse internal pages), and Changesets (apply audit,
- *     reviewer-only).
+ *   - Knowledge (default): four sub-tabs - Search All (federated search),
+ *     Knowledge Pages (browse internal pages), Catalog (every DataHub-backed
+ *     surface, #1194), and Changesets (apply audit, reviewer-only).
  *   - Insights: your captured insights, and for apply_knowledge holders the
  *     full review queue and changesets.
  *   - Memory: your raw memory substrate classified by sink_class, and for
@@ -145,10 +127,9 @@ export function KnowledgeHub({
   initialTab?: string;
   // The knowledge page open in detail, from the /knowledge/pages/:id route (#709).
   initialPageId?: string;
-  // The sub-tab pinned by a first-class route (#709, #719, #720): "pages" for
-  // /knowledge/pages, "catalog" for /knowledge/catalog, "context_docs" for
-  // /knowledge/context-docs. Undefined under the bare /knowledge route, where the
-  // sub-tab comes from in-page state / the URL hash.
+  // The sub-tab pinned by a first-class route (#709, #719): "pages" for
+  // /knowledge/pages, "catalog" for /knowledge/catalog. Undefined under the bare
+  // /knowledge route, where the sub-tab comes from in-page state / the URL hash.
   routeSub?: KnowledgeSubTab;
   onNavigate?: (path: string) => void;
 }) {
@@ -157,28 +138,9 @@ export function KnowledgeHub({
   // knowledgeSub, which only ever holds the in-page sub-tabs (search/changesets).
   const onRoute = routeSub != null;
   const [tab, setTab] = useState<Tab>(() => (onRoute ? "knowledge" : normalizeTab(initialTab)));
-  // Shared DataHub connection for the Catalog and Context Docs tabs. Those are
-  // distinct routes, so AppShell remounts this component when switching between
-  // them; the selection is persisted to localStorage so it survives the remount
-  // (and a refresh) instead of silently resetting to the first connection.
-  const [dhConn, setDhConnState] = useState(() => {
-    try {
-      return localStorage.getItem(DH_CONN_STORAGE_KEY) ?? "";
-    } catch {
-      return "";
-    }
-  });
-  const setDhConn = useCallback((c: string) => {
-    setDhConnState(c);
-    try {
-      localStorage.setItem(DH_CONN_STORAGE_KEY, c);
-    } catch {
-      /* storage unavailable (private mode); in-memory value still applies */
-    }
-  }, []);
-  // DataHub connections gate the Catalog/Context Docs sub-tabs: on a deployment
-  // with no DataHub configured the query returns [], so those tabs are hidden
-  // rather than rendering an empty, non-functional body.
+  // DataHub connections gate the Catalog sub-tab: on a deployment with no
+  // DataHub configured the query returns [], so the tab is hidden rather than
+  // rendering an empty, non-functional body.
   const hasDataHub = (useDataHubConnections().data?.length ?? 0) > 0;
   // The pages sub-tab is URL-driven (a /knowledge/pages route); the in-page sub-tabs
   // can be carried in the hash (e.g. /knowledge#changesets) so leaving the pages
@@ -272,11 +234,11 @@ export function KnowledgeHub({
     window.history.replaceState(null, "", `#${insightSubHash(next)}`);
   };
 
-  // Pages, Catalog, and Context Docs are URL-addressable sub-tabs (#709/#719/#720):
-  // selecting one routes to its path so deep-links and browser back/forward work.
-  // The other sub-tabs (search, changesets) are in-page state under the bare
-  // /knowledge route, carried in the hash so leaving a routed sub-tab for one
-  // opens it in a single click.
+  // Pages and Catalog are URL-addressable sub-tabs (#709/#719): selecting one
+  // routes to its path so deep-links and browser back/forward work. The other
+  // sub-tabs (search, changesets) are in-page state under the bare /knowledge
+  // route, carried in the hash so leaving a routed sub-tab for one opens it in a
+  // single click.
   const selectKnowledgeSub = (next: KnowledgeSubTab) => {
     const path = subRoutePath[next];
     if (path) {
@@ -365,12 +327,12 @@ export function KnowledgeHub({
           {activeSub === "pages" && (
             <KnowledgePagesPage openPageId={initialPageId} onNavigate={onNavigate} />
           )}
-          {activeSub === "catalog" && <CatalogTab conn={dhConn} onConnChange={setDhConn} />}
-          {activeSub === "tags" && (
-            <TagsTab conn={dhConn} onConnChange={setDhConn} onNavigate={onNavigate} />
-          )}
-          {activeSub === "context_docs" && (
-            <ContextDocsTab conn={dhConn} onConnChange={setDhConn} />
+          {/* Catalog is a section, not a leaf: its own inner tabs are Tables,
+              Context Docs, and Tags, addressed in the hash under this one
+              route. The route pins the top tab, so the hash is free to address
+              the inner one; anything it does not name opens Tables. */}
+          {activeSub === "catalog" && (
+            <CatalogSection initialSub={initialTab} onNavigate={onNavigate} />
           )}
           {/* Changesets live under Knowledge (the promoted layer), not Insights:
               a changeset is created only at apply time and records what was

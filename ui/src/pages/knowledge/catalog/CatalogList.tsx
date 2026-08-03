@@ -26,7 +26,7 @@ export function CatalogList({ conn, onOpen }: { conn: string; onOpen: (urn: stri
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search datasets by name, description, or tag…"
+          placeholder="Search tables by name, description, or tag…"
           className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm outline-none ring-ring focus:ring-2"
         />
       </div>
@@ -39,7 +39,7 @@ export function CatalogList({ conn, onOpen }: { conn: string; onOpen: (urn: stri
         <ListSkeleton />
       ) : results.length === 0 ? (
         <p className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-          {searching ? "No datasets match your search." : "No datasets found in this connection."}
+          {searching ? "No tables match your search." : "No tables found in this connection."}
         </p>
       ) : (
         <ul className="grid gap-2 sm:grid-cols-2">

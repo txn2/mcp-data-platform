@@ -2,11 +2,13 @@ import { useEffect } from "react";
 import { Database } from "lucide-react";
 import { useDataHubConnections } from "@/api/portal/datahub";
 
-// DataHubConnectionSelect is the shared connection picker for the Catalog and
-// Context Docs tabs (#719/#720). It lists the DataHub connections the persona can
-// access (GET /datahub/connections), auto-selects the first, and flags read-only
-// ones. When only one connection exists it still renders (as a labeled, disabled
-// control) so the active connection is always visible.
+// DataHubConnectionSelect is the connection picker for the Catalog section
+// (#719/#720/#1194), rendered once for the section rather than once per inner
+// tab. It lists the DataHub connections the persona can access (GET
+// /datahub/connections), selects the first when the current value names no
+// connection it can see, and flags read-only ones. When only one connection
+// exists it still renders (as a labeled, disabled control) so the active
+// connection is always visible.
 export function DataHubConnectionSelect({
   value,
   onChange,
@@ -16,9 +18,13 @@ export function DataHubConnectionSelect({
 }) {
   const { data: connections, isLoading } = useDataHubConnections();
 
-  // Default to the first connection once the list loads.
+  // Select the first connection once the list loads, whenever the current value
+  // is not in it. That covers the empty first render and a persisted selection
+  // whose connection has since been renamed, removed, or revoked: with a single
+  // connection the control is disabled, so a stale value the reader cannot
+  // change would otherwise wedge the whole section on 404s.
   useEffect(() => {
-    if (!value && connections && connections.length > 0) {
+    if (connections && connections.length > 0 && !connections.some((c) => c.name === value)) {
       onChange(connections[0]!.name);
     }
   }, [connections, value, onChange]);
