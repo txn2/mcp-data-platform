@@ -13,8 +13,11 @@
 #                          promote runs, which would have made a control arm
 #                          silently non-clean)
 #   5.1 grader agreement   pollutionplant -mode check before any episode
-#   7.3 store constancy    a store snapshot before and after; any drift
-#                          invalidates the arm
+#   7.3 store constancy    a store snapshot either side of the EVAL; any drift
+#                          invalidates the arm. It brackets the eval rather
+#                          than the arm because the plant is a deliberate
+#                          stack-side change that 7.2 excludes, and what the
+#                          invariant detects is an evaluator writing mid-arm
 #   plant + settle         the claim is promoted through the platform's own
 #                          path, then the semantic cache is allowed to expire
 #                          before the first episode
@@ -209,8 +212,11 @@ for id in "${TASK_IDS[@]}"; do
 	cp "bench/tasks/$id.yaml" "$TASKS_DIR/"
 done
 
-step "store snapshot before the arm (7.3)"
-build/pollutionplant -mode store-state -url "$BENCH_URL" -credential "$BENCH_KEY" >"$OUT/store-before.json"
+# Archived as the arm's clean starting state, with nothing to compare it
+# against. It is what makes the plant's effect on the store readable after the
+# fact: store-before-eval.json minus this is exactly what the plant added.
+step "store snapshot of the clean stack"
+build/pollutionplant -mode store-state -url "$BENCH_URL" -credential "$BENCH_KEY" >"$OUT/store-clean.json"
 
 if [[ -n "$TREATMENT" ]]; then
 	step "plant $TREATMENT"
@@ -221,6 +227,18 @@ if [[ -n "$TREATMENT" ]]; then
 	step "settle ${SETTLE}s (semantic cache TTL) before the first episode"
 	sleep "$SETTLE"
 fi
+
+# The store-constancy baseline (7.3), taken after the plant and its settle and
+# immediately before the first episode.
+#
+# It must bracket the EVAL, not the whole arm. The invariant is that every
+# episode in an arm met the same store, so what it has to detect is an
+# evaluator writing mid-arm. The plant's own capture, approval and apply are
+# stack-side operations that 7.2 excludes from the arm's accounting: they are
+# the treatment being installed, and a baseline taken before them reports the
+# treatment itself as drift and fails every planted arm.
+step "store snapshot before the eval (7.3 baseline)"
+build/pollutionplant -mode store-state -url "$BENCH_URL" -credential "$BENCH_KEY" >"$OUT/store-before-eval.json"
 
 step "evaluate: $TIER, k=$K, ${#TASK_IDS[@]} task(s)"
 DISALLOW=(-disallow-tools "$META_TOOLS")
@@ -240,9 +258,9 @@ build/benchrun \
 	${DISALLOW[@]+"${DISALLOW[@]}"} \
 	-out "$OUT/results.json"
 
-step "store snapshot after the arm (7.3)"
+step "store snapshot after the eval (7.3)"
 build/pollutionplant -mode store-state -url "$BENCH_URL" -credential "$BENCH_KEY" \
-	-baseline "$OUT/store-before.json" >"$OUT/store-after.json"
+	-baseline "$OUT/store-before-eval.json" >"$OUT/store-after-eval.json"
 
 step "summary"
 build/benchrun -summarize "$OUT/results.json" | tee "$OUT/SUMMARY.txt"
