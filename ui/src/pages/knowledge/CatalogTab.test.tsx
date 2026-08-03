@@ -17,8 +17,9 @@ vi.mock("@/api/portal/datahub", () => ({
   useGlossaryLookup: vi.fn(),
   useDomainLookup: vi.fn(),
 }));
+// The connection picker lives on CatalogSection, not here; only the writable
+// lookup is still read from this module.
 vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
-  DataHubConnectionSelect: () => null,
   useConnectionWritable: vi.fn(() => true),
 }));
 // CodeMirror does not render cleanly in jsdom; stand in a plain textarea. The
@@ -101,8 +102,8 @@ beforeEach(() => {
 });
 
 describe("CatalogTab", () => {
-  it("browses datasets and opens an entity showing metadata and columns", () => {
-    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+  it("browses tables and opens an entity showing metadata and columns", () => {
+    render(<CatalogTab conn="primary" />);
     expect(screen.getByText("analytics.public.daily_sales")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("analytics.public.daily_sales"));
@@ -116,7 +117,7 @@ describe("CatalogTab", () => {
   });
 
   it("renders the entity description as markdown, not as source (#1101)", () => {
-    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    render(<CatalogTab conn="primary" />);
     fireEvent.click(screen.getByText("analytics.public.daily_sales"));
 
     const bold = document.querySelector("strong");
@@ -126,7 +127,7 @@ describe("CatalogTab", () => {
   });
 
   it("renders column descriptions as markdown (#1101)", () => {
-    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    render(<CatalogTab conn="primary" />);
     fireEvent.click(screen.getByText("analytics.public.daily_sales"));
 
     const cell = screen.getByText("revenue").closest("tr")!;
@@ -135,7 +136,7 @@ describe("CatalogTab", () => {
   });
 
   it("strips markdown from the search-result snippet (#1101)", () => {
-    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    render(<CatalogTab conn="primary" />);
 
     expect(screen.getByText("Daily sales. One row per order_id.")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("**Daily sales.**");
@@ -144,7 +145,7 @@ describe("CatalogTab", () => {
   it("shows edit affordances for a writer and drives a description edit", () => {
     const mutate = vi.fn();
     vi.mocked(useUpdateDescription).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
-    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    render(<CatalogTab conn="primary" />);
     fireEvent.click(screen.getByText("analytics.public.daily_sales"));
 
     // Edit the description.
@@ -167,7 +168,7 @@ describe("CatalogTab", () => {
     vi.mocked(useTagLookup).mockReturnValue(
       lookupResult([{ urn: "urn:li:tag:PII", name: "PII", description: "personal data" }]),
     );
-    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    render(<CatalogTab conn="primary" />);
     fireEvent.click(screen.getByText("analytics.public.daily_sales"));
 
     // The user types a display name, never a raw URN, and picks the result.
@@ -185,7 +186,7 @@ describe("CatalogTab", () => {
   it("removes a tag by its URN, not its display name (#785 review)", () => {
     const mutate = vi.fn();
     vi.mocked(useUpdateTags).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
-    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    render(<CatalogTab conn="primary" />);
     fireEvent.click(screen.getByText("analytics.public.daily_sales"));
     // The existing "finance" tag chip removes by URN so DataHub can match it.
     fireEvent.click(screen.getByRole("button", { name: "Remove finance" }));
@@ -197,7 +198,7 @@ describe("CatalogTab", () => {
     vi.mocked(useUpdateTags).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
     // Name search returns nothing, but the user pastes an exact URN.
     vi.mocked(useTagLookup).mockReturnValue(lookupResult([]));
-    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    render(<CatalogTab conn="primary" />);
     fireEvent.click(screen.getByText("analytics.public.daily_sales"));
     const input = screen.getByPlaceholderText("Search tags by name…");
     fireEvent.focus(input);
@@ -216,7 +217,7 @@ describe("CatalogTab", () => {
       isError: true,
       error: new ApiError(400, 'invalid tag: "test" must be a urn:li:tag:<id> URN'),
     } as never);
-    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    render(<CatalogTab conn="primary" />);
     fireEvent.click(screen.getByText("analytics.public.daily_sales"));
     const alerts = screen.getAllByRole("alert");
     expect(alerts.some((a) => /must be a urn:li:tag/.test(a.textContent ?? ""))).toBe(true);
@@ -225,7 +226,7 @@ describe("CatalogTab", () => {
   it("hides all edit affordances when the connection is read-only", () => {
     vi.mocked(useConnectionWritable).mockReturnValue(false);
     mockIsAdmin = true;
-    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    render(<CatalogTab conn="primary" />);
     fireEvent.click(screen.getByText("analytics.public.daily_sales"));
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add" })).not.toBeInTheDocument();
@@ -234,7 +235,7 @@ describe("CatalogTab", () => {
   it("hides edit affordances when the persona lacks datahub_update and is not admin", () => {
     mockIsAdmin = false;
     mockTools = ["datahub_browse"];
-    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    render(<CatalogTab conn="primary" />);
     fireEvent.click(screen.getByText("analytics.public.daily_sales"));
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });

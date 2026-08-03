@@ -162,6 +162,9 @@ export const routes: ScreenshotRoute[] = [
       }
     },
   },
+  // The Catalog section (#1194): the one route holding every DataHub-backed
+  // surface, captured for its inner tab row and section-wide connection picker.
+  { slug: "knowledge-catalog", path: "/portal/knowledge/catalog", category: "user" },
   {
     // The knowledge corpus drawn as a graph (#1162): the alternate layout to the
     // card list, showing which pages cluster around an entity and which stand alone.

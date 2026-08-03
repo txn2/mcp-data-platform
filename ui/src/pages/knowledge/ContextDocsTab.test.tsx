@@ -11,8 +11,9 @@ vi.mock("@/api/portal/datahub", () => ({
   useDeleteDocument: vi.fn(),
   documentId: (urn: string) => urn.replace(/^urn:li:document:/, ""),
 }));
+// The connection picker lives on CatalogSection, not here; only the writable
+// lookup is still read from this module.
 vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
-  DataHubConnectionSelect: () => null,
   useConnectionWritable: vi.fn(() => true),
 }));
 // CodeMirror does not render cleanly in jsdom; stand in a plain textarea.
@@ -68,7 +69,7 @@ beforeEach(() => {
 
 describe("ContextDocsTab", () => {
   it("browses documents and opens one, rendering its markdown body", () => {
-    render(<ContextDocsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<ContextDocsTab conn="primary" />);
     expect(screen.getByText("Refresh runbook")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Refresh runbook"));
@@ -77,7 +78,7 @@ describe("ContextDocsTab", () => {
   });
 
   it("shows create/edit/delete affordances for a writer", () => {
-    render(<ContextDocsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<ContextDocsTab conn="primary" />);
     expect(screen.getByRole("button", { name: "New document" })).toBeInTheDocument();
     fireEvent.click(screen.getByText("Refresh runbook"));
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
@@ -85,7 +86,7 @@ describe("ContextDocsTab", () => {
   });
 
   it("rejects an unsupported entity type and disables create", () => {
-    render(<ContextDocsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<ContextDocsTab conn="primary" />);
     fireEvent.click(screen.getByRole("button", { name: "New document" }));
     fireEvent.change(screen.getAllByRole("textbox")[0]!, { target: { value: "A note" } });
     fireEvent.change(screen.getByPlaceholderText(/urn:li:dataset/), {
@@ -98,7 +99,7 @@ describe("ContextDocsTab", () => {
   it("creates a document with a supported entity type", () => {
     const mutate = vi.fn();
     vi.mocked(useCreateDocument).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
-    render(<ContextDocsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<ContextDocsTab conn="primary" />);
     fireEvent.click(screen.getByRole("button", { name: "New document" }));
     fireEvent.change(screen.getAllByRole("textbox")[0]!, { target: { value: "Schema notes" } });
     fireEvent.change(screen.getByPlaceholderText(/urn:li:dataset/), {
@@ -120,14 +121,14 @@ describe("ContextDocsTab", () => {
       isError: true,
       error: null,
     } as never);
-    render(<ContextDocsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<ContextDocsTab conn="primary" />);
     fireEvent.click(screen.getByText("Refresh runbook"));
     expect(screen.getByText("Delete failed.")).toBeInTheDocument();
   });
 
   it("hides write affordances when read-only", () => {
     vi.mocked(useConnectionWritable).mockReturnValue(false);
-    render(<ContextDocsTab conn="primary" onConnChange={vi.fn()} />);
+    render(<ContextDocsTab conn="primary" />);
     expect(screen.queryByRole("button", { name: "New document" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Refresh runbook"));
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
