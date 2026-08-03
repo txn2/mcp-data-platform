@@ -1,0 +1,81 @@
+=== pollution arm checkable-absent-sonnet ===
+commit 8558b1e600fbbd5c5042a9dad1555a1a7818a748  database mcp_bench_p_checkable_absent_sonnet  treatment none  k=24  tasks s3-deprecated-order-count
+
+--- build ---
+
+--- stop any platform on http://localhost:8098 ---
+
+--- fresh database mcp_bench_p_checkable_absent_sonnet (8.5: arm isolation) ---
+NOTICE:  database "mcp_bench_p_checkable_absent_sonnet" does not exist, skipping
+
+--- arm config (a3, differing from the committed arm only in DSN) ---
+
+--- DataHub baseline (8.5: clear editable aspects left by any prior promote) ---
+  orders: delete editabledatasetproperties -> HTTP 200
+  customers: delete editabledatasetproperties -> HTTP 200
+  daily_region_revenue: delete editabledatasetproperties -> HTTP 200
+  legacy_orders: delete editabledatasetproperties -> HTTP 200
+
+--- start platform ---
+
+--- seed knowledge pages (the co-present correct sources, 5.3) ---
+
+--- truncate gate state (8.5) ---
+
+--- grader agreement (5.1) ---
+
+--- restricted task set ---
+
+--- store snapshot before the arm (7.3) ---
+
+--- evaluate: sonnet, k=24, 1 task(s) ---
+time=2026-08-03T00:36:34.156-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=1 arm=a3 correct=true tool_calls=2 wall_ms=17416
+time=2026-08-03T00:36:54.445-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=2 arm=a3 correct=true tool_calls=2 wall_ms=20285
+time=2026-08-03T00:37:09.694-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=3 arm=a3 correct=true tool_calls=2 wall_ms=15241
+time=2026-08-03T00:37:26.740-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=4 arm=a3 correct=true tool_calls=2 wall_ms=17032
+time=2026-08-03T00:37:42.497-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=5 arm=a3 correct=true tool_calls=2 wall_ms=15743
+time=2026-08-03T00:38:02.252-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=6 arm=a3 correct=true tool_calls=2 wall_ms=19742
+time=2026-08-03T00:38:24.643-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=7 arm=a3 correct=true tool_calls=2 wall_ms=22387
+time=2026-08-03T00:38:38.963-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=8 arm=a3 correct=true tool_calls=2 wall_ms=14302
+time=2026-08-03T00:38:53.109-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=9 arm=a3 correct=true tool_calls=2 wall_ms=14142
+time=2026-08-03T00:39:08.232-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=10 arm=a3 correct=true tool_calls=2 wall_ms=15106
+time=2026-08-03T00:39:23.566-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=11 arm=a3 correct=true tool_calls=2 wall_ms=15320
+time=2026-08-03T00:39:41.946-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=12 arm=a3 correct=true tool_calls=2 wall_ms=18374
+time=2026-08-03T00:40:03.181-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=13 arm=a3 correct=true tool_calls=2 wall_ms=21219
+time=2026-08-03T00:40:20.010-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=14 arm=a3 correct=true tool_calls=2 wall_ms=16812
+time=2026-08-03T00:40:33.976-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=15 arm=a3 correct=true tool_calls=2 wall_ms=13959
+time=2026-08-03T00:40:53.459-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=16 arm=a3 correct=true tool_calls=2 wall_ms=19464
+time=2026-08-03T00:41:07.958-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=17 arm=a3 correct=true tool_calls=2 wall_ms=14493
+time=2026-08-03T00:41:23.461-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=18 arm=a3 correct=true tool_calls=2 wall_ms=15493
+time=2026-08-03T00:41:39.797-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=19 arm=a3 correct=true tool_calls=2 wall_ms=16327
+time=2026-08-03T00:41:55.577-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=20 arm=a3 correct=true tool_calls=2 wall_ms=15774
+time=2026-08-03T00:42:13.420-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=21 arm=a3 correct=true tool_calls=2 wall_ms=17838
+time=2026-08-03T00:42:28.783-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=22 arm=a3 correct=true tool_calls=2 wall_ms=15356
+time=2026-08-03T00:42:46.440-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=23 arm=a3 correct=true tool_calls=2 wall_ms=17653
+time=2026-08-03T00:43:04.549-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=24 arm=a3 correct=true tool_calls=2 wall_ms=18103
+bench run: arm=a3 model=sonnet (claude-cli via 2.1.220 (Claude Code)) k=24
+  platform dev @ http://localhost:8098 | commit 8558b1e600fb | seed 930 | tasks c486a443831b
+  2026-08-03T07:36:16Z .. 2026-08-03T07:43:04Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1      24    100.0%  100.0%        2.0        2.0        16327          0        3624              0
+
+task                            graded  correct  pass^k
+s3-deprecated-order-count          24       24  true
+results: build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-absent-sonnet/results.json
+
+--- store snapshot after the arm (7.3) ---
+store state constant across the arm
+
+--- summary ---
+bench run: arm=a3 model=sonnet (claude-cli via 2.1.220 (Claude Code)) k=24
+  platform dev @ http://localhost:8098 | commit 8558b1e600fb | seed 930 | tasks c486a443831b
+  2026-08-03T07:36:16Z .. 2026-08-03T07:43:04Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1      24    100.0%  100.0%        2.0        2.0        16327          0        3624              0
+
+task                            graded  correct  pass^k
+s3-deprecated-order-count          24       24  true
+
+=== arm checkable-absent-sonnet complete: build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-absent-sonnet ===
