@@ -1905,3 +1905,31 @@ var (
 	_ semantic.Provider    = (*Adapter)(nil)
 	_ semantic.URNResolver = (*Adapter)(nil)
 )
+
+// TestSearchGlossaryTerms_EmptyQueryLists pins the substitution that makes the
+// CatalogPicker "empty query lists" contract true. The query reaches DataHub's
+// searchAcrossEntities verbatim, where "" matches nothing, so an unsubstituted
+// empty query would make every listing caller (the governance search source's
+// enumeration, argument completion with no partial value) silently see no terms.
+func TestSearchGlossaryTerms_EmptyQueryLists(t *testing.T) {
+	for _, in := range []string{"", "   "} {
+		var got string
+		mock := &mockDataHubClient{
+			searchAcrossEntitiesFunc: func(_ context.Context, query string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+				got = query
+				return &types.SearchResult{Entities: []types.SearchEntity{{URN: "urn:li:glossaryTerm:Revenue", Name: "Revenue"}}}, nil
+			},
+		}
+		adapter, err := NewWithClient(Config{}, mock)
+		if err != nil {
+			t.Fatalf(dhAdapterTestUnexpectedErr, err)
+		}
+		terms, err := adapter.SearchGlossaryTerms(context.Background(), in, 5)
+		if err != nil || len(terms) != 1 {
+			t.Fatalf("SearchGlossaryTerms(%q) = %+v, err = %v", in, terms, err)
+		}
+		if got != listAll {
+			t.Errorf("SearchGlossaryTerms(%q) sent query %q, want %q", in, got, listAll)
+		}
+	}
+}

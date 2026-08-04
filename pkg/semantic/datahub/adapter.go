@@ -306,11 +306,19 @@ func (a *Adapter) SearchTags(ctx context.Context, query string, limit int) ([]se
 }
 
 // SearchGlossaryTerms searches DataHub glossary terms by display name for the
-// catalog glossary picker (#785). Glossary terms have no dedicated list method,
-// so this uses searchAcrossEntities scoped to the GLOSSARY_TERM entity type,
-// whose Name is resolved from the term's properties by the upstream client.
+// catalog glossary picker (#785) and lists them on an empty query. Glossary terms
+// have no dedicated list method, so this uses searchAcrossEntities scoped to the
+// GLOSSARY_TERM entity type, whose Name is resolved from the term's properties by
+// the upstream client.
+//
+// An empty query becomes the "*" list query rather than reaching DataHub as "".
+// The query string is forwarded verbatim into searchAcrossEntities (mcp-datahub
+// buildBaseSearchInput), where "" matches nothing, so the documented "empty query
+// lists" contract only holds with the wildcard substituted here — the same
+// substitution ListTags makes upstream for tags, and the same query BrowseDocuments
+// already uses to enumerate documents through this client.
 func (a *Adapter) SearchGlossaryTerms(ctx context.Context, query string, limit int) ([]semantic.EntityRef, error) {
-	result, err := a.client.SearchAcrossEntities(ctx, strings.TrimSpace(query),
+	result, err := a.client.SearchAcrossEntities(ctx, listAllQuery(query),
 		dhclient.WithTypes([]string{glossaryTermEntityType}), dhclient.WithLimit(clampRefLimit(limit)))
 	if err != nil {
 		return nil, fmt.Errorf("searching datahub glossary terms: %w", err)
@@ -464,6 +472,20 @@ func (a *Adapter) entityRef(urn, name, description string) semantic.EntityRef {
 	}
 }
 
+// listAllQuery normalizes a picker query, substituting DataHub's "*" list query
+// for an empty one. It is defined once because the substitution is a property of
+// the backend, not of any one picker: searchAcrossEntities takes the query
+// verbatim, and "" there matches nothing rather than everything.
+func listAllQuery(query string) string {
+	if q := strings.TrimSpace(query); q != "" {
+		return q
+	}
+	return listAll
+}
+
+// listAll is DataHub's match-everything query.
+const listAll = "*"
+
 // clampRefLimit bounds a picker limit to a sane positive default so an unset or
 // negative limit does not request an unbounded page.
 func clampRefLimit(limit int) int {
@@ -560,7 +582,7 @@ func (a *Adapter) BrowseDocuments(ctx context.Context, offset, limit int) ([]sem
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		countRes, err := a.client.SearchAcrossEntities(ctx, "*",
+		countRes, err := a.client.SearchAcrossEntities(ctx, listAll,
 			dhclient.WithTypes([]string{dhclient.EntityTypeDocument}), dhclient.WithLimit(1))
 		if err != nil {
 			countErr = fmt.Errorf("counting datahub documents: %w", err)
@@ -577,7 +599,7 @@ func (a *Adapter) BrowseDocuments(ctx context.Context, offset, limit int) ([]sem
 		if offset > 0 {
 			opts = append(opts, dhclient.WithOffset(offset))
 		}
-		d, err := a.client.SearchDocuments(ctx, "*", opts...)
+		d, err := a.client.SearchDocuments(ctx, listAll, opts...)
 		if err != nil {
 			listErr = fmt.Errorf("listing datahub documents: %w", err)
 			return
@@ -1143,7 +1165,8 @@ func convertDataContract(dc *types.DataContract) *semantic.DataContractStatus {
 
 // Verify interface compliance.
 var (
-	_ semantic.Provider      = (*Adapter)(nil)
-	_ semantic.URNResolver   = (*Adapter)(nil)
-	_ semantic.CatalogPicker = (*Adapter)(nil)
+	_ semantic.Provider         = (*Adapter)(nil)
+	_ semantic.URNResolver      = (*Adapter)(nil)
+	_ semantic.CatalogPicker    = (*Adapter)(nil)
+	_ semantic.GovernanceReader = (*Adapter)(nil)
 )

@@ -583,7 +583,8 @@ Structured catalog navigation (platform/domain/tag/entity-type filters) stays in
     `#645` and its corpus widened to include API endpoints and connections.
 
 **Corpus (everything the persona can access):** the technical catalog (DataHub,
-when configured), canonical knowledge pages (the internal-knowledge home for
+when configured), the governance vocabulary (DataHub glossary terms, tags, and
+domains), context documents, canonical knowledge pages (the internal-knowledge home for
 business/domain ontology, searched over their full markdown content), the caller's
 personal memory, captured insights, the caller's feedback threads, saved assets,
 managed resources (human-uploaded reference material, searched over their metadata
@@ -591,7 +592,8 @@ managed resources (human-uploaded reference material, searched over their metada
 every API gateway connection, reusing
 the per-connection semantic ranking of `api_list_endpoints`), and connections. Memory, insights, and
 assets are per-user, scoped server-side to the caller, so a search never surfaces
-another user's private records; the catalog, knowledge pages, prompts, endpoints
+another user's private records; the catalog, the governance vocabulary, knowledge
+pages, prompts, endpoints
 (each gateway applies its own route policy), and connections are shared. Resources
 are visibility-scoped: global material reaches every caller, persona material only
 its members, and user material only its owner, exactly as `resources/list` computes
@@ -629,6 +631,40 @@ against DataHub itself. It needs a DataHub semantic provider, a database, and an
 embedding provider; without them the catalog is ranked by DataHub's keyword search
 alone, exactly as before.
 
+**The governance vocabulary is a source, not a dataset attribute.** A glossary
+term, a tag, and a domain are searchable and fetchable entities in their own
+right (`#1160`). Before this, they existed only as attributes of a dataset:
+asking what a business term meant returned the datasets tagged with it, never the
+term and its definition, and a `urn:li:glossaryTerm:` reference a knowledge page
+legitimately carries had no `fetch` owner. The `governance` source answers "what
+does X mean here" and the `catalog` source answers "which datasets are about X";
+they are siblings so a definition is never crowded out of the display budget by a
+broad dataset match. A hit carries the definition in its text, so a term match is
+useful without a follow-up `fetch`.
+
+Each vocabulary is ranked by the best read DataHub offers for it, which is not
+the same read for all three. Glossary terms and tags have an upstream name
+search, which receives the intent and leads because it ranks against DataHub's
+own index and is not bounded by an enumeration page. When it returns nothing the
+vocabulary is enumerated and ranked locally instead, because `search` receives a
+natural-language intent while those upstream searches match a *name*: "what does
+net revenue mean here" is a question, not a label, and a source that answered it
+only when the caller typed the term exactly would not be answering it. Domains
+have no upstream search at all, so the whole set is enumerated (DataHub returns
+at most 100) and ranked the same way — by the lexical token-overlap rule the
+`connections` source uses for the same reason. The three reads run concurrently,
+so the source costs one round trip rather than three, and a vocabulary that fails
+costs its own recall rather than the whole source. Results are interleaved across
+the three so one vocabulary cannot crowd out the others.
+
+**Connection boundary for governance entities.** A governance URN carries no
+DataHub platform segment, so no connection can be attributed to it. The documented
+rule for an unattributable URN applies: it stays visible, because the mapping
+failed rather than the permission check, and hiding on a guess would drop entities
+no connection claims. The datasets listed under a tag, domain, or term by `fetch`
+are ordinary catalog entities and *are* filtered by the caller's boundary, with
+the removed count and the reason carried on the fetched entity.
+
 **Resource links.** A hit backed by an uploaded file additionally carries an MCP
 `resource_link` content block with the resource's canonical `mcp://` URI, name,
 description, and MIME type, so a client with native resource support can attach the
@@ -665,7 +701,7 @@ matches, alongside a top-level `withheld_notice`).
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
 | `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
-| `sources` | array | No | - | Narrow the search to named sources (`catalog`, `context_documents`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `resources`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
+| `sources` | array | No | - | Narrow the search to named sources (`catalog`, `governance`, `context_documents`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `resources`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
 
 ---
@@ -719,6 +755,9 @@ routing each well-formed reference by its form to the owning source:
 | `mcp:knowledge_page:<id>` | knowledge pages | the full markdown body |
 | `urn:li:document:<id>` | context documents | the full document body (the only MCP path to it) |
 | `urn:li:dataset:<id>` | catalog | the dataset's catalog context |
+| `urn:li:glossaryTerm:<id>` | governance | the term's name and definition, plus the datasets that carry it |
+| `urn:li:tag:<id>` | governance | the tag's name and description, plus the datasets that carry it |
+| `urn:li:domain:<id>` | governance | the domain's name and description, plus the datasets in it |
 | `mcp:asset:<id>` | assets | the asset's metadata record (blob bytes stay in S3, reached with `s3_get_object`/`s3_presign_url`) |
 | `mcp:resource:<id>` | resources | the resource's metadata record, plus its contents inline for a text resource at or under 1 MB; a binary or oversized one returns metadata with its canonical `mcp://` URI, MIME type, and size |
 | `mcp:prompt:<id>` | prompts | the full prompt |
@@ -731,6 +770,17 @@ The usual source of a reference is a `search` result's `reference` field, but
 held from another tool works too (for example a `urn:li:dataset:...` from
 `datahub_get_lineage` or an `entity_urns` lookup). Feedback threads and API
 endpoints emit no reference and are not fetch targets.
+
+A fetched governance entity fills `content` with `{urn, kind, name, description,
+datasets[], more_datasets?, datasets_withheld?, notice?}`. The carrier list is
+bounded (25); `more_datasets` reports that the cap was reached, so a full page
+never reads as the whole membership — page the full set with `datahub_browse` or a
+tag/domain-filtered catalog search. `datasets_withheld` and `notice` report what
+the caller's connection boundary removed from the list, so a short list is never
+mistaken for an unused term. A tag or a domain has no by-URN read upstream, so it
+is resolved by listing its vocabulary and matching; an entry past the page DataHub
+returns is reported as a clean not-found, the same bound the portal's reference
+labels carry.
 
 **Scope mirrors `search` exactly:** the per-user sources (assets, your memory, your
 insights) are read only for the identity that owns the record, a

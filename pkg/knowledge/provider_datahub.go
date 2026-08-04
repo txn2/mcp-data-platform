@@ -197,7 +197,7 @@ func (p *CatalogProvider) searchByText(ctx context.Context, q Query, seen map[st
 	if err != nil {
 		return nil, err
 	}
-	candidates := mergeCandidates(indexed, remote, q.Limit)
+	candidates := mergeCandidates(q.Limit, indexed, remote)
 
 	n := len(candidates)
 	hits := make([]Hit, 0, n)
@@ -225,36 +225,39 @@ func (p *CatalogProvider) searchByText(ctx context.Context, q Query, seen map[st
 	return hits, nil
 }
 
-// mergeCandidates interleaves the index's ranked candidates with DataHub's,
-// de-duplicates by URN keeping the index's copy, and truncates to the
-// per-source candidate budget.
+// mergeCandidates round-robins several ranked candidate lists into one, keeping
+// the earliest list's copy of a URN that appears in more than one, and truncates
+// to the per-source candidate budget. Lists are consumed in argument order within
+// each round, so the first list leads.
 //
-// Interleaving rather than concatenating is what keeps the two arms from
-// crowding each other out of a fixed budget: concatenation would let a full
-// page of index hits consume every slot, dropping exactly the keyword matches
-// (a column name, a glossary term) the index cannot produce, while the reverse
-// order would bury the semantic hits this source exists to surface. The index
-// still leads, so the top catalog hit is its top hit.
+// Interleaving rather than concatenating is what keeps the arms from crowding
+// each other out of a fixed budget: concatenation would let a full page from one
+// arm consume every slot. In the catalog source that would drop exactly the
+// keyword matches (a column name, a glossary term) the index cannot produce,
+// while the reverse order would bury the semantic hits the source exists to
+// surface; in the governance source it would let one vocabulary hide the other
+// two. The first list still leads, so the top hit is its top hit.
 //
 // The truncation is what keeps the coverage contract honest: SourceCoverage
-// documents Matched as capped at the per-source candidate limit, and two
-// unbounded arms would report up to twice that.
-func mergeCandidates(indexed, remote []catalogCandidate, limit int) []catalogCandidate {
-	merged := make([]catalogCandidate, 0, len(indexed)+len(remote))
-	seen := make(map[string]bool, len(indexed)+len(remote))
-	add := func(c catalogCandidate) {
-		if seen[c.urn] {
-			return
+// documents Matched as capped at the per-source candidate limit, and unbounded
+// arms would report a multiple of that.
+func mergeCandidates(limit int, lists ...[]catalogCandidate) []catalogCandidate {
+	total, longest := 0, 0
+	for _, l := range lists {
+		total += len(l)
+		if len(l) > longest {
+			longest = len(l)
 		}
-		seen[c.urn] = true
-		merged = append(merged, c)
 	}
-	for i := 0; i < len(indexed) || i < len(remote); i++ {
-		if i < len(indexed) {
-			add(indexed[i])
-		}
-		if i < len(remote) {
-			add(remote[i])
+	merged := make([]catalogCandidate, 0, total)
+	seen := make(map[string]bool, total)
+	for i := 0; i < longest; i++ {
+		for _, l := range lists {
+			if i >= len(l) || seen[l[i].urn] {
+				continue
+			}
+			seen[l[i].urn] = true
+			merged = append(merged, l[i])
 		}
 	}
 	if limit > 0 && len(merged) > limit {

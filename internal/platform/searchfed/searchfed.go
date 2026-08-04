@@ -200,6 +200,14 @@ func storeProviders(cfg Config) []knowledge.Provider {
 		if ds, ok := semantic.DocumentSearcherFrom(cfg.SemanticProvider); ok {
 			providers = append(providers, knowledge.NewContextDocumentsProvider(ds))
 		}
+		// Governance vocabulary: glossary terms, tags, and domains as entities in
+		// their own right (#1160), present only when the real catalog exposes the
+		// vocabulary reads. It is a sibling of the catalog rather than an arm of it,
+		// so a definition is never crowded out of the display budget by a broad
+		// dataset match.
+		if gr, ok := semantic.GovernanceReaderFrom(cfg.SemanticProvider); ok {
+			providers = append(providers, knowledge.NewGovernanceProvider(gr))
+		}
 	}
 	return appendPortalStoreProviders(cfg, providers)
 }
