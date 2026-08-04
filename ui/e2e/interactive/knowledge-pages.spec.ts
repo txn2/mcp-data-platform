@@ -47,8 +47,14 @@ test.describe("Knowledge Pages", () => {
     await page.locator(".cm-content").first().click();
     await page.keyboard.type("# Operating Hours\n\nMon-Fri 9-5 Pacific.");
     await page.getByRole("button", { name: "Create page" }).click();
-    // Lands on the new page detail.
-    await expect(page.getByRole("heading", { name: "Operating Hours", level: 1 })).toBeVisible();
+    // Lands on the new page detail. The body typed above opens with its own
+    // `# Operating Hours`, so once the markdown renders there are two level-1
+    // headings by that name and an unqualified locator is a strict-mode
+    // violation the moment the article beats the assertion. Take the first,
+    // which is the page title, as the sibling render test does.
+    await expect(
+      page.getByRole("heading", { name: "Operating Hours", level: 1 }).first(),
+    ).toBeVisible();
   });
 
   test("admin can edit an existing page", async ({ page }) => {

@@ -1,0 +1,43 @@
+{
+  "read_at": "2026-08-04T00:22:53.646471Z",
+  "insights": [
+    {
+      "id": "a9986e7a5ac4b880accebb68e94a6356",
+      "status": "pending",
+      "captured_by": "bench-agent-009@apikey.local"
+    },
+    {
+      "id": "b64258b16a67cc83138b6f6ee70f5a96",
+      "status": "pending",
+      "captured_by": "bench-agent-021@apikey.local"
+    },
+    {
+      "id": "fae33292f2e84ee96f8c617a6a40d522",
+      "status": "pending",
+      "captured_by": "bench-agent-024@apikey.local"
+    }
+  ],
+  "changesets": null,
+  "pages": [
+    {
+      "slug": "bench-warehouse-guide",
+      "title": "Bench Warehouse Guide",
+      "summary": "Which bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30."
+    },
+    {
+      "slug": "customer-tier-definitions",
+      "title": "Customer Tier Definitions",
+      "summary": "A 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone."
+    },
+    {
+      "slug": "fiscal-calendar-policy",
+      "title": "Fiscal Calendar Policy",
+      "summary": "The fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year."
+    },
+    {
+      "slug": "revenue-reporting-policy",
+      "title": "Revenue Reporting Policy",
+      "summary": "Revenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting."
+    }
+  ]
+}

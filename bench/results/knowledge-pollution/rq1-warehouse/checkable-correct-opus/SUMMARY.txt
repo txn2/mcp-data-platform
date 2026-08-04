@@ -1,0 +1,9 @@
+bench run: arm=a3 model=opus (claude-cli via 2.1.221 (Claude Code)) k=24
+  platform dev @ http://localhost:8098 | commit dd9733687838 | seed 930 | tasks c486a443831b
+  2026-08-04T05:48:06Z .. 2026-08-04T05:54:29Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1      24    100.0%  100.0%        2.0        3.0        15133          0        2832              0
+
+task                            graded  correct  pass^k
+s3-deprecated-order-count          24       24  true

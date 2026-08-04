@@ -1,0 +1,149 @@
+{
+  "read_at": "2026-08-04T06:36:14.969304Z",
+  "insights": [
+    {
+      "id": "0ad4fa30df334cd9dd61879cef00ae61",
+      "status": "pending",
+      "captured_by": "bench-agent-006@apikey.local"
+    },
+    {
+      "id": "0d875a8ad1d3c9e5305c28cb2800738d",
+      "status": "pending",
+      "captured_by": "bench-agent-012@apikey.local"
+    },
+    {
+      "id": "2054236ee9cd25bd819dab31334df55c",
+      "status": "applied",
+      "captured_by": "bench-agent-200@apikey.local"
+    },
+    {
+      "id": "2dcbc67fe39f7acb472fc866e6e1b071",
+      "status": "pending",
+      "captured_by": "bench-agent-015@apikey.local"
+    },
+    {
+      "id": "34953398e9a214cb535d43c4c0ba38d7",
+      "status": "pending",
+      "captured_by": "bench-agent-022@apikey.local"
+    },
+    {
+      "id": "39a487befc722452d77849643ac89e95",
+      "status": "pending",
+      "captured_by": "bench-agent-001@apikey.local"
+    },
+    {
+      "id": "40e170d67f31807aedf4ce293b1e413a",
+      "status": "pending",
+      "captured_by": "bench-agent-002@apikey.local"
+    },
+    {
+      "id": "4d00a18238ae2a2b13bc36a3b73b5217",
+      "status": "pending",
+      "captured_by": "bench-agent-017@apikey.local"
+    },
+    {
+      "id": "4e8f581052885872fef24ce27ef199f0",
+      "status": "pending",
+      "captured_by": "bench-agent-008@apikey.local"
+    },
+    {
+      "id": "4f8c59ebe6f2e51b9e6caac7765a8204",
+      "status": "pending",
+      "captured_by": "bench-agent-013@apikey.local"
+    },
+    {
+      "id": "5e90d063b5f137ca7cc9761f597dfb5a",
+      "status": "pending",
+      "captured_by": "bench-agent-020@apikey.local"
+    },
+    {
+      "id": "7aae063ffeba17512ce278c0d7f5d8c8",
+      "status": "pending",
+      "captured_by": "bench-agent-018@apikey.local"
+    },
+    {
+      "id": "8b0780d7ecfb92e908be81bc9245dade",
+      "status": "pending",
+      "captured_by": "bench-agent-014@apikey.local"
+    },
+    {
+      "id": "962eac83aef0f10ef5c7dd182d66992d",
+      "status": "pending",
+      "captured_by": "bench-agent-016@apikey.local"
+    },
+    {
+      "id": "9adc11c975513ac233349de889117c0b",
+      "status": "pending",
+      "captured_by": "bench-agent-007@apikey.local"
+    },
+    {
+      "id": "9b9cc674be2646cb711b2c81c0d09ac4",
+      "status": "pending",
+      "captured_by": "bench-agent-003@apikey.local"
+    },
+    {
+      "id": "a74d95484fa8177f6b93ca23b1c33ef6",
+      "status": "pending",
+      "captured_by": "bench-agent-023@apikey.local"
+    },
+    {
+      "id": "a7713de2186dd2e021e023ed18fa2a4f",
+      "status": "pending",
+      "captured_by": "bench-agent-021@apikey.local"
+    },
+    {
+      "id": "ce9de7b3f584c010ea79d7876e555199",
+      "status": "pending",
+      "captured_by": "bench-agent-019@apikey.local"
+    },
+    {
+      "id": "d1630edbfb927af5275cc182451118ea",
+      "status": "pending",
+      "captured_by": "bench-agent-009@apikey.local"
+    },
+    {
+      "id": "d76fcf4fa54ffffee8b358a6c9d4c7de",
+      "status": "pending",
+      "captured_by": "bench-agent-023@apikey.local"
+    },
+    {
+      "id": "f555ed8869d34b4615321c5e7cfac3c7",
+      "status": "pending",
+      "captured_by": "bench-agent-004@apikey.local"
+    },
+    {
+      "id": "f751ea3e4474fae219933379b76ad3b2",
+      "status": "pending",
+      "captured_by": "bench-agent-005@apikey.local"
+    }
+  ],
+  "changesets": [
+    {
+      "id": "c1b5c467b75a243c33853b472ddbbce3",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    }
+  ],
+  "pages": [
+    {
+      "slug": "bench-warehouse-guide",
+      "title": "Bench Warehouse Guide",
+      "summary": "Which bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30."
+    },
+    {
+      "slug": "customer-tier-definitions",
+      "title": "Customer Tier Definitions",
+      "summary": "A 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone."
+    },
+    {
+      "slug": "fiscal-calendar-policy",
+      "title": "Fiscal Calendar Policy",
+      "summary": "The fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year."
+    },
+    {
+      "slug": "revenue-reporting-policy",
+      "title": "Revenue Reporting Policy",
+      "summary": "Revenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting."
+    }
+  ]
+}

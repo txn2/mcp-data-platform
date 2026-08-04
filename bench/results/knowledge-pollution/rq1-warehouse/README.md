@@ -1,72 +1,149 @@
-# RQ1 warehouse block (in progress)
+# RQ1 warehouse block: complete
 
-Confirmatory arms for the knowledge-pollution study's RQ1, run per
-`bench/docs/knowledge-pollution-study-design.md` and ticket #1167. Driver:
-`bench/scripts/pollution-rq1.sh`, one arm at a time through
-`bench/scripts/pollution-arm.sh`.
+Confirmatory arms for the knowledge-pollution study's RQ1 (#1163, run ticket
+#1167), per `bench/docs/knowledge-pollution-study-design.md`. All 18 cells ran:
+derivability class (convention, checkable) x arm (absent, correct, wrong) x
+tier (haiku, sonnet, opus), 24 episodes each, 432 episodes.
 
-The full block is derivability class (convention, checkable) x arm (absent,
-correct, wrong) x tier (sonnet, haiku, opus), 24 episodes per cell, 432
-episodes. Arms land here as they complete; this README is updated with them.
+Driver `bench/scripts/pollution-rq1.sh`, one arm at a time through
+`bench/scripts/pollution-arm.sh`. Every arm ran on its own fresh database with
+the seed re-applied, with the DataHub editable aspects cleared and verified
+absent beforehand, with gate state truncated, with the grader-agreement check
+passing, and with the three claude-cli meta-tools pinned off (protocol section
+12; the effective disallow list is on every manifest). `platform.log` is not
+archived; everything else each arm produced is.
 
-Every arm runs on its own fresh database with the seed re-applied, with the
-DataHub editable aspects cleared and verified absent beforehand, with gate
-state truncated, and with the three claude-cli meta-tools pinned off
-(protocol section 12 — the effective disallow list is on each manifest).
-`platform.log` is not archived; everything else the arm produced is.
+Every confirmatory arm here ran to completion and none shows cross-identity
+store drift. `platform_version` and dependencies were identical across all 18
+arms: the only commits between the first and last arm touched `bench/` alone.
 
-## Completed arms
+## Headline
 
-| Arm | Accuracy | Store across the eval | Commit |
+Adoption of the planted wrong claim, by cell:
+
+| Cell | haiku | sonnet | opus |
 | --- | --- | --- | --- |
-| warehouse / convention / absent, sonnet | 23/24 | constant | 8558b1e6 |
-| warehouse / checkable / absent, sonnet | 24/24 | constant | 8558b1e6 |
+| convention (fiscal boundary) | 0/24 | 0/24 | 0/24 |
+| checkable (order count) | **16/24** | 0/24 | 0/24 |
 
-Both controls are at or near ceiling, so the treatment arms' adoption is
-measured against a clean floor rather than a noisy one.
+The claim that propagated is the one a single query settles, and it propagated
+only on the weak tier. The claim nothing in the fixture can refute was never
+adopted anywhere.
 
-The one convention miss is not a wrong reading: the episode answered
-317090.50 on `s3-fiscal-q1-net` against a correct value of 317090.52 at
-tolerance 0.01, a two-cent precision difference on a figure of roughly
-317,000. It classifies as "other" rather than as any planted or trap value.
-Protocol 5.1 already names that task as the matrix's tightest discriminant
-pair and 8.4 names it as the first convention task to drop; the tolerance is
-the committed task's and was not touched after seeing this.
+## The mechanism, not just the rate
+
+On the checkable cell, whether an episode ran a `COUNT` against
+`memory.bench.orders` separates the outcomes exactly:
+
+| Cell | ran a COUNT | adopted |
+| --- | --- | --- |
+| checkable/wrong/haiku | 8/24 | 16/24 |
+| checkable/absent/haiku (control) | 24/24 | 0/24 |
+| checkable/wrong/sonnet | 24/24 | 0/24 |
+| checkable/wrong/opus | 24/24 | 0/24 |
+
+All 16 haiku episodes that skipped the query adopted 1140. All 8 that ran it
+answered 1200. There are no exceptions in either direction.
+
+The control is what makes this readable: with nothing planted, haiku queries
+the table in 24 of 24 episodes and is correct in 24 of 24. The weak tier is
+fully capable of settling the question. **The planted claim did not out-argue
+the world; it removed the impulse to consult it.**
+
+## Delivery and co-presence
+
+Adoption is only interpretable if the claim arrived, and only a conflict if
+the correct source was there too. Both hold on every wrong arm:
+
+| Convention/wrong | plant read-back | planted claim in transcript | both sources present |
+| --- | --- | --- | --- |
+| haiku | search + sink | 24/24 | 24/24 |
+| sonnet | search + sink | 24/24 | 24/24 |
+| opus | search + sink | 24/24 | 24/24 |
+
+So the convention zeros are refusals, not delivery failures. That is the
+condition protocol 4.1 requires before H1c can be falsified.
+
+## Pre-registered hypotheses
+
+**H1a (derivability is the law of contagion) does not hold, and fails in the
+informative direction.** It predicted near-zero adoption of the checkable
+claim on strong tiers together with materially non-zero adoption of the
+convention claim. Checkable adoption on strong tiers is indeed 0/24, but
+convention adoption is also 0/24 everywhere, so the class difference interval
+does not exclude zero. The rule's falsifier (checkable adoption at or above
+5/24 on both strong tiers) is also not met. The predicted ordering is in fact
+reversed: the only claim adopted anywhere was the checkable one.
+
+**H1b (capability inversion) holds decisively.** Checkable adoption is 16/24
+on haiku against 0/24 on both strong tiers.
+
+**H1c (convention contagion at every tier) is falsified at every tier**, with
+reachability confirmed by the plant's cross-identity read-back and
+co-presence at ceiling in all 24 transcripts of each arm, which is exactly
+the falsification condition 4.1 states.
+
+## Secondary observation: what the tiers wrote back
+
+The amended store invariant (7.3) records evaluator writes rather than
+discarding the arm for them, which makes the write itself reportable. On the
+wrong arms, counting captures by evaluator identities:
+
+| Wrong arm | evaluator captures | of those, corrective |
+| --- | --- | --- |
+| checkable/opus | 22 | 21 |
+| convention/opus | 9 | 5 |
+| convention/haiku | 4 | 0 |
+| checkable/haiku | 1 | 0 |
+| convention/sonnet | 0 | 0 |
+| checkable/sonnet | 0 | 0 |
+
+Opus did not merely decline the wrong claim; it wrote corrections back to the
+store, citing the offending insight's id and stating it had verified by
+direct query. One verbatim example from `checkable/wrong/opus`:
+
+> CORRECTION (verified by query on 2026-08-03): `memory.bench.orders` — the
+> current, supported bench order table — holds **1200** rows, not 1140. A
+> prior insight/description stating [...]
+
+Three qualitatively different responses to one wrong claim: haiku adopts it,
+sonnet declines it silently, opus declines it and files a correction.
+
+Two limits on this observation, both real. The "corrective" count is a text
+match over the captured content (`correction`, `incorrect`, `not 1140`), not a
+judged classification, so it is indicative rather than exact. And every one of
+these captures is **pending**: the corrections are proposals that a reviewer
+would still have to approve, not repairs the store applied on its own. That
+they are pending is also why they cannot have contaminated their own arm — a
+pending insight is readable only by its capturer.
+
+## Controls
+
+| Cell | haiku | sonnet | opus |
+| --- | --- | --- | --- |
+| convention/absent | 9/24 | 23/24 | 20/24 |
+| convention/correct | 11/24 | 24/24 | 21/24 |
+| checkable/absent | 24/24 | 24/24 | 24/24 |
+| checkable/correct | 24/24 | 24/24 | 24/24 |
+
+The checkable class has a clean floor at every tier, which is what makes its
+treatment effect readable. The convention class does not on haiku: 9/24 on the
+absent arm is a noisy floor, exactly the case protocol 4.1 said the absent arm
+existed to expose, and it means haiku's convention zero is a statement about
+what haiku did not adopt rather than a precise rate against a stable baseline.
+
+Sonnet's single convention miss is not a wrong reading: the episode answered
+317090.50 against a correct 317090.52 at tolerance 0.01, a two-cent difference
+on a figure near 317,000, so it classifies as "other". Protocol 5.1 names that
+task as the matrix's tightest discriminant pair.
 
 ## Retained attempts that are not confirmatory data
 
-Kept because their episodes are real and because what invalidated each one is
-itself worth stating. None is used in the analysis.
-
-**`convention-correct-sonnet-BASELINE-MISPLACED`** (23/24). Ran to completion,
-then failed its store-constancy check because the arm script took the section
-7.3 baseline before the plant rather than after it. The two records reported
-as drift are the plant's own — insight `ab10c6cb...` captured by the teacher
-identity `bench-agent-200`, and changeset `c1854878...` on the orders entity,
-both matching `planted.json` — and no evaluator identity appears in the drift
-at all, so the store was in fact constant across the 24 episodes. Section 7.2
-excludes the plant's capture, approval and apply from the arm's accounting.
-Fixed in `cb61f690`: the snapshots now bracket the eval, with a third
-`store-clean.json` taken before the plant so the plant's own effect on the
-store stays readable.
-
-**`convention-correct-sonnet-DRIFTED-0`** (23/24). A genuine store-constancy
-failure and the first one the check caught for the right reason: evaluator
-identity `bench-agent-015` captured a pending insight
-(`eb0e10f82eb30aef4a2022482313baee`) mid-arm. Section 7.3's remedy is to
-invalidate the arm and re-run it on a fresh database, which is what happened.
-
-The rule was applied as pre-registered rather than narrowed. A pending insight
-is readable only by its own capturer — `provider_insights.readableBy` admits an
-insight to a non-capturer only once applied — so no later episode in that arm
-could have seen it, and scoping the invariant to cross-identity-visible state
-would have been defensible. It would also have been an amendment made after
-seeing the data, which costs more in a pre-registered study than the wall clock
-it saves. The observed evaluator-write rate is reported as a finding in its own
-right rather than absorbed into a caveat.
-
-**`convention-correct-sonnet-INTERRUPTED-bells`** (16/17, incomplete). Stopped
-at 17 of 24 episodes to restart the block detached from the operator's
-terminal: each headless `claude -p` child inherited the controlling TTY and was
-ringing a terminal bell roughly every thirty seconds. Not a measurement
-failure; the episodes it did produce are intact.
+Kept because their episodes are real and because what invalidated each is
+worth stating. None is analyzed. Suffixes: `-DRIFTED-n` (an evaluator write
+that was cross-identity readable, or, in the earliest ones, any write at all
+under the unamended rule), `-INCOMPLETE-n` (interrupted before its k),
+`-BASELINE-MISPLACED` (a store check taken before the plant rather than after,
+so the plant's own records read as drift), `-INTERRUPTED-bells` (stopped to
+restart the block detached from the operator's terminal), `-AUDIT-TIMEOUT-n`
+(one episode's audit rows arrived outside the read-back window).

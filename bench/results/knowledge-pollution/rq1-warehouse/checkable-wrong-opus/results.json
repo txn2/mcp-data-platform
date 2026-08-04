@@ -1,0 +1,708 @@
+{
+  "manifest": {
+    "started_at": "2026-08-04T06:22:26.5938Z",
+    "finished_at": "2026-08-04T06:36:14.936757Z",
+    "git_commit": "dd973368783895b4c9f61ba3c8b7ef61ddb69f6a",
+    "platform_version": "dev",
+    "target": "http://localhost:8098",
+    "arm": "a3",
+    "llm_provider": "claude-cli",
+    "client_version": "2.1.221 (Claude Code)",
+    "disallowed_tools": [
+      "Bash",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Read",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "TodoWrite",
+      "ToolSearch",
+      "ReadMcpResourceTool",
+      "ListMcpResourcesTool"
+    ],
+    "model": "opus",
+    "seed": 930,
+    "task_set_hash": "c486a443831b7d27239393a7f42c971d726de385f2e3137afe9b8650410e0677",
+    "k": 24,
+    "suite": "s3"
+  },
+  "attempts": [
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 1,
+      "session_id": "dps_e6e57048340066d12fa1b8d4c98ef1f9",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 46487,
+      "input_tokens": 13,
+      "output_tokens": 3068,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 414,
+        "enriched_calls": 5,
+        "enrichment_tokens_full": 596,
+        "enrichment_tokens_dedup": 159
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k1.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 2,
+      "session_id": "dps_47e1784641121c8b48a08ebd6dd3fe61",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 36188,
+      "input_tokens": 11,
+      "output_tokens": 2030,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 313,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 354,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k2.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 3,
+      "session_id": "dps_fd7f9d74be3418ffda9c5f950dfcebc7",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 36941,
+      "input_tokens": 12,
+      "output_tokens": 2246,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 271,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 167,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k3.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 4,
+      "session_id": "dps_033be7da45d32509aca56e7771385e32",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 38213,
+      "input_tokens": 12,
+      "output_tokens": 2016,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 309,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 167,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k4.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 5,
+      "session_id": "dps_7f2594f9cde165644f94276955ed2859",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 38131,
+      "input_tokens": 11,
+      "output_tokens": 2292,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 252,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 242,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k5.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 6,
+      "session_id": "dps_4f66515e5d3eace7e714fef7a8af6d81",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 34262,
+      "input_tokens": 11,
+      "output_tokens": 2094,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 260,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 360,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k6.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 7,
+      "session_id": "dps_4974dea10a069c1b012f5792427a7b84",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 32344,
+      "input_tokens": 11,
+      "output_tokens": 2048,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 229,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 360,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k7.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 8,
+      "session_id": "dps_8fe37c335697f4910702df6e3da1211b",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 33136,
+      "input_tokens": 13,
+      "output_tokens": 2144,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 299,
+        "enriched_calls": 5,
+        "enrichment_tokens_full": 596,
+        "enrichment_tokens_dedup": 159
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k8.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 9,
+      "session_id": "dps_f934b11352d62bcac9a3d9a0a3805baf",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 28787,
+      "input_tokens": 12,
+      "output_tokens": 1365,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 248,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 167,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k9.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 10,
+      "session_id": "dps_3019ada4ee6b763440742abc538ad329",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 3,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 20923,
+      "input_tokens": 10,
+      "output_tokens": 1098,
+      "audit": {
+        "audited_calls": 3,
+        "errors": 0,
+        "total_duration_ms": 227,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 236,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k10.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 11,
+      "session_id": "dps_5162c41f471dc76be0562f08ad588210",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 3,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 20220,
+      "input_tokens": 10,
+      "output_tokens": 820,
+      "audit": {
+        "audited_calls": 3,
+        "errors": 0,
+        "total_duration_ms": 178,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 242,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k11.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 12,
+      "session_id": "dps_b291fdaec23f7f248d110c2d868cd106",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 8,
+      "tool_errors": 1,
+      "budget_exhausted": false,
+      "wall_ms": 46577,
+      "input_tokens": 13,
+      "output_tokens": 2685,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 1,
+        "total_duration_ms": 312,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 472,
+        "enrichment_tokens_dedup": 159
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k12.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 13,
+      "session_id": "dps_748f7a51de4867b997f7780725181ceb",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 40343,
+      "input_tokens": 13,
+      "output_tokens": 2111,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 256,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 360,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k13.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 14,
+      "session_id": "dps_62cda72f9e7039a957d5c3adbdccacd0",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 35473,
+      "input_tokens": 12,
+      "output_tokens": 1953,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 281,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 360,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k14.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 15,
+      "session_id": "dps_4fc6a6a5ff62a105d29c6ee74768f030",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 32449,
+      "input_tokens": 11,
+      "output_tokens": 1924,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 259,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 360,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k15.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 16,
+      "session_id": "dps_5a67405aba8f5da65de91a9b85d4c7aa",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 52278,
+      "input_tokens": 13,
+      "output_tokens": 2781,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 493,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 387,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k16.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 17,
+      "session_id": "dps_efd98ef36c812e2b1f2b689e40133430",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 31404,
+      "input_tokens": 12,
+      "output_tokens": 1859,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 293,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 167,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k17.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 18,
+      "session_id": "dps_ed33291e0fe660877dd376b330125b66",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 39174,
+      "input_tokens": 13,
+      "output_tokens": 2496,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 344,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 478,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k18.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 19,
+      "session_id": "dps_b930b3cd865c2c79df21c5314a6b42c8",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 28639,
+      "input_tokens": 12,
+      "output_tokens": 1493,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 253,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 167,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k19.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 20,
+      "session_id": "dps_e594f20be99619306ca6eb5b3ce7fe9c",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 26328,
+      "input_tokens": 12,
+      "output_tokens": 1476,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 248,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 242,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k20.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 21,
+      "session_id": "dps_ba03f8d2c6c48d8e2293f3fd2b845bd5",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 36930,
+      "input_tokens": 11,
+      "output_tokens": 2112,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 265,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 360,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k21.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 22,
+      "session_id": "dps_8654620102a15ffa1b996f6e97a1bc1a",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 29679,
+      "input_tokens": 12,
+      "output_tokens": 1727,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 245,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 167,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k22.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 23,
+      "session_id": "dps_03b4906e9445995d009656b62c433120",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 8,
+      "tool_errors": 1,
+      "budget_exhausted": false,
+      "wall_ms": 35639,
+      "input_tokens": 15,
+      "output_tokens": 2207,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 1,
+        "total_duration_ms": 273,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 478,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k23.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 24,
+      "session_id": "dps_b00aff3b3c4c4f697e5904b15a70fc9f",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 27511,
+      "input_tokens": 12,
+      "output_tokens": 1267,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 223,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 354,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-opus/results.json.transcripts/s3-deprecated-order-count-a3-k24.json"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "graded": 24,
+      "correct": 24,
+      "pass_rate": 1,
+      "pass_k": true
+    }
+  ],
+  "suites": [
+    {
+      "suite": "s3",
+      "tasks": 1,
+      "graded": 24,
+      "accuracy": 1,
+      "pass_k_rate": 1,
+      "median_tool_calls": 5,
+      "p90_tool_calls": 8,
+      "median_wall_ms": 34262,
+      "tool_errors": 2,
+      "enrichment_tokens_full": 7839,
+      "enrichment_tokens_dedup": 1272
+    }
+  ]
+}
