@@ -128,6 +128,19 @@ func ConnectionsWithheldNotice(withheld int, persona string) string {
 		" is not granted them." + withheldRemedy
 }
 
+// withheldContentNotice renders the same explanation for entries removed from
+// INSIDE one fetched record — the datasets listed under a governance entity —
+// where there is no coverage block to carry the count. It returns "" when nothing
+// was withheld. It shares withheldSentence with the search-side notice so the two
+// read identically; a short list with no explanation is indistinguishable from a
+// governance entity nothing carries.
+func withheldContentNotice(withheld int, persona string) string {
+	if withheld <= 0 {
+		return ""
+	}
+	return withheldSentence(withheld, persona) + "." + withheldRemedy
+}
+
 // withheldRemedy is the path in that every withheld notice carries: what the
 // reader does about it. A denial with no remedy is a dead end.
 const withheldRemedy = " Ask an administrator to grant your persona access to the connections you need."

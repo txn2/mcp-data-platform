@@ -109,8 +109,10 @@ func DocumentSearcherFrom(p Provider) (DocumentSearcher, bool) {
 type CatalogPicker interface {
 	// ListDomains returns every DataHub domain; the caller filters client-side.
 	ListDomains(ctx context.Context) ([]EntityRef, error)
-	// SearchGlossaryTerms name-searches glossary terms (empty query lists),
-	// bounded by limit.
+	// SearchGlossaryTerms name-searches glossary terms, bounded by limit. An
+	// empty query lists: an implementation must substitute its backend's
+	// match-everything query rather than forward the empty string, which a
+	// relevance backend reads as "match nothing".
 	SearchGlossaryTerms(ctx context.Context, query string, limit int) ([]EntityRef, error)
 }
 
@@ -121,18 +123,74 @@ type CatalogPicker interface {
 // small and not per-table, so bypassing the cache is correct. ok is false when
 // no provider in the chain can pick.
 func CatalogPickerFrom(p Provider) (CatalogPicker, bool) {
+	return innermostCapability[CatalogPicker](p)
+}
+
+// GovernanceReader is the optional governance-vocabulary capability (#1160): the
+// reads that make DataHub's glossary terms, tags, and domains discoverable and
+// readable as entities in their own right rather than as attributes of a
+// dataset. Only a real catalog backend (the DataHub adapter) implements it, so a
+// noop catalog registers no governance source.
+//
+// The three kinds are deliberately not read through one uniform method, because
+// upstream does not offer one: a glossary term has a by-URN read and a name
+// search, a tag has a name search only, and a domain has neither and is
+// enumerated whole. SearchTables completes the set — with a tag, domain, or
+// glossary-term filter it lists the datasets that carry a governance entity,
+// which is what makes the entity useful to read.
+type GovernanceReader interface {
+	CatalogPicker
+
+	// SearchTags name-searches tags, bounded by limit. An empty query lists them,
+	// under the same substitution rule SearchGlossaryTerms carries.
+	SearchTags(ctx context.Context, query string, limit int) ([]EntityRef, error)
+
+	// GetGlossaryTerm reads one term by URN. It is the only by-URN read any
+	// governance vocabulary has, which is why a tag or a domain is resolved by
+	// listing its vocabulary and matching instead.
+	GetGlossaryTerm(ctx context.Context, urn string) (*GlossaryTerm, error)
+
+	// SearchTables ranks datasets; filtered by tag, domain, or glossary term it
+	// lists the datasets carrying that governance entity.
+	SearchTables(ctx context.Context, filter SearchFilter) ([]TableSearchResult, error)
+}
+
+// GovernanceReaderFrom reports the governance-read capability of p, returning the
+// innermost provider that implements it. It resolves like CatalogPickerFrom (and
+// unlike DocumentSearcherFrom) because it builds on the same picker reads, which
+// the caching decorator does not forward. ok is false when no provider in the
+// chain can read the governance vocabulary.
+func GovernanceReaderFrom(p Provider) (GovernanceReader, bool) {
+	return innermostCapability[GovernanceReader](p)
+}
+
+// innermostCapability walks a provider's decorator chain and returns the first
+// (innermost-reaching) member that satisfies T. It holds the capability-probe
+// rule once so the picker and governance probes cannot drift: both return the
+// implementing provider itself rather than the decorator, because the caching
+// decorator forwards neither's methods.
+func innermostCapability[T any](p Provider) (T, bool) {
 	inner := p
 	for {
-		if cp, ok := inner.(CatalogPicker); ok {
-			return cp, true
+		if c, ok := inner.(T); ok {
+			return c, true
 		}
 		u, ok := inner.(interface{ Unwrap() Provider })
 		if !ok {
-			return nil, false
+			var zero T
+			return zero, false
 		}
 		inner = u.Unwrap()
 	}
 }
+
+// FilterFieldGlossaryTerms is the catalog search-filter field that matches the
+// datasets carrying a glossary term. DataHub folds a column-level assignment into
+// the dataset's glossaryTerms index, so this field matches a dataset whose TABLE
+// or whose COLUMN carries the term; fieldGlossaryTerms narrows to column-level
+// assignments only. Exported so the governance search source and the portal's
+// catalog REST surface name the field from one authority.
+const FilterFieldGlossaryTerms = "glossaryTerms"
 
 // URNResolver can resolve URNs to table identifiers.
 type URNResolver interface {

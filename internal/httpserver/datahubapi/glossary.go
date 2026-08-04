@@ -37,7 +37,7 @@ import (
 // table-level-only field. Verified against a live DataHub GMS: a term applied
 // only to a column is returned by the first field as well as the second.
 const (
-	filterFieldGlossaryTerms       = "glossaryTerms"
+	filterFieldGlossaryTerms       = semantic.FilterFieldGlossaryTerms
 	filterFieldColumnGlossaryTerms = "fieldGlossaryTerms"
 
 	qpGlossaryTerm       = "glossary_term"

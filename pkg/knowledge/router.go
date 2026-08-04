@@ -211,6 +211,7 @@ func sourceSet(sources []string) map[string]bool {
 var knownSourceNames = map[string]bool{
 	SourceCatalog:          true,
 	SourceContextDocuments: true,
+	SourceGovernance:       true,
 	SourceKnowledgePages:   true,
 	SourceMemory:           true,
 	SourceInsights:         true,
