@@ -88,6 +88,15 @@ type Writer interface {
 	// the tag, which is why the portal shows a tag's current usage before
 	// offering the delete.
 	DeleteTag(ctx context.Context, tagURN string) error
+	// CreateDomain defines a new domain and returns its URN (#1157). Editing a
+	// domain's description is UpdateDescription with the domain's URN, and
+	// moving a table into or out of a domain is SetDomain/UnsetDomain, which is
+	// why neither has a domain-specific method here.
+	CreateDomain(ctx context.Context, name, description string) (string, error)
+	// DeleteDomain removes a domain definition. Nothing here clears the domain
+	// from the tables that carry it, which is why the portal shows a domain's
+	// current membership before offering the delete.
+	DeleteDomain(ctx context.Context, domainURN string) error
 	UpsertContextDocument(ctx context.Context, in DocumentInput) (*semantic.DocumentResult, error)
 	DeleteContextDocument(ctx context.Context, documentID string) error
 }
@@ -242,6 +251,23 @@ func (cw clientWriter) CreateTag(ctx context.Context, name, description string) 
 // DeleteTag removes a tag definition.
 func (cw clientWriter) DeleteTag(ctx context.Context, tagURN string) error {
 	if err := cw.w.DeleteTag(ctx, tagURN); err != nil {
+		return fmt.Errorf(errWriter, err)
+	}
+	return nil
+}
+
+// CreateDomain creates a domain definition and returns its URN.
+func (cw clientWriter) CreateDomain(ctx context.Context, name, description string) (string, error) {
+	urn, err := cw.w.CreateDomain(ctx, name, description)
+	if err != nil {
+		return "", fmt.Errorf(errWriter, err)
+	}
+	return urn, nil
+}
+
+// DeleteDomain removes a domain definition.
+func (cw clientWriter) DeleteDomain(ctx context.Context, domainURN string) error {
+	if err := cw.w.DeleteDomain(ctx, domainURN); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil

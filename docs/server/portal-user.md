@@ -289,7 +289,7 @@ The whole-corpus overview, with the detected clusters drawn as regions:
 
 The **Catalog** sub-tab is the whole of your data catalog inside the portal, and the second of the two knowledge sinks. **Everything under Catalog is DataHub**; anything the portal's own database backs — knowledge pages, changesets — stays outside it. That rule is what keeps the top row at four tabs while the catalog surfaces grow underneath.
 
-Catalog holds its own inner tabs: **Tables**, **Context Docs**, and **Tags** — the described things first, the vocabulary that describes them second. The DataHub connection is picked once, at the top of the section, and applies to every inner tab; switching it returns each tab to its list, since an open table, document, or tag belongs to the connection it was read from. The section is URL-addressable at `/knowledge/catalog`, and the inner tab is carried in the hash (`/knowledge/catalog#tags`), so a refresh and browser back/forward land where you were. A single entity stays addressable at `/knowledge/catalog?urn=...`, which is what a catalog reference links to from anywhere in the portal.
+Catalog holds its own inner tabs: **Tables**, **Context Docs**, **Tags**, and **Domains** — the described things first, the vocabularies that describe them second. The DataHub connection is picked once, at the top of the section, and applies to every inner tab; switching it returns each tab to its list, since an open table, document, tag, or domain belongs to the connection it was read from. The section is URL-addressable at `/knowledge/catalog`, and the inner tab is carried in the hash (`/knowledge/catalog#tags`), so a refresh and browser back/forward land where you were. A single entity stays addressable at `/knowledge/catalog?urn=...`, which is what a catalog reference links to from anywhere in the portal.
 
 ![Catalog](../images/screenshots/light/user-knowledge-catalog-light.webp#only-light)![Catalog](../images/screenshots/dark/user-knowledge-catalog-dark.webp#only-dark)
 
@@ -305,6 +305,14 @@ The **Context Docs** tab manages DataHub context documents: markdown notes attac
 
 The **Tags** tab manages the tag vocabulary itself, rather than the tags carried by one table. List the connection's tags with their descriptions, filter by name, and open a tag to see what it means and which tables carry it; each of those tables links straight into the Tables tab's entity editor. With the matching grant on a write-enabled connection you can create a tag (`datahub_create`), edit its description (`datahub_update`), and retire one (`datahub_delete`); without those grants the same read surfaces appear with no editing controls. Deleting states its blast radius first — how many tables in the connection carry the tag — so retiring an unused tag and retiring one the warehouse depends on do not look identical. DataHub indexes new tags asynchronously, so a tag you just created may take a moment to appear in the list.
 
+#### Domains
+
+The **Domains** tab manages the business areas the catalog is grouped into, rather than the domain carried by one table. List the connection's domains with their descriptions, filter by name, and open a domain to see what it covers and which tables are in it; each of those tables links straight into the Tables tab's entity editor. With the matching grant on a write-enabled connection you can create a domain (`datahub_create`), edit its description (`datahub_update`), retire one (`datahub_delete`), and move tables in and out of it (`datahub_update`); without those grants the same read surfaces appear with no editing controls.
+
+Two limits the tab states rather than hides. The domain list is capped at 100 by DataHub itself — its `listDomains` query asks for that many and the lookup endpoint takes no limit — so a full list means there are domains this page cannot reach, and it says so. A table has at most one domain, so adding a table that is already in another domain **moves** it rather than giving it a second; the add form says so before you pick.
+
+Deleting states its blast radius first — how many tables in the connection are in the domain — and what it does with them: the delete removes the domain definition from DataHub and leaves those tables without a domain, since it touches no table. As with tags, DataHub indexes new domains asynchronously, so a domain you just created may take a moment to appear in the list.
+
 These tabs are backed by the portal DataHub REST API at `/api/v1/portal/datahub/{connection}/...`. Reads require DataHub access on your persona; a write is permitted only when your persona grants the matching MCP tool **and** the target connection is write-enabled (`read_only: false`). Both checks are enforced server-side regardless of what the UI shows, and every write is recorded in the audit log. Tag and glossary-term edits are applied as batched add/remove sets so concurrent edits do not clobber one another. The pickers are backed by name-search lookup endpoints (`catalog/lookup/tags`, `catalog/lookup/glossary-terms`, `catalog/lookup/domains`). A malformed metadata value is rejected with `400 Bad Request`; `502 Bad Gateway` is reserved for genuine upstream DataHub failures.
 
 #### Tag endpoints
@@ -317,6 +325,17 @@ Managing the tag vocabulary adds two routes, because the reads it needs already 
 | `DELETE catalog/tags?urn=` | Retires a tag definition. Gated on `datahub_delete` and a write-enabled connection. The URN is a query parameter rather than a path segment because a tag URN is itself colon-delimited. |
 
 A URN that is not a tag is a `400` before the call reaches DataHub, rather than a forwarded call surfacing as a misleading `502`. A newly created tag is not immediately listable: the list read is served from DataHub's search index, which is populated asynchronously, so the returned URN is authoritative until the index catches up.
+
+#### Domain endpoints
+
+Managing domains adds two routes, for the same reason tags did: everything else it needs already exists. Listing domains with their descriptions is `GET catalog/lookup/domains`, the same read behind the domain picker; the tables in a domain are `GET catalog/search?q=*&domain=<urn>`, through the catalog search's domain filter; a domain's description is edited with `PUT catalog/entity/description`; and moving a table into or out of a domain is `PUT catalog/entity/domain`, the same write the per-table entity editor makes, aimed at the table rather than at the domain.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST catalog/domains` | Creates a domain from `{name, description}` and returns the URN DataHub assigned it, `201`. Gated on `datahub_create` and a write-enabled connection. |
+| `DELETE catalog/domains?urn=` | Retires a domain definition. Gated on `datahub_delete` and a write-enabled connection. The URN is a query parameter rather than a path segment because a domain URN is itself colon-delimited. |
+
+A URN that is not a domain is a `400` before the call reaches DataHub. `GET catalog/lookup/domains` returns at most 100 domains because the upstream `listDomains` query is fixed at that count; the portal reports a full list as capped rather than as complete.
 
 #### Glossary hierarchy endpoints
 

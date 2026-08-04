@@ -958,6 +958,35 @@ func (w *DataHubClientWriter) DeleteTag(ctx context.Context, tagURN string) erro
 	return nil
 }
 
+// CreateDomain creates a domain and returns its URN (#1157). The URN is
+// DataHub's to assign, so it is read from the response rather than built here.
+//
+// Deliberately not on the DataHubWriter interface, for the reason recorded on
+// CreateGlossaryNode and CreateTag: the knowledge apply path assigns a domain
+// but never authors one, and DataHubWriter is exported, so growing it would
+// break every external implementation for a method none of them needs. The
+// portal domain editor holds the concrete writer and calls this directly.
+func (w *DataHubClientWriter) CreateDomain(ctx context.Context, name, description string) (string, error) {
+	urn, err := w.client.CreateDomain(ctx, name, description)
+	if err != nil {
+		return "", fmt.Errorf("creating domain %s: %w", name, err)
+	}
+	return urn, nil
+}
+
+// DeleteDomain removes a domain definition (#1157). Nothing here clears the
+// domain from the entities that carry it, which is why the portal shows a
+// domain's current membership before offering the delete.
+//
+// Deliberately not on the DataHubWriter interface, for the same reason as
+// CreateDomain.
+func (w *DataHubClientWriter) DeleteDomain(ctx context.Context, domainURN string) error {
+	if err := w.client.DeleteDomain(ctx, domainURN); err != nil {
+		return fmt.Errorf("deleting domain %s: %w", domainURN, err)
+	}
+	return nil
+}
+
 // SetCustomProperties sets the given customProperties key/values on an entity (#726).
 func (w *DataHubClientWriter) SetCustomProperties(ctx context.Context, urn string, properties map[string]string) error {
 	if err := w.client.SetCustomProperties(ctx, urn, properties); err != nil {

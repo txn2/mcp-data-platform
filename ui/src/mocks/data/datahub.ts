@@ -35,8 +35,10 @@ const mockGlossaryTerms: EntityRef[] = [
   { urn: "urn:li:glossaryTerm:Revenue", name: "Revenue" },
   { urn: "urn:li:glossaryTerm:NetSales", name: "Net Sales" },
 ];
+// The domain list is also the Domains governance surface's read (#1157), so it
+// is mutable: a create appends and a delete removes.
 const mockDomains: EntityRef[] = [
-  { urn: "urn:li:domain:finance", name: "Finance" },
+  { urn: "urn:li:domain:finance", name: "Finance", description: "Revenue, billing, and reporting." },
   { urn: "urn:li:domain:marketing", name: "Marketing" },
 ];
 
@@ -80,6 +82,36 @@ export function lookupGlossaryTerms(q: string): EntityRef[] {
 
 export function lookupDomains(): EntityRef[] {
   return mockDomains;
+}
+
+// createDomain appends a domain definition, mirroring the backend's 201 {urn}
+// (#1157). DataHub derives the URN from the name.
+export function createDomain(name: string, description?: string): string {
+  const domainUrn = `urn:li:domain:${name}`;
+  if (!mockDomains.some((d) => d.urn === domainUrn)) {
+    mockDomains.push({ urn: domainUrn, name, description });
+  }
+  return domainUrn;
+}
+
+// deleteDomain removes a domain definition. It reports whether the domain
+// existed so the handler can answer a delete of an unknown domain the way the
+// backend would. The tables that were in it keep their stored domain value, as
+// upstream DeleteDomain touches only the domain entity.
+export function deleteDomain(domainUrn: string): boolean {
+  const i = mockDomains.findIndex((d) => d.urn === domainUrn);
+  if (i < 0) return false;
+  mockDomains.splice(i, 1);
+  return true;
+}
+
+// setDomainDescription applies an entity-description edit aimed at a domain URN,
+// which is how the Domains surface documents a domain.
+export function setDomainDescription(domainUrn: string, description: string): boolean {
+  const domain = mockDomains.find((d) => d.urn === domainUrn);
+  if (!domain) return false;
+  domain.description = description;
+  return true;
 }
 
 // A small stateful catalog so edits persist across reads within a session.
@@ -149,10 +181,10 @@ export function catalogBrowse(): TableSearchResult[] {
 }
 
 // catalogSearch narrows the catalog by free text and, when given, by the tag
-// URNs the caller filtered on. "*" is the match-all query the browse-style reads
-// send (the Tags surface sends it with a tag filter, where the filter and not
-// the text selects the rows).
-export function catalogSearch(q: string, tags: string[] = []): TableSearchResult[] {
+// URNs and the domain URN the caller filtered on. "*" is the match-all query the
+// browse-style reads send (the Tags and Domains surfaces send it with a filter,
+// where the filter and not the text selects the rows).
+export function catalogSearch(q: string, tags: string[] = [], domain = ""): TableSearchResult[] {
   const needle = q.toLowerCase();
   const matchesText = (r: TableSearchResult) =>
     q === "*" ||
@@ -163,7 +195,11 @@ export function catalogSearch(q: string, tags: string[] = []): TableSearchResult
     const carried = new Set((catalogEntity(r.urn)?.context?.tag_refs ?? []).map((t) => t.urn));
     return tags.every((t) => carried.has(t));
   };
-  return catalogBrowse().filter((r) => matchesText(r) && matchesTags(r));
+  // The search filter carries a domain URN; the result's own `domain` is the
+  // display name, so the match is against the stored entity's domain URN.
+  const matchesDomain = (r: TableSearchResult) =>
+    !domain || catalogEntity(r.urn)?.context?.domain?.urn === domain;
+  return catalogBrowse().filter((r) => matchesText(r) && matchesTags(r) && matchesDomain(r));
 }
 
 export function catalogEntity(entityUrn: string): CatalogEntity | undefined {
@@ -183,11 +219,14 @@ export function applyCatalogChange(
     clear_domain?: boolean;
   },
 ): boolean {
-  // A description edit aimed at a tag URN is how the Tags surface documents a
-  // tag: the backend's entity-description route takes any entity URN, so the
-  // mock has to accept a non-dataset target too.
+  // A description edit aimed at a tag or domain URN is how the Tags and Domains
+  // surfaces document one: the backend's entity-description route takes any
+  // entity URN, so the mock has to accept a non-dataset target too.
   if (field === "description" && body.urn.startsWith("urn:li:tag:")) {
     return setTagDescription(body.urn, body.description ?? "");
+  }
+  if (field === "description" && body.urn.startsWith("urn:li:domain:")) {
+    return setDomainDescription(body.urn, body.description ?? "");
   }
   const e = catalog[body.urn];
   if (!e || !e.context) return false;
@@ -222,9 +261,19 @@ export function applyCatalogChange(
       break;
     }
     case "domain":
-      ctx.domain = body.clear_domain || !body.domain
-        ? null
-        : { urn: body.domain, name: body.domain.split(":").pop() ?? body.domain };
+      // Resolve the display name from the domain vocabulary rather than from the
+      // URN's last segment, so a table moved into "Finance" reads as Finance
+      // (the URN id is lowercase) the way the real entity read returns it.
+      ctx.domain =
+        body.clear_domain || !body.domain
+          ? null
+          : {
+              urn: body.domain,
+              name:
+                mockDomains.find((d) => d.urn === body.domain)?.name ??
+                body.domain.split(":").pop() ??
+                body.domain,
+            };
       break;
     default:
       return false;

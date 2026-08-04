@@ -33,6 +33,8 @@ import {
   deleteTag,
   lookupGlossaryTerms,
   lookupDomains,
+  createDomain,
+  deleteDomain,
   applyCatalogChange,
   docsBrowse,
   docsSearch,
@@ -969,7 +971,9 @@ export const handlers = [
     // The backend accepts `tags` repeated or comma-separated; the Tags surface
     // sends one tag URN to list what carries it (#1156).
     const tags = params.getAll("tags").flatMap((v) => v.split(",")).filter(Boolean);
-    return HttpResponse.json({ results: catalogSearch(q, tags) });
+    // The Domains surface sends one domain URN to list the tables in it (#1157).
+    const domain = params.get("domain") ?? "";
+    return HttpResponse.json({ results: catalogSearch(q, tags, domain) });
   }),
   http.get(`${PORTAL_BASE}/datahub/:conn/catalog/entity`, ({ request }) => {
     const u = new URL(request.url).searchParams.get("urn") ?? "";
@@ -1015,6 +1019,23 @@ export const handlers = [
     return deleteTag(tagUrn)
       ? HttpResponse.json({ status: "deleted" })
       : HttpResponse.json({ detail: "tag delete failed" }, { status: 502 });
+  }),
+  // Domain governance (#1157): the list read is the picker's lookup route above,
+  // and the membership read is the catalog search's domain filter.
+  http.post(`${PORTAL_BASE}/datahub/:conn/catalog/domains`, async ({ request }) => {
+    const body = (await request.json()) as { name?: string; description?: string };
+    const name = (body.name ?? "").trim();
+    if (!name) return HttpResponse.json({ detail: "name is required" }, { status: 400 });
+    return HttpResponse.json({ urn: createDomain(name, body.description) }, { status: 201 });
+  }),
+  http.delete(`${PORTAL_BASE}/datahub/:conn/catalog/domains`, ({ request }) => {
+    const domainUrn = new URL(request.url).searchParams.get("urn") ?? "";
+    if (!domainUrn.startsWith("urn:li:domain:") || domainUrn === "urn:li:domain:") {
+      return HttpResponse.json({ detail: `invalid urn: ${domainUrn}` }, { status: 400 });
+    }
+    return deleteDomain(domainUrn)
+      ? HttpResponse.json({ status: "deleted" })
+      : HttpResponse.json({ detail: "domain delete failed" }, { status: 502 });
   }),
   http.get(`${PORTAL_BASE}/datahub/:conn/documents/browse`, () => HttpResponse.json(docsBrowse())),
   http.get(`${PORTAL_BASE}/datahub/:conn/documents/search`, ({ request }) => {

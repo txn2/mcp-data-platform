@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 // The section is the container: what it owns is the connection, the inner tab,
-// and the URL contract. Its three inner tabs are stood in so those concerns are
+// and the URL contract. Its four inner tabs are stood in so those concerns are
 // tested without their data layers. Each stand-in carries internal state, so a
 // remount (which is how a connection change resets them) is observable.
 function Stub({ label }: { label: string }) {
@@ -28,6 +28,9 @@ vi.mock("./ContextDocsTab", () => ({
 }));
 vi.mock("./TagsTab", () => ({
   TagsTab: ({ conn }: { conn: string }) => <Stub label={`tags:${conn}`} />,
+}));
+vi.mock("./DomainsTab", () => ({
+  DomainsTab: ({ conn }: { conn: string }) => <Stub label={`domains:${conn}`} />,
 }));
 // Stand in a picker that switches connection, so the section's reaction to a
 // change is testable without the real select's data fetch.
@@ -79,6 +82,7 @@ describe("CatalogSection", () => {
     expect(screen.getByText("tables:primary body")).toBeInTheDocument();
     expect(screen.queryByText("docs:primary body")).not.toBeInTheDocument();
     expect(screen.queryByText("tags:primary body")).not.toBeInTheDocument();
+    expect(screen.queryByText("domains:primary body")).not.toBeInTheDocument();
     // One picker for the whole section, not one per inner tab.
     expect(screen.getAllByRole("button", { name: "pick primary" })).toHaveLength(1);
   });
@@ -87,6 +91,12 @@ describe("CatalogSection", () => {
     render(<CatalogSection initialSub="context-docs" />);
     fireEvent.click(screen.getByRole("button", { name: "pick primary" }));
     expect(screen.getByText("docs:primary body")).toBeInTheDocument();
+  });
+
+  it("opens Domains from its hash", () => {
+    render(<CatalogSection initialSub="domains" />);
+    fireEvent.click(screen.getByRole("button", { name: "pick primary" }));
+    expect(screen.getByText("domains:primary body")).toBeInTheDocument();
   });
 
   it("falls back to Tables for a hash that addresses nothing", () => {
@@ -104,6 +114,8 @@ describe("CatalogSection", () => {
     expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#tags");
     fireEvent.click(screen.getByRole("button", { name: "Context Docs" }));
     expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#context-docs");
+    fireEvent.click(screen.getByRole("button", { name: "Domains" }));
+    expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#domains");
     fireEvent.click(screen.getByRole("button", { name: "Tables" }));
     expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#tables");
   });

@@ -38,7 +38,7 @@ export function insightSubHash(sub: InsightSubTab): string {
 // DataHub-backed surface, so the surface within it is carried in the hash the
 // same way the top tabs are: /knowledge/catalog#tags re-opens the tag
 // vocabulary, and /knowledge/catalog?urn=...  still opens that entity on Tables.
-export type CatalogSubTab = "tables" | "context_docs" | "tags";
+export type CatalogSubTab = "tables" | "context_docs" | "tags" | "domains";
 
 // catalogSubHashes spells each inner tab for a URL. The type members are
 // identifiers, so context_docs cannot carry the hyphen the URL wants.
@@ -46,6 +46,7 @@ const catalogSubHashes: Record<CatalogSubTab, string> = {
   tables: "tables",
   context_docs: "context-docs",
   tags: "tags",
+  domains: "domains",
 };
 
 // normalizeCatalogSub picks the Catalog inner tab a hash addresses, defaulting

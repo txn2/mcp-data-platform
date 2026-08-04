@@ -61,6 +61,8 @@ const ALLOWLIST = new Set<string>([
   "GET /portal/datahub/{}/catalog/lookup/domains",
   "POST /portal/datahub/{}/catalog/tags",
   "DELETE /portal/datahub/{}/catalog/tags",
+  "POST /portal/datahub/{}/catalog/domains",
+  "DELETE /portal/datahub/{}/catalog/domains",
   "PUT /portal/datahub/{}/catalog/entity/description",
   "PUT /portal/datahub/{}/catalog/entity/tags",
   "PUT /portal/datahub/{}/catalog/entity/owners",
