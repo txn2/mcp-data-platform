@@ -45,6 +45,9 @@ type Reader interface {
 	SearchDocuments(ctx context.Context, query string, limit int) ([]semantic.DocumentResult, error)
 	BrowseDocuments(ctx context.Context, offset, limit int) ([]semantic.DocumentResult, int, error)
 	GetDocument(ctx context.Context, urn string) (*semantic.DocumentResult, error)
+	// GetRelatedDocuments returns the context documents attached to one entity
+	// (#1158), which the corpus-wide browse and search reads cannot express.
+	GetRelatedDocuments(ctx context.Context, urn string) ([]semantic.DocumentResult, error)
 }
 
 // OwnerChange is an owner to add along with its ownership type.
@@ -80,6 +83,15 @@ type Writer interface {
 	// parentNode or at the root when it is empty, returning the new node's URN
 	// (#1155).
 	CreateGlossaryNode(ctx context.Context, name, definition, parentNode string) (string, error)
+	// CreateGlossaryTerm adds a term to the business glossary, under parentNode
+	// or at the root when it is empty, returning the new term's URN (#1158).
+	// Editing a term's definition is UpdateDescription with the term's URN,
+	// which is why there is no term-specific update here.
+	CreateGlossaryTerm(ctx context.Context, name, definition, parentNode string) (string, error)
+	// DeleteGlossaryEntity retires a glossary term or node. Upstream is one call
+	// for both kinds, and it removes neither a node's children nor a term's
+	// assignments, which is why the portal shows both before offering the delete.
+	DeleteGlossaryEntity(ctx context.Context, urn string) error
 	// CreateTag defines a new tag and returns its URN (#1156). Editing a tag's
 	// description is UpdateDescription with the tag's URN, which is why there is
 	// no tag-specific update here.
@@ -237,6 +249,23 @@ func (cw clientWriter) CreateGlossaryNode(ctx context.Context, name, definition,
 		return "", fmt.Errorf(errWriter, err)
 	}
 	return urn, nil
+}
+
+// CreateGlossaryTerm creates a glossary term and returns its URN.
+func (cw clientWriter) CreateGlossaryTerm(ctx context.Context, name, definition, parentNode string) (string, error) {
+	urn, err := cw.w.CreateGlossaryTerm(ctx, name, definition, parentNode)
+	if err != nil {
+		return "", fmt.Errorf(errWriter, err)
+	}
+	return urn, nil
+}
+
+// DeleteGlossaryEntity removes a glossary term or node.
+func (cw clientWriter) DeleteGlossaryEntity(ctx context.Context, urn string) error {
+	if err := cw.w.DeleteGlossaryEntity(ctx, urn); err != nil {
+		return fmt.Errorf(errWriter, err)
+	}
+	return nil
 }
 
 // CreateTag creates a tag definition and returns its URN.

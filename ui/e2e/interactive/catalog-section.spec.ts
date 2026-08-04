@@ -33,7 +33,7 @@ test.describe("Catalog section", () => {
     await expect(page.getByRole("button", { name: "Context Docs", exact: true })).toHaveCount(0);
 
     await page.getByRole("button", { name: "Catalog", exact: true }).click();
-    for (const label of ["Tables", "Context Docs", "Tags", "Domains"]) {
+    for (const label of ["Tables", "Context Docs", "Tags", "Domains", "Glossary"]) {
       await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
   });
@@ -55,6 +55,10 @@ test.describe("Catalog section", () => {
     await page.getByRole("button", { name: "Domains", exact: true }).click();
     await expect(page.getByPlaceholder(domainFilter)).toBeVisible();
     expect(page.url()).toContain("/knowledge/catalog#domains");
+
+    await page.getByRole("button", { name: "Glossary", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Glossary" })).toBeVisible();
+    expect(page.url()).toContain("/knowledge/catalog#glossary");
 
     await page.getByRole("button", { name: "Context Docs", exact: true }).click();
     await expect(page.getByPlaceholder(docSearch)).toBeVisible();

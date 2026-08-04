@@ -6,6 +6,10 @@ import type {
   CatalogEntity,
   ContextDocument,
   EntityRef,
+  GlossaryChildren,
+  GlossaryNode,
+  GlossaryRoots,
+  GlossaryTerm,
 } from "@/api/portal/datahub";
 
 export const mockDataHubConnections: DataHubConnection[] = [
@@ -84,6 +88,140 @@ export function lookupDomains(): EntityRef[] {
   return mockDomains;
 }
 
+// --- business glossary (#1155 hierarchy, #1158 browser and editor) ---
+//
+// One glossary backs both surfaces: the terms below are the same list the
+// glossary picker looks up, so a term created in the Glossary tab is
+// immediately pickable on a table, as it is in DataHub. glossaryParent records
+// where each entity sits; an entity with no entry is at the root.
+
+const mockGlossaryNodes: GlossaryNode[] = [
+  {
+    urn: "urn:li:glossaryNode:finance",
+    name: "Finance",
+    description: "Revenue, billing, and reporting vocabulary.",
+    terms_count: 1,
+    nodes_count: 1,
+  },
+  {
+    urn: "urn:li:glossaryNode:billing",
+    name: "Billing",
+    parent_node: "urn:li:glossaryNode:finance",
+    terms_count: 0,
+    nodes_count: 0,
+  },
+];
+
+const glossaryParent: Record<string, string> = {
+  "urn:li:glossaryNode:billing": "urn:li:glossaryNode:finance",
+  "urn:li:glossaryTerm:Revenue": "urn:li:glossaryNode:finance",
+};
+
+// asTerm and asNode present the shared EntityRef list as the two glossary
+// shapes the hierarchy reads return.
+const asTerm = (t: EntityRef): GlossaryTerm => ({
+  urn: t.urn,
+  name: t.name,
+  description: t.description,
+});
+
+export function glossaryRoots(): GlossaryRoots {
+  const nodes = mockGlossaryNodes.filter((n) => !glossaryParent[n.urn]);
+  const terms = mockGlossaryTerms.filter((t) => !glossaryParent[t.urn]).map(asTerm);
+  return {
+    nodes,
+    nodes_total: nodes.length,
+    terms,
+    terms_total: terms.length,
+  };
+}
+
+export function glossaryChildren(nodeUrn: string): GlossaryChildren | undefined {
+  if (!mockGlossaryNodes.some((n) => n.urn === nodeUrn)) return undefined;
+  const nodes = mockGlossaryNodes.filter((n) => glossaryParent[n.urn] === nodeUrn);
+  const terms = mockGlossaryTerms.filter((t) => glossaryParent[t.urn] === nodeUrn).map(asTerm);
+  return { nodes, terms, start: 0, count: nodes.length + terms.length, total: nodes.length + terms.length };
+}
+
+// glossaryParents walks up from an entity, direct parent first, the way the
+// backend's parent-chain read returns it.
+export function glossaryParents(entityUrn: string): GlossaryNode[] {
+  const chain: GlossaryNode[] = [];
+  let cursor = glossaryParent[entityUrn];
+  while (cursor) {
+    const node = mockGlossaryNodes.find((n) => n.urn === cursor);
+    if (!node) break;
+    chain.push(node);
+    cursor = glossaryParent[node.urn];
+  }
+  return chain;
+}
+
+// createGlossaryEntity adds a term or a node, mirroring the backend's 201
+// {urn}. DataHub derives the URN from the name.
+export function createGlossaryEntity(
+  kind: "term" | "node",
+  name: string,
+  definition?: string,
+  parentNode?: string,
+): string {
+  const entityUrn = `urn:li:glossary${kind === "term" ? "Term" : "Node"}:${name}`;
+  if (kind === "term") {
+    if (!mockGlossaryTerms.some((t) => t.urn === entityUrn)) {
+      mockGlossaryTerms.push({ urn: entityUrn, name, description: definition });
+    }
+  } else if (!mockGlossaryNodes.some((n) => n.urn === entityUrn)) {
+    mockGlossaryNodes.push({
+      urn: entityUrn,
+      name,
+      description: definition,
+      parent_node: parentNode,
+      terms_count: 0,
+      nodes_count: 0,
+    });
+  }
+  if (parentNode) glossaryParent[entityUrn] = parentNode;
+  return entityUrn;
+}
+
+// deleteGlossaryEntity removes a term or a node. It reports whether the entity
+// existed so the handler can answer a delete of an unknown URN the way the
+// backend would. Anything inside a deleted node stays, as upstream
+// DeleteGlossaryEntity touches only the entity named.
+export function deleteGlossaryEntity(entityUrn: string): boolean {
+  const termIndex = mockGlossaryTerms.findIndex((t) => t.urn === entityUrn);
+  if (termIndex >= 0) {
+    mockGlossaryTerms.splice(termIndex, 1);
+    delete glossaryParent[entityUrn];
+    return true;
+  }
+  const nodeIndex = mockGlossaryNodes.findIndex((n) => n.urn === entityUrn);
+  if (nodeIndex < 0) return false;
+  mockGlossaryNodes.splice(nodeIndex, 1);
+  delete glossaryParent[entityUrn];
+  return true;
+}
+
+// setGlossaryDescription applies an entity-description edit aimed at a glossary
+// URN, which is how the Glossary surface edits a definition.
+export function setGlossaryDescription(entityUrn: string, description: string): boolean {
+  const term = mockGlossaryTerms.find((t) => t.urn === entityUrn);
+  if (term) {
+    term.description = description;
+    return true;
+  }
+  const node = mockGlossaryNodes.find((n) => n.urn === entityUrn);
+  if (!node) return false;
+  node.description = description;
+  return true;
+}
+
+// entityDocuments returns the context documents attached to an entity, which is
+// what the backend's related-documents read answers.
+export function entityDocuments(entityUrn: string): ContextDocument[] {
+  return Object.values(documents).filter((d) => (d.related_asset_urns ?? []).includes(entityUrn));
+}
+
 // createDomain appends a domain definition, mirroring the backend's 201 {urn}
 // (#1157). DataHub derives the URN from the name.
 export function createDomain(name: string, description?: string): string {
@@ -130,7 +268,15 @@ const catalog: Record<string, CatalogEntity> = {
     columns: {
       sale_date: { name: "sale_date", description: "Calendar date of the sale." },
       store_id: { name: "store_id", description: "Store identifier.", tags: ["urn:li:tag:key"] },
-      revenue: { name: "revenue", description: "Gross revenue in USD.", is_sensitive: true },
+      // Annotated with Revenue at the column level as well as at the table
+      // level, which is the case the Glossary surface's two usage reads exist
+      // to tell apart.
+      revenue: {
+        name: "revenue",
+        description: "Gross revenue in USD.",
+        is_sensitive: true,
+        glossary_terms: [{ urn: "urn:li:glossaryTerm:Revenue", name: "Revenue" }],
+      },
       customer_email: { name: "customer_email", description: "Customer email.", is_pii: true },
     },
   },
@@ -157,7 +303,10 @@ const catalog: Record<string, CatalogEntity> = {
       description: "Raw clickstream events ingested from the web tier.",
       owners: [],
       tags: [],
-      glossary_terms: [],
+      // Annotated with Revenue at the table level only: it is the counterpart
+      // to daily_sales, so a usage list shows both a column-level carrier and
+      // one that is not.
+      glossary_terms: [{ urn: "urn:li:glossaryTerm:Revenue", name: "Revenue" }],
       domain: null,
     },
     columns: {},
@@ -180,11 +329,25 @@ export function catalogBrowse(): TableSearchResult[] {
   return Object.values(catalog).map(searchResult);
 }
 
-// catalogSearch narrows the catalog by free text and, when given, by the tag
-// URNs and the domain URN the caller filtered on. "*" is the match-all query the
-// browse-style reads send (the Tags and Domains surfaces send it with a filter,
-// where the filter and not the text selects the rows).
-export function catalogSearch(q: string, tags: string[] = [], domain = ""): TableSearchResult[] {
+// CatalogFilters is the set of filters the search route accepts beyond the free
+// text. glossaryTerm mirrors DataHub's glossaryTerms field, which matches a
+// table annotated on the TABLE or on one of its COLUMNS; columnGlossaryTerm
+// mirrors fieldGlossaryTerms, which matches only the column-level annotations
+// (verified against a live DataHub). The Glossary surface reads both to tell the
+// two apart.
+export interface CatalogFilters {
+  tags?: string[];
+  domain?: string;
+  glossaryTerm?: string;
+  columnGlossaryTerm?: string;
+}
+
+// catalogSearch narrows the catalog by free text and, when given, by the filters
+// the caller sent. "*" is the match-all query the browse-style reads send (the
+// governance surfaces send it with a filter, where the filter and not the text
+// selects the rows).
+export function catalogSearch(q: string, filters: CatalogFilters = {}): TableSearchResult[] {
+  const { tags = [], domain = "", glossaryTerm = "", columnGlossaryTerm = "" } = filters;
   const needle = q.toLowerCase();
   const matchesText = (r: TableSearchResult) =>
     q === "*" ||
@@ -199,7 +362,23 @@ export function catalogSearch(q: string, tags: string[] = [], domain = ""): Tabl
   // display name, so the match is against the stored entity's domain URN.
   const matchesDomain = (r: TableSearchResult) =>
     !domain || catalogEntity(r.urn)?.context?.domain?.urn === domain;
-  return catalogBrowse().filter((r) => matchesText(r) && matchesTags(r) && matchesDomain(r));
+  const matchesTerm = (r: TableSearchResult) =>
+    (!glossaryTerm || tableTerms(r.urn).has(glossaryTerm) || columnTerms(r.urn).has(glossaryTerm)) &&
+    (!columnGlossaryTerm || columnTerms(r.urn).has(columnGlossaryTerm));
+  return catalogBrowse().filter(
+    (r) => matchesText(r) && matchesTags(r) && matchesDomain(r) && matchesTerm(r),
+  );
+}
+
+// tableTerms and columnTerms are the two levels a glossary term can be applied
+// at, kept apart so the mock reproduces the distinction the real filters draw.
+function tableTerms(entityUrn: string): Set<string> {
+  return new Set((catalogEntity(entityUrn)?.context?.glossary_terms ?? []).map((t) => t.urn));
+}
+
+function columnTerms(entityUrn: string): Set<string> {
+  const columns = Object.values(catalogEntity(entityUrn)?.columns ?? {});
+  return new Set(columns.flatMap((c) => (c.glossary_terms ?? []).map((t) => t.urn)));
 }
 
 export function catalogEntity(entityUrn: string): CatalogEntity | undefined {
@@ -227,6 +406,9 @@ export function applyCatalogChange(
   }
   if (field === "description" && body.urn.startsWith("urn:li:domain:")) {
     return setDomainDescription(body.urn, body.description ?? "");
+  }
+  if (field === "description" && body.urn.startsWith("urn:li:glossary")) {
+    return setGlossaryDescription(body.urn, body.description ?? "");
   }
   const e = catalog[body.urn];
   if (!e || !e.context) return false;

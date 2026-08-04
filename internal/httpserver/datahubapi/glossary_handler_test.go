@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
 const (
-	glossaryBase        = "/api/v1/portal/datahub/primary/catalog/glossary"
+	dhCatalogBase       = "/api/v1/portal/datahub/primary/catalog"
+	glossaryBase        = dhCatalogBase + "/glossary"
 	testFinanceNodeURN  = "urn:li:glossaryNode:finance"
 	testRevenueTermURN  = "urn:li:glossaryTerm:revenue"
 	glossaryStatusTmpl  = "status = %d, want %d (%s)"
@@ -296,58 +298,106 @@ func TestGlossaryReadRequiresDataHubAccess(t *testing.T) {
 	}
 }
 
-// TestCreateGlossaryNode creates a node under a parent, returns its URN, and
-// records the create in the audit log.
-func TestCreateGlossaryNode(t *testing.T) {
-	backend := glossaryBackend()
-	log := &fakeAuditLogger{}
-	h := newTestHandler(backend, true, writerResolver(), log)
+// glossaryCreateKinds is the create surface under test: a node (#1155) and a
+// term (#1158). Both run through one handler, so every case below runs against
+// both rather than being written twice — a copy would also drift.
+var glossaryCreateKinds = []struct {
+	name       string
+	path       string
+	entityType string
+	urnPrefix  string
+	// created reads back what the writer received for this kind.
+	created func(*fakeDataHub) glossaryEntityRequest
+	// call is the writer method the kind must reach.
+	call string
+}{
+	{
+		name:       "node",
+		path:       "/nodes",
+		entityType: "glossaryNode",
+		urnPrefix:  "urn:li:glossaryNode:",
+		created:    func(f *fakeDataHub) glossaryEntityRequest { return f.createdNode },
+		call:       "CreateGlossaryNode",
+	},
+	{
+		name:       "term",
+		path:       "/terms",
+		entityType: "glossaryTerm",
+		urnPrefix:  "urn:li:glossaryTerm:",
+		created:    func(f *fakeDataHub) glossaryEntityRequest { return f.createdTerm },
+		call:       "CreateGlossaryTerm",
+	},
+}
 
-	body := `{"name":"Revenue","definition":"top line","parent_node":"` + testFinanceNodeURN + `"}`
-	rec := serve(h, viewer, "POST", glossaryBase+"/nodes", body)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusCreated, rec.Body.String())
-	}
-	var got map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf(glossaryDecodeError, err)
-	}
-	if got["urn"] != "urn:li:glossaryNode:Revenue" {
-		t.Errorf("urn = %q", got["urn"])
-	}
-	want := glossaryNodeRequest{Name: "Revenue", Definition: "top line", ParentNode: testFinanceNodeURN}
-	if backend.createdNode != want {
-		t.Errorf("writer received %+v, want %+v", backend.createdNode, want)
-	}
-	if len(log.events) != 1 {
-		t.Fatalf("audit events = %d, want 1", len(log.events))
-	}
-	ev := log.events[0]
-	if ev.ToolName != datahubCreateTool || !ev.Success {
-		t.Errorf("audit event = %+v", ev)
-	}
-	if ev.Parameters["name"] != "Revenue" || ev.Parameters["parent_node"] != testFinanceNodeURN {
-		t.Errorf("audit parameters = %+v", ev.Parameters)
+// TestCreateGlossaryEntity creates each kind under a parent, returns its URN,
+// reaches the writer method for that kind, and records the create in the audit
+// log with the kind's own entity type.
+func TestCreateGlossaryEntity(t *testing.T) {
+	for _, kind := range glossaryCreateKinds {
+		t.Run(kind.name, func(t *testing.T) {
+			backend := glossaryBackend()
+			log := &fakeAuditLogger{}
+			h := newTestHandler(backend, true, writerResolver(), log)
+
+			body := `{"name":"Revenue","definition":"top line","parent_node":"` + testFinanceNodeURN + `"}`
+			rec := serve(h, viewer, "POST", glossaryBase+kind.path, body)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusCreated, rec.Body.String())
+			}
+			var got map[string]string
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf(glossaryDecodeError, err)
+			}
+			if got["urn"] != kind.urnPrefix+"Revenue" {
+				t.Errorf("urn = %q, want %q", got["urn"], kind.urnPrefix+"Revenue")
+			}
+			want := glossaryEntityRequest{Name: "Revenue", Definition: "top line", ParentNode: testFinanceNodeURN}
+			if kind.created(backend) != want {
+				t.Errorf("writer received %+v, want %+v", kind.created(backend), want)
+			}
+			// A term created through the node route (or the reverse) would still
+			// answer 201 with a plausible URN, so the writer call is asserted.
+			if len(backend.calls) != 1 || backend.calls[0] != kind.call {
+				t.Errorf("writer calls = %v, want [%s]", backend.calls, kind.call)
+			}
+			if len(log.events) != 1 {
+				t.Fatalf("audit events = %d, want 1", len(log.events))
+			}
+			ev := log.events[0]
+			if ev.ToolName != datahubCreateTool || !ev.Success {
+				t.Errorf("audit event = %+v", ev)
+			}
+			if ev.Parameters["name"] != "Revenue" || ev.Parameters["parent_node"] != testFinanceNodeURN {
+				t.Errorf("audit parameters = %+v", ev.Parameters)
+			}
+			if ev.Parameters["entity_type"] != kind.entityType {
+				t.Errorf("audit entity_type = %v, want %q", ev.Parameters["entity_type"], kind.entityType)
+			}
+		})
 	}
 }
 
-// TestCreateGlossaryNode_Root creates at the root when parent_node is omitted.
-func TestCreateGlossaryNode_Root(t *testing.T) {
-	backend := glossaryBackend()
-	h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
-	rec := serve(h, viewer, "POST", glossaryBase+"/nodes", `{"name":"Corporate"}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusCreated, rec.Body.String())
-	}
-	if backend.createdNode.ParentNode != "" {
-		t.Errorf("parent = %q, want empty for a root node", backend.createdNode.ParentNode)
+// TestCreateGlossaryEntity_Root creates at the root when parent_node is omitted.
+func TestCreateGlossaryEntity_Root(t *testing.T) {
+	for _, kind := range glossaryCreateKinds {
+		t.Run(kind.name, func(t *testing.T) {
+			backend := glossaryBackend()
+			h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
+			rec := serve(h, viewer, "POST", glossaryBase+kind.path, `{"name":"Corporate"}`)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusCreated, rec.Body.String())
+			}
+			if kind.created(backend).ParentNode != "" {
+				t.Errorf("parent = %q, want empty at the root", kind.created(backend).ParentNode)
+			}
+		})
 	}
 }
 
-// TestCreateGlossaryNode_Invalid rejects a request the backend would refuse, and
-// proves nothing reached the writer.
-func TestCreateGlossaryNode_Invalid(t *testing.T) {
-	tests := []struct {
+// TestCreateGlossaryEntity_Invalid rejects a request the backend would refuse,
+// and proves nothing reached the writer.
+func TestCreateGlossaryEntity_Invalid(t *testing.T) {
+	bodies := []struct {
 		name string
 		body string
 	}{
@@ -357,55 +407,270 @@ func TestCreateGlossaryNode_Invalid(t *testing.T) {
 		{"parent is a term", `{"name":"Revenue","parent_node":"` + testRevenueTermURN + `"}`},
 		{"malformed body", `{"name":`},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, kind := range glossaryCreateKinds {
+		for _, tt := range bodies {
+			t.Run(kind.name+"/"+tt.name, func(t *testing.T) {
+				backend := glossaryBackend()
+				h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
+				rec := serve(h, viewer, "POST", glossaryBase+kind.path, tt.body)
+				if rec.Code != http.StatusBadRequest {
+					t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadRequest, rec.Body.String())
+				}
+				if len(backend.calls) != 0 {
+					t.Fatalf("writer called on an invalid request: %v", backend.calls)
+				}
+			})
+		}
+	}
+}
+
+// TestCreateGlossaryEntity_WriteGate covers the two refusals a create can hit: a
+// persona without the datahub_create grant, and a read-only connection.
+func TestCreateGlossaryEntity_WriteGate(t *testing.T) {
+	const body = `{"name":"Revenue"}`
+	for _, kind := range glossaryCreateKinds {
+		t.Run(kind.name, func(t *testing.T) {
 			backend := glossaryBackend()
-			h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
-			rec := serve(h, viewer, "POST", glossaryBase+"/nodes", tt.body)
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadRequest, rec.Body.String())
+			h := newTestHandler(backend, true, readerResolver(), &fakeAuditLogger{})
+			if rec := serve(h, viewer, "POST", glossaryBase+kind.path, body); rec.Code != http.StatusForbidden {
+				t.Errorf("without the grant: status = %d, want 403 (%s)", rec.Code, rec.Body.String())
+			}
+
+			backend = glossaryBackend()
+			h = newTestHandler(backend, false, writerResolver(), &fakeAuditLogger{})
+			if rec := serve(h, viewer, "POST", glossaryBase+kind.path, body); rec.Code != http.StatusForbidden {
+				t.Errorf("read-only connection: status = %d, want 403 (%s)", rec.Code, rec.Body.String())
 			}
 			if len(backend.calls) != 0 {
-				t.Fatalf("writer called on an invalid request: %v", backend.calls)
+				t.Errorf("writer called on a denied request: %v", backend.calls)
 			}
 		})
 	}
 }
 
-// TestCreateGlossaryNode_WriteGate covers the two refusals a create can hit: a
-// persona without the datahub_create grant, and a read-only connection.
-func TestCreateGlossaryNode_WriteGate(t *testing.T) {
-	body := `{"name":"Revenue"}`
+// TestCreateGlossaryEntity_BackendFailure surfaces the failure as a 502 and
+// still records the failed attempt in the audit log.
+func TestCreateGlossaryEntity_BackendFailure(t *testing.T) {
+	for _, kind := range glossaryCreateKinds {
+		t.Run(kind.name, func(t *testing.T) {
+			backend := glossaryBackend()
+			backend.writeErr = errors.New("permission denied")
+			log := &fakeAuditLogger{}
+			h := newTestHandler(backend, true, writerResolver(), log)
 
+			rec := serve(h, viewer, "POST", glossaryBase+kind.path, `{"name":"Revenue"}`)
+			if rec.Code != http.StatusBadGateway {
+				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadGateway, rec.Body.String())
+			}
+			if len(log.events) != 1 || log.events[0].Success {
+				t.Fatalf("audit must record the failed create: %+v", log.events)
+			}
+		})
+	}
+}
+
+// --- delete (#1158) ---
+
+// TestDeleteGlossaryEntity retires either kind through the one route and audits
+// the delete with the entity type read back from the URN.
+func TestDeleteGlossaryEntity(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		urn        string
+		entityType string
+	}{
+		{"term", testRevenueTermURN, "glossaryTerm"},
+		{"node", testFinanceNodeURN, "glossaryNode"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			backend := glossaryBackend()
+			log := &fakeAuditLogger{}
+			h := newTestHandler(backend, true, writerResolver(), log)
+
+			rec := serve(h, viewer, "DELETE", glossaryBase+"/entity?urn="+tt.urn, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusOK, rec.Body.String())
+			}
+			if backend.deletedGlossry != tt.urn {
+				t.Errorf("deleted %q, want %q", backend.deletedGlossry, tt.urn)
+			}
+			if len(log.events) != 1 {
+				t.Fatalf("audit events = %d, want 1", len(log.events))
+			}
+			ev := log.events[0]
+			if ev.ToolName != datahubDeleteTool || !ev.Success {
+				t.Errorf("audit event = %+v", ev)
+			}
+			if ev.Parameters["entity_type"] != tt.entityType || ev.Parameters["urn"] != tt.urn {
+				t.Errorf("audit parameters = %+v", ev.Parameters)
+			}
+		})
+	}
+}
+
+// TestDeleteGlossaryEntity_Invalid rejects a missing or wrong-kinded URN with a
+// 400 rather than forwarding it to DataHub as a misleading 502.
+func TestDeleteGlossaryEntity_Invalid(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		urn  string
+	}{
+		{"no urn", ""},
+		{"a tag urn", "urn:li:tag:PII"},
+		{"a dataset urn", dhTestURN},
+		{"an empty glossary id", "urn:li:glossaryTerm:"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			backend := glossaryBackend()
+			h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
+			rec := serve(h, viewer, "DELETE", glossaryBase+"/entity?urn="+tt.urn, "")
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+			if len(backend.calls) != 0 {
+				t.Fatalf("writer called on an invalid delete: %v", backend.calls)
+			}
+		})
+	}
+}
+
+// TestDeleteGlossaryEntity_Gates covers the delete-grant refusal, the read-only
+// connection, and an upstream failure that must still be audited.
+func TestDeleteGlossaryEntity_Gates(t *testing.T) {
+	path := glossaryBase + "/entity?urn=" + testRevenueTermURN
+
+	// A persona with create/update but not delete must be refused: the delete
+	// gate is its own grant, not "any write".
 	backend := glossaryBackend()
-	h := newTestHandler(backend, true, readerResolver(), &fakeAuditLogger{})
-	if rec := serve(h, viewer, "POST", glossaryBase+"/nodes", body); rec.Code != http.StatusForbidden {
-		t.Errorf("without the grant: status = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	h := newTestHandler(backend, true, updaterResolver(), &fakeAuditLogger{})
+	if rec := serve(h, viewer, "DELETE", path, ""); rec.Code != http.StatusForbidden {
+		t.Errorf("without the delete grant: status = %d, want 403 (%s)", rec.Code, rec.Body.String())
 	}
 
 	backend = glossaryBackend()
 	h = newTestHandler(backend, false, writerResolver(), &fakeAuditLogger{})
-	if rec := serve(h, viewer, "POST", glossaryBase+"/nodes", body); rec.Code != http.StatusForbidden {
+	if rec := serve(h, viewer, "DELETE", path, ""); rec.Code != http.StatusForbidden {
 		t.Errorf("read-only connection: status = %d, want 403 (%s)", rec.Code, rec.Body.String())
 	}
 	if len(backend.calls) != 0 {
-		t.Errorf("writer called on a denied request: %v", backend.calls)
+		t.Errorf("writer called on a denied delete: %v", backend.calls)
+	}
+
+	backend = glossaryBackend()
+	backend.writeErr = errors.New("permission denied")
+	log := &fakeAuditLogger{}
+	h = newTestHandler(backend, true, writerResolver(), log)
+	if rec := serve(h, viewer, "DELETE", path, ""); rec.Code != http.StatusBadGateway {
+		t.Errorf("upstream failure: status = %d, want 502 (%s)", rec.Code, rec.Body.String())
+	}
+	if len(log.events) != 1 || log.events[0].Success {
+		t.Fatalf("audit must record the failed delete: %+v", log.events)
 	}
 }
 
-// TestCreateGlossaryNode_BackendFailure surfaces the failure as a 502 and still
-// records the failed attempt in the audit log.
-func TestCreateGlossaryNode_BackendFailure(t *testing.T) {
-	backend := glossaryBackend()
-	backend.writeErr = errors.New("permission denied")
-	log := &fakeAuditLogger{}
-	h := newTestHandler(backend, true, writerResolver(), log)
+// --- term usage filters (#1158) ---
 
-	rec := serve(h, viewer, "POST", glossaryBase+"/nodes", `{"name":"Revenue"}`)
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadGateway, rec.Body.String())
+// TestGlossaryTermSearchFilters proves the term-usage parameters reach the
+// reader as the DataHub filter fields the usage lists depend on. The two are
+// distinct: glossaryTerms matches a table carrying the term on the table OR on
+// one of its columns, fieldGlossaryTerms only the column-level assignments, so
+// swapping them would silently report every carrier as a column carrier.
+func TestGlossaryTermSearchFilters(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		query string
+		want  []semantic.FieldFilter
+	}{
+		{
+			name:  "term usage",
+			query: "&" + qpGlossaryTerm + "=" + testRevenueTermURN,
+			want:  []semantic.FieldFilter{{Field: filterFieldGlossaryTerms, Values: []string{testRevenueTermURN}}},
+		},
+		{
+			name:  "column usage",
+			query: "&" + qpColumnGlossaryTerm + "=" + testRevenueTermURN,
+			want:  []semantic.FieldFilter{{Field: filterFieldColumnGlossaryTerms, Values: []string{testRevenueTermURN}}},
+		},
+		{
+			name:  "blank value is not a filter",
+			query: "&" + qpGlossaryTerm + "=%20",
+			want:  nil,
+		},
+		{
+			name:  "absent",
+			query: "",
+			want:  nil,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			backend := glossaryBackend()
+			h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
+			rec := serve(h, viewer, "GET", dhCatalogBase+"/search?q=*"+tt.query, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusOK, rec.Body.String())
+			}
+			if !reflect.DeepEqual(backend.searchFilter.Filters, tt.want) {
+				t.Errorf("filters = %+v, want %+v", backend.searchFilter.Filters, tt.want)
+			}
+		})
 	}
-	if len(log.events) != 1 || log.events[0].Success {
-		t.Fatalf("audit must record the failed create: %+v", log.events)
+}
+
+// --- entity documents (#1158) ---
+
+// TestEntityDocuments returns the documents attached to a glossary term, and an
+// empty array (not null) for an entity with none.
+func TestEntityDocuments(t *testing.T) {
+	backend := glossaryBackend()
+	backend.relatedDocs = map[string][]semantic.DocumentResult{
+		testRevenueTermURN: {{URN: "urn:li:document:1", Title: "How revenue is recognized"}},
+	}
+	h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
+
+	rec := serve(h, viewer, "GET", dhCatalogBase+"/entity/documents?urn="+testRevenueTermURN, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var got struct {
+		Documents []semantic.DocumentResult `json:"documents"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf(glossaryDecodeError, err)
+	}
+	if len(got.Documents) != 1 || got.Documents[0].Title != "How revenue is recognized" {
+		t.Fatalf("documents = %+v", got.Documents)
+	}
+
+	rec = serve(h, viewer, "GET", dhCatalogBase+"/entity/documents?urn="+testFinanceNodeURN, "")
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf(glossaryDecodeError, err)
+	}
+	if string(raw["documents"]) != "[]" {
+		t.Errorf("documents = %s, want []", raw["documents"])
+	}
+}
+
+// TestEntityDocuments_Errors covers the three refusals the read can hit: no URN,
+// no DataHub access on the persona, and an upstream failure.
+func TestEntityDocuments_Errors(t *testing.T) {
+	backend := glossaryBackend()
+	h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
+	if rec := serve(h, viewer, "GET", dhCatalogBase+"/entity/documents", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("no urn: status = %d, want 400 (%s)", rec.Code, rec.Body.String())
+	}
+
+	h = newTestHandler(backend, false, noAccessResolver(), &fakeAuditLogger{})
+	rec := serve(h, viewer, "GET", dhCatalogBase+"/entity/documents?urn="+testRevenueTermURN, "")
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("without datahub access: status = %d, want 403 (%s)", rec.Code, rec.Body.String())
+	}
+
+	backend = glossaryBackend()
+	backend.readErr = errors.New("datahub down")
+	h = newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
+	rec = serve(h, viewer, "GET", dhCatalogBase+"/entity/documents?urn="+testRevenueTermURN, "")
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("upstream failure: status = %d, want 502 (%s)", rec.Code, rec.Body.String())
 	}
 }

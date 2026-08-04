@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 // The section is the container: what it owns is the connection, the inner tab,
-// and the URL contract. Its four inner tabs are stood in so those concerns are
+// and the URL contract. Its inner tabs are stood in so those concerns are
 // tested without their data layers. Each stand-in carries internal state, so a
 // remount (which is how a connection change resets them) is observable.
 function Stub({ label }: { label: string }) {
@@ -31,6 +31,9 @@ vi.mock("./TagsTab", () => ({
 }));
 vi.mock("./DomainsTab", () => ({
   DomainsTab: ({ conn }: { conn: string }) => <Stub label={`domains:${conn}`} />,
+}));
+vi.mock("./GlossaryTab", () => ({
+  GlossaryTab: ({ conn }: { conn: string }) => <Stub label={`glossary:${conn}`} />,
 }));
 // Stand in a picker that switches connection, so the section's reaction to a
 // change is testable without the real select's data fetch.
@@ -100,7 +103,7 @@ describe("CatalogSection", () => {
   });
 
   it("falls back to Tables for a hash that addresses nothing", () => {
-    render(<CatalogSection initialSub="glossary" />);
+    render(<CatalogSection initialSub="lineage" />);
     fireEvent.click(screen.getByRole("button", { name: "pick primary" }));
     expect(screen.getByText("tables:primary body")).toBeInTheDocument();
   });

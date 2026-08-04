@@ -126,11 +126,14 @@ function DomainMembers({
         </p>
       ) : (
         <>
+          {/* The Tables tab searches name, description, and tag text, not
+              domains, so the honest overflow route is DataHub's own UI rather
+              than a filter this portal does not offer. */}
           <PageCapNotice
             shown={members.length}
             limit={DOMAIN_MEMBER_LIMIT}
             what="tables"
-            hint="Search the Tables tab by domain to see the rest."
+            hint="The rest are reachable in the DataHub UI."
           />
           <ul className="space-y-2">
             {members.map((t) => (
