@@ -160,7 +160,7 @@ func TestCheckStoreStateFailsAndStillArchivesOnDrift(t *testing.T) {
 	if !strings.Contains(err.Error(), "fresh database") {
 		t.Errorf("the error does not state the remedy: %v", err)
 	}
-	if !strings.Contains(status.String(), "drift: insight in-1 changed") {
+	if !strings.Contains(status.String(), "CROSS-IDENTITY DRIFT") {
 		t.Errorf("the drift was not reported: %s", status.String())
 	}
 	if !strings.Contains(out.String(), "rolled_back") {
@@ -195,5 +195,33 @@ func TestSeedCorrectSourceSurfacesFailure(t *testing.T) {
 	var out strings.Builder
 	if err := seedCorrectSource(context.Background(), &fakeStack{pageErr: errors.New("boom")}, &out); err == nil {
 		t.Error("a failed seed was reported as a success")
+	}
+}
+
+// An evaluator's own pending capture is recorded and does not fail the arm:
+// nobody else can read it, so no later episode met a different store. The
+// count still has to reach the operator, because how often evaluators write to
+// a shared store is a finding in a study about shared stores.
+func TestCheckStoreStateRecordsButAllowsAnOwnAuthorWrite(t *testing.T) {
+	var out, status strings.Builder
+	before := pollutionplant.StoreState{
+		Insights: []pollutionplant.InsightState{{ID: "in-1", Status: "applied", CapturedBy: "teacher@x"}},
+	}
+	after := pollutionplant.StoreState{
+		Insights: []pollutionplant.InsightState{
+			{ID: "in-1", Status: "applied", CapturedBy: "teacher@x"},
+			{ID: "in-2", Status: "pending", CapturedBy: "bench-agent-015@apikey.local"},
+		},
+	}
+	if err := checkStoreState(context.Background(), &fakeStack{state: after},
+		snapshotFile(t, before), &out, &status); err != nil {
+		t.Fatalf("an own-author pending write invalidated the arm: %v", err)
+	}
+	s := status.String()
+	if !strings.Contains(s, "evaluator-write") || !strings.Contains(s, "bench-agent-015@apikey.local") {
+		t.Errorf("the write was not recorded for the report: %s", s)
+	}
+	if strings.Contains(s, "CROSS-IDENTITY DRIFT") {
+		t.Errorf("a pending own-author write was reported as cross-identity: %s", s)
 	}
 }

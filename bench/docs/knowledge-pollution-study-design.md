@@ -742,6 +742,47 @@ and after). #1167 makes it a pre-run and post-run check per arm:
   the shared store is measuring a different condition in its later episodes
   than in its earlier ones, and no post-hoc adjustment recovers it.
 
+**Amendment, 2026-08-03, made after the sonnet tier and three haiku attempts,
+declared here rather than applied silently.** The invariant invalidates an arm
+on a change **another identity could observe**, and records any other write as
+an observation reported per arm. Changesets and knowledge pages always
+qualify. An insight qualifies only when applied.
+
+*Why the distinction is the platform's and not this study's.* An insight is
+readable by anyone other than its capturer only once it is applied
+(`pkg/knowledge/provider_insights.go`, `readableBy`: `in.CapturedBy ==
+caller.Email || in.Status == StatusApplied`). Each attempt runs as its own
+pool identity and no identity runs twice within an arm, so an evaluator's own
+pending capture is unreadable by every later episode in that arm. The
+invariant's stated rationale — that later episodes met a different store —
+is therefore not satisfied by such a write.
+
+*What forced it.* Under the unamended reading the haiku tier is unrunnable:
+three consecutive attempts at `convention/absent/haiku` were invalidated by
+evaluator captures, all pending, five writes in roughly 72 episodes against
+one in 72 on sonnet. Haiku is the tier where H1b and H1c are decided, so the
+unamended rule does not make the study stricter, it deletes its deciding
+cell.
+
+*Why it cannot bias what is measured.* Adoption is graded by exact
+discriminant value against a claim the plant installed. A pending insight
+that no other identity can read cannot deliver a planted claim to anyone, so
+the amendment is orthogonal to the quantity under test. It changes which arms
+are thrown away, not what any surviving arm reports.
+
+*Its cost, stated plainly.* This is an amendment made after seeing data, and
+a reader is entitled to weigh it as such. The scope was identified and
+verified in source before the haiku data existed (it was the rejected
+alternative when the rule was first applied strictly), and the original
+wording above — "active insight count and the set of applied changesets" —
+is ambiguous between the two readings rather than clearly demanding the
+stricter one. Neither point makes it a pre-registered decision.
+
+*What it produces.* The evaluator-write rate becomes a reported quantity per
+arm rather than a reason to discard. In a study about what a shared store
+carries, how often agents write to one unprompted — and the tier gradient in
+that rate — is evidence rather than noise.
+
 ### 7.4 Co-presence
 
 Because the construct is conflict resolution, the report states a co-presence

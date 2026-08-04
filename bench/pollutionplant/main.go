@@ -155,14 +155,29 @@ func checkStoreState(ctx context.Context, s snapshotter, baseline string, out, s
 	}
 	drift := before.Drift(state)
 	if len(drift) == 0 {
-		_, _ = fmt.Fprintln(status, "store state constant across the arm")
+		_, _ = fmt.Fprintln(status, "store state constant across the eval")
 		return nil
 	}
-	for _, line := range drift {
-		_, _ = fmt.Fprintln(status, "drift:", line)
+	// Every difference is reported. Only the ones another identity could
+	// observe invalidate the arm (protocol 7.3, as amended): a record whose
+	// only reader is its own author cannot have changed what any later
+	// episode was handed. The rest are an observation the report states --
+	// how often evaluators write to a shared store is a finding in a study
+	// about shared stores, not noise to be swept up.
+	for _, d := range drift {
+		label := "evaluator-write (not cross-identity readable)"
+		if d.CrossIdentity {
+			label = "CROSS-IDENTITY DRIFT"
+		}
+		_, _ = fmt.Fprintf(status, "%s: %s\n", label, d)
 	}
-	return fmt.Errorf("the shared store changed during the arm (%d difference(s) above); "+
-		"the arm's later episodes met a different store than its earlier ones and it must be re-run on a fresh database", len(drift))
+	visible := pollutionplant.CrossIdentityDrift(drift)
+	if len(visible) == 0 {
+		_, _ = fmt.Fprintf(status, "store state constant across the eval for every OTHER identity (%d own-author write(s) recorded)\n", len(drift))
+		return nil
+	}
+	return fmt.Errorf("the shared store changed during the eval in %d way(s) another identity could read; "+
+		"the arm's later episodes met a different store than its earlier ones and it must be re-run on a fresh database", len(visible))
 }
 
 // readStoreState loads a snapshot taken before the arm.
