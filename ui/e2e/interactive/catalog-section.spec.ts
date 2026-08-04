@@ -8,6 +8,7 @@ import { authenticate } from "../screenshots/helpers/auth";
 // CatalogSection -- not the container in isolation.
 
 const tagFilter = /Filter tags by name/;
+const domainFilter = /Filter domains by name/;
 const tableSearch = /Search tables by name/;
 const docSearch = /Search context documents/;
 
@@ -32,7 +33,7 @@ test.describe("Catalog section", () => {
     await expect(page.getByRole("button", { name: "Context Docs", exact: true })).toHaveCount(0);
 
     await page.getByRole("button", { name: "Catalog", exact: true }).click();
-    for (const label of ["Tables", "Context Docs", "Tags"]) {
+    for (const label of ["Tables", "Context Docs", "Tags", "Domains"]) {
       await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
   });
@@ -50,6 +51,10 @@ test.describe("Catalog section", () => {
     await page.getByRole("button", { name: "Tags", exact: true }).click();
     await expect(page.getByPlaceholder(tagFilter)).toBeVisible();
     expect(page.url()).toContain("/knowledge/catalog#tags");
+
+    await page.getByRole("button", { name: "Domains", exact: true }).click();
+    await expect(page.getByPlaceholder(domainFilter)).toBeVisible();
+    expect(page.url()).toContain("/knowledge/catalog#domains");
 
     await page.getByRole("button", { name: "Context Docs", exact: true }).click();
     await expect(page.getByPlaceholder(docSearch)).toBeVisible();

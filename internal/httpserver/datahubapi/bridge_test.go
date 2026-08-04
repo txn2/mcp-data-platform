@@ -111,6 +111,8 @@ func TestClientWriter_Delegates(t *testing.T) {
 	_, _ = cw.CreateGlossaryNode(ctx, "Finance", "money", "")
 	_, _ = cw.CreateTag(ctx, "certified", "reviewed by the data team")
 	_ = cw.DeleteTag(ctx, "urn:li:tag:certified")
+	_, _ = cw.CreateDomain(ctx, "Finance", "revenue and billing")
+	_ = cw.DeleteDomain(ctx, "urn:li:domain:finance")
 	doc, err := cw.UpsertContextDocument(ctx, DocumentInput{ID: "d1", EntityURN: urn, Title: "T", Content: "C"})
 	if err != nil || doc == nil {
 		t.Fatalf("upsert (update path) should succeed: doc=%+v err=%v", doc, err)
@@ -146,7 +148,12 @@ func TestClientWriter_ErrorsWrapped(t *testing.T) {
 			_, e := cw.CreateTag(ctx, "certified", "")
 			return e
 		},
-		"DeleteTag":             func() error { return cw.DeleteTag(ctx, "urn:li:tag:certified") },
+		"DeleteTag": func() error { return cw.DeleteTag(ctx, "urn:li:tag:certified") },
+		"CreateDomain": func() error {
+			_, e := cw.CreateDomain(ctx, "Finance", "")
+			return e
+		},
+		"DeleteDomain":          func() error { return cw.DeleteDomain(ctx, "urn:li:domain:finance") },
 		"DeleteContextDocument": func() error { return cw.DeleteContextDocument(ctx, "d1") },
 		"UpsertContextDocument": func() error {
 			_, e := cw.UpsertContextDocument(ctx, DocumentInput{EntityURN: urn, Title: "T", Content: "C"})

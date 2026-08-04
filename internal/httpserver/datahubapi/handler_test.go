@@ -57,8 +57,16 @@ type fakeDataHub struct {
 	createdNode  glossaryNodeRequest
 
 	// Tag governance (#1156).
-	createdTag tagRequest
+	createdTag vocabularyRequest
 	deletedTag string
+
+	// Domain governance (#1157). setDomain/unsetDomain record the entity a
+	// membership edit targeted, so a membership write is checked for what it
+	// moved rather than only that a call happened.
+	createdDomain vocabularyRequest
+	deletedDomain string
+	setDomain     [2]string
+	unsetDomain   string
 }
 
 func newFakeDataHub() *fakeDataHub {
@@ -186,7 +194,7 @@ func (f *fakeDataHub) CreateTag(_ context.Context, name, description string) (st
 	if f.writeErr != nil {
 		return "", f.writeErr
 	}
-	f.createdTag = tagRequest{Name: name, Description: description}
+	f.createdTag = vocabularyRequest{Name: name, Description: description}
 	return "urn:li:tag:" + name, nil
 }
 
@@ -278,18 +286,50 @@ func (f *fakeDataHub) ApplyOwnerChanges(_ context.Context, _ string, _ []OwnerCh
 	return f.writeErr
 }
 
-func (f *fakeDataHub) SetDomain(_ context.Context, _, _ string) error {
+func (f *fakeDataHub) SetDomain(_ context.Context, entityURN, domainURN string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "SetDomain")
-	return f.writeErr
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	f.setDomain = [2]string{entityURN, domainURN}
+	return nil
 }
 
-func (f *fakeDataHub) UnsetDomain(_ context.Context, _ string) error {
+func (f *fakeDataHub) UnsetDomain(_ context.Context, entityURN string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "UnsetDomain")
-	return f.writeErr
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	f.unsetDomain = entityURN
+	return nil
+}
+
+// --- domains (#1157) ---
+
+func (f *fakeDataHub) CreateDomain(_ context.Context, name, description string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "CreateDomain")
+	if f.writeErr != nil {
+		return "", f.writeErr
+	}
+	f.createdDomain = vocabularyRequest{Name: name, Description: description}
+	return "urn:li:domain:" + name, nil
+}
+
+func (f *fakeDataHub) DeleteDomain(_ context.Context, domainURN string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "DeleteDomain")
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	f.deletedDomain = domainURN
+	return nil
 }
 
 func (f *fakeDataHub) UpsertContextDocument(_ context.Context, in DocumentInput) (*semantic.DocumentResult, error) {

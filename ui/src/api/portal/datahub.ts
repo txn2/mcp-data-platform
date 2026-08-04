@@ -128,6 +128,9 @@ const keys = {
   lookupGlossary: (conn: string, q: string) =>
     ["datahub", conn, "catalog", "lookup", "glossary", q] as const,
   lookupDomains: (conn: string) => ["datahub", conn, "catalog", "lookup", "domains"] as const,
+  domainList: (conn: string) => ["datahub", conn, "catalog", "domains"] as const,
+  domainMembers: (conn: string, urn: string) =>
+    ["datahub", conn, "catalog", "domains", "members", urn] as const,
   docsBrowse: (conn: string, limit: number, offset: number) =>
     ["datahub", conn, "documents", "browse", limit, offset] as const,
   docsSearch: (conn: string, q: string, limit: number) =>
@@ -306,6 +309,92 @@ export function useDeleteTag(conn: string) {
     // be turned into a thrown error here or the mutation would report success.
     mutationFn: async (urn: string) => {
       const res = await apiFetchRaw(`${base(conn)}/catalog/tags?urn=${enc(urn)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new ApiError(res.status, body.detail || res.statusText, body);
+      }
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
+// --- domain governance (#1157) ---
+
+// DOMAIN_LIST_LIMIT is the number of domains the list read can return. Unlike
+// the tag list it is not a page this surface chooses: the upstream ListDomains
+// GraphQL query hardcodes `count: 100` (mcp-datahub pkg/client/queries.go), and
+// the lookup route takes no limit parameter, so 100 is the ceiling however the
+// list is asked for. A full list therefore means there may be more, and the
+// surface says so rather than presenting it as the whole set.
+export const DOMAIN_LIST_LIMIT = 100;
+
+// DOMAIN_MEMBER_LIMIT is the page the membership read asks for. The catalog
+// search honours it (the handler caps at 200), so a full page is a floor on the
+// membership, not a total.
+export const DOMAIN_MEMBER_LIMIT = 100;
+
+// useDomainList lists the domains on a connection for the Domains surface. It
+// shares the picker's lookup route (the backend read is the same one) but not
+// its query key or its `enabled` gate: the management list renders every domain
+// unconditionally. DataHub has no name-scoped domain search, so filtering is
+// client-side.
+export function useDomainList(conn: string) {
+  return useQuery({
+    queryKey: keys.domainList(conn),
+    enabled: !!conn,
+    queryFn: () =>
+      apiFetch<{ results: EntityRef[] }>(`${base(conn)}/catalog/lookup/domains`).then(
+        (r) => r.results ?? [],
+      ),
+  });
+}
+
+// useDomainMembers lists the tables in a domain, through the catalog search's
+// domain filter (the adapter maps it to DataHub's `domains` filter field). The
+// query is "*" because the filter, not the text, selects the rows.
+export function useDomainMembers(conn: string, urn: string | null) {
+  return useQuery({
+    queryKey: keys.domainMembers(conn, urn ?? ""),
+    enabled: !!conn && !!urn,
+    queryFn: () =>
+      apiFetch<{ results: TableSearchResult[] }>(
+        `${base(conn)}/catalog/search?q=*&domain=${enc(urn!)}&limit=${DOMAIN_MEMBER_LIMIT}`,
+      ).then((r) => r.results ?? []),
+  });
+}
+
+// useInvalidateDomains drops every cached catalog read for the connection. The
+// domain list, the domain picker, each domain's membership, and each entity's
+// domain chip all read domain state, so a domain change has to reach all of them.
+function useInvalidateDomains(conn: string) {
+  const qc = useQueryClient();
+  return () => void qc.invalidateQueries({ queryKey: ["datahub", conn, "catalog"] });
+}
+
+// useCreateDomain defines a new domain. DataHub indexes domains asynchronously,
+// so the domain may not appear in a re-listed page immediately; the returned URN
+// is authoritative in the meantime.
+export function useCreateDomain(conn: string) {
+  const invalidate = useInvalidateDomains(conn);
+  return useMutation({
+    mutationFn: (v: { name: string; description?: string }) =>
+      apiFetch<{ urn: string }>(`${base(conn)}/catalog/domains`, {
+        method: "POST",
+        body: JSON.stringify(v),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeleteDomain(conn: string) {
+  const invalidate = useInvalidateDomains(conn);
+  return useMutation({
+    // apiFetchRaw resolves the Response on any status, so a rejected DELETE must
+    // be turned into a thrown error here or the mutation would report success.
+    mutationFn: async (urn: string) => {
+      const res = await apiFetchRaw(`${base(conn)}/catalog/domains?urn=${enc(urn)}`, {
         method: "DELETE",
       });
       if (!res.ok) {

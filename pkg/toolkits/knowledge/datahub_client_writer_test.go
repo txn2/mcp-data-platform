@@ -1574,6 +1574,78 @@ func TestDataHubClientWriter_CreateTag_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "creating tag certified")
 }
 
+// TestDataHubClientWriter_CreateDomain proves the create reaches DataHub with
+// the domain's name and description and returns the URN DataHub assigned (#1157).
+func TestDataHubClientWriter_CreateDomain(t *testing.T) {
+	var gotInput map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables struct {
+				Input map[string]any `json:"input"`
+			} `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		gotInput = req.Variables.Input
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"createDomain": "urn:li:domain:finance"}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateDomain(context.Background(), "Finance", "Revenue and billing")
+
+	require.NoError(t, err)
+	assert.Equal(t, "urn:li:domain:finance", urn)
+	assert.Equal(t, "Finance", gotInput["name"])
+	assert.Equal(t, "Revenue and billing", gotInput["description"])
+}
+
+// TestDataHubClientWriter_CreateDomain_Error confirms a backend refusal surfaces
+// as an error naming the domain, not an empty URN and a nil error.
+func TestDataHubClientWriter_CreateDomain_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Errors: []any{map[string]any{"message": "permission denied"}},
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateDomain(context.Background(), "Finance", "")
+
+	assert.Error(t, err)
+	assert.Empty(t, urn)
+	assert.Contains(t, err.Error(), "creating domain Finance")
+}
+
+func TestDataHubClientWriter_DeleteDomain(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Data: json.RawMessage(`{"deleteDomain": true}`)})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.DeleteDomain(context.Background(), "urn:li:domain:finance")
+	require.NoError(t, err)
+}
+
+func TestDataHubClientWriter_DeleteDomain_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Errors: []any{map[string]any{"message": "boom"}}})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.DeleteDomain(context.Background(), "urn:li:domain:finance")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "deleting domain")
+}
+
 func TestDataHubClientWriter_CreateCuratedQuery_Error(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

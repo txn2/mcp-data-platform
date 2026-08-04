@@ -85,7 +85,7 @@ function knowledgeSubTabsFor({
             key: "catalog" as const,
             label: "Catalog",
             description:
-              "Your data catalog, and the second of the two knowledge sinks: the tables it holds, the context documents attached to them, and the tag vocabulary that describes them. Pick a connection once and it applies across the whole section.",
+              "Your data catalog, and the second of the two knowledge sinks: the tables it holds, the context documents attached to them, and the tag and domain vocabularies that describe them. Pick a connection once and it applies across the whole section.",
           },
         ]
       : []),

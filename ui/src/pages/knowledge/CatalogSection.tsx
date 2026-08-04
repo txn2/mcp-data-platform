@@ -3,6 +3,7 @@ import { DataHubConnectionSelect } from "@/components/knowledge/DataHubConnectio
 import { CatalogTab } from "./CatalogTab";
 import { ContextDocsTab } from "./ContextDocsTab";
 import { TagsTab } from "./TagsTab";
+import { DomainsTab } from "./DomainsTab";
 import { SubTabBar } from "./hub/SubTabBar";
 import { catalogSubHash, normalizeCatalogSub, type CatalogSubTab } from "./hubHash";
 
@@ -12,8 +13,8 @@ import { catalogSubHash, normalizeCatalogSub, type CatalogSubTab } from "./hubHa
 const DH_CONN_STORAGE_KEY = "mcp-portal-datahub-conn";
 
 // SUB_TAB_META labels and explains each inner tab. It is a Record, so a new
-// CatalogSubTab (Domains, #1157; Glossary, #1158) fails the build until it has
-// both here, rather than rendering an unlabelled tab with no explanation.
+// CatalogSubTab (Glossary, #1158) fails the build until it has both here,
+// rather than rendering an unlabelled tab with no explanation.
 const SUB_TAB_META: Record<CatalogSubTab, { label: string; description: string }> = {
   tables: {
     label: "Tables",
@@ -30,11 +31,16 @@ const SUB_TAB_META: Record<CatalogSubTab, { label: string; description: string }
     description:
       "The tag vocabulary itself, rather than the tags carried by one table. Browse or filter this connection's tags, open one to see what it means and which tables carry it, and create, describe, or retire a tag when your persona grants the matching datahub tool and the connection is writable.",
   },
+  domains: {
+    label: "Domains",
+    description:
+      "The business areas the catalog is grouped into, rather than the domain carried by one table. Browse or filter this connection's domains, open one to see what it covers and which tables are in it, and create, describe, or retire a domain — and move tables in and out of it — when your persona grants the matching datahub tool and the connection is writable.",
+  },
 };
 
 // SUB_TABS is the inner tab bar in display order (#1194): the described things
-// first, the vocabulary that describes them second.
-const SUB_TABS = (["tables", "context_docs", "tags"] as const).map((key) => ({
+// first, the vocabularies that describe them second.
+const SUB_TABS = (["tables", "context_docs", "tags", "domains"] as const).map((key) => ({
   key,
   label: SUB_TAB_META[key].label,
 }));
@@ -100,14 +106,15 @@ export function CatalogSection({
       <p className="text-sm text-muted-foreground">{SUB_TAB_META[sub].description}</p>
 
       {/* Keying on the connection resets each inner tab's own navigation when
-          the connection changes: an open table, document, or tag belongs to one
-          connection, and leaving it on screen would read its detail from the
-          new one. */}
+          the connection changes: an open table, document, tag, or domain
+          belongs to one connection, and leaving it on screen would read its
+          detail from the new one. */}
       {conn && (
         <div key={conn}>
           {sub === "tables" && <CatalogTab conn={conn} />}
           {sub === "context_docs" && <ContextDocsTab conn={conn} />}
           {sub === "tags" && <TagsTab conn={conn} onNavigate={onNavigate} />}
+          {sub === "domains" && <DomainsTab conn={conn} onNavigate={onNavigate} />}
         </div>
       )}
     </div>

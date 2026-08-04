@@ -35,7 +35,7 @@ describe("knowledge hub hash routing", () => {
   });
 
   it("round-trips every Catalog inner tab through its hash (#1194)", () => {
-    for (const sub of ["tables", "context_docs", "tags"] as const) {
+    for (const sub of ["tables", "context_docs", "tags", "domains"] as const) {
       expect(normalizeCatalogSub(catalogSubHash(sub))).toBe(sub);
     }
     // The URL spells it with a hyphen; the type member cannot.

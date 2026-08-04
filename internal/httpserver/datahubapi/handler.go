@@ -38,7 +38,7 @@ const (
 	errDataHubReadForbidden  = "this connection requires datahub access on your persona"
 	errDataHubURNRequired    = "urn is required"
 	// errNameRequired is the 400 for a create whose name is missing, shared by
-	// every named governance entity (glossary node, tag).
+	// every named governance entity (glossary node, tag, domain).
 	errNameRequired = "name is required"
 )
 
@@ -103,10 +103,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+base+"/{conn}/catalog/glossary/children", h.browseGlossaryChildren)
 	mux.HandleFunc("GET "+base+"/{conn}/catalog/glossary/parents", h.getGlossaryParents)
 	mux.HandleFunc("POST "+base+"/{conn}/catalog/glossary/nodes", h.createGlossaryNode)
-	// Tag governance (#1156). The list read is GET .../catalog/lookup/tags and the
-	// description edit is PUT .../catalog/entity/description; see tags.go.
-	mux.HandleFunc("POST "+base+"/{conn}/catalog/tags", h.createTag)
-	mux.HandleFunc("DELETE "+base+"/{conn}/catalog/tags", h.deleteTag)
+	// Governance vocabularies (#1156, #1157): define and retire a tag or a domain.
+	// Only the writes are routes; every read each surface needs is an existing
+	// route (the picker lookups above, the catalog search's tag/domain filters,
+	// the entity description and domain writes below). See vocabulary.go.
+	h.vocabularyRoutes(mux, base, "tags", tagVocabulary)
+	h.vocabularyRoutes(mux, base, "domains", domainVocabulary)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/description", h.updateCatalogDescription)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/tags", h.updateCatalogTags)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/owners", h.updateCatalogOwners)
