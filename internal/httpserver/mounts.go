@@ -337,17 +337,24 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if router := p.KnowledgeRouter(); router != nil {
 		deps.SearchRouter = portalSearchAdapter{router: router}
 	}
-	if reg := buildDataHubRegistrar(p, deps.PersonaResolver, deps.AdminRoles); reg != nil {
-		deps.DataHubRegistrar = reg
+	if bridge := buildDataHubBridge(p); bridge != nil {
+		deps.DataHubRegistrar = dataHubRegistrar(p, bridge, deps.PersonaResolver, deps.AdminRoles)
+		// The labeler shares the bridge with the REST surface: naming a governance
+		// entity a knowledge page cites is the same read over the same
+		// connections (#1159).
+		deps.CatalogLabeler = datahubapi.NewLabeler(bridge)
 	}
 }
 
-// buildDataHubRegistrar assembles the portal DataHub REST handler (#718) over the
-// live DataHub toolkit clients and returns its route registrar, or nil when no
-// DataHub connection is registered. The bridge reuses each toolkit's client for
-// both the semantic read adapter and the batched write client; a read-only
+// buildDataHubBridge assembles read/write access to the live DataHub toolkit
+// connections, or nil when none is registered. It reuses each toolkit's client
+// for both the semantic read adapter and the batched write client; a read-only
 // connection (read_only=true) exposes no writer.
-func buildDataHubRegistrar(p *platform.Platform, resolver portal.PersonaResolver, adminRoles []string) func(*http.ServeMux) {
+//
+// The bridge is built once and shared by everything the portal serves over
+// DataHub — the Catalog REST surface (#718) and the knowledge-page catalog
+// labeler (#1159) — so a connection is never opened twice for the same server.
+func buildDataHubBridge(p *platform.Platform) datahubapi.Bridge {
 	if p.ToolkitRegistry() == nil {
 		return nil
 	}
@@ -373,7 +380,12 @@ func buildDataHubRegistrar(p *platform.Platform, resolver portal.PersonaResolver
 	if bridge.Empty() {
 		return nil
 	}
+	return bridge
+}
 
+// dataHubRegistrar returns the route registrar for the portal DataHub REST
+// handler (#718) over an assembled bridge.
+func dataHubRegistrar(p *platform.Platform, bridge datahubapi.Bridge, resolver portal.PersonaResolver, adminRoles []string) func(*http.ServeMux) {
 	var auditLogger audit.Logger
 	if store := p.AuditStore(); store != nil {
 		auditLogger = store

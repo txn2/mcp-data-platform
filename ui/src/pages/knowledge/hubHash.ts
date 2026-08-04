@@ -37,24 +37,22 @@ export function insightSubHash(sub: InsightSubTab): string {
 // The Catalog section's inner tabs (#1194). Catalog is one route holding every
 // DataHub-backed surface, so the surface within it is carried in the hash the
 // same way the top tabs are: /knowledge/catalog#tags re-opens the tag
-// vocabulary, and /knowledge/catalog?urn=...  still opens that entity on Tables.
-export type CatalogSubTab = "tables" | "context_docs" | "tags" | "domains" | "glossary";
+// vocabulary, and /knowledge/catalog?urn=...#glossary opens that term on the
+// Glossary tab.
+//
+// The tab set and its URL spellings live in lib/entityRefs with the rest of the
+// reference route table, because the builder that turns a stored catalog
+// reference into a link needs them too (#1159); a second copy here would let a
+// link and the tab it addresses drift apart.
+export type { CatalogSubTab } from "@/lib/entityRefs";
 
-// catalogSubHashes spells each inner tab for a URL. The type members are
-// identifiers, so context_docs cannot carry the hyphen the URL wants.
-const catalogSubHashes: Record<CatalogSubTab, string> = {
-  tables: "tables",
-  context_docs: "context-docs",
-  tags: "tags",
-  domains: "domains",
-  glossary: "glossary",
-};
+import { CATALOG_SUB_HASHES, type CatalogSubTab } from "@/lib/entityRefs";
 
 // normalizeCatalogSub picks the Catalog inner tab a hash addresses, defaulting
 // to Tables for anything unrecognized (including no hash at all, which is what
-// a bare /knowledge/catalog and every ?urn= deep link arrive with).
+// a bare /knowledge/catalog arrives with).
 export function normalizeCatalogSub(raw?: string): CatalogSubTab {
-  for (const [sub, hash] of Object.entries(catalogSubHashes)) {
+  for (const [sub, hash] of Object.entries(CATALOG_SUB_HASHES)) {
     if (raw === hash) return sub as CatalogSubTab;
   }
   return "tables";
@@ -62,5 +60,5 @@ export function normalizeCatalogSub(raw?: string): CatalogSubTab {
 
 // catalogSubHash is the hash that re-opens the given Catalog inner tab.
 export function catalogSubHash(sub: CatalogSubTab): string {
-  return catalogSubHashes[sub];
+  return CATALOG_SUB_HASHES[sub];
 }

@@ -136,6 +136,14 @@ export function glossaryRoots(): GlossaryRoots {
   };
 }
 
+// glossaryTerm reads one term by URN, the read that opens a term a knowledge
+// page cites (#1159). Undefined for a URN this catalog does not hold, which the
+// handler answers 404, matching the upstream client's not-found contract.
+export function glossaryTerm(urn: string): GlossaryTerm | undefined {
+  const term = mockGlossaryTerms.find((t) => t.urn === urn);
+  return term ? asTerm(term) : undefined;
+}
+
 export function glossaryChildren(nodeUrn: string): GlossaryChildren | undefined {
   if (!mockGlossaryNodes.some((n) => n.urn === nodeUrn)) return undefined;
   const nodes = mockGlossaryNodes.filter((n) => glossaryParent[n.urn] === nodeUrn);

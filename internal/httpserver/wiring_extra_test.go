@@ -151,12 +151,16 @@ func TestBuildDataHubFuncs_NoToolkit(t *testing.T) {
 }
 
 // TestBuildDataHubRegistrar covers the happy path: a live datahub toolkit
-// produces a non-nil route registrar over the bridge.
+// produces a bridge, and a non-nil route registrar over it.
 func TestBuildDataHubRegistrar(t *testing.T) {
 	p := newToolkitPlatform(t)
 	defer func() { _ = p.Close() }()
 
-	reg := buildDataHubRegistrar(p, nil, []string{"admin"})
+	bridge := buildDataHubBridge(p)
+	if bridge == nil {
+		t.Fatal("expected non-nil bridge with a datahub toolkit registered")
+	}
+	reg := dataHubRegistrar(p, bridge, nil, []string{"admin"})
 	if reg == nil {
 		t.Fatal("expected non-nil registrar with a datahub toolkit registered")
 	}
@@ -173,9 +177,10 @@ func TestBuildDataHubRegistrar(t *testing.T) {
 	}
 }
 
-// TestBuildDataHubRegistrar_NoToolkit covers the nil return when no datahub
-// connection is registered (empty bridge).
-func TestBuildDataHubRegistrar_NoToolkit(t *testing.T) {
+// TestBuildDataHubBridge_NoToolkit covers the nil return when no datahub
+// connection is registered (empty bridge), which is what leaves both the REST
+// registrar and the catalog labeler unwired.
+func TestBuildDataHubBridge_NoToolkit(t *testing.T) {
 	p := newTestPlatform(t, &platform.Config{
 		Server:   platform.ServerConfig{Name: "test"},
 		Semantic: platform.SemanticConfig{Provider: "noop"},
@@ -183,8 +188,8 @@ func TestBuildDataHubRegistrar_NoToolkit(t *testing.T) {
 		Storage:  platform.StorageConfig{Provider: "noop"},
 	})
 	defer func() { _ = p.Close() }()
-	if buildDataHubRegistrar(p, nil, nil) != nil {
-		t.Error("expected nil registrar without a datahub toolkit")
+	if buildDataHubBridge(p) != nil {
+		t.Error("expected nil bridge without a datahub toolkit")
 	}
 }
 

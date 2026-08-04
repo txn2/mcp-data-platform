@@ -149,20 +149,12 @@ func (h *Handler) userHasTool(user *portal.User, tool string) bool {
 // userHasDataHubReadAccess reports whether the persona grants any DataHub tool
 // (read or write) or the user is an admin. Reads are gated on this so the portal
 // never discloses more than the persona-filtered MCP surface would.
+//
+// The rule lives in pkg/portal because the knowledge-page reference labels apply
+// it too (#1159): naming a governance entity a page cites is a catalog read, and
+// a second copy of the rule here would let the two gates drift apart.
 func (h *Handler) userHasDataHubReadAccess(user *portal.User) bool {
-	if user == nil {
-		return false
-	}
-	if h.deps.PersonaResolver != nil {
-		if info := h.deps.PersonaResolver(user.Roles); info != nil {
-			for _, t := range info.Tools {
-				if strings.HasPrefix(t, datahubToolPrefix) {
-					return true
-				}
-			}
-		}
-	}
-	return h.userIsAdmin(user)
+	return portal.HasCatalogAccess(user, h.deps.PersonaResolver, h.deps.AdminRoles)
 }
 
 // dataHubReader resolves the read surface for the connection in the path, writing

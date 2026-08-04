@@ -49,8 +49,10 @@ test.describe("DataHub Glossary", () => {
     await expect(page.getByRole("heading", { name: /Revenue/ })).toBeVisible();
     const crumbs = page.getByRole("navigation", { name: "Glossary location" });
     await expect(crumbs).toContainText("Finance");
-    // The note attached to the term in the seeded corpus.
-    await expect(page.getByText("Revenue definition")).toBeVisible();
+    // The note attached to the term in the seeded corpus. Scoped to the
+    // document list, because the term detail also lists the knowledge pages
+    // referencing it (#1159) and one of them is titled "Revenue Definition".
+    await expect(page.locator("li").filter({ hasText: "Revenue definition" })).toBeVisible();
     // daily_sales carries the term on the table AND on a column; clickstream
     // carries it on the table only, so only one row is marked.
     await expect(page.getByText("analytics.public.daily_sales")).toBeVisible();

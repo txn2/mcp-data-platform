@@ -9,6 +9,7 @@ vi.mock("@/api/portal/datahub", () => ({
   useGlossaryRoots: vi.fn(),
   useGlossaryChildren: vi.fn(),
   useGlossaryParents: vi.fn(),
+  useGlossaryTerm: vi.fn(),
   useGlossaryTermUsage: vi.fn(),
   useGlossaryTermColumnUsage: vi.fn(),
   useEntityDocuments: vi.fn(),
@@ -25,17 +26,27 @@ vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
 
 let mockIsAdmin = true;
 let mockTools: string[] = [];
+// The knowledge-page backlinks panel on a detail view reads through react-query;
+// these tests render without a provider, so the reverse lookup is stubbed and
+// mockBacklinks is what it returns.
+let mockBacklinks: { id: string; slug: string; title: string }[] = [];
+vi.mock("@/api/portal/hooks", () => ({
+  useKnowledgeBacklinks: () => ({ data: { pages: mockBacklinks } }),
+}));
+
 vi.mock("@/stores/auth", () => ({
   useAuthStore: (sel: (s: unknown) => unknown) =>
     sel({ user: { tools: mockTools }, isAdmin: () => mockIsAdmin }),
 }));
 
+import { ApiError } from "@/api/portal/client";
 import { GlossaryTab } from "./GlossaryTab";
 import {
   GLOSSARY_PAGE_LIMIT,
   useGlossaryRoots,
   useGlossaryChildren,
   useGlossaryParents,
+  useGlossaryTerm,
   useGlossaryTermUsage,
   useGlossaryTermColumnUsage,
   useEntityDocuments,
@@ -48,6 +59,8 @@ import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionS
 
 const q = (data: unknown) => ({ data, isLoading: false, isError: false }) as never;
 const failed = { data: undefined, isLoading: false, isError: true } as never;
+// lastCall reads the arguments of a mock's most recent call.
+const lastCall = <T,>(calls: T[]): T | undefined => calls[calls.length - 1];
 const noopMut = () =>
   ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }) as never;
 const mut = (mutate: () => void) =>
@@ -100,10 +113,19 @@ function openRevenue() {
   fireEvent.click(screen.getByText("Revenue"));
 }
 
+// setLocation puts the browser at a URL, the way arriving from a knowledge
+// page's citation does. The tab reads its deep link from window.location.
+function setLocation(url: string) {
+  window.history.replaceState(null, "", url);
+}
+
 beforeEach(() => {
   mockIsAdmin = true;
   mockTools = [];
+  mockBacklinks = [];
+  setLocation("/knowledge/catalog");
   vi.mocked(useConnectionWritable).mockReturnValue(true);
+  vi.mocked(useGlossaryTerm).mockReturnValue(q(undefined));
   vi.mocked(useGlossaryRoots).mockReturnValue(q(roots));
   vi.mocked(useGlossaryChildren).mockReturnValue(q(financeChildren));
   vi.mocked(useGlossaryParents).mockReturnValue(q([finance]));
@@ -185,7 +207,7 @@ describe("GlossaryTab", () => {
     // reloading the page.
     fireEvent.click(screen.getByText("daily_sales"));
     expect(onNavigate).toHaveBeenCalledWith(
-      `/knowledge/catalog?urn=${encodeURIComponent(dailySales.urn)}`,
+      `/knowledge/catalog?urn=${encodeURIComponent(dailySales.urn)}#tables`,
     );
   });
 
@@ -403,5 +425,73 @@ describe("GlossaryTab", () => {
     openRevenue();
     expect(screen.getByRole("button", { name: "Edit description" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete term" })).not.toBeInTheDocument();
+  });
+
+  // #1159: a knowledge page citing a term links to
+  // /knowledge/catalog?urn=…#glossary, and this tab is what opens on the other
+  // end. A term is read by URN, so it opens wherever it sits in the tree —
+  // unlike a tag or a domain, which are matched against a listed vocabulary.
+  describe("deep link from a knowledge page", () => {
+    it("opens the linked term without walking the tree to it", () => {
+      vi.mocked(useGlossaryTerm).mockReturnValue(q(revenue));
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3AglossaryTerm%3ARevenue#glossary");
+      render(<GlossaryTab conn="primary" />);
+      expect(screen.getByRole("heading", { name: /Revenue/ })).toBeInTheDocument();
+      expect(screen.getByText("Gross revenue, excluding refunds.")).toBeInTheDocument();
+      expect(lastCall(vi.mocked(useGlossaryTerm).mock.calls)).toEqual([
+        "primary",
+        "urn:li:glossaryTerm:Revenue",
+      ]);
+    });
+
+    it("reports a term this connection does not hold", () => {
+      vi.mocked(useGlossaryTerm).mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new ApiError(404, "glossary term read failed"),
+      } as never);
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3AglossaryTerm%3AElsewhere#glossary");
+      render(<GlossaryTab conn="primary" />);
+      expect(screen.getByText(/has no glossary term with the URN/)).toBeInTheDocument();
+    });
+
+    it("does not call a failed read a missing term", () => {
+      // A 502 says the catalog did not answer; reporting the term as retired
+      // from that would be a claim the read never established.
+      vi.mocked(useGlossaryTerm).mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new ApiError(502, "datahub down"),
+      } as never);
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3AglossaryTerm%3ARevenue#glossary");
+      render(<GlossaryTab conn="primary" />);
+      expect(screen.getByText("Failed to load the linked glossary term.")).toBeInTheDocument();
+      expect(screen.queryByText(/has no glossary term with the URN/)).not.toBeInTheDocument();
+    });
+
+    it("drops the deep link on the way back, so a refresh does not reopen it", () => {
+      vi.mocked(useGlossaryTerm).mockReturnValue(q(revenue));
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3AglossaryTerm%3ARevenue#glossary");
+      render(<GlossaryTab conn="primary" />);
+      fireEvent.click(screen.getByRole("button", { name: /Back to the glossary/ }));
+      expect(window.location.search).toBe("");
+      expect(screen.getByRole("heading", { name: "Glossary" })).toBeInTheDocument();
+    });
+
+    it("ignores a URN that belongs to another tab", () => {
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3Atag%3Apii#glossary");
+      render(<GlossaryTab conn="primary" />);
+      expect(screen.getByRole("heading", { name: "Glossary" })).toBeInTheDocument();
+    });
+  });
+
+  it("lists the knowledge pages that reference the term", () => {
+    mockBacklinks = [{ id: "kp1", slug: "revenue-guidance", title: "Revenue Guidance" }];
+    render(<GlossaryTab conn="primary" />);
+    openRevenue();
+    expect(screen.getByText("Revenue Guidance")).toBeInTheDocument();
+    expect(screen.getByText(/1 knowledge page references this/)).toBeInTheDocument();
   });
 });

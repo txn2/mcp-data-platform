@@ -10,6 +10,7 @@ import {
   type GlossaryTerm,
   type TableSearchResult,
 } from "@/api/portal/datahub";
+import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { ListSkeleton, Badge } from "./catalog/primitives";
 import { shortUrn } from "./catalog/utils";
 import {
@@ -145,6 +146,10 @@ export function GlossaryTermDetail({
       />
 
       <EntityDocuments conn={conn} urn={term.urn} />
+
+      {/* The knowledge written about this term, from the reverse lookup over
+          page references. It renders nothing when no accessible page cites it. */}
+      <KnowledgeBacklinks urn={term.urn} onNavigate={onNavigate} />
 
       <TermUsage conn={conn} term={term} state={carriers} tables={tables} onNavigate={onNavigate} />
     </div>

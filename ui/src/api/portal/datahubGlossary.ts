@@ -12,6 +12,7 @@ import {
   type GlossaryChildren,
   type GlossaryRoots,
   type GlossaryNode,
+  type GlossaryTerm,
   type TableSearchResult,
 } from "./datahubCore";
 
@@ -21,6 +22,8 @@ const keys = {
     [...catalogKey(conn), "glossary", "children", urn] as const,
   glossaryParents: (conn: string, urn: string) =>
     [...catalogKey(conn), "glossary", "parents", urn] as const,
+  glossaryTerm: (conn: string, urn: string) =>
+    [...catalogKey(conn), "glossary", "term", urn] as const,
   glossaryUsage: (conn: string, urn: string, scope: string) =>
     [...catalogKey(conn), "glossary", "usage", scope, urn] as const,
   entityDocuments: (conn: string, urn: string) =>
@@ -71,6 +74,20 @@ export function useGlossaryParents(conn: string, urn: string | null) {
       apiFetch<{ parents: GlossaryNode[] }>(
         `${base(conn)}/catalog/glossary/parents?urn=${enc(urn!)}`,
       ).then((r) => r.parents ?? []),
+  });
+}
+
+// useGlossaryTerm reads one term by URN (#1159), which is what opens a term a
+// knowledge page cites: the citation carries the URN, and neither the picker's
+// name search nor the hierarchy reads can reach a term from that. It is the only
+// governance vocabulary with a by-URN read upstream, so a tag and a domain are
+// resolved against their listed vocabulary instead.
+export function useGlossaryTerm(conn: string, urn: string | null) {
+  return useQuery({
+    queryKey: keys.glossaryTerm(conn, urn ?? ""),
+    enabled: !!conn && !!urn,
+    queryFn: () =>
+      apiFetch<GlossaryTerm>(`${base(conn)}/catalog/glossary/term?urn=${enc(urn!)}`),
   });
 }
 

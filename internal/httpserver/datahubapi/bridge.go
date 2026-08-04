@@ -42,6 +42,11 @@ type Reader interface {
 	ListRootGlossaryTerms(ctx context.Context, offset, limit int) ([]semantic.GlossaryTerm, int, error)
 	ListGlossaryNodeChildren(ctx context.Context, nodeURN string, offset, limit int) (*semantic.GlossaryChildren, error)
 	GetGlossaryParentChain(ctx context.Context, urn string) ([]semantic.GlossaryNode, error)
+	// GetGlossaryTerm reads one term by URN (#1159). It is the only by-URN read
+	// any governance vocabulary has upstream: a tag or a domain resolves only by
+	// listing its vocabulary and matching, which is what shapes the label
+	// resolver in labels.go and the deep-link paths in the portal.
+	GetGlossaryTerm(ctx context.Context, urn string) (*semantic.GlossaryTerm, error)
 	SearchDocuments(ctx context.Context, query string, limit int) ([]semantic.DocumentResult, error)
 	BrowseDocuments(ctx context.Context, offset, limit int) ([]semantic.DocumentResult, int, error)
 	GetDocument(ctx context.Context, urn string) (*semantic.DocumentResult, error)

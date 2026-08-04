@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Trash2, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Trash2, type LucideIcon } from "lucide-react";
 import { useUpdateDescription, type EntityRef, type TableSearchResult } from "@/api/portal/datahub";
 import { catalogHref } from "@/lib/entityRefs";
-import { MutationError } from "./primitives";
+import { ListSkeleton, MutationError } from "./primitives";
 import { shortUrn } from "./utils";
 
 // Shared surfaces for the DataHub governance vocabularies under Catalog: Tags
@@ -263,4 +263,82 @@ export interface Usage {
   loading: boolean;
   failed: boolean;
   count: number;
+}
+
+// BackToList is the return affordance a deep-linked view needs: the reader
+// arrived from a knowledge page rather than from the list, so there is no
+// browsing history within the tab to go back through.
+export function BackToList({ label, onBack }: { label: string; onBack: () => void }) {
+  return (
+    <button
+      onClick={onBack}
+      className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+    >
+      <ArrowLeft className="h-4 w-4" /> {label}
+    </button>
+  );
+}
+
+/**
+ * DeepLinkedEntry opens the vocabulary entry a `?urn=` deep link addresses
+ * (#1159), so a knowledge page's citation of a tag or a domain lands on that
+ * entry rather than on the list.
+ *
+ * The entry comes from the list the tab already loads because neither
+ * vocabulary has a by-URN read upstream: DataHub can list tags and domains, but
+ * cannot fetch one by URN. So a URN the list does not hold — one from another
+ * connection, one retired since the page cited it, or one past the cap the list
+ * read returns — says exactly that instead of opening a detail view assembled
+ * from the URN alone, which would show an empty description as if the entry had
+ * none.
+ */
+export function DeepLinkedEntry({
+  urn,
+  entries,
+  isLoading,
+  isError,
+  what,
+  backLabel,
+  onBack,
+  children,
+}: {
+  urn: string;
+  entries: EntityRef[] | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  // what names the kind in the miss and failure messages ("tag", "domain").
+  what: string;
+  backLabel: string;
+  onBack: () => void;
+  children: (entry: EntityRef) => React.ReactNode;
+}) {
+  if (isError || isLoading || !entries) {
+    return (
+      <div className="space-y-4">
+        <BackToList label={backLabel} onBack={onBack} />
+        {isError ? (
+          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            Failed to load {what}s, so the linked {what} could not be opened.
+          </p>
+        ) : (
+          <ListSkeleton />
+        )}
+      </div>
+    );
+  }
+
+  const entry = entries.find((e) => e.urn === urn);
+  if (!entry) {
+    return (
+      <div className="space-y-4">
+        <BackToList label={backLabel} onBack={onBack} />
+        <p className="rounded-md border border-dashed px-4 py-6 text-sm text-muted-foreground">
+          This connection lists no {what} with the URN{" "}
+          <span className="break-all font-mono text-xs">{urn}</span>. It may belong to another
+          connection, or have been retired since it was linked.
+        </p>
+      </div>
+    );
+  }
+  return <>{children(entry)}</>;
 }

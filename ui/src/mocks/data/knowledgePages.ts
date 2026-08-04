@@ -404,3 +404,82 @@ export const mockKnowledgePages: KnowledgePage[] = [
     updated_at: "2026-06-22T12:00:00Z",
   },
 ];
+
+// mockPageRefs is the per-page entity-reference store behind the refs endpoints
+// (#664, #1159): the manual references an author picked, keyed by page id. It is
+// mutable, so the picker's add and remove are observable on a re-read the way
+// they are against the real store.
+//
+// The seed carries the governance references #1159 made pickable, so the
+// Related panel, the reference chips, and the reverse lookup on a tag, domain,
+// or glossary-term detail all have material without an author adding it first.
+export const mockPageRefs: Record<string, string[]> = {
+  "kp-seed-2": ["urn:li:glossaryTerm:Revenue", "urn:li:domain:finance"],
+  "kp-seed-3": ["urn:li:tag:pii"],
+};
+
+// GOVERNANCE_NAMES is what the catalog reports for a governance URN, which the
+// server resolves in one batch. The key inside these URNs is not always the
+// name, which is the whole reason the resolve exists.
+const GOVERNANCE_NAMES: Record<string, string> = {
+  "urn:li:glossaryTerm:Revenue": "Revenue",
+  "urn:li:glossaryTerm:NetSales": "Net Sales",
+  "urn:li:tag:pii": "pii",
+  "urn:li:tag:certified": "certified",
+  "urn:li:domain:finance": "Finance",
+  "urn:li:domain:marketing": "Marketing",
+};
+
+/** ResolvedPageRef mirrors the refs endpoints' resolved view. */
+export interface ResolvedPageRef {
+  urn: string;
+  type: string;
+  label: string;
+  exists: boolean;
+  source: string;
+}
+
+// resolvePageRef labels one serialized reference the way the server does: a
+// catalog entity by the name the catalog reports, falling back to the last
+// URN segment, and a knowledge page by its title.
+export function resolvePageRef(urn: string, source: string): ResolvedPageRef {
+  if (urn.startsWith("urn:")) {
+    const label = GOVERNANCE_NAMES[urn] ?? urn.slice(urn.lastIndexOf(":") + 1);
+    return { urn, type: "datahub", label, exists: true, source };
+  }
+  const pageID = urn.startsWith("mcp:knowledge_page:")
+    ? urn.slice("mcp:knowledge_page:".length)
+    : "";
+  const page = mockKnowledgePages.find((p) => p.id === pageID);
+  if (page) {
+    return { urn, type: "knowledge_page", label: page.title, exists: true, source };
+  }
+  const rest = urn.slice("mcp:".length);
+  const sep = rest.indexOf(":");
+  return {
+    urn,
+    type: sep > 0 ? rest.slice(0, sep) : "unknown",
+    label: sep > 0 ? rest.slice(sep + 1) : urn,
+    exists: true,
+    source,
+  };
+}
+
+// pageRefs returns a page's references, resolved.
+export function pageRefs(pageID: string): ResolvedPageRef[] {
+  return (mockPageRefs[pageID] ?? []).map((urn) => resolvePageRef(urn, "manual"));
+}
+
+// setPageRefs replaces a page's manual references, the way the PUT does.
+export function setPageRefs(pageID: string, urns: string[]): ResolvedPageRef[] {
+  mockPageRefs[pageID] = [...urns];
+  return pageRefs(pageID);
+}
+
+// pagesReferencing is the reverse lookup: the live pages that reference an
+// entity URN, which is what a governance detail view lists.
+export function pagesReferencing(urn: string): { id: string; slug: string; title: string }[] {
+  return mockKnowledgePages
+    .filter((p) => !p.deleted_at && (mockPageRefs[p.id] ?? []).includes(urn))
+    .map((p) => ({ id: p.id, slug: p.slug ?? "", title: p.title }));
+}

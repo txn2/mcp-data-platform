@@ -50,16 +50,69 @@ type knowledgePageRefsResponse struct {
 // inaccessible entity (the same access model the renderer and the agent apply).
 func (h *Handler) resolveAndFilterRefs(r *http.Request, user *User, refs []knowledgepage.EntityRef) []resolvedRefView {
 	out := make([]resolvedRefView, 0, len(refs))
+	urns := make([]string, 0, len(refs))
 	for _, ref := range refs {
-		urn := ref.URN()
-		rr := h.resolveRef(r, user, urn, ref)
+		urns = append(urns, ref.URN())
+	}
+	labels := h.catalogLabels(r.Context(), user, urns)
+	for i, ref := range refs {
+		rr := h.resolveRef(r, user, urns[i], ref, labels)
 		if !rr.Accessible {
 			continue
 		}
-		out = append(out, resolvedRefView{URN: urn, Type: rr.Type, Label: rr.Label, Exists: rr.Exists, Source: ref.Source})
+		out = append(out, resolvedRefView{URN: urns[i], Type: rr.Type, Label: rr.Label, Exists: rr.Exists, Source: ref.Source})
 	}
 	return out
 }
+
+// CatalogLabeler resolves catalog (DataHub) entity URNs to display names in one
+// batch. It is satisfied by the DataHub bridge's labeler; the portal states only
+// the shape it needs so this package keeps no DataHub dependency.
+type CatalogLabeler interface {
+	Labels(ctx context.Context, urns []string) map[string]string
+}
+
+// catalogLabels resolves the catalog names for a batch of serialized references,
+// or nil when no labeler is wired. Names are looked up once per request rather
+// than per reference: a tag or a domain has no by-URN read upstream, so each one
+// costs a vocabulary listing that a batch shares.
+//
+// It is gated on catalog access, the same rule the DataHub REST surface applies:
+// a name is catalog metadata, so a persona denied the catalog keeps the label
+// derivable from the URN rather than learning through this endpoint what the
+// Catalog tab would not tell it.
+func (h *Handler) catalogLabels(ctx context.Context, user *User, urns []string) map[string]string {
+	if h.deps.CatalogLabeler == nil || !HasCatalogAccess(user, h.deps.PersonaResolver, h.deps.AdminRoles) {
+		return nil
+	}
+	catalog := make([]string, 0, len(urns))
+	seen := make(map[string]bool, len(urns))
+	for _, urn := range urns {
+		if !strings.HasPrefix(urn, catalogURNPrefix) || seen[urn] {
+			continue
+		}
+		seen[urn] = true
+		catalog = append(catalog, urn)
+		if len(catalog) == maxCatalogLabelURNs {
+			break
+		}
+	}
+	if len(catalog) == 0 {
+		return nil
+	}
+	return h.deps.CatalogLabeler.Labels(ctx, catalog)
+}
+
+// catalogURNPrefix marks a catalog (DataHub) reference, the only kind the
+// catalog labeler can name.
+const catalogURNPrefix = "urn:"
+
+// maxCatalogLabelURNs bounds one batch of catalog name resolution. A glossary
+// term costs an upstream read each, so an unbounded batch would let one graph
+// request with thousands of distinct citations fan out that many calls. Past the
+// cap a reference keeps the name derivable from its URN, which is what every
+// reference showed before names were resolved at all.
+const maxCatalogLabelURNs = 200
 
 // setEntityRefsRequest carries the page's manual references as serialized URN
 // strings (mcp:asset:<id>, urn:li:dataset:..., mcp:connection:(kind,name)).
@@ -321,8 +374,9 @@ func (h *Handler) knowledgePageBacklinks(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	// Don't reveal back-references for an entity the viewer cannot access (the
-	// same access model the forward lookup applies).
-	if !h.resolveRef(r, user, ref.URN(), ref).Accessible {
+	// same access model the forward lookup applies). Accessibility never depends
+	// on the display name, so this one skips the catalog resolve.
+	if !h.resolveRef(r, user, ref.URN(), ref, nil).Accessible {
 		writeJSON(w, http.StatusOK, backlinksResponse{Pages: []knowledgepage.PageRef{}})
 		return
 	}
@@ -390,6 +444,7 @@ func (h *Handler) resolveKnowledgePageRefs(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "too many references")
 		return
 	}
+	labels := h.catalogLabels(r.Context(), user, req.URNs)
 	out := make([]resolvedRef, 0, len(req.URNs))
 	for _, s := range req.URNs {
 		ref, err := knowledgepage.ParseEntityRef(s)
@@ -397,7 +452,7 @@ func (h *Handler) resolveKnowledgePageRefs(w http.ResponseWriter, r *http.Reques
 			out = append(out, resolvedRef{URN: s, Label: s, Exists: false, Accessible: false})
 			continue
 		}
-		out = append(out, h.resolveRef(r, user, s, ref))
+		out = append(out, h.resolveRef(r, user, s, ref, labels))
 	}
 	writeJSON(w, http.StatusOK, resolveRefsResponse{Refs: out})
 }
@@ -408,9 +463,13 @@ func (h *Handler) resolveKnowledgePageRefs(w http.ResponseWriter, r *http.Reques
 // because not-found and not-permitted both yield Accessible=false the endpoint
 // cannot enumerate names or existence across the share boundary. Knowledge pages
 // are org-shared (title resolved for any reader; a missing page is a broken
-// reference). Connection and DataHub labels derive from the URN itself and are
-// shown as platform/catalog context.
-func (h *Handler) resolveRef(r *http.Request, user *User, urn string, ref knowledgepage.EntityRef) resolvedRef {
+// reference). A connection's label derives from the URN itself and is shown as
+// platform context.
+//
+// labels carries the catalog names resolved for the whole batch (nil when none
+// were); a catalog reference the batch could not name falls back to the name
+// derivable from its URN.
+func (h *Handler) resolveRef(r *http.Request, user *User, urn string, ref knowledgepage.EntityRef, labels map[string]string) resolvedRef {
 	out := resolvedRef{URN: urn, Type: ref.TargetType, Label: urn, Exists: true, Accessible: true}
 	switch ref.TargetType {
 	case knowledgepage.RefTargetAsset:
@@ -424,9 +483,21 @@ func (h *Handler) resolveRef(r *http.Request, user *User, urn string, ref knowle
 	case knowledgepage.RefTargetConnection:
 		out.Label = ref.ConnectionName + " (" + ref.ConnectionKind + ")"
 	case knowledgepage.RefTargetDataHub:
-		out.Label = datahubLabel(ref.EntityURN)
+		out.Label = catalogLabel(ref.EntityURN, labels)
 	}
 	return out
+}
+
+// catalogLabel is the display name of a catalog reference: the name the catalog
+// itself reports when the batch resolved it, and otherwise the name derivable
+// from the URN. A glossary term, tag, or domain created through this platform
+// carries a generated key rather than its name, which is why the resolved name
+// is preferred where there is one.
+func catalogLabel(urn string, labels map[string]string) string {
+	if name, ok := labels[urn]; ok && name != "" {
+		return name
+	}
+	return datahubLabel(urn)
 }
 
 // resolveAssetRef sets the asset's name when the user may view it; a not-found or

@@ -9,8 +9,8 @@ import {
 import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
 import { useAuthStore } from "@/stores/auth";
 import { ListSkeleton, MutationError } from "./catalog/primitives";
-import { filterDomains } from "./catalog/utils";
-import { PageCapNotice, VocabCard } from "./catalog/governance";
+import { clearURNFromLocation, deepLinkedURN, filterDomains } from "./catalog/utils";
+import { DeepLinkedEntry, PageCapNotice, VocabCard } from "./catalog/governance";
 import { DomainDetail } from "./DomainDetail";
 
 /**
@@ -33,6 +33,10 @@ export function DomainsTab({
 }) {
   const [mode, setMode] = useState<"list" | "create">("list");
   const [selected, setSelected] = useState<EntityRef | null>(null);
+  // linked is the domain a `?urn=` deep link addresses (#1159), carried as a URN
+  // because the link has no name to carry, and cleared from the URL on the way
+  // back so a refresh does not reopen what the reader just left.
+  const [linked, setLinked] = useState<string | null>(() => deepLinkedURN("domains"));
   const writable = useConnectionWritable(conn);
   const tools = useAuthStore((s) => s.user?.tools);
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -43,21 +47,31 @@ export function DomainsTab({
 
   const back = () => {
     setSelected(null);
+    setLinked(null);
+    clearURNFromLocation();
     setMode("list");
   };
+
+  const detail = (domain: EntityRef) => (
+    <DomainDetail
+      key={domain.urn}
+      conn={conn}
+      domain={domain}
+      canEdit={canEdit}
+      canDelete={canDelete}
+      onBack={back}
+      onNavigate={onNavigate}
+    />
+  );
 
   return (
     <div className="space-y-4">
       {selected ? (
-        <DomainDetail
-          key={selected.urn}
-          conn={conn}
-          domain={selected}
-          canEdit={canEdit}
-          canDelete={canDelete}
-          onBack={back}
-          onNavigate={onNavigate}
-        />
+        detail(selected)
+      ) : linked ? (
+        <LinkedDomain conn={conn} urn={linked} onBack={back}>
+          {detail}
+        </LinkedDomain>
       ) : mode === "create" ? (
         <DomainForm conn={conn} onDone={back} />
       ) : (
@@ -69,6 +83,36 @@ export function DomainsTab({
         />
       )}
     </div>
+  );
+}
+
+// LinkedDomain resolves a deep-linked domain URN against this connection's
+// domain list, which is the only read DataHub offers for a domain: there is no
+// fetch-by-URN, and the list itself is capped upstream at 100.
+function LinkedDomain({
+  conn,
+  urn,
+  onBack,
+  children,
+}: {
+  conn: string;
+  urn: string;
+  onBack: () => void;
+  children: (domain: EntityRef) => React.ReactNode;
+}) {
+  const { data, isLoading, isError } = useDomainList(conn);
+  return (
+    <DeepLinkedEntry
+      urn={urn}
+      entries={data}
+      isLoading={isLoading}
+      isError={isError}
+      what="domain"
+      backLabel="Back to domains"
+      onBack={onBack}
+    >
+      {children}
+    </DeepLinkedEntry>
   );
 }
 

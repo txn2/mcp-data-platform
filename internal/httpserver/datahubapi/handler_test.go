@@ -65,6 +65,16 @@ type fakeDataHub struct {
 	relatedDocs    map[string][]semantic.DocumentResult
 	searchFilter   semantic.SearchFilter
 
+	// Term reads by URN (#1159). An absent key is ErrNotFound, matching the
+	// upstream client: DataHub answers an unknown term with an empty stub, which
+	// the client converts, so the handler's 404 path is exercised against the
+	// behavior the real backend has.
+	terms map[string]*semantic.GlossaryTerm
+	// reads counts the vocabulary and term reads the label resolver makes, so a
+	// test can assert a read did NOT happen — which is the only way to prove the
+	// resolver skips a kind it does not need or a connection it need not ask.
+	reads int
+
 	// Tag governance (#1156).
 	createdTag vocabularyRequest
 	deletedTag string
@@ -127,7 +137,23 @@ func (f *fakeDataHub) SearchTables(_ context.Context, filter semantic.SearchFilt
 }
 
 func (f *fakeDataHub) SearchTags(_ context.Context, _ string, _ int) ([]semantic.EntityRef, error) {
+	f.countRead()
 	return f.refs, f.readErr
+}
+
+// countRead records one read, under the mutex because the label resolver issues
+// its per-kind reads concurrently.
+func (f *fakeDataHub) countRead() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reads++
+}
+
+// readCount returns the reads recorded so far.
+func (f *fakeDataHub) readCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reads
 }
 
 func (f *fakeDataHub) SearchGlossaryTerms(_ context.Context, _ string, _ int) ([]semantic.EntityRef, error) {
@@ -135,6 +161,7 @@ func (f *fakeDataHub) SearchGlossaryTerms(_ context.Context, _ string, _ int) ([
 }
 
 func (f *fakeDataHub) ListDomains(_ context.Context) ([]semantic.EntityRef, error) {
+	f.countRead()
 	return f.refs, f.readErr
 }
 
@@ -177,6 +204,20 @@ func (f *fakeDataHub) ListGlossaryNodeChildren(_ context.Context, nodeURN string
 	f.childrenPage = [2]int{offset, limit}
 	f.mu.Unlock()
 	return children, nil
+}
+
+func (f *fakeDataHub) GetGlossaryTerm(_ context.Context, urn string) (*semantic.GlossaryTerm, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reads++
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
+	term, ok := f.terms[urn]
+	if !ok {
+		return nil, fmt.Errorf("glossary term %s: %w", urn, dhclient.ErrNotFound)
+	}
+	return term, nil
 }
 
 func (f *fakeDataHub) GetGlossaryParentChain(_ context.Context, urn string) ([]semantic.GlossaryNode, error) {

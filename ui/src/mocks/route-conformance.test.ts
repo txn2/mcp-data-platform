@@ -67,6 +67,7 @@ const ALLOWLIST = new Set<string>([
   "GET /portal/datahub/{}/catalog/glossary/roots",
   "GET /portal/datahub/{}/catalog/glossary/children",
   "GET /portal/datahub/{}/catalog/glossary/parents",
+  "GET /portal/datahub/{}/catalog/glossary/term",
   "POST /portal/datahub/{}/catalog/glossary/nodes",
   "POST /portal/datahub/{}/catalog/glossary/terms",
   "DELETE /portal/datahub/{}/catalog/glossary/entity",
