@@ -88,6 +88,7 @@ func (h *Handler) glossaryRoutes(mux *http.ServeMux, base string) {
 	mux.HandleFunc("GET "+base+path+"/roots", h.browseGlossaryRoots)
 	mux.HandleFunc("GET "+base+path+"/children", h.browseGlossaryChildren)
 	mux.HandleFunc("GET "+base+path+"/parents", h.getGlossaryParents)
+	mux.HandleFunc("GET "+base+path+"/term", h.getGlossaryTerm)
 	mux.HandleFunc("POST "+base+path+"/nodes", func(w http.ResponseWriter, r *http.Request) {
 		h.createGlossaryEntity(w, r, glossaryNodeKind)
 	})
@@ -218,6 +219,34 @@ func (h *Handler) getGlossaryParents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"parents": orEmpty(chain)})
+}
+
+// getGlossaryTerm returns one term by URN: its name and its definition (#1159).
+// It is what lets a stored reference to a term open the term itself — the
+// picker's name search cannot find a term from the URN a reference carries, and
+// the hierarchy reads only reach a term by walking to its parent.
+//
+// There is no node counterpart because upstream has no by-URN node read; a node
+// is reached through the hierarchy, which is how the Glossary tab browses it.
+func (h *Handler) getGlossaryTerm(w http.ResponseWriter, r *http.Request) {
+	reader, ok := h.dataHubReader(w, r)
+	if !ok {
+		return
+	}
+	urn, ok := requireURNParam(w, r, glossaryURNTypes)
+	if !ok {
+		return
+	}
+	term, err := reader.GetGlossaryTerm(r.Context(), urn)
+	if err != nil {
+		writeGlossaryReadError(w, "glossary term read failed", err)
+		return
+	}
+	if term == nil {
+		writeError(w, http.StatusNotFound, "glossary term read failed: "+urn+" not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, term)
 }
 
 // orEmpty returns a non-nil slice so a glossary response always renders a JSON

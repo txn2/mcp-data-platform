@@ -18,6 +18,14 @@ vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
 
 let mockIsAdmin = true;
 let mockTools: string[] = [];
+// The knowledge-page backlinks panel on a detail view reads through react-query;
+// these tests render without a provider, so the reverse lookup is stubbed and
+// mockBacklinks is what it returns.
+let mockBacklinks: { id: string; slug: string; title: string }[] = [];
+vi.mock("@/api/portal/hooks", () => ({
+  useKnowledgeBacklinks: () => ({ data: { pages: mockBacklinks } }),
+}));
+
 vi.mock("@/stores/auth", () => ({
   useAuthStore: (sel: (s: unknown) => unknown) =>
     sel({ user: { tools: mockTools }, isAdmin: () => mockIsAdmin }),
@@ -52,9 +60,17 @@ const carrier = {
   description: "Daily aggregated sales.",
 };
 
+// setLocation puts the browser at a URL, the way arriving from a knowledge
+// page's citation does. The tab reads its deep link from window.location.
+function setLocation(url: string) {
+  window.history.replaceState(null, "", url);
+}
+
 beforeEach(() => {
   mockIsAdmin = true;
   mockTools = [];
+  mockBacklinks = [];
+  setLocation("/knowledge/catalog");
   vi.mocked(useConnectionWritable).mockReturnValue(true);
   vi.mocked(useTagList).mockReturnValue(q([certified, pii]));
   vi.mocked(useTagUsage).mockReturnValue(q([carrier]));
@@ -111,7 +127,7 @@ describe("TagsTab", () => {
     // reloading the page.
     fireEvent.click(screen.getByText("daily_sales"));
     expect(onNavigate).toHaveBeenCalledWith(
-      `/knowledge/catalog?urn=${encodeURIComponent(carrier.urn)}`,
+      `/knowledge/catalog?urn=${encodeURIComponent(carrier.urn)}#tables`,
     );
   });
 
@@ -274,5 +290,50 @@ describe("TagsTab", () => {
     } as never);
     render(<TagsTab conn="primary" />);
     expect(screen.getByText("Failed to load tags.")).toBeInTheDocument();
+  });
+
+  // #1159: a knowledge page citing a tag links to /knowledge/catalog?urn=…#tags,
+  // and this tab is what opens on the other end.
+  describe("deep link from a knowledge page", () => {
+    it("opens the linked tag instead of the list", () => {
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3Atag%3Acertified#tags");
+      render(<TagsTab conn="primary" />);
+      expect(screen.getByRole("heading", { name: /certified/ })).toBeInTheDocument();
+      expect(screen.getByText("Reviewed by the data team.")).toBeInTheDocument();
+    });
+
+    it("says so when this connection does not list the tag", () => {
+      // A tag has no by-URN read upstream, so a URN the list does not hold
+      // cannot be opened. Reporting it beats a detail view with a blank
+      // description that reads as "this tag is undocumented".
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3Atag%3Aelsewhere#tags");
+      render(<TagsTab conn="primary" />);
+      expect(screen.getByText(/lists no tag with the URN/)).toBeInTheDocument();
+      expect(screen.getByText("urn:li:tag:elsewhere")).toBeInTheDocument();
+    });
+
+    it("drops the deep link on the way back, so a refresh does not reopen it", () => {
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3Atag%3Acertified#tags");
+      render(<TagsTab conn="primary" />);
+      fireEvent.click(screen.getByRole("button", { name: /Back to tags/ }));
+      expect(window.location.search).toBe("");
+      expect(screen.getByText("pii")).toBeInTheDocument();
+    });
+
+    it("ignores a URN that belongs to another tab", () => {
+      // Each inner tab claims only its own kinds, so a stale or hand-edited link
+      // opens the list rather than a read that cannot succeed.
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3Adomain%3Afinance#tags");
+      render(<TagsTab conn="primary" />);
+      expect(screen.getByPlaceholderText("Filter tags by name…")).toBeInTheDocument();
+    });
+  });
+
+  it("lists the knowledge pages that reference the tag", () => {
+    mockBacklinks = [{ id: "kp1", slug: "tagging-policy", title: "Tagging Policy" }];
+    render(<TagsTab conn="primary" />);
+    fireEvent.click(screen.getByText("certified"));
+    expect(screen.getByText("Tagging Policy")).toBeInTheDocument();
+    expect(screen.getByText(/1 knowledge page references this/)).toBeInTheDocument();
   });
 });

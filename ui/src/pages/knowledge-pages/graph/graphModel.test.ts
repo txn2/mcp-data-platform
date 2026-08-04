@@ -132,7 +132,7 @@ describe("nodeDestination", () => {
     const urn = "urn:li:dataset:(trino,sales.orders,PROD)";
     expect(nodeDestination(entity(urn, "datahub", "sales.orders"))).toEqual({
       kind: "path",
-      path: `/knowledge/catalog?urn=${encodeURIComponent(urn)}`,
+      path: `/knowledge/catalog?urn=${encodeURIComponent(urn)}#tables`,
     });
   });
 

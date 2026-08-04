@@ -3,6 +3,7 @@ import { ArrowLeft, BookMarked, Folder, Plus } from "lucide-react";
 import {
   useGlossaryRoots,
   useGlossaryChildren,
+  useGlossaryTerm,
   useCreateGlossaryTerm,
   useCreateGlossaryNode,
   useDeleteGlossaryEntity,
@@ -11,11 +12,12 @@ import {
   type GlossaryRoots,
   type GlossaryTerm,
 } from "@/api/portal/datahub";
+import { ApiError } from "@/api/portal/client";
 import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
 import { useAuthStore } from "@/stores/auth";
 import { ListSkeleton, MutationError } from "./catalog/primitives";
-import { shortUrn } from "./catalog/utils";
-import { DeleteControl, EntityDescription, VocabCard } from "./catalog/governance";
+import { clearURNFromLocation, deepLinkedURN, shortUrn } from "./catalog/utils";
+import { BackToList, DeleteControl, EntityDescription, VocabCard } from "./catalog/governance";
 import { EntityDocuments, GlossaryBreadcrumb, GlossaryTermDetail } from "./GlossaryDetail";
 
 /**
@@ -43,6 +45,10 @@ export function GlossaryTab({
   const [node, setNode] = useState<GlossaryNode | null>(null);
   const [term, setTerm] = useState<GlossaryTerm | null>(null);
   const [creating, setCreating] = useState<"term" | "node" | null>(null);
+  // linked is the term a `?urn=` deep link addresses (#1159): a knowledge page
+  // citing a term opens it here, read by URN rather than walked to through the
+  // tree. Cleared from the URL on the way back so a refresh does not reopen it.
+  const [linked, setLinked] = useState<string | null>(() => deepLinkedURN("glossary"));
   const writable = useConnectionWritable(conn);
   const tools = useAuthStore((s) => s.user?.tools);
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -51,25 +57,43 @@ export function GlossaryTab({
   const canEdit = writable && has("datahub_update");
   const canDelete = writable && has("datahub_delete");
 
-  const openNode = (n: GlossaryNode | null) => {
+  // Leaving a term drops the deep link with it, so the back button on a linked
+  // term returns to the glossary rather than reopening the term on refresh.
+  const closeTerm = () => {
     setTerm(null);
+    setLinked(null);
+    clearURNFromLocation();
+  };
+
+  const openNode = (n: GlossaryNode | null) => {
+    closeTerm();
     setCreating(null);
     setNode(n);
   };
 
+  const termDetail = (t: GlossaryTerm) => (
+    <GlossaryTermDetail
+      key={t.urn}
+      conn={conn}
+      term={t}
+      canEdit={canEdit}
+      canDelete={canDelete}
+      onBack={closeTerm}
+      onOpenNode={openNode}
+      onOpenRoot={() => openNode(null)}
+      onNavigate={onNavigate}
+    />
+  );
+
   if (term) {
+    return termDetail(term);
+  }
+
+  if (linked) {
     return (
-      <GlossaryTermDetail
-        key={term.urn}
-        conn={conn}
-        term={term}
-        canEdit={canEdit}
-        canDelete={canDelete}
-        onBack={() => setTerm(null)}
-        onOpenNode={openNode}
-        onOpenRoot={() => openNode(null)}
-        onNavigate={onNavigate}
-      />
+      <LinkedTerm conn={conn} urn={linked} onBack={closeTerm}>
+        {termDetail}
+      </LinkedTerm>
     );
   }
 
@@ -100,6 +124,48 @@ export function GlossaryTab({
     />
   ) : (
     <RootBrowser conn={conn} create={create} onOpenNode={openNode} onOpenTerm={setTerm} />
+  );
+}
+
+// LinkedTerm opens a deep-linked term by URN. Unlike a tag or a domain, a term
+// has a by-URN read upstream, so a term the connection holds always opens with
+// its real definition however deep in the tree it sits; a URN this connection
+// does not know answers 404, which is reported as the miss it is.
+function LinkedTerm({
+  conn,
+  urn,
+  onBack,
+  children,
+}: {
+  conn: string;
+  urn: string;
+  onBack: () => void;
+  children: (term: GlossaryTerm) => React.ReactNode;
+}) {
+  const { data, isLoading, isError, error } = useGlossaryTerm(conn, urn);
+
+  if (data) return <>{children(data)}</>;
+  // A term this connection does not hold and a read that failed are different
+  // answers: only the 404 establishes that the term is not here, so a backend
+  // failure says so rather than reporting the term as gone.
+  const missing = error instanceof ApiError && error.status === 404;
+  return (
+    <div className="space-y-4">
+      <BackToList label="Back to the glossary" onBack={onBack} />
+      {isLoading ? (
+        <ListSkeleton />
+      ) : missing ? (
+        <p className="rounded-md border border-dashed px-4 py-6 text-sm text-muted-foreground">
+          This connection has no glossary term with the URN{" "}
+          <span className="break-all font-mono text-xs">{urn}</span>. It may belong to another
+          connection, or have been retired since it was linked.
+        </p>
+      ) : isError ? (
+        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          Failed to load the linked glossary term.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { buildRefUrn, catalogHref, entityHref, extractRefUrns, isRefUrn, parseRef, refHref, trimRefToken } from "./entityRefs";
+import {
+  buildRefUrn,
+  catalogHref,
+  catalogSubForURN,
+  entityHref,
+  extractRefUrns,
+  isCatalogRefType,
+  isRefUrn,
+  parseRef,
+  refHref,
+  trimRefToken,
+} from "./entityRefs";
 
 describe("entityHref", () => {
   it("routes asset/collection/prompt/knowledge_page to their views and nothing else", () => {
@@ -113,7 +124,7 @@ describe("trimRefToken", () => {
 describe("catalogHref", () => {
   it("deep-links a catalog entity by its whole URN", () => {
     const urn = "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)";
-    expect(catalogHref(urn)).toBe(`/knowledge/catalog?urn=${encodeURIComponent(urn)}`);
+    expect(catalogHref(urn)).toBe(`/knowledge/catalog?urn=${encodeURIComponent(urn)}#tables`);
   });
 
   it("refuses anything that is not a URN", () => {
@@ -125,14 +136,48 @@ describe("catalogHref", () => {
   });
 
   it("tolerates surrounding whitespace", () => {
-    expect(catalogHref("  urn:li:dataset:x  ")).toBe("/knowledge/catalog?urn=urn%3Ali%3Adataset%3Ax");
+    expect(catalogHref("  urn:li:dataset:x  ")).toBe("/knowledge/catalog?urn=urn%3Ali%3Adataset%3Ax#tables");
+  });
+
+  // A governance entity is managed on its own Catalog tab, and Tables cannot
+  // show one at all: a term link that landed on Tables would open a table read
+  // against a term URN, which can only fail.
+  it("opens each governance entity on the tab that manages it", () => {
+    const cases: [string, string][] = [
+      ["urn:li:glossaryTerm:8f3c", "glossary"],
+      ["urn:li:glossaryNode:finance", "glossary"],
+      ["urn:li:tag:pii", "tags"],
+      ["urn:li:domain:c3d4", "domains"],
+    ];
+    for (const [urn, sub] of cases) {
+      expect(catalogSubForURN(urn)).toBe(sub);
+      expect(catalogHref(urn)).toBe(`/knowledge/catalog?urn=${encodeURIComponent(urn)}#${sub}`);
+    }
+  });
+
+  it("sends everything else to Tables", () => {
+    expect(catalogSubForURN("urn:li:dataset:(trino,sales,PROD)")).toBe("tables");
+    expect(catalogSubForURN("urn:li:container:warehouse")).toBe("tables");
+    expect(catalogSubForURN("not-a-urn")).toBe("tables");
+  });
+});
+
+describe("isCatalogRefType", () => {
+  it("separates the catalog vocabularies from the portal's own entities", () => {
+    // The distinction drives the picker: a catalog type needs a connection to
+    // search and stores the catalog's own URN, never an mcp: reference.
+    expect(isCatalogRefType("glossary_term")).toBe(true);
+    expect(isCatalogRefType("tag")).toBe(true);
+    expect(isCatalogRefType("domain")).toBe(true);
+    expect(isCatalogRefType("asset")).toBe(false);
+    expect(isCatalogRefType("knowledge_page")).toBe(false);
   });
 });
 
 describe("refHref", () => {
   it("sends a catalog reference to the catalog tab", () => {
     const urn = "urn:li:dataset:(trino,sales,PROD)";
-    expect(refHref("datahub", "", urn)).toBe(`/knowledge/catalog?urn=${encodeURIComponent(urn)}`);
+    expect(refHref("datahub", "", urn)).toBe(`/knowledge/catalog?urn=${encodeURIComponent(urn)}#tables`);
   });
 
   it("sends an internal reference to its id-based route", () => {

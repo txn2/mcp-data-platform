@@ -10,6 +10,7 @@ import {
   type EntityRef,
   type TableSearchResult,
 } from "@/api/portal/datahub";
+import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { useDebounced } from "@/lib/useDebounced";
 import { ListSkeleton, MutationError } from "./catalog/primitives";
 import { shortUrn } from "./catalog/utils";
@@ -76,6 +77,10 @@ export function DomainDetail({
       )}
 
       <EntityDescription conn={conn} entity={domain} canEdit={canEdit} label="Domain description" />
+
+      {/* The knowledge written about this domain, from the reverse lookup over
+          page references. It renders nothing when no accessible page cites it. */}
+      <KnowledgeBacklinks urn={domain.urn} onNavigate={onNavigate} />
 
       <DomainMembers
         conn={conn}

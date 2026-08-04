@@ -38,6 +38,7 @@ import {
   glossaryRoots,
   glossaryChildren,
   glossaryParents,
+  glossaryTerm,
   createGlossaryEntity,
   deleteGlossaryEntity,
   entityDocuments,
@@ -49,7 +50,13 @@ import {
   updateDoc,
   deleteDoc,
 } from "./data/datahub";
-import { mockKnowledgePages } from "./data/knowledgePages";
+import {
+  mockKnowledgePages,
+  pageRefs,
+  pagesReferencing,
+  resolvePageRef,
+  setPageRefs,
+} from "./data/knowledgePages";
 import { mockKnowledgeGraph } from "./data/knowledgeGraph";
 import { mockContent } from "./data/content";
 import { mockCollections, mockSharedCollections } from "./data/collections";
@@ -904,6 +911,29 @@ export const handlers = [
       .map((page) => ({ page, score: 0.9 }));
     return HttpResponse.json(scored);
   }),
+  // Entity references (#664, #1159): what a page links to, the reverse lookup
+  // an entity view reads, and the batch resolve the markdown renderer calls.
+  // The backlinks and resolve routes are literal-segment matches, so they are
+  // registered before the `:id` routes that would otherwise swallow them.
+  http.get(`${PORTAL_BASE}/knowledge-pages/backlinks`, ({ request }) => {
+    const urn = new URL(request.url).searchParams.get("urn") ?? "";
+    return HttpResponse.json({ pages: pagesReferencing(urn) });
+  }),
+  http.post(`${PORTAL_BASE}/knowledge-pages/refs/resolve`, async ({ request }) => {
+    const body = (await request.json()) as { urns?: string[] };
+    const refs = (body.urns ?? []).map((urn) => ({
+      ...resolvePageRef(urn, "manual"),
+      accessible: true,
+    }));
+    return HttpResponse.json({ refs });
+  }),
+  http.get(`${PORTAL_BASE}/knowledge-pages/:id/refs`, ({ params }) =>
+    HttpResponse.json({ refs: pageRefs(String(params.id)) }),
+  ),
+  http.put(`${PORTAL_BASE}/knowledge-pages/:id/refs`, async ({ params, request }) => {
+    const body = (await request.json()) as { refs?: string[] };
+    return HttpResponse.json({ refs: setPageRefs(String(params.id), body.refs ?? []) });
+  }),
   http.get(`${PORTAL_BASE}/knowledge-pages/:id/versions`, ({ params }) => {
     const page = mockKnowledgePages.find((p) => p.id === params.id);
     const versions = page
@@ -1066,6 +1096,16 @@ export const handlers = [
     return children
       ? HttpResponse.json(children)
       : HttpResponse.json({ detail: "glossary node not found" }, { status: 404 });
+  }),
+  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/term`, ({ request }) => {
+    const termUrn = new URL(request.url).searchParams.get("urn") ?? "";
+    if (!termUrn.startsWith("urn:li:glossaryTerm:")) {
+      return HttpResponse.json({ detail: `invalid urn: ${termUrn}` }, { status: 400 });
+    }
+    const term = glossaryTerm(termUrn);
+    return term
+      ? HttpResponse.json(term)
+      : HttpResponse.json({ detail: "glossary term not found" }, { status: 404 });
   }),
   http.get(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/parents`, ({ request }) => {
     const entityUrn = new URL(request.url).searchParams.get("urn") ?? "";

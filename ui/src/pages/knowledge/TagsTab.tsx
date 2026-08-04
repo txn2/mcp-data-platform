@@ -9,11 +9,13 @@ import {
   type EntityRef,
 } from "@/api/portal/datahub";
 import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
+import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { useAuthStore } from "@/stores/auth";
 import { useDebounced } from "@/lib/useDebounced";
 import { ListSkeleton, MutationError } from "./catalog/primitives";
-import { shortUrn } from "./catalog/utils";
+import { clearURNFromLocation, deepLinkedURN, shortUrn } from "./catalog/utils";
 import {
+  DeepLinkedEntry,
   DeleteControl,
   EntityDescription,
   PageCapNotice,
@@ -45,6 +47,11 @@ export function TagsTab({
 }) {
   const [mode, setMode] = useState<"list" | "create">("list");
   const [selected, setSelected] = useState<EntityRef | null>(null);
+  // linked is the tag a `?urn=` deep link addresses (#1159): a knowledge page
+  // citing a tag opens it here. It is a URN rather than an entry because the
+  // link carries no name, and it is cleared from the URL on the way back so a
+  // refresh does not reopen what the reader just left.
+  const [linked, setLinked] = useState<string | null>(() => deepLinkedURN("tags"));
   const writable = useConnectionWritable(conn);
   const tools = useAuthStore((s) => s.user?.tools);
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -55,21 +62,31 @@ export function TagsTab({
 
   const back = () => {
     setSelected(null);
+    setLinked(null);
+    clearURNFromLocation();
     setMode("list");
   };
+
+  const detail = (tag: EntityRef) => (
+    <TagDetail
+      key={tag.urn}
+      conn={conn}
+      tag={tag}
+      canEdit={canEdit}
+      canDelete={canDelete}
+      onBack={back}
+      onNavigate={onNavigate}
+    />
+  );
 
   return (
     <div className="space-y-4">
       {selected ? (
-        <TagDetail
-          key={selected.urn}
-          conn={conn}
-          tag={selected}
-          canEdit={canEdit}
-          canDelete={canDelete}
-          onBack={back}
-          onNavigate={onNavigate}
-        />
+        detail(selected)
+      ) : linked ? (
+        <LinkedTag conn={conn} urn={linked} onBack={back}>
+          {detail}
+        </LinkedTag>
       ) : mode === "create" ? (
         <TagForm conn={conn} onDone={back} />
       ) : (
@@ -81,6 +98,35 @@ export function TagsTab({
         />
       )}
     </div>
+  );
+}
+
+// LinkedTag resolves a deep-linked tag URN against this connection's tag list,
+// which is the only read DataHub offers for a tag: there is no fetch-by-URN.
+function LinkedTag({
+  conn,
+  urn,
+  onBack,
+  children,
+}: {
+  conn: string;
+  urn: string;
+  onBack: () => void;
+  children: (tag: EntityRef) => React.ReactNode;
+}) {
+  const { data, isLoading, isError } = useTagList(conn, "");
+  return (
+    <DeepLinkedEntry
+      urn={urn}
+      entries={data}
+      isLoading={isLoading}
+      isError={isError}
+      what="tag"
+      backLabel="Back to tags"
+      onBack={onBack}
+    >
+      {children}
+    </DeepLinkedEntry>
   );
 }
 
@@ -199,6 +245,10 @@ function TagDetail({
       )}
 
       <EntityDescription conn={conn} entity={tag} canEdit={canEdit} label="Tag description" />
+
+      {/* The knowledge written about this tag, from the reverse lookup over
+          page references. It renders nothing when no accessible page cites it. */}
+      <KnowledgeBacklinks urn={tag.urn} onNavigate={onNavigate} />
 
       <section className="space-y-2">
         <h3 className="text-sm font-medium">Tables carrying this tag</h3>

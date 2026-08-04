@@ -134,6 +134,16 @@ func graphPageIDs(pages []knowledgepage.Page) []string {
 	return ids
 }
 
+// refURNs projects the serialized URN of each reference for the batch catalog
+// name resolve.
+func refURNs(refs []knowledgepage.EntityRef) []string {
+	urns := make([]string, 0, len(refs))
+	for i := range refs {
+		urns = append(urns, refs[i].URN())
+	}
+	return urns
+}
+
 // knowledgeGraphBuilder accumulates the access-filtered node and edge set. Each
 // reference URN is resolved once and cached, so an entity cited by many pages
 // costs one store lookup rather than one per citing page.
@@ -145,6 +155,10 @@ type knowledgeGraphBuilder struct {
 	index    map[string]struct{}
 	edges    []knowledgeGraphEdge
 	resolved map[string]resolvedRef
+	// labels holds the catalog display names resolved in one batch for the whole
+	// reference set, so a graph of catalog citations names them without one
+	// upstream round trip per vertex.
+	labels map[string]string
 	// nodesDropped records that the node cap kept a referenced entity out.
 	nodesDropped bool
 }
@@ -169,6 +183,7 @@ func (b *knowledgeGraphBuilder) addPages(pages []knowledgepage.Page) {
 // stored reference. A reference the viewer cannot access contributes neither, so
 // an inaccessible entity is absent from the graph rather than present-but-unlabeled.
 func (b *knowledgeGraphBuilder) addRefs(refs []knowledgepage.EntityRef) {
+	b.labels = b.h.catalogLabels(b.r.Context(), b.user, refURNs(refs))
 	for i := range refs {
 		ref := refs[i]
 		target := ref.URN()
@@ -222,7 +237,7 @@ func (b *knowledgeGraphBuilder) resolve(urn string, ref knowledgepage.EntityRef)
 	if rr, ok := b.resolved[urn]; ok {
 		return rr
 	}
-	rr := b.h.resolveRef(b.r, b.user, urn, ref)
+	rr := b.h.resolveRef(b.r, b.user, urn, ref, b.labels)
 	b.resolved[urn] = rr
 	return rr
 }

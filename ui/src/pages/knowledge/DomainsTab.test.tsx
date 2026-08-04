@@ -21,6 +21,14 @@ vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
 
 let mockIsAdmin = true;
 let mockTools: string[] = [];
+// The knowledge-page backlinks panel on a detail view reads through react-query;
+// these tests render without a provider, so the reverse lookup is stubbed and
+// mockBacklinks is what it returns.
+let mockBacklinks: { id: string; slug: string; title: string }[] = [];
+vi.mock("@/api/portal/hooks", () => ({
+  useKnowledgeBacklinks: () => ({ data: { pages: mockBacklinks } }),
+}));
+
 vi.mock("@/stores/auth", () => ({
   useAuthStore: (sel: (s: unknown) => unknown) =>
     sel({ user: { tools: mockTools }, isAdmin: () => mockIsAdmin }),
@@ -60,9 +68,17 @@ const outsider = {
   name: "customers",
 };
 
+// setLocation puts the browser at a URL, the way arriving from a knowledge
+// page's citation does. The tab reads its deep link from window.location.
+function setLocation(url: string) {
+  window.history.replaceState(null, "", url);
+}
+
 beforeEach(() => {
   mockIsAdmin = true;
   mockTools = [];
+  mockBacklinks = [];
+  setLocation("/knowledge/catalog");
   vi.mocked(useConnectionWritable).mockReturnValue(true);
   vi.mocked(useDomainList).mockReturnValue(q([finance, marketing]));
   vi.mocked(useDomainMembers).mockReturnValue(q([member]));
@@ -116,7 +132,7 @@ describe("DomainsTab", () => {
     // reloading the page.
     fireEvent.click(screen.getByText("daily_sales"));
     expect(onNavigate).toHaveBeenCalledWith(
-      `/knowledge/catalog?urn=${encodeURIComponent(member.urn)}`,
+      `/knowledge/catalog?urn=${encodeURIComponent(member.urn)}#tables`,
     );
   });
 
@@ -347,5 +363,47 @@ describe("DomainsTab", () => {
     } as never);
     render(<DomainsTab conn="primary" />);
     expect(screen.getByText("Failed to load domains.")).toBeInTheDocument();
+  });
+
+  // #1159: a knowledge page citing a domain links to
+  // /knowledge/catalog?urn=…#domains, and this tab is what opens on the other end.
+  describe("deep link from a knowledge page", () => {
+    it("opens the linked domain instead of the list", () => {
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3Adomain%3Afinance#domains");
+      render(<DomainsTab conn="primary" />);
+      expect(screen.getByRole("heading", { name: /Finance/ })).toBeInTheDocument();
+      expect(screen.getByText("Revenue, billing, and reporting.")).toBeInTheDocument();
+    });
+
+    it("says so when this connection does not list the domain", () => {
+      // The domain list is capped upstream at 100 and has no by-URN read, so a
+      // URN it does not hold cannot be opened; saying that beats a detail view
+      // with a blank description that reads as "this domain is undocumented".
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3Adomain%3Aelsewhere#domains");
+      render(<DomainsTab conn="primary" />);
+      expect(screen.getByText(/lists no domain with the URN/)).toBeInTheDocument();
+    });
+
+    it("drops the deep link on the way back, so a refresh does not reopen it", () => {
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3Adomain%3Afinance#domains");
+      render(<DomainsTab conn="primary" />);
+      fireEvent.click(screen.getByRole("button", { name: /Back to domains/ }));
+      expect(window.location.search).toBe("");
+      expect(screen.getByPlaceholderText("Filter domains by name…")).toBeInTheDocument();
+    });
+
+    it("ignores a URN that belongs to another tab", () => {
+      setLocation("/knowledge/catalog?urn=urn%3Ali%3Atag%3Apii#domains");
+      render(<DomainsTab conn="primary" />);
+      expect(screen.getByPlaceholderText("Filter domains by name…")).toBeInTheDocument();
+    });
+  });
+
+  it("lists the knowledge pages that reference the domain", () => {
+    mockBacklinks = [{ id: "kp1", slug: "finance-domain", title: "Finance Domain Guide" }];
+    render(<DomainsTab conn="primary" />);
+    fireEvent.click(screen.getByText("Finance"));
+    expect(screen.getByText("Finance Domain Guide")).toBeInTheDocument();
+    expect(screen.getByText(/1 knowledge page references this/)).toBeInTheDocument();
   });
 });

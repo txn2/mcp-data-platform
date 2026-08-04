@@ -44,7 +44,63 @@ func glossaryBackend() *fakeDataHub {
 			{URN: testFinanceNodeURN, Name: "Finance"},
 		},
 	}
+	f.terms = map[string]*semantic.GlossaryTerm{
+		testRevenueTermURN: {URN: testRevenueTermURN, Name: "ARR", Description: "Annual recurring revenue."},
+	}
 	return f
+}
+
+// TestGlossaryTerm reads a term by URN, the read that opens a term a knowledge
+// page cites: nothing else can reach a term from the URN a citation carries.
+func TestGlossaryTerm(t *testing.T) {
+	h := newTestHandler(glossaryBackend(), false, readerResolver(), &fakeAuditLogger{})
+
+	rec := serve(h, viewer, "GET", glossaryBase+"/term?urn="+testRevenueTermURN, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var got semantic.GlossaryTerm
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf(glossaryDecodeError, err)
+	}
+	if got.URN != testRevenueTermURN || got.Name != "ARR" || got.Description != "Annual recurring revenue." {
+		t.Fatalf("term = %+v, want the term with its name and definition", got)
+	}
+}
+
+// TestGlossaryTerm_Unknown proves a term the catalog does not hold is a 404, not
+// a 502: the request was well-formed and the backend answered.
+func TestGlossaryTerm_Unknown(t *testing.T) {
+	h := newTestHandler(glossaryBackend(), false, readerResolver(), &fakeAuditLogger{})
+	rec := serve(h, viewer, "GET", glossaryBase+"/term?urn=urn:li:glossaryTerm:missing", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+}
+
+// TestGlossaryTerm_RejectsOtherKinds proves the route takes only a term URN. A
+// node has no by-URN read upstream, so accepting one would forward a request
+// that can only fail as a misleading 502.
+func TestGlossaryTerm_RejectsOtherKinds(t *testing.T) {
+	h := newTestHandler(glossaryBackend(), false, readerResolver(), &fakeAuditLogger{})
+	for _, urn := range []string{testFinanceNodeURN, "urn:li:tag:pii", "not-a-urn", ""} {
+		rec := serve(h, viewer, "GET", glossaryBase+"/term?urn="+urn, "")
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("urn %q: status = %d, want 400 (%s)", urn, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// TestGlossaryTerm_BackendFailure surfaces an upstream failure as a 502, which
+// is what keeps "this term is gone" distinct from "the catalog did not answer".
+func TestGlossaryTerm_BackendFailure(t *testing.T) {
+	backend := glossaryBackend()
+	backend.readErr = errors.New("datahub down")
+	h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
+	rec := serve(h, viewer, "GET", glossaryBase+"/term?urn="+testRevenueTermURN, "")
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf(glossaryStatusTmpl, rec.Code, http.StatusBadGateway, rec.Body.String())
+	}
 }
 
 // TestGlossaryRoots returns nodes and terms with their own totals, since DataHub
@@ -290,6 +346,7 @@ func TestGlossaryReadRequiresDataHubAccess(t *testing.T) {
 		"/roots",
 		"/children?urn=" + testFinanceNodeURN,
 		"/parents?urn=" + testRevenueTermURN,
+		"/term?urn=" + testRevenueTermURN,
 	} {
 		rec := serve(h, viewer, "GET", glossaryBase+path, "")
 		if rec.Code != http.StatusForbidden {
