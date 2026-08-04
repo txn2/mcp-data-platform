@@ -109,6 +109,8 @@ func TestClientWriter_Delegates(t *testing.T) {
 	_ = cw.SetDomain(ctx, urn, "urn:li:domain:d")
 	_ = cw.UnsetDomain(ctx, urn)
 	_, _ = cw.CreateGlossaryNode(ctx, "Finance", "money", "")
+	_, _ = cw.CreateGlossaryTerm(ctx, "Revenue", "top line", "")
+	_ = cw.DeleteGlossaryEntity(ctx, "urn:li:glossaryTerm:revenue")
 	_, _ = cw.CreateTag(ctx, "certified", "reviewed by the data team")
 	_ = cw.DeleteTag(ctx, "urn:li:tag:certified")
 	_, _ = cw.CreateDomain(ctx, "Finance", "revenue and billing")
@@ -143,6 +145,13 @@ func TestClientWriter_ErrorsWrapped(t *testing.T) {
 		"CreateGlossaryNode": func() error {
 			_, e := cw.CreateGlossaryNode(ctx, "Finance", "money", "")
 			return e
+		},
+		"CreateGlossaryTerm": func() error {
+			_, e := cw.CreateGlossaryTerm(ctx, "Revenue", "top line", "")
+			return e
+		},
+		"DeleteGlossaryEntity": func() error {
+			return cw.DeleteGlossaryEntity(ctx, "urn:li:glossaryTerm:revenue")
 		},
 		"CreateTag": func() error {
 			_, e := cw.CreateTag(ctx, "certified", "")

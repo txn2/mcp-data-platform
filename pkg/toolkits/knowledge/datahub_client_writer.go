@@ -934,6 +934,36 @@ func (w *DataHubClientWriter) CreateGlossaryNode(ctx context.Context, name, defi
 	return urn, nil
 }
 
+// CreateGlossaryTerm creates a glossary term under parentNode, or at the root
+// when parentNode is empty, and returns its URN (#1158). As with a node,
+// DataHub stores a term's text in the glossaryTermInfo aspect's "definition"
+// field, so definition is what description is on other entity types.
+//
+// Deliberately not on the DataHubWriter interface, for the reason recorded on
+// CreateGlossaryNode: the knowledge apply path assigns glossary terms but never
+// authors them, and DataHubWriter is exported, so growing it would break every
+// external implementation for a method none of them needs.
+func (w *DataHubClientWriter) CreateGlossaryTerm(ctx context.Context, name, definition, parentNode string) (string, error) {
+	urn, err := w.client.CreateGlossaryTerm(ctx, name, definition, parentNode)
+	if err != nil {
+		return "", fmt.Errorf("creating glossary term %s: %w", name, err)
+	}
+	return urn, nil
+}
+
+// DeleteGlossaryEntity removes a glossary term or node (#1158). Upstream is one
+// call for both kinds. It removes neither a node's children nor a term's
+// assignments, which is why the portal shows both before offering the delete.
+//
+// Deliberately not on the DataHubWriter interface, for the same reason as
+// CreateGlossaryTerm.
+func (w *DataHubClientWriter) DeleteGlossaryEntity(ctx context.Context, urn string) error {
+	if err := w.client.DeleteGlossaryEntity(ctx, urn); err != nil {
+		return fmt.Errorf("deleting glossary entity %s: %w", urn, err)
+	}
+	return nil
+}
+
 // CreateTag creates a tag definition and returns its URN (#1156). The URN is
 // DataHub's to assign, so it is read from the response rather than built here.
 //

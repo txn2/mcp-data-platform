@@ -1,117 +1,23 @@
 // DataHub Catalog and Context Docs API (#719/#720). Thin typed hooks over the
 // portal DataHub REST surface (#718) at /api/v1/portal/datahub/{connection}/...
+//
+// This is the one import path for the whole surface: the response types and URL
+// helpers live in ./datahubCore and the glossary in ./datahubGlossary, both
+// re-exported here, so a caller never has to know which module a hook is in.
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw, ApiError } from "./client";
+import { MIN_SEARCH_LEN, base, catalogKey, enc } from "./datahubCore";
+import type {
+  ContextDocument,
+  CatalogEntity,
+  DataHubConnection,
+  EntityRef,
+  OwnerChange,
+  TableSearchResult,
+} from "./datahubCore";
 
-// MIN_SEARCH_LEN is the shortest query that triggers a search request. The tabs
-// only render search results at this length, so the query hooks stay disabled
-// below it to avoid a wasted request per leading keystroke.
-export const MIN_SEARCH_LEN = 2;
-
-// --- types (mirror pkg/semantic and pkg/portal/datahubapi JSON) ---
-
-export interface DataHubConnection {
-  name: string;
-  writable: boolean;
-}
-
-export interface TableSearchResult {
-  urn: string;
-  name: string;
-  platform?: string;
-  description?: string;
-  tags?: string[];
-  domain?: string;
-  matched_field?: string;
-}
-
-export interface Owner {
-  urn: string;
-  type: string;
-  name?: string;
-  email?: string;
-}
-
-export interface GlossaryTerm {
-  urn: string;
-  name: string;
-  description?: string;
-}
-
-export interface Domain {
-  urn: string;
-  name: string;
-  description?: string;
-}
-
-export interface Deprecation {
-  deprecated: boolean;
-  note?: string;
-  actor?: string;
-  decommission_date?: string;
-}
-
-export interface TableContext {
-  urn?: string;
-  description?: string;
-  owners?: Owner[];
-  tags?: string[];
-  // tag_refs mirrors tags as URN + name pairs so the editor removes/dedupes a tag
-  // by its URN (tags carries only the display name). Populated on the detail read.
-  tag_refs?: EntityRef[];
-  glossary_terms?: GlossaryTerm[];
-  domain?: Domain | null;
-  deprecation?: Deprecation | null;
-  quality_score?: number | null;
-  custom_properties?: Record<string, string>;
-  last_modified?: string | null;
-}
-
-export interface ColumnContext {
-  name: string;
-  description?: string;
-  tags?: string[];
-  glossary_terms?: GlossaryTerm[];
-  is_pii?: boolean;
-  is_sensitive?: boolean;
-  business_name?: string;
-}
-
-export interface CatalogEntity {
-  urn: string;
-  context: TableContext | null;
-  columns?: Record<string, ColumnContext>;
-}
-
-export interface ContextDocument {
-  urn: string;
-  title: string;
-  sub_type?: string;
-  snippet?: string;
-  body?: string;
-  status?: string;
-  show_in_global_context: boolean;
-  related_asset_urns?: string[];
-}
-
-export interface OwnerChange {
-  owner_urn: string;
-  ownership_type?: string;
-}
-
-// EntityRef is a URN + display-name result from a catalog metadata picker lookup
-// (#785): the user picks by name, the UI submits the urn.
-export interface EntityRef {
-  urn: string;
-  name: string;
-  description?: string;
-}
-
-// documentId extracts the bare id from a context-document URN
-// (urn:li:document:<id> -> <id>) for the update/delete paths.
-export function documentId(urn: string): string {
-  return urn.replace(/^urn:li:document:/, "");
-}
+export * from "./datahubCore";
+export * from "./datahubGlossary";
 
 // --- query keys ---
 
@@ -137,9 +43,6 @@ const keys = {
     ["datahub", conn, "documents", "search", q, limit] as const,
   doc: (conn: string, id: string) => ["datahub", conn, "documents", id] as const,
 };
-
-const enc = encodeURIComponent;
-const base = (conn: string) => `/datahub/${enc(conn)}`;
 
 // --- connections ---
 
@@ -284,7 +187,7 @@ export function useTagUsage(conn: string, urn: string | null) {
 // definition change has to reach all of them.
 function useInvalidateTags(conn: string) {
   const qc = useQueryClient();
-  return () => void qc.invalidateQueries({ queryKey: ["datahub", conn, "catalog"] });
+  return () => void qc.invalidateQueries({ queryKey: catalogKey(conn) });
 }
 
 // useCreateTag defines a new tag. DataHub indexes tags asynchronously, so the
@@ -370,7 +273,7 @@ export function useDomainMembers(conn: string, urn: string | null) {
 // domain chip all read domain state, so a domain change has to reach all of them.
 function useInvalidateDomains(conn: string) {
   const qc = useQueryClient();
-  return () => void qc.invalidateQueries({ queryKey: ["datahub", conn, "catalog"] });
+  return () => void qc.invalidateQueries({ queryKey: catalogKey(conn) });
 }
 
 // useCreateDomain defines a new domain. DataHub indexes domains asynchronously,
@@ -412,7 +315,7 @@ function useInvalidateEntity(conn: string) {
   const qc = useQueryClient();
   return (urn: string) => {
     void qc.invalidateQueries({ queryKey: keys.entity(conn, urn) });
-    void qc.invalidateQueries({ queryKey: ["datahub", conn, "catalog"] });
+    void qc.invalidateQueries({ queryKey: catalogKey(conn) });
   };
 }
 

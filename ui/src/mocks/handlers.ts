@@ -35,6 +35,12 @@ import {
   lookupDomains,
   createDomain,
   deleteDomain,
+  glossaryRoots,
+  glossaryChildren,
+  glossaryParents,
+  createGlossaryEntity,
+  deleteGlossaryEntity,
+  entityDocuments,
   applyCatalogChange,
   docsBrowse,
   docsSearch,
@@ -971,9 +977,17 @@ export const handlers = [
     // The backend accepts `tags` repeated or comma-separated; the Tags surface
     // sends one tag URN to list what carries it (#1156).
     const tags = params.getAll("tags").flatMap((v) => v.split(",")).filter(Boolean);
-    // The Domains surface sends one domain URN to list the tables in it (#1157).
-    const domain = params.get("domain") ?? "";
-    return HttpResponse.json({ results: catalogSearch(q, tags, domain) });
+    return HttpResponse.json({
+      results: catalogSearch(q, {
+        tags,
+        // The Domains surface sends one domain URN to list the tables in it
+        // (#1157); the Glossary surface sends a term URN under one of the two
+        // glossary filters to list what it is applied to (#1158).
+        domain: params.get("domain") ?? "",
+        glossaryTerm: params.get("glossary_term") ?? "",
+        columnGlossaryTerm: params.get("column_glossary_term") ?? "",
+      }),
+    });
   }),
   http.get(`${PORTAL_BASE}/datahub/:conn/catalog/entity`, ({ request }) => {
     const u = new URL(request.url).searchParams.get("urn") ?? "";
@@ -1036,6 +1050,59 @@ export const handlers = [
     return deleteDomain(domainUrn)
       ? HttpResponse.json({ status: "deleted" })
       : HttpResponse.json({ detail: "domain delete failed" }, { status: 502 });
+  }),
+  // Glossary (#1155 hierarchy, #1158 browser and editor). The definition edit is
+  // the entity-description route above, and a term's usage is the catalog
+  // search's glossary filters, so neither is a route of its own.
+  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/roots`, () =>
+    HttpResponse.json(glossaryRoots()),
+  ),
+  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/children`, ({ request }) => {
+    const nodeUrn = new URL(request.url).searchParams.get("urn") ?? "";
+    if (!nodeUrn.startsWith("urn:li:glossaryNode:")) {
+      return HttpResponse.json({ detail: `invalid urn: ${nodeUrn}` }, { status: 400 });
+    }
+    const children = glossaryChildren(nodeUrn);
+    return children
+      ? HttpResponse.json(children)
+      : HttpResponse.json({ detail: "glossary node not found" }, { status: 404 });
+  }),
+  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/parents`, ({ request }) => {
+    const entityUrn = new URL(request.url).searchParams.get("urn") ?? "";
+    if (!entityUrn.startsWith("urn:li:glossary")) {
+      return HttpResponse.json({ detail: `invalid urn: ${entityUrn}` }, { status: 400 });
+    }
+    return HttpResponse.json({ parents: glossaryParents(entityUrn) });
+  }),
+  ...(["terms", "nodes"] as const).map((path) =>
+    http.post(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/${path}`, async ({ request }) => {
+      const body = (await request.json()) as {
+        name?: string;
+        definition?: string;
+        parent_node?: string;
+      };
+      const name = (body.name ?? "").trim();
+      if (!name) return HttpResponse.json({ detail: "name is required" }, { status: 400 });
+      const kind = path === "terms" ? "term" : "node";
+      return HttpResponse.json(
+        { urn: createGlossaryEntity(kind, name, body.definition, body.parent_node) },
+        { status: 201 },
+      );
+    }),
+  ),
+  http.delete(`${PORTAL_BASE}/datahub/:conn/catalog/glossary/entity`, ({ request }) => {
+    const entityUrn = new URL(request.url).searchParams.get("urn") ?? "";
+    if (!entityUrn.startsWith("urn:li:glossaryTerm:") && !entityUrn.startsWith("urn:li:glossaryNode:")) {
+      return HttpResponse.json({ detail: `invalid urn: ${entityUrn}` }, { status: 400 });
+    }
+    return deleteGlossaryEntity(entityUrn)
+      ? HttpResponse.json({ status: "deleted" })
+      : HttpResponse.json({ detail: "glossary entity delete failed" }, { status: 502 });
+  }),
+  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/entity/documents`, ({ request }) => {
+    const entityUrn = new URL(request.url).searchParams.get("urn") ?? "";
+    if (!entityUrn) return HttpResponse.json({ detail: "urn is required" }, { status: 400 });
+    return HttpResponse.json({ documents: entityDocuments(entityUrn) });
   }),
   http.get(`${PORTAL_BASE}/datahub/:conn/documents/browse`, () => HttpResponse.json(docsBrowse())),
   http.get(`${PORTAL_BASE}/datahub/:conn/documents/search`, ({ request }) => {
