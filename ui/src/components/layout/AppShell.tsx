@@ -231,20 +231,16 @@ export function AppShell() {
   // detail. Both render the Knowledge hub focused on its Knowledge Pages sub-tab.
   const knowledgePageMatch = route.match(/^\/knowledge\/pages\/(.+)$/);
   const knowledgePagesList = route === "/knowledge/pages";
-  // DataHub Catalog and Context Docs sub-tab routes (#719/#720), first-class like
-  // /knowledge/pages so they deep-link and survive refresh.
+  // The Catalog route (#719), first-class like /knowledge/pages so it deep-links
+  // and survives refresh. It is the one route for every DataHub-backed surface:
+  // Tables, Context Docs, and Tags are inner tabs addressed in its hash (#1194),
+  // so there is no /knowledge/tags or /knowledge/context-docs.
   const catalogRoute = route === "/knowledge/catalog";
-  const tagsRoute = route === "/knowledge/tags";
-  const contextDocsRoute = route === "/knowledge/context-docs";
   const knowledgeRouteSub = knowledgePagesList || knowledgePageMatch
     ? "pages"
     : catalogRoute
       ? "catalog"
-      : tagsRoute
-        ? "tags"
-        : contextDocsRoute
-          ? "context_docs"
-          : undefined;
+      : undefined;
   // Collection routes: /collections/:id and /collections/:id/edit
   const collectionEditMatch = route.match(/^\/collections\/([^/]+)\/edit$/);
   const collectionViewMatch = !collectionEditMatch && !collectionAssetMatch
@@ -261,7 +257,7 @@ export function AppShell() {
           ? "Collection"
           : promptViewMatch
             ? "Prompt"
-            : knowledgePagesList || knowledgePageMatch || catalogRoute || tagsRoute || contextDocsRoute
+            : knowledgePagesList || knowledgePageMatch || catalogRoute
               ? "Knowledge"
               : (pageTitles[route] ?? "Assets");
 
@@ -339,9 +335,7 @@ export function AppShell() {
             (route === "/knowledge" ||
               knowledgePagesList ||
               knowledgePageMatch ||
-              catalogRoute ||
-              tagsRoute ||
-              contextDocsRoute) && (
+              catalogRoute) && (
               <KnowledgeHub
                 key={currentPath}
                 initialTab={initialTab}

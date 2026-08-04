@@ -1,13 +1,15 @@
 import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
 
-// Interactive coverage for the Context Docs sub-tab (#720): browse, search, open,
-// create, edit, and delete. Runs against MSW (admin /portal/me, writable
-// "primary" connection), so the create/edit/delete controls are visible.
+// Interactive coverage for the Context Docs tab of the Catalog section (#720,
+// #1194): browse, search, open, create, edit, and delete. Runs against MSW
+// (admin /portal/me, writable "primary" connection), so the create/edit/delete
+// controls are visible.
 
 async function gotoContextDocs(page: Page): Promise<void> {
   await authenticate(page);
-  await page.goto("/portal/knowledge/context-docs");
+  // Context Docs is an inner tab of the one Catalog route, addressed in the hash.
+  await page.goto("/portal/knowledge/catalog#context-docs");
   await expect(page.getByLabel("DataHub connection")).toBeVisible();
 }
 

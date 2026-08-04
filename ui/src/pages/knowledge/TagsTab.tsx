@@ -10,10 +10,7 @@ import {
   type EntityRef,
   type TableSearchResult,
 } from "@/api/portal/datahub";
-import {
-  DataHubConnectionSelect,
-  useConnectionWritable,
-} from "@/components/knowledge/DataHubConnectionSelect";
+import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
 import { useAuthStore } from "@/stores/auth";
 import { useDebounced } from "@/lib/useDebounced";
 import { catalogHref } from "@/lib/entityRefs";
@@ -22,23 +19,23 @@ import { shortUrn } from "./catalog/utils";
 
 // NO_CARRIERS is the one wording for "nothing carries this tag", shared by the
 // usage list and the delete confirmation so the two never disagree.
-const NO_CARRIERS = "No dataset in this connection carries this tag.";
+const NO_CARRIERS = "No table in this connection carries this tag.";
 
 /**
- * TagsTab is the Knowledge > Tags sub-tab (#1156): the tag vocabulary itself,
- * rather than the tags carried by one dataset. It lists and name-filters the
- * tags on a DataHub connection, opens one to show its description and the
- * datasets carrying it, and — when the persona grants the matching datahub tool
- * and the connection is write-enabled — creates a tag, edits its description,
- * and retires it. The API enforces the same gates.
+ * TagsTab is the Tags tab of the Catalog section (#1156, #1194): the tag
+ * vocabulary itself, rather than the tags carried by one table. It lists and
+ * name-filters the tags on a DataHub connection, opens one to show its
+ * description and the tables carrying it, and — when the persona grants the
+ * matching datahub tool and the connection is write-enabled — creates a tag,
+ * edits its description, and retires it. The API enforces the same gates. The
+ * connection is chosen by CatalogSection, which remounts this on a change so an
+ * open tag never outlives the connection it belongs to.
  */
 export function TagsTab({
   conn,
-  onConnChange,
   onNavigate,
 }: {
   conn: string;
-  onConnChange: (c: string) => void;
   onNavigate?: (path: string) => void;
 }) {
   const [mode, setMode] = useState<"list" | "create">("list");
@@ -56,18 +53,9 @@ export function TagsTab({
     setMode("list");
   };
 
-  // A tag belongs to one connection, so switching connections returns to the
-  // list rather than leaving the previous connection's tag on screen against a
-  // usage read from the new one.
-  const changeConn = (c: string) => {
-    back();
-    onConnChange(c);
-  };
-
   return (
     <div className="space-y-4">
-      <DataHubConnectionSelect value={conn} onChange={changeConn} />
-      {!conn ? null : selected ? (
+      {selected ? (
         <TagDetail
           key={selected.urn}
           conn={conn}
@@ -242,9 +230,9 @@ function TagDetail({
       <TagDescription conn={conn} tag={tag} canEdit={canEdit} />
 
       <section className="space-y-2">
-        <h3 className="text-sm font-medium">Datasets carrying this tag</h3>
+        <h3 className="text-sm font-medium">Tables carrying this tag</h3>
         {usage.isError ? (
-          <p className="text-sm text-destructive">Failed to load the datasets carrying this tag.</p>
+          <p className="text-sm text-destructive">Failed to load the tables carrying this tag.</p>
         ) : usage.isLoading ? (
           <ListSkeleton />
         ) : carriers.length === 0 ? (
@@ -255,13 +243,13 @@ function TagDetail({
           <>
             <PageCapNotice
               shown={carriers.length}
-              what="datasets"
-              hint="Search the Catalog tab by tag to see the rest."
+              what="tables"
+              hint="Search the Tables tab by tag to see the rest."
             />
             <ul className="space-y-2">
               {carriers.map((d) => (
                 <li key={d.urn}>
-                  <CarrierLink dataset={d} onNavigate={onNavigate} />
+                  <CarrierLink table={d} onNavigate={onNavigate} />
                 </li>
               ))}
             </ul>
@@ -273,7 +261,7 @@ function TagDetail({
 }
 
 // TagDeleteControl retires a tag definition behind a confirmation that states
-// the blast radius first: how many datasets in this connection carry the tag.
+// the blast radius first: how many tables in this connection carry the tag.
 // Deleting a tag nothing carries and deleting one the warehouse depends on look
 // identical without it.
 function TagDeleteControl({
@@ -341,28 +329,28 @@ function DeleteImpact({ usage }: { usage: { loading: boolean; failed: boolean; c
   const atCap = usage.count >= TAG_LIST_LIMIT;
   const carried =
     usage.count === 1
-      ? "1 dataset in this connection carries this tag."
-      : `${atCap ? "At least " : ""}${usage.count} datasets in this connection carry this tag.`;
+      ? "1 table in this connection carries this tag."
+      : `${atCap ? "At least " : ""}${usage.count} tables in this connection carry this tag.`;
   return <>{carried} Deleting removes the tag definition from DataHub.</>;
 }
 
-// CarrierLink renders one dataset carrying the tag. It deep-links into the
-// catalog entity editor through the shared catalogHref, and stays a plain row
-// when there is no navigator or the URN is not a catalog reference, so it is
+// CarrierLink renders one table carrying the tag. It deep-links into the
+// Tables tab's entity editor through the shared catalogHref, and stays a plain
+// row when there is no navigator or the URN is not a catalog reference, so it is
 // never styled as a link it cannot follow.
 function CarrierLink({
-  dataset,
+  table,
   onNavigate,
 }: {
-  dataset: TableSearchResult;
+  table: TableSearchResult;
   onNavigate?: (path: string) => void;
 }) {
-  const href = catalogHref(dataset.urn);
+  const href = catalogHref(table.urn);
   const body = (
     <>
-      <span className="text-sm font-medium">{dataset.name || shortUrn(dataset.urn)}</span>
-      {dataset.description && (
-        <span className="line-clamp-2 text-xs text-muted-foreground">{dataset.description}</span>
+      <span className="text-sm font-medium">{table.name || shortUrn(table.urn)}</span>
+      {table.description && (
+        <span className="line-clamp-2 text-xs text-muted-foreground">{table.description}</span>
       )}
     </>
   );

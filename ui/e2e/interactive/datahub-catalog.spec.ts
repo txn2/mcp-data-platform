@@ -1,10 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 import { authenticate } from "../screenshots/helpers/auth";
 
-// Interactive coverage for the DataHub Catalog sub-tab (#719): connection select,
-// browse, search, open an entity, and edit each metadata facet. Runs against MSW,
-// whose /portal/me returns an admin so the edit controls are visible and whose
-// "primary" connection is writable.
+// Interactive coverage for the Tables tab of the Catalog section (#719, #1194):
+// connection select, browse, search, open an entity, and edit each metadata
+// facet. Runs against MSW, whose /portal/me returns an admin so the edit
+// controls are visible and whose "primary" connection is writable.
 
 async function gotoCatalog(page: Page): Promise<void> {
   await authenticate(page);
@@ -17,13 +17,13 @@ test.describe("DataHub Catalog", () => {
     await gotoCatalog(page);
   });
 
-  test("browses seeded datasets", async ({ page }) => {
+  test("browses seeded tables", async ({ page }) => {
     await expect(page.getByText("analytics.public.daily_sales")).toBeVisible();
     await expect(page.getByText("analytics.public.customers")).toBeVisible();
   });
 
-  test("searches datasets by name", async ({ page }) => {
-    await page.getByPlaceholder(/Search datasets/).fill("clickstream");
+  test("searches tables by name", async ({ page }) => {
+    await page.getByPlaceholder(/Search tables/).fill("clickstream");
     await expect(page.getByText("raw.events.clickstream")).toBeVisible();
     await expect(page.getByText("analytics.public.customers")).toHaveCount(0);
   });

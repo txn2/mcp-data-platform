@@ -247,6 +247,8 @@ server:
 | `session_timeout` | duration | `30m` | How long an idle session persists before cleanup |
 | `stateless` | bool | `false` | Disable session tracking (no `Mcp-Session-Id` validation) |
 
+The MCP SDK caps each Streamable HTTP request body at 4 MiB and rejects a larger one with `413 Request Entity Too Large`. The limit applies to inbound JSON-RPC bodies, so it bounds tool-call arguments; it does not bound tool results, managed-resource uploads, or asset exports, which travel other paths with their own limits.
+
 ## Authentication Configuration
 
 ```yaml
