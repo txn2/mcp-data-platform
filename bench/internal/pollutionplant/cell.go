@@ -255,8 +255,11 @@ func armTreatment(f Fixture, class Class, arm Arm) (Treatment, error) {
 	if err != nil {
 		return Treatment{}, err
 	}
+	// The matrix is the imperative level throughout: it is what the RQ1 arms
+	// ran, and the follow-up levels are a separate contrast rather than extra
+	// matrix cells.
 	for _, t := range all {
-		if t.Fixture == f && t.Class == class && t.Arm == arm {
+		if t.Fixture == f && t.Class == class && t.Arm == arm && t.Directive == DirectiveImperative {
 			return t, nil
 		}
 	}

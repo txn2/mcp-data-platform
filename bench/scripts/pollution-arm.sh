@@ -43,6 +43,11 @@ META_TOOLS="ToolSearch,ReadMcpResourceTool,ListMcpResourcesTool"
 # runs with the meta-tools available so the report can state the exclusion
 # changed nothing rather than assume it.
 ALLOW_META=0
+# Directive strength of the planted claim (protocol 6.3's follow-up ladder):
+# bare, plain, or imperative. The RQ1 matrix ran imperative throughout, so
+# that is the default and an arm that does not ask for a level reproduces the
+# matrix exactly.
+DIRECTIVE=imperative
 
 usage() {
 	sed -n '2,26p' "$0" >&2
@@ -57,6 +62,7 @@ while [[ $# -gt 0 ]]; do
 	--out) OUT="$2"; shift 2 ;;
 	--settle) SETTLE="$2"; shift 2 ;;  # seconds
 	--allow-meta-tools) ALLOW_META=1; shift ;;
+	--directive) DIRECTIVE="$2"; shift 2 ;;
 	*) echo "unknown argument: $1" >&2; usage ;;
 	esac
 done
@@ -84,8 +90,24 @@ checkable)
 	;;
 esac
 
+case "$DIRECTIVE" in
+imperative) DIRECTIVE_SUFFIX="" ;;
+bare | plain) DIRECTIVE_SUFFIX="-$DIRECTIVE" ;;
+*)
+	echo "unknown --directive $DIRECTIVE (bare|plain|imperative)" >&2
+	exit 2
+	;;
+esac
+
+# The ladder exists only on the checkable claim, which is the cell whose
+# imperative the protocol flagged as confounded with instruction-following.
+if [[ "$DIRECTIVE" != "imperative" && "$CLASS" != "checkable" ]]; then
+	echo "ERROR: --directive $DIRECTIVE applies to the checkable class only" >&2
+	exit 2
+fi
+
 case "$ARM" in
-wrong | correct) TREATMENT="${TREATMENT_BASE}-${ARM}" ;;
+wrong | correct) TREATMENT="${TREATMENT_BASE}-${ARM}${DIRECTIVE_SUFFIX}" ;;
 absent) TREATMENT="" ;;
 *)
 	echo "unknown --arm $ARM (wrong|correct|absent)" >&2
@@ -96,7 +118,7 @@ esac
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-CELL="${CLASS}-${ARM}-${TIER}"
+CELL="${CLASS}-${ARM}-${TIER}${DIRECTIVE_SUFFIX}"
 DB="mcp_bench_p_$(echo "$CELL" | tr '-' '_')"
 CONFIG="build/platform.bench.a3-${CELL}.yaml"
 BENCH_URL="http://localhost:8098"
