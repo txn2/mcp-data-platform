@@ -1,0 +1,9 @@
+bench run: arm=a3 model=haiku (claude-cli via 2.1.223 (Claude Code)) k=24
+  platform dev @ http://localhost:8098 | commit 5e99e29bdb8b | seed 930 | tasks c486a443831b
+  2026-08-06T13:43:24Z .. 2026-08-06T13:49:58Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1      24      0.0%    0.0%        1.0        2.0        15291          2           0              0
+
+task                            graded  correct  pass^k
+s3-deprecated-order-count          24        0  false
