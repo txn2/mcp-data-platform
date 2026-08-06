@@ -26,6 +26,7 @@ import {
 } from "@/api/admin/hooks";
 import type { Prompt } from "@/api/admin/types";
 import { markdownToPlainText } from "@/lib/markdownText";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { PromptNameField } from "./PromptNameField";
@@ -54,14 +55,17 @@ function getScopeStyle(scope: string): ScopeStyle {
   return match !== undefined ? match : defaultScopeStyle;
 }
 
+// The admin view distinguishes all four scopes, so the palette is categorical
+// (persona is purple, not a semantic state) and rides the outline variant
+// rather than the semantic ones.
 function ScopeBadge({ scope }: { scope: string }) {
   const cfg = getScopeStyle(scope);
   const Icon = cfg.icon;
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium", cfg.color)}>
-      <Icon className="h-3 w-3" />
+    <Badge variant="outline" className={cfg.color}>
+      <Icon />
       {cfg.label}
-    </span>
+    </Badge>
   );
 }
 

@@ -10,9 +10,17 @@ import {
 } from "@/api/portal/datahub";
 import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
 import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { PageHeader } from "@/components/patterns/PageHeader";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
 import { useDebounced } from "@/lib/useDebounced";
-import { ListSkeleton, MutationError } from "./catalog/primitives";
+import { CancelButton, ListSkeleton, MutationError } from "./catalog/primitives";
 import { clearURNFromLocation, deepLinkedURN, shortUrn } from "./catalog/utils";
 import {
   DeepLinkedEntry,
@@ -149,36 +157,31 @@ function TagList({
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter tags by name…"
-            className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm outline-none ring-ring focus:ring-2"
+            className="pl-9"
           />
         </div>
         {canCreate && (
-          <button
-            onClick={onCreate}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="h-4 w-4" /> New tag
-          </button>
+          <Button onClick={onCreate}>
+            <Plus /> New tag
+          </Button>
         )}
       </div>
 
       {isError ? (
-        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Failed to load tags.
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>Failed to load tags.</AlertDescription>
+        </Alert>
       ) : isLoading ? (
         <ListSkeleton />
       ) : !tags || tags.length === 0 ? (
-        <p className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-          {debounced.trim()
-            ? "No tags match that name."
-            : "This connection has no tags yet."}
-        </p>
+        <EmptyState>
+          {debounced.trim() ? "No tags match that name." : "This connection has no tags yet."}
+        </EmptyState>
       ) : (
         <>
           <PageCapNotice
@@ -220,20 +223,13 @@ function TagDetail({
 
   return (
     <div className="space-y-4">
-      <button
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" /> Back to tags
-      </button>
-
-      <div>
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <TagIcon className="h-4 w-4 text-muted-foreground" />
-          {tag.name || shortUrn(tag.urn)}
-        </h2>
-        <p className="break-all text-xs text-muted-foreground">{tag.urn}</p>
-      </div>
+      <PageHeader
+        backLabel="Back to tags"
+        onBack={onBack}
+        icon={TagIcon}
+        title={tag.name || shortUrn(tag.urn)}
+        urn={tag.urn}
+      />
 
       {canDelete && (
         <TagDeleteControl
@@ -259,16 +255,13 @@ function TagDetail({
           page references. It renders nothing when no accessible page cites it. */}
       <KnowledgeBacklinks urn={tag.urn} onNavigate={onNavigate} />
 
-      <section className="space-y-2">
-        <h3 className="text-sm font-medium">Tables carrying this tag</h3>
+      <SectionCard title="Tables carrying this tag">
         {usage.isError ? (
           <p className="text-sm text-destructive">Failed to load the tables carrying this tag.</p>
         ) : usage.isLoading ? (
           <ListSkeleton />
         ) : carriers.length === 0 ? (
-          <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-            {NO_CARRIERS}
-          </p>
+          <EmptyState>{NO_CARRIERS}</EmptyState>
         ) : (
           <>
             <PageCapNotice
@@ -286,7 +279,7 @@ function TagDetail({
             </ul>
           </>
         )}
-      </section>
+      </SectionCard>
     </div>
   );
 }
@@ -344,32 +337,32 @@ function TagForm({ conn, onDone }: { conn: string; onDone: () => void }) {
     <div className="space-y-4">
       <button
         onClick={onDone}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        <ArrowLeft className="h-4 w-4" /> Cancel
+        <ArrowLeft className="size-4" /> Cancel
       </button>
       <h2 className="text-lg font-semibold">New tag</h2>
 
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">Name</span>
-        <input
+      <div className="space-y-1.5">
+        <Label htmlFor="tag-name">Name</Label>
+        <Input
+          id="tag-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. certified"
-          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
         />
-      </label>
+      </div>
 
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">Description</span>
-        <textarea
+      <div className="space-y-1.5">
+        <Label htmlFor="tag-description">Description</Label>
+        <Textarea
+          id="tag-description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={3}
           placeholder="What this tag means, and when to apply it."
-          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
         />
-      </label>
+      </div>
 
       <p className="text-xs text-muted-foreground">
         DataHub indexes new tags asynchronously, so a tag you create may take a moment to appear in
@@ -379,7 +372,7 @@ function TagForm({ conn, onDone }: { conn: string; onDone: () => void }) {
       <MutationError mut={create} />
 
       <div className="flex gap-2">
-        <button
+        <Button
           onClick={() =>
             create.mutate(
               { name: name.trim(), description: description.trim() || undefined },
@@ -387,13 +380,10 @@ function TagForm({ conn, onDone }: { conn: string; onDone: () => void }) {
             )
           }
           disabled={name.trim() === "" || create.isPending}
-          className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           Create tag
-        </button>
-        <button onClick={onDone} className="rounded-md border px-4 py-1.5 text-sm hover:bg-muted">
-          Cancel
-        </button>
+        </Button>
+        <CancelButton onClick={onDone} />
       </div>
     </div>
   );

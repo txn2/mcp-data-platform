@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { ArrowLeft } from "lucide-react";
 import { useCatalogEntity } from "@/api/portal/datahub";
 import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
 import { useAuthStore } from "@/stores/auth";
 import { CatalogList } from "./catalog/CatalogList";
 import { EntityBody } from "./catalog/sections";
+import { BackToList } from "./catalog/governance";
 import { ListSkeleton } from "./catalog/primitives";
 import { clearURNFromLocation, deepLinkedURN } from "./catalog/utils";
 
@@ -62,12 +62,7 @@ function CatalogEntityDetail({
 
   return (
     <div className="space-y-4">
-      <button
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" /> Back to tables
-      </button>
+      <BackToList label="Back to tables" onBack={onBack} />
 
       {isError || !data ? (
         isLoading ? (

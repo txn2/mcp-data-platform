@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Boxes, X } from "lucide-react";
+import { Boxes, X } from "lucide-react";
 import {
   useDomainMembers,
   useDeleteDomain,
@@ -11,6 +11,12 @@ import {
   type TableSearchResult,
 } from "@/api/portal/datahub";
 import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { PageHeader } from "@/components/patterns/PageHeader";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useDebounced } from "@/lib/useDebounced";
 import { ListSkeleton, MutationError } from "./catalog/primitives";
 import { shortUrn } from "./catalog/utils";
@@ -57,20 +63,13 @@ export function DomainDetail({
 
   return (
     <div className="space-y-4">
-      <button
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" /> Back to domains
-      </button>
-
-      <div>
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <Boxes className="h-4 w-4 text-muted-foreground" />
-          {domain.name || shortUrn(domain.urn)}
-        </h2>
-        <p className="break-all text-xs text-muted-foreground">{domain.urn}</p>
-      </div>
+      <PageHeader
+        backLabel="Back to domains"
+        onBack={onBack}
+        icon={Boxes}
+        title={domain.name || shortUrn(domain.urn)}
+        urn={domain.urn}
+      />
 
       {canDelete && (
         <DomainDeleteControl conn={conn} domain={domain} usage={usage} onDeleted={onBack} />
@@ -125,16 +124,13 @@ function DomainMembers({
   const update = useUpdateDomain(conn);
 
   return (
-    <section className="space-y-2">
-      <h3 className="text-sm font-medium">Tables in this domain</h3>
+    <SectionCard title="Tables in this domain">
       {state.isError ? (
         <p className="text-sm text-destructive">Failed to load the tables in this domain.</p>
       ) : state.isLoading ? (
         <ListSkeleton />
       ) : members.length === 0 ? (
-        <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-          {NO_MEMBERS}
-        </p>
+        <EmptyState>{NO_MEMBERS}</EmptyState>
       ) : (
         <>
           {/* The Tables tab searches name, description, and tag text, not
@@ -180,7 +176,7 @@ function DomainMembers({
         />
       )}
       <MutationError mut={update} />
-    </section>
+    </SectionCard>
   );
 }
 
@@ -241,14 +237,16 @@ function RemoveMember({
   onRemove: () => void;
 }) {
   return (
-    <button
+    <Button
+      variant="outline"
+      size="xs"
       onClick={onRemove}
       disabled={pending}
       aria-label={`Remove ${table.name || shortUrn(table.urn)} from this domain`}
-      className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
+      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
     >
-      <X className="h-3 w-3" /> Remove
-    </button>
+      <X /> Remove
+    </Button>
   );
 }
 
@@ -274,16 +272,17 @@ function AddMember({
   const candidates = (results.data ?? []).filter((t) => !already.has(t.urn));
 
   return (
-    <div className="space-y-2 rounded-lg border border-dashed p-3">
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">Add a table to this domain</span>
-        <input
+    // A solid border: dashed is reserved for empty states, and this is a form.
+    <div className="space-y-2 rounded-lg border p-3">
+      <div className="space-y-1">
+        <Label htmlFor="domain-add-member">Add a table to this domain</Label>
+        <Input
+          id="domain-add-member"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search tables by name…"
-          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
         />
-      </label>
+      </div>
       <p className="text-xs text-muted-foreground">
         A table has at most one domain, so adding one that is already in another domain moves it
         here.
@@ -303,13 +302,15 @@ function AddMember({
             {candidates.map((t) => (
               <li key={t.urn} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
                 <span className="truncate text-sm">{t.name || shortUrn(t.urn)}</span>
-                <button
+                <Button
+                  variant="outline"
+                  size="xs"
+                  className="shrink-0"
                   onClick={() => onAdd(t.urn, () => setQuery(""))}
                   disabled={pending}
-                  className="shrink-0 rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50"
                 >
                   Add
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

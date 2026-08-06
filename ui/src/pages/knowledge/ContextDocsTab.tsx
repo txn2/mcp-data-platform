@@ -13,11 +13,20 @@ import {
   type DocumentInput,
 } from "@/api/portal/datahub";
 import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { PageHeader } from "@/components/patterns/PageHeader";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuthStore } from "@/stores/auth";
 import { useDebounced } from "@/lib/useDebounced";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { ApiError } from "@/api/portal/client";
+import { CancelButton } from "./catalog/primitives";
+import { BackToList } from "./catalog/governance";
 
 const MIN_SEARCH = MIN_SEARCH_LEN;
 
@@ -104,38 +113,35 @@ function DocList({
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search context documents…"
-            className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm outline-none ring-ring focus:ring-2"
+            className="pl-9"
           />
         </div>
         {canCreate && (
-          <button
-            onClick={onCreate}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="h-4 w-4" /> New document
-          </button>
+          <Button onClick={onCreate}>
+            <Plus /> New document
+          </Button>
         )}
       </div>
 
       {active.isError ? (
-        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Failed to load context documents.
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>Failed to load context documents.</AlertDescription>
+        </Alert>
       ) : active.isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-14 animate-pulse rounded-lg border bg-muted/40" />
+            <Skeleton key={i} className="h-14 rounded-lg" />
           ))}
         </div>
       ) : docs.length === 0 ? (
-        <p className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+        <EmptyState>
           {searching ? "No documents match your search." : "No context documents in this connection yet."}
-        </p>
+        </EmptyState>
       ) : (
         <ul className="space-y-2">
           {docs.map((d) => (
@@ -184,56 +190,55 @@ function DocDetail({
 
   return (
     <div className="space-y-4">
-      <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Back to documents
-      </button>
-
       {isError || !doc ? (
-        isLoading ? (
-          <div className="h-40 animate-pulse rounded-lg border bg-muted/40" />
-        ) : (
-          <p className="text-sm text-destructive">Context document not found.</p>
-        )
+        <>
+          <BackToList label="Back to documents" onBack={onBack} />
+          {isLoading ? (
+            <Skeleton className="h-40 rounded-lg" />
+          ) : (
+            <p className="text-sm text-destructive">Context document not found.</p>
+          )}
+        </>
       ) : (
         <>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold">{doc.title}</h2>
-              {doc.sub_type && <p className="text-xs text-muted-foreground">{doc.sub_type}</p>}
-            </div>
-            <div className="flex shrink-0 gap-2">
-              {canEdit && (
-                <button
-                  onClick={onEdit}
-                  className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
-                >
-                  <Pencil className="h-3.5 w-3.5" /> Edit
-                </button>
-              )}
-              {canDelete &&
-                (confirming ? (
-                  <span className="flex items-center gap-1.5 text-sm">
-                    <button
-                      onClick={() => del.mutate(id, { onSuccess: onBack })}
-                      disabled={del.isPending}
-                      className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+          <PageHeader
+            backLabel="Back to documents"
+            onBack={onBack}
+            title={doc.title}
+            subtitle={doc.sub_type}
+            actions={
+              <>
+                {canEdit && (
+                  <Button variant="outline" size="sm" onClick={onEdit}>
+                    <Pencil /> Edit
+                  </Button>
+                )}
+                {canDelete &&
+                  (confirming ? (
+                    <>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => del.mutate(id, { onSuccess: onBack })}
+                        disabled={del.isPending}
+                      >
+                        Confirm delete
+                      </Button>
+                      <CancelButton onClick={() => setConfirming(false)} />
+                    </>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConfirming(true)}
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                     >
-                      Confirm delete
-                    </button>
-                    <button onClick={() => setConfirming(false)} className="rounded-md border px-3 py-1.5 hover:bg-muted">
-                      Cancel
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => setConfirming(true)}
-                    className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" /> Delete
-                  </button>
-                ))}
-            </div>
-          </div>
+                      <Trash2 /> Delete
+                    </Button>
+                  ))}
+              </>
+            }
+          />
           {del.isError && <p className="text-xs text-destructive">Delete failed.</p>}
           {doc.related_asset_urns && doc.related_asset_urns.length > 0 && (
             <p className="text-xs text-muted-foreground">
@@ -286,9 +291,9 @@ function DocForm({
   if (isEdit && (existing.isError || !existing.data)) {
     return (
       <div className="space-y-3">
-        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Failed to load this document.
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>Failed to load this document.</AlertDescription>
+        </Alert>
         <button onClick={() => onDone()} className="text-sm text-primary hover:underline">
           Go back
         </button>
@@ -314,39 +319,35 @@ function DocForm({
 
   return (
     <div className="space-y-4">
-      <button onClick={() => onDone()} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Cancel
+      <button onClick={() => onDone()} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
+        <ArrowLeft className="size-4" /> Cancel
       </button>
       <h2 className="text-lg font-semibold">{isEdit ? "Edit context document" : "New context document"}</h2>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-1">
-          <span className="text-sm font-medium">Title</span>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
-          />
-        </label>
-        <label className="space-y-1">
-          <span className="text-sm font-medium">Category</span>
-          <input
+        <div className="space-y-1.5">
+          <Label htmlFor="doc-title">Title</Label>
+          <Input id="doc-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="doc-category">Category</Label>
+          <Input
+            id="doc-category"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             placeholder="e.g. runbook, note"
-            className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
           />
-        </label>
+        </div>
       </div>
 
       {!isEdit && (
-        <label className="space-y-1">
-          <span className="text-sm font-medium">Attach to entity</span>
-          <input
+        <div className="space-y-1.5">
+          <Label htmlFor="doc-entity">Attach to entity</Label>
+          <Input
+            id="doc-entity"
             value={entityUrn}
             onChange={(e) => setEntityUrn(e.target.value)}
             placeholder="urn:li:dataset:(...) or urn:li:glossaryTerm:… / glossaryNode / container URN"
-            className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
           />
           {entityBad ? (
             <span className="text-xs text-destructive">
@@ -357,7 +358,7 @@ function DocForm({
               The entity this document documents. Cannot be changed after creation.
             </span>
           )}
-        </label>
+        </div>
       )}
 
       <div className="space-y-1">
@@ -372,16 +373,10 @@ function DocForm({
       )}
 
       <div className="flex gap-2">
-        <button
-          onClick={submit}
-          disabled={!canSubmit || mut.isPending}
-          className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
+        <Button onClick={submit} disabled={!canSubmit || mut.isPending}>
           {isEdit ? "Save changes" : "Create document"}
-        </button>
-        <button onClick={() => onDone()} className="rounded-md border px-4 py-1.5 text-sm hover:bg-muted">
-          Cancel
-        </button>
+        </Button>
+        <CancelButton onClick={() => onDone()} />
       </div>
     </div>
   );

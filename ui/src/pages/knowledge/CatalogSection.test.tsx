@@ -57,6 +57,10 @@ import { CatalogSection } from "./CatalogSection";
 
 const path = () => window.location.pathname + window.location.search + window.location.hash;
 
+// The inner tab bar is a Radix tablist (SubTabBar over the shared Tabs
+// primitive); its triggers carry role "tab" and activate on mousedown.
+const clickTab = (name: string) => fireEvent.mouseDown(screen.getByRole("tab", { name }));
+
 // jsdom provides no localStorage, and the section's persistence is a real
 // behaviour (the selection has to outlive a refresh), so stand one in rather
 // than leave that path untested.
@@ -113,20 +117,20 @@ describe("CatalogSection", () => {
     render(<CatalogSection />);
     fireEvent.click(screen.getByRole("button", { name: "pick primary" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Tags" }));
+    clickTab("Tags");
     expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#tags");
-    fireEvent.click(screen.getByRole("button", { name: "Context Docs" }));
+    clickTab("Context Docs");
     expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#context-docs");
-    fireEvent.click(screen.getByRole("button", { name: "Domains" }));
+    clickTab("Domains");
     expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#domains");
-    fireEvent.click(screen.getByRole("button", { name: "Tables" }));
+    clickTab("Tables");
     expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#tables");
   });
 
   it("holds the connection across an inner tab switch", () => {
     render(<CatalogSection />);
     fireEvent.click(screen.getByRole("button", { name: "pick other" }));
-    fireEvent.click(screen.getByRole("button", { name: "Tags" }));
+    clickTab("Tags");
 
     // The whole point of nesting: the sibling inherits the connection instead of
     // re-picking one through top-level state.
