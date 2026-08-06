@@ -9,6 +9,7 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/gen"
 	"github.com/txn2/mcp-data-platform/bench/internal/grade"
 	"github.com/txn2/mcp-data-platform/bench/internal/pkcell"
+	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
 
@@ -245,6 +246,76 @@ func deriveCoverage(arm Arm) (Cell, error) {
 	return c, checkDiscriminants(c)
 }
 
+// QuestionMonitorCount is the API fixture's checkable question, asked on the
+// generalization arm: how many monitors the account has provisioned, settled
+// by one listing call.
+const QuestionMonitorCount = "monitor-count"
+
+// monitorTolerance is the grader tolerance for a monitor count. Counts are
+// integers, so half a monitor separates any two of them.
+const monitorTolerance = 0.5
+
+// GeneralizationCells are the 6.5 units. They are NOT matrix cells: Cells()
+// is the RQ1 confirmatory matrix and must keep returning exactly what it
+// returned when those arms ran. These are the separate contrast that takes
+// the RQ1 effect apart, one cell varying the sink and holding the fixture,
+// the others varying the fixture and holding the sink.
+func GeneralizationCells() ([]Cell, error) {
+	ds := dataset()
+	tol, err := taskTolerance(TaskOrderCount)
+	if err != nil {
+		return nil, err
+	}
+	_ = ds
+	cells := []Cell{{
+		ID:          "warehouse/checkable/" + TaskOrderCount + "/wrong/page-sink",
+		Fixture:     FixtureWarehouse,
+		Class:       ClassCheckable,
+		Arm:         ArmWrong,
+		TaskID:      TaskOrderCount,
+		TreatmentID: "order-count-page-wrong",
+		Tolerance:   tol,
+		Discriminants: []Discriminant{
+			{Classification: ClassificationCorrect, Value: float64(CorrectOrderCount)},
+			{Classification: ClassificationAdopted, Value: float64(WrongOrderCount)},
+			{Classification: ClassificationDeprecated, Value: deprecatedExtractValue()},
+		},
+	}}
+	for _, arm := range []Arm{ArmWrong, ArmCorrect, ArmAbsent} {
+		c := Cell{
+			ID:        string(FixtureAPI) + "/" + string(ClassCheckable) + "/" + QuestionMonitorCount + "/" + string(arm),
+			Fixture:   FixtureAPI,
+			Class:     ClassCheckable,
+			Arm:       arm,
+			TaskID:    QuestionMonitorCount,
+			Tolerance: monitorTolerance,
+			Discriminants: []Discriminant{
+				{Classification: ClassificationCorrect, Value: float64(CorrectMonitorCount)},
+				// The pool total is the one other value an unaided reading
+				// produces, so it is enumerated rather than left to fall into
+				// "other" where it would be indistinguishable from a model
+				// error.
+				{Classification: ClassificationDeprecated, Value: float64(MonitorPoolSizeForTest())},
+			},
+		}
+		if arm != ArmAbsent {
+			c.TreatmentID = "monitor-count-" + string(arm)
+		}
+		if arm == ArmWrong {
+			c.Discriminants = append(c.Discriminants, Discriminant{
+				Classification: ClassificationAdopted, Value: float64(WrongMonitorCount),
+			})
+		}
+		cells = append(cells, c)
+	}
+	for _, c := range cells {
+		if err := checkDiscriminants(c); err != nil {
+			return nil, err
+		}
+	}
+	return cells, nil
+}
+
 // armTreatment resolves the treatment an arm plants, or the zero Treatment
 // on the absent arm.
 func armTreatment(f Fixture, class Class, arm Arm) (Treatment, error) {
@@ -255,11 +326,17 @@ func armTreatment(f Fixture, class Class, arm Arm) (Treatment, error) {
 	if err != nil {
 		return Treatment{}, err
 	}
-	// The matrix is the imperative level throughout: it is what the RQ1 arms
-	// ran, and the follow-up levels are a separate contrast rather than extra
-	// matrix cells.
+	// The matrix is the imperative level at the sink each fixture's RQ1 arms
+	// used: the warehouse on its catalog entity, the API on a page. The
+	// follow-up levels and the page-sink warehouse variant are separate
+	// contrasts rather than extra matrix cells.
+	sink := protocol.SinkDataHub
+	if f == FixtureAPI {
+		sink = protocol.SinkKnowledgePage
+	}
 	for _, t := range all {
-		if t.Fixture == f && t.Class == class && t.Arm == arm && t.Directive == DirectiveImperative {
+		if t.Fixture == f && t.Class == class && t.Arm == arm &&
+			t.Directive == DirectiveImperative && t.Sink == sink {
 			return t, nil
 		}
 	}
@@ -402,6 +479,10 @@ func checkCellAgainstFixture(c Cell, tasks map[string]task.Task) error {
 // the convention question needs a provisioned monitor to have any trend to
 // apply the convention to.
 const coverageWorld = "monitors-3"
+
+// CoverageWorldName is the same value, exported for the treatments that need
+// to read the world's own state rather than restate it.
+const CoverageWorldName = coverageWorld
 
 // CoverageWorld is the world the cross-fixture arm runs in. The runner needs
 // it to build the arm's cell, and it must be the world the discriminants were

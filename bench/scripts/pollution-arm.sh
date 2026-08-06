@@ -48,6 +48,12 @@ ALLOW_META=0
 # that is the default and an arm that does not ask for a level reproduces the
 # matrix exactly.
 DIRECTIVE=imperative
+# Which sink the claim is applied to. The warehouse claim normally lands on
+# the orders entity description, which is where RQ1 measured it; `page` is the
+# 6.5 sink control, the same claim on a knowledge page, which is what makes a
+# null on the API fixture interpretable rather than ambiguous between fixture
+# and sink.
+SINK=default
 
 usage() {
 	sed -n '2,26p' "$0" >&2
@@ -63,6 +69,7 @@ while [[ $# -gt 0 ]]; do
 	--settle) SETTLE="$2"; shift 2 ;;  # seconds
 	--allow-meta-tools) ALLOW_META=1; shift ;;
 	--directive) DIRECTIVE="$2"; shift 2 ;;
+	--sink) SINK="$2"; shift 2 ;;
 	*) echo "unknown argument: $1" >&2; usage ;;
 	esac
 done
@@ -106,8 +113,23 @@ if [[ "$DIRECTIVE" != "imperative" && "$CLASS" != "checkable" ]]; then
 	exit 2
 fi
 
+case "$SINK" in
+default) SINK_INFIX="" ;;
+page)
+	if [[ "$CLASS" != checkable || "$DIRECTIVE" != imperative ]]; then
+		echo "ERROR: --sink page is the checkable class's imperative-level sink control only" >&2
+		exit 2
+	fi
+	SINK_INFIX="-page"
+	;;
+*)
+	echo "unknown --sink $SINK (default|page)" >&2
+	exit 2
+	;;
+esac
+
 case "$ARM" in
-wrong | correct) TREATMENT="${TREATMENT_BASE}-${ARM}${DIRECTIVE_SUFFIX}" ;;
+wrong | correct) TREATMENT="${TREATMENT_BASE}${SINK_INFIX}-${ARM}${DIRECTIVE_SUFFIX}" ;;
 absent) TREATMENT="" ;;
 *)
 	echo "unknown --arm $ARM (wrong|correct|absent)" >&2
@@ -118,7 +140,7 @@ esac
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-CELL="${CLASS}-${ARM}-${TIER}${DIRECTIVE_SUFFIX}"
+CELL="${CLASS}-${ARM}-${TIER}${DIRECTIVE_SUFFIX}${SINK_INFIX}"
 DB="mcp_bench_p_$(echo "$CELL" | tr '-' '_')"
 CONFIG="build/platform.bench.a3-${CELL}.yaml"
 BENCH_URL="http://localhost:8098"

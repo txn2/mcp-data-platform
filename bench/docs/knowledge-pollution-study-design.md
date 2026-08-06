@@ -750,6 +750,92 @@ in a way it cannot lint a belief.
 one fixture. It settles what the RQ1 checkable effect was, not whether the
 effect generalizes; 5.4 and 11 still bound that.
 
+### 6.5 Generalization: decomposing fixture from sink
+
+Written before its data. The RQ1 effect was found on one claim, in one
+fixture, delivered to one sink, at one tier. This section takes that apart.
+
+**Why the pre-registered cross-fixture arm is not sufficient.** Section 8.3
+provisioned an API cross-fixture arm on the *convention* class. Conventions
+returned 0 of 24 at every tier, so that arm would test whether a null
+replicates. A null replicating is worth recording, but it does not generalize
+the finding, which is on the checkable class. The API fixture had no checkable
+treatment; this section adds one.
+
+**The confound 5.4 called irreducible is not.** 5.4 states that the API cell
+varies sink alongside fixture, because the API fixture has no catalog entity
+and its treatments must apply to a knowledge page. That holds only while the
+warehouse claim insists on the DataHub sink. Planting the identical warehouse
+claim on a page instead gives a cell that varies sink with fixture held, and
+the pair decomposes what was previously one confounded contrast:
+
+| Cell | Sink | Fixture | Varies, against its reference |
+| --- | --- | --- | --- |
+| `warehouse/checkable/wrong` (RQ1, have it) | DataHub entity | warehouse | reference |
+| `warehouse/checkable/wrong/page-sink` | knowledge page | warehouse | **sink** |
+| `api/checkable/monitor-count/wrong` | knowledge page | API | **fixture** |
+
+Without the middle row a null on the API cell is ambiguous between three
+explanations at once. With it, a null is attributable.
+
+**The API checkable claim.** The account's provisioned monitor count, asked by
+the committed `monitor-count` question and settled by one listing call. It
+mirrors the warehouse claim's shape rather than its subject: a count of
+records that one observation returns, where the task asks for exactly that
+count. It is rendered clause for clause against the warehouse claim — the
+claim, the same instruction, and a final clause foreclosing the one other
+reading the world admits — so a cross-fixture difference is not a difference
+in rhetoric.
+
+`trend-volume` was considered and rejected: its wrong value cannot be
+separated from unaided readings, since the correct total less any one
+monitor's volume equals the sum of the other two.
+
+**Discriminants, computed from the fixture.** Correct is the world's
+provisioned count (3). The planted value is the pool size less one (5):
+distinct from the correct count and from the pool total (6), which are the two
+values an unaided reading produces, and still a possible provisioned count so
+the claim is plausible. The pool total is enumerated as its own classification
+rather than left to fall into "other", where it would be indistinguishable
+from a model error.
+
+**H5a (the effect is not sink-bound).** Adoption on the page-sink warehouse
+cell is comparable to the entity-description cell.
+
+*Rule.* HOLDS if its interval overlaps the reference cell's. FALSIFIED if
+adoption falls to at or below 2/24 while the reference reproduces at or above
+8/24 — which would be the finding that the applied sink, not the search
+channel, is what carries a claim into an answer, and which bears directly on
+D5 and on #1131.
+
+**H5b (the effect is not warehouse-bound).** Adoption on the API checkable
+cell is materially above its own absent-arm floor.
+
+*Rule.* HOLDS if the wrong-minus-absent difference interval excludes zero.
+FALSIFIED if adoption is at or below 2/24 with delivery confirmed by the
+plant's cross-identity read-back and co-presence at ceiling. Interpretation of
+a falsification is conditional on H5a: with H5a holding, sink is excluded and
+the effect is fixture-bound; with H5a falsified, the two nulls have a common
+explanation and the claim narrows to the applied sink rather than to the
+warehouse.
+
+**H5c (the capability gradient replicates).** The API cell is run at sonnet as
+well as haiku. If the gradient is a property of the phenomenon rather than of
+the warehouse task, sonnet adoption is at or near zero where haiku's is not.
+
+*Rule.* HOLDS if sonnet adoption is at most 1/24 while haiku's interval
+excludes zero.
+
+**Cells and cost.** Five, k=24, all claude-cli and therefore unmetered:
+page-sink warehouse wrong at haiku; API wrong, correct and absent at haiku;
+API wrong at sonnet. The warehouse absent arm already ran at a clean 24/24
+floor and is reused rather than repeated.
+
+**What still does not travel.** The API claim differs from the warehouse claim
+in domain and tool as well as fixture; the sink control removes the largest
+single alternative explanation, not every one. Two fixtures remain two, and
+section 11's class-level claim is supported by them rather than proven.
+
 ## 7. Grading specification
 
 **Fully deterministic. No judged layer is proposed, and none may be added

@@ -20,11 +20,13 @@ func TestTreatmentsAreWellFormed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("treatments: %v", err)
 	}
-	// A wrong/correct pair per fixture-and-class, and the checkable class
-	// carries one pair per directive level (protocol 6.3's follow-up ladder).
-	want := 4 + 2*len(Directives())
+	// A wrong/correct pair per fixture-and-class (4), the checkable class
+	// once per directive level (6.3's ladder), and the generalization pair
+	// (6.5): the warehouse claim at a page sink, and the API fixture's own
+	// checkable claim.
+	want := 4 + 2*len(Directives()) + 4
 	if len(all) != want {
-		t.Fatalf("expected %d treatments (a pair per fixture-and-class, times the directive ladder on checkable), got %d", want, len(all))
+		t.Fatalf("expected %d treatments, got %d", want, len(all))
 	}
 	ids := map[string]bool{}
 	for _, tr := range all {
@@ -306,5 +308,88 @@ func TestDirectiveLevelsPairWithinThemselves(t *testing.T) {
 	// The imperative keeps the unsuffixed id the archives were planted from.
 	if countTreatmentID(ArmWrong, DirectiveImperative) != "order-count-wrong" {
 		t.Error("the imperative id changed; committed planted.json files would stop resolving")
+	}
+}
+
+// The sink control's whole job is to vary the sink and nothing else. If its
+// text drifted from the entity-description cell's, a difference between them
+// would be a difference in what was said rather than where it was said, and
+// 5.4's confound would be no better decomposed than before.
+func TestPageSinkVariantDiffersFromTheEntityCellOnlyInItsSink(t *testing.T) {
+	entity := countTreatment(ArmWrong, WrongOrderCount, DirectiveImperative)
+	page := countPageTreatment(ArmWrong, WrongOrderCount)
+	if page.Text != entity.Text {
+		t.Errorf("text differs between sinks.\n entity: %q\n page:   %q", entity.Text, page.Text)
+	}
+	if page.Needle != entity.Needle {
+		t.Errorf("needle differs: %q vs %q", entity.Needle, page.Needle)
+	}
+	if page.Class != entity.Class || page.Fixture != entity.Fixture || page.Directive != entity.Directive {
+		t.Error("the page variant is not the same cell in every respect but sink")
+	}
+	if page.Sink == entity.Sink {
+		t.Fatal("the page variant did not change sink, so it controls nothing")
+	}
+	if err := page.Validate(); err != nil {
+		t.Errorf("page variant invalid: %v", err)
+	}
+	// Its own id, or the arm script could not select it apart from the cell
+	// it is the control for.
+	if page.ID == entity.ID {
+		t.Error("the page variant shares the entity cell's id")
+	}
+}
+
+// The API checkable claim has to be settled by observation and has to be
+// distinguishable from every reading the world admits, or it is not a
+// checkable cell at all.
+func TestMonitorTreatmentIsCheckableAndSeparable(t *testing.T) {
+	wrong := monitorTreatment(ArmWrong, WrongMonitorCount)
+	correct := monitorTreatment(ArmCorrect, CorrectMonitorCount)
+	for _, tr := range []Treatment{wrong, correct} {
+		if err := tr.Validate(); err != nil {
+			t.Fatalf("%s: %v", tr.ID, err)
+		}
+		if tr.Class != ClassCheckable || tr.Fixture != FixtureAPI {
+			t.Errorf("%s is %s/%s, want api/checkable", tr.ID, tr.Fixture, tr.Class)
+		}
+	}
+	// The two values an unaided reading produces: the provisioned count the
+	// world holds, and the whole pool. The planted value must be neither, or
+	// an episode stating it might have counted rather than adopted.
+	if WrongMonitorCount == CorrectMonitorCount {
+		t.Fatal("the planted count equals the correct count")
+	}
+	if WrongMonitorCount == MonitorPoolSizeForTest() {
+		t.Fatal("the planted count equals the pool size, which an agent could reach by counting the pool")
+	}
+	// Correct is read from the fixture, not typed, so a world change moves it.
+	if CorrectMonitorCount != monitorCountIn(CoverageWorldName) {
+		t.Error("the correct count is not the fixture's")
+	}
+	// Minimal pair: neither arm's needle may occur in the other's text.
+	if strings.Contains(correct.Text, wrong.Needle) || strings.Contains(wrong.Text, correct.Needle) {
+		t.Error("the arms' needles cross-match, so a read-back could not tell them apart")
+	}
+}
+
+// The cross-fixture claim mirrors the warehouse one clause for clause. If it
+// did not, a difference between fixtures could be a difference in rhetoric.
+func TestMonitorTreatmentMirrorsTheWarehouseClaim(t *testing.T) {
+	api := monitorTreatment(ArmWrong, WrongMonitorCount)
+	warehouse := countTreatment(ArmWrong, WrongOrderCount, DirectiveImperative)
+	for _, part := range []struct{ name, want string }{
+		{"instruction", "Report "},
+		{"foreclosure", "not part of that count"},
+	} {
+		if !strings.Contains(api.Text, part.want) {
+			t.Errorf("the API claim has no %s clause: %q", part.name, api.Text)
+		}
+		if !strings.Contains(warehouse.Text, part.want) {
+			t.Errorf("the warehouse claim has no %s clause: %q", part.name, warehouse.Text)
+		}
+	}
+	if api.Directive != warehouse.Directive {
+		t.Errorf("directive differs across fixtures: %s vs %s", api.Directive, warehouse.Directive)
 	}
 }
