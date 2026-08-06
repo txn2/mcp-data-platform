@@ -143,6 +143,7 @@ export function GlossaryTermDetail({
         entity={term}
         canEdit={canEdit}
         label="Term definition"
+        format="markdown"
       />
 
       <EntityDocuments conn={conn} urn={term.urn} />

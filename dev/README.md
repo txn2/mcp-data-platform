@@ -142,6 +142,20 @@ DATAHUB_ENDPOINT=http://localhost:8080 bash dev/seed-datahub.sh
 `make dev` provisions no DataHub of its own. Set `DATAHUB_ENABLED=true` and
 `DATAHUB_ENDPOINT` to attach one.
 
+An attached connection is **writable**. A read-only DataHub connection exposes no
+writer, so the portal reports `writable: false` and hides every Catalog edit
+control — which leaves the whole write half of Tables, Context Docs, Tags,
+Domains, and Glossary untestable. Set `DATAHUB_READ_ONLY=true` when the endpoint
+is a catalog you share with anyone else.
+
+Trino is the other way round: `TRINO_READ_ONLY` defaults to `true`, since a
+write there is a change to warehouse data rather than to metadata. Set it to
+`false` to exercise the write paths.
+
+```bash
+DATAHUB_ENABLED=true DATAHUB_ENDPOINT=http://localhost:8080 make dev
+```
+
 The seeded knowledge pages cite catalog datasets by URN
 (`iceberg.retail.daily_sales` and eight others). Nothing else in the dev stack
 creates those datasets, so `dev/seed-datahub.sh` ingests them from

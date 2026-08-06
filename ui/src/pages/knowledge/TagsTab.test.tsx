@@ -31,6 +31,7 @@ vi.mock("@/stores/auth", () => ({
     sel({ user: { tools: mockTools }, isAdmin: () => mockIsAdmin }),
 }));
 
+import { MARKDOWN_DESCRIPTION } from "@/test/markdownDescription";
 import { TagsTab } from "./TagsTab";
 import {
   TAG_LIST_LIMIT,
@@ -187,6 +188,28 @@ describe("TagsTab", () => {
       { urn: "urn:li:tag:certified", description: "Certified for reuse." },
       expect.anything(),
     );
+  });
+
+  // Tags are the deliberate exception to the markdown descriptions the other
+  // Catalog vocabularies got in #1200: DataHub's own tag page renders this field
+  // as plain text, so formatting authored here would show as raw source
+  // everywhere else in the catalog.
+  it("keeps a tag description plain text on both the read and the edit path", () => {
+    vi.mocked(useTagList).mockReturnValue(
+      q([{ ...certified, description: MARKDOWN_DESCRIPTION }, pii]),
+    );
+    render(<TagsTab conn="primary" />);
+    fireEvent.click(screen.getByText("certified"));
+
+    // The stored markdown reaches the reader as the source it is: no heading is
+    // formed out of it.
+    expect(screen.queryByRole("heading", { name: "Included" })).not.toBeInTheDocument();
+    expect(screen.getByText(/## Included/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit description" }));
+    // A plain textarea, not the markdown editor: CodeMirror is not mocked in
+    // this file, so a markdown editor here would also be a rendering failure.
+    expect(screen.getByLabelText("Tag description").tagName).toBe("TEXTAREA");
   });
 
   it("shows what carries a tag before confirming its delete", () => {

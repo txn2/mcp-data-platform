@@ -23,6 +23,29 @@ vi.mock("@/api/portal/datahub", () => ({
 vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
   useConnectionWritable: vi.fn(() => true),
 }));
+// CodeMirror does not render cleanly in jsdom; stand in a plain textarea. The
+// stand-in forwards the label rather than hardcoding one, so a test that reads
+// the editor by its accessible name is still reading the name the component
+// asked for (#1200). MarkdownRenderer is left real: what the render path has to
+// prove is that markdown arrives formatted, which a stubbed renderer cannot show.
+vi.mock("@/components/MarkdownEditor", () => ({
+  MarkdownEditor: ({
+    value,
+    onChange,
+    label,
+  }: {
+    value: string;
+    onChange: (v: string) => void;
+    label?: string;
+  }) => (
+    <textarea
+      data-testid="markdown-editor"
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ),
+}));
 
 let mockIsAdmin = true;
 let mockTools: string[] = [];
@@ -39,6 +62,7 @@ vi.mock("@/stores/auth", () => ({
     sel({ user: { tools: mockTools }, isAdmin: () => mockIsAdmin }),
 }));
 
+import { MARKDOWN_DESCRIPTION, expectRenderedMarkdown } from "@/test/markdownDescription";
 import { ApiError } from "@/api/portal/client";
 import { GlossaryTab } from "./GlossaryTab";
 import {
@@ -294,6 +318,61 @@ describe("GlossaryTab", () => {
       { urn: revenue.urn, description: "Gross revenue before refunds." },
       expect.anything(),
     );
+  });
+
+  it("renders a term definition as markdown, not as literal source", () => {
+    vi.mocked(useGlossaryChildren).mockReturnValue(
+      q({ ...financeChildren, terms: [{ ...revenue, description: MARKDOWN_DESCRIPTION }] }),
+    );
+    render(<GlossaryTab conn="primary" />);
+    openRevenue();
+
+    expectRenderedMarkdown();
+  });
+
+  it("renders a node definition as markdown, not as literal source", () => {
+    vi.mocked(useGlossaryRoots).mockReturnValue(
+      q({ ...roots, nodes: [{ ...finance, description: MARKDOWN_DESCRIPTION }] }),
+    );
+    render(<GlossaryTab conn="primary" />);
+    fireEvent.click(screen.getByText("Finance"));
+
+    expectRenderedMarkdown();
+  });
+
+  it("round-trips markdown through the definition editor with its source intact", () => {
+    const mutate = vi.fn();
+    vi.mocked(useUpdateDescription).mockReturnValue(mut(mutate));
+    vi.mocked(useGlossaryChildren).mockReturnValue(
+      q({ ...financeChildren, terms: [{ ...revenue, description: MARKDOWN_DESCRIPTION }] }),
+    );
+    render(<GlossaryTab conn="primary" />);
+    openRevenue();
+    fireEvent.click(screen.getByRole("button", { name: "Edit description" }));
+
+    // The edit state is the split source/preview markdown editor, opened on the
+    // markdown source rather than on the rendered text, so the steward edits
+    // what is stored.
+    const box = screen.getByTestId("markdown-editor");
+    expect(box).toBe(screen.getByLabelText("Term definition"));
+    expect(box).toHaveValue(MARKDOWN_DESCRIPTION);
+    fireEvent.change(box, { target: { value: `${MARKDOWN_DESCRIPTION}\n\n> Excludes refunds.` } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mutate).toHaveBeenCalledWith(
+      { urn: revenue.urn, description: `${MARKDOWN_DESCRIPTION}\n\n> Excludes refunds.` },
+      expect.anything(),
+    );
+  });
+
+  it("names the definition editor for assistive technology", () => {
+    render(<GlossaryTab conn="primary" />);
+    fireEvent.click(screen.getByText("Finance"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit description" }));
+
+    // The markdown editor carries the name the textarea carried: the label is
+    // passed through to the editing surface rather than dropped at the swap.
+    expect(screen.getByTestId("markdown-editor")).toBe(screen.getByLabelText("Node definition"));
   });
 
   it("shows what uses a term before confirming its delete", () => {

@@ -244,7 +244,16 @@ function TagDetail({
         />
       )}
 
-      <EntityDescription conn={conn} entity={tag} canEdit={canEdit} label="Tag description" />
+      {/* Plain, not markdown: DataHub's own tag page renders this field as
+          plain text, so a markdown editor here would invite formatting that
+          shows as raw source everywhere else in the catalog (#1200). */}
+      <EntityDescription
+        conn={conn}
+        entity={tag}
+        canEdit={canEdit}
+        label="Tag description"
+        format="plain"
+      />
 
       {/* The knowledge written about this tag, from the reverse lookup over
           page references. It renders nothing when no accessible page cites it. */}

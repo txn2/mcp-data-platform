@@ -269,7 +269,10 @@ toolkits:
     config:
       default_limit: 1000
       max_limit: 10000
-      read_only: true
+      # Read-only by default, overridable, for the same reason as the DataHub
+      # instance below: TRINO_HOST is a personal setting and may point at a
+      # cluster that is not a toy.
+      read_only: ${TRINO_READ_ONLY:-true}
       progress_enabled: true
 
   datahub:
@@ -278,7 +281,15 @@ toolkits:
       acme:
         endpoint: "${DATAHUB_ENDPOINT:-http://localhost:8080}"
         token: "${DATAHUB_TOKEN:-}"
-        read_only: true
+        # Writable, because a read-only connection exposes no writer, so the
+        # portal reports writable: false and hides every Catalog edit control:
+        # the whole write half of Tables, Context Docs, Tags, Domains, and
+        # Glossary is untestable on a dev stack that pins this to true. Reaching
+        # a DataHub at all already takes two deliberate settings
+        # (DATAHUB_ENABLED, DATAHUB_ENDPOINT), and nothing here writes unattended
+        # — a write happens only when someone edits in the portal. Set
+        # DATAHUB_READ_ONLY=true when that endpoint is a catalog you share.
+        read_only: ${DATAHUB_READ_ONLY:-false}
     default: acme
 
   s3:

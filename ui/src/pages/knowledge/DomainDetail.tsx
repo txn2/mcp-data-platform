@@ -76,7 +76,13 @@ export function DomainDetail({
         <DomainDeleteControl conn={conn} domain={domain} usage={usage} onDeleted={onBack} />
       )}
 
-      <EntityDescription conn={conn} entity={domain} canEdit={canEdit} label="Domain description" />
+      <EntityDescription
+        conn={conn}
+        entity={domain}
+        canEdit={canEdit}
+        label="Domain description"
+        format="markdown"
+      />
 
       {/* The knowledge written about this domain, from the reverse lookup over
           page references. It renders nothing when no accessible page cites it. */}
