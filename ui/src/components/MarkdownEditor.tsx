@@ -28,6 +28,11 @@ interface MarkdownEditorProps {
   readOnly?: boolean;
   minHeight?: string;
   placeholder?: string;
+  // label names the editing surface for assistive technology. CodeMirror owns
+  // that element, so the name is applied through its contentAttributes facet
+  // rather than by an attribute on a React node. Omitted, the editor carries no
+  // name, which is what every call site predating it had.
+  label?: string;
 }
 
 /** Insert markdown syntax around or at the cursor position. */
@@ -88,6 +93,7 @@ export function MarkdownEditor({
   readOnly = false,
   minHeight = "400px",
   placeholder,
+  label,
 }: MarkdownEditorProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("split");
   const cmRef = useRef<ReactCodeMirrorRef>(null);
@@ -101,6 +107,7 @@ export function MarkdownEditor({
       markdown(),
       EditorView.lineWrapping,
       ...(placeholder ? [cmPlaceholder(placeholder)] : []),
+      ...(label ? [EditorView.contentAttributes.of({ "aria-label": label })] : []),
       EditorView.theme({
         "&": { fontSize: "13px" },
         ".cm-content": { fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", padding: "16px 0" },
@@ -110,7 +117,7 @@ export function MarkdownEditor({
         ".cm-activeLineGutter": { backgroundColor: "transparent" },
       }),
     ],
-    [isDark, placeholder],
+    [isDark, placeholder, label],
   );
 
   const handleToolbar = useCallback(

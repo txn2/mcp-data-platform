@@ -259,7 +259,13 @@ function NodeBrowser({
         />
       )}
 
-      <EntityDescription conn={conn} entity={node} canEdit={canEdit} label="Node definition" />
+      <EntityDescription
+        conn={conn}
+        entity={node}
+        canEdit={canEdit}
+        label="Node definition"
+        format="markdown"
+      />
 
       <EntityDocuments conn={conn} urn={node.urn} />
 

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { ArrowLeft, Trash2, type LucideIcon } from "lucide-react";
 import { useUpdateDescription, type EntityRef, type TableSearchResult } from "@/api/portal/datahub";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { catalogHref } from "@/lib/entityRefs";
 import { ListSkeleton, MutationError } from "./primitives";
 import { shortUrn } from "./utils";
@@ -118,17 +120,26 @@ export function TableLink({
 // the edit form. The save is the shared entity-description write with the
 // entry's own URN: the platform's UpdateDescription routes by entity type, so a
 // tag, a domain, and a table are all edited through the one route. label names
-// the textarea for assistive technology and for the tests that drive it.
+// the editing surface for assistive technology and for the tests that drive it.
+//
+// format is the caller's, not something read off the URN, because what decides
+// it is what DataHub renders for that kind: it renders a domain, a glossary
+// term, and a glossary node as markdown, and a tag as plain text (#1200).
+// Inferring markdown from a URN prefix would make that a guess rather than a
+// statement, and would silently give tags an editor whose output renders as raw
+// source everywhere else in the catalog.
 export function EntityDescription({
   conn,
   entity,
   canEdit,
   label,
+  format,
 }: {
   conn: string;
   entity: EntityRef;
   canEdit: boolean;
   label: string;
+  format: "markdown" | "plain";
 }) {
   const update = useUpdateDescription(conn);
   const [editing, setEditing] = useState(false);
@@ -141,13 +152,23 @@ export function EntityDescription({
     return (
       <section className="space-y-2">
         <h3 className="text-sm font-medium">Description</h3>
-        <textarea
-          aria-label={label}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          rows={3}
-          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
-        />
+        {format === "markdown" ? (
+          <MarkdownEditor
+            value={draft}
+            onChange={setDraft}
+            label={label}
+            minHeight="240px"
+            placeholder="Describe this in markdown…"
+          />
+        ) : (
+          <textarea
+            aria-label={label}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={3}
+            className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
+          />
+        )}
         <div className="flex gap-2">
           <button
             onClick={() =>
@@ -192,10 +213,12 @@ export function EntityDescription({
           </button>
         )}
       </div>
-      {current ? (
-        <p className="text-sm">{current}</p>
-      ) : (
+      {!current ? (
         <p className="text-sm italic text-muted-foreground">No description</p>
+      ) : format === "markdown" ? (
+        <MarkdownRenderer content={current} bare />
+      ) : (
+        <p className="text-sm">{current}</p>
       )}
     </section>
   );

@@ -18,6 +18,29 @@ vi.mock("@/api/portal/datahub", () => ({
 vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
   useConnectionWritable: vi.fn(() => true),
 }));
+// CodeMirror does not render cleanly in jsdom; stand in a plain textarea. The
+// stand-in forwards the label rather than hardcoding one, so a test that reads
+// the editor by its accessible name is still reading the name the component
+// asked for (#1200). MarkdownRenderer is left real: what the render path has to
+// prove is that markdown arrives formatted, which a stubbed renderer cannot show.
+vi.mock("@/components/MarkdownEditor", () => ({
+  MarkdownEditor: ({
+    value,
+    onChange,
+    label,
+  }: {
+    value: string;
+    onChange: (v: string) => void;
+    label?: string;
+  }) => (
+    <textarea
+      data-testid="markdown-editor"
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ),
+}));
 
 let mockIsAdmin = true;
 let mockTools: string[] = [];
@@ -34,6 +57,7 @@ vi.mock("@/stores/auth", () => ({
     sel({ user: { tools: mockTools }, isAdmin: () => mockIsAdmin }),
 }));
 
+import { MARKDOWN_DESCRIPTION, expectRenderedMarkdown } from "@/test/markdownDescription";
 import { DomainsTab } from "./DomainsTab";
 import {
   DOMAIN_LIST_LIMIT,
@@ -190,6 +214,47 @@ describe("DomainsTab", () => {
 
     expect(mutate).toHaveBeenCalledWith(
       { urn: "urn:li:domain:finance", description: "Everything money touches." },
+      expect.anything(),
+    );
+  });
+
+  it("renders a domain description as markdown, not as literal source", () => {
+    vi.mocked(useDomainList).mockReturnValue(
+      q([{ ...finance, description: MARKDOWN_DESCRIPTION }, marketing]),
+    );
+    render(<DomainsTab conn="primary" />);
+    fireEvent.click(screen.getByText("Finance"));
+
+    expectRenderedMarkdown();
+  });
+
+  it("round-trips markdown through the description editor with its source intact", () => {
+    const mutate = vi.fn();
+    vi.mocked(useUpdateDescription).mockReturnValue({
+      mutate,
+      isPending: false,
+      isError: false,
+      isSuccess: false,
+      error: null,
+    } as never);
+    vi.mocked(useDomainList).mockReturnValue(
+      q([{ ...finance, description: MARKDOWN_DESCRIPTION }, marketing]),
+    );
+    render(<DomainsTab conn="primary" />);
+    fireEvent.click(screen.getByText("Finance"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit description" }));
+
+    // The edit state is the split source/preview markdown editor, opened on the
+    // markdown source rather than on the rendered text, and it carries the name
+    // the textarea carried before the swap.
+    const box = screen.getByTestId("markdown-editor");
+    expect(box).toBe(screen.getByLabelText("Domain description"));
+    expect(box).toHaveValue(MARKDOWN_DESCRIPTION);
+    fireEvent.change(box, { target: { value: `${MARKDOWN_DESCRIPTION}\n\n> Excludes refunds.` } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mutate).toHaveBeenCalledWith(
+      { urn: "urn:li:domain:finance", description: `${MARKDOWN_DESCRIPTION}\n\n> Excludes refunds.` },
       expect.anything(),
     );
   });
