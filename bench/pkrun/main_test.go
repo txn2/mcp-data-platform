@@ -76,3 +76,43 @@ func TestPollutionCoverageCellIsAnswerable(t *testing.T) {
 		t.Error("the cross-fixture arm is confirmatory for the pollution study")
 	}
 }
+
+// The cross-fixture checkable unit must derive as answerable from the world.
+// It carries no delivered belief -- one listing call settles it -- which is
+// what makes it the checkable class and the analog of the warehouse order
+// count. A cell deriving anything else would grade every episode against a
+// refusal the fixture does not warrant.
+func TestMonitorCountCellIsAnswerableFromTheWorld(t *testing.T) {
+	cells, err := monitorCountCells()
+	if err != nil {
+		t.Fatalf("monitorCountCells: %v", err)
+	}
+	if len(cells) != 1 {
+		t.Fatalf("got %d cells, want the one cross-fixture unit", len(cells))
+	}
+	c := cells[0]
+	if c.Behavior != pkcell.BehaviorAnswer || !c.Answerable {
+		t.Errorf("cell derives behavior=%s answerable=%v", c.Behavior, c.Answerable)
+	}
+	if c.Seed != nil {
+		t.Error("the cell must plant no per-episode belief; the claim comes from the shared store")
+	}
+	if c.Question.ID != pollutionplant.QuestionMonitorCount {
+		t.Errorf("cell asks %q", c.Question.ID)
+	}
+	if c.QueryWorld != pollutionplant.CoverageWorldName {
+		t.Errorf("cell runs in world %q, want the one the discriminants were computed against", c.QueryWorld)
+	}
+}
+
+// The cell set is confirmatory for this study, not exploratory: its archive
+// must not be marked as data that cannot enter an analysis.
+func TestMonitorCountCellSetIsConfirmatory(t *testing.T) {
+	_, exploratory, err := selectCells("pollution-monitor-count")
+	if err != nil {
+		t.Fatalf("selectCells: %v", err)
+	}
+	if exploratory {
+		t.Error("the cross-fixture arm is confirmatory for the pollution study")
+	}
+}

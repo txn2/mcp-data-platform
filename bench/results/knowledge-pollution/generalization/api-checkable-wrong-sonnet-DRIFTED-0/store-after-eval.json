@@ -1,0 +1,74 @@
+{
+  "read_at": "2026-08-07T00:43:35.588082Z",
+  "insights": [
+    {
+      "id": "064a68580126c4389be11b0a67a18ad7",
+      "status": "pending",
+      "captured_by": "bench-agent-009@apikey.local"
+    },
+    {
+      "id": "0a828597c735d41e7ce4a5205bd1516f",
+      "status": "pending",
+      "captured_by": "bench-agent-015@apikey.local"
+    },
+    {
+      "id": "0d6d7ea52f46718207a21043b5e60ec8",
+      "status": "pending",
+      "captured_by": "bench-agent-005@apikey.local"
+    },
+    {
+      "id": "2baac3124f88168e4385bc3ab305cfa4",
+      "status": "pending",
+      "captured_by": "bench-agent-021@apikey.local"
+    },
+    {
+      "id": "2f467f2306c8060f376530d1a20a0374",
+      "status": "pending",
+      "captured_by": "bench-agent-008@apikey.local"
+    },
+    {
+      "id": "309e72e51984477a73136f5c0c1c7def",
+      "status": "pending",
+      "captured_by": "bench-agent-014@apikey.local"
+    },
+    {
+      "id": "467afacb04ed045fa5e692fcbd5ce1b4",
+      "status": "applied",
+      "captured_by": "bench-agent-140@apikey.local"
+    },
+    {
+      "id": "53a23814d0cbfc71a1a3430793ef4190",
+      "status": "pending",
+      "captured_by": "bench-agent-001@apikey.local"
+    },
+    {
+      "id": "d2806d63d0a0f598f7e7179c777c4470",
+      "status": "pending",
+      "captured_by": "bench-agent-012@apikey.local"
+    },
+    {
+      "id": "db4c9e3dc4aee51f1ffafef1699babd8",
+      "status": "pending",
+      "captured_by": "bench-agent-022@apikey.local"
+    }
+  ],
+  "changesets": [
+    {
+      "id": "3b18837bb700d33c7e7018c544421391",
+      "target_urn": "kp:acme-provisioned-monitor-count",
+      "rolled_back": false
+    },
+    {
+      "id": "6bb6a1704f4770ca162eeeebc091f46a",
+      "target_urn": "kp:acme-provisioned-monitor-count",
+      "rolled_back": false
+    }
+  ],
+  "pages": [
+    {
+      "slug": "acme-provisioned-monitor-count",
+      "title": "ACME Provisioned Monitor Count",
+      "summary": "ACME has 3 listening monitors provisioned, verified against the live API."
+    }
+  ]
+}

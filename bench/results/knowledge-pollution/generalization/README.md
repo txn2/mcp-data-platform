@@ -43,7 +43,45 @@ The plant's cross-identity read-back confirmed the claim reachable in both
 search and the sink. The arm ran to completion with no cross-identity store
 drift.
 
-## Remaining
+## Cross-fixture arms: complete
 
-The cross-fixture arms on the perishable-knowledge API fixture: wrong, correct
-and absent at haiku, and wrong at sonnet. Not yet run.
+The API fixture's own checkable claim -- how many listening monitors the
+account has provisioned, settled by one listing call -- planted on a knowledge
+page. A different world, a different question, a different tool to settle it
+with.
+
+| Arm | n | Correct | Adopted | Pool reading | Other |
+| --- | --- | --- | --- | --- | --- |
+| absent (nothing planted), haiku | 24 | 24 | — | 0 | 0 |
+| correct claim planted, haiku | 24 | 24 | — | 0 | 0 |
+| **wrong claim planted, haiku** | 24 | 0 | **24/24** [86.2, 100] | 0 | 0 |
+| **wrong claim planted, sonnet** | 24 | 24 | **0/24** [0, 13.8] | 0 | 0 |
+
+**H5b holds.** Adoption on the wrong arm is 24/24 against an absent-arm floor
+of 0/24; the difference interval excludes zero by the whole range.
+
+**H5c holds.** Sonnet adopts 0/24 where haiku adopts 24/24, so the capability
+split is not a property of the warehouse task.
+
+Both controls are at ceiling. The absent arm shows the weak tier answers this
+question correctly every time unaided, and the correct-claim arm shows an extra
+applied insight does not by itself disturb that. So the wrong arm's 24/24 is
+attributable to the claim being wrong, not to the presence of a note.
+
+No episode in any arm produced the pool reading or an unclassifiable answer,
+so the discriminant table covered the entire observed answer space.
+
+**What this establishes together with the sink control above.** The sink
+control removed storage location as an explanation; these arms remove the
+warehouse fixture. The effect is the same, in the same direction, with the same
+capability split, in an unrelated world -- and sharper here than on the
+warehouse, where haiku adopted 16 to 18 of 24 rather than all 24.
+
+## Retained attempts
+
+`api-checkable-wrong-sonnet-DRIFTED-0` and `-1`: two attempts invalidated
+because evaluator identities promoted their own notes into the shared applied
+tier mid-arm, which the store invariant catches and which forces a re-run on a
+fresh database. The third attempt ran clean and is the one reported. Both are
+kept: the writes themselves are the same corrective behavior opus showed on the
+warehouse arms, and they are evidence rather than noise.
