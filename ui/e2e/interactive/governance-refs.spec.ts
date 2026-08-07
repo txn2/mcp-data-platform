@@ -76,8 +76,12 @@ test.describe("Governance reference deep links", () => {
     await page.goto("/portal/knowledge/pages/kp-seed-2");
     await expect(page.getByRole("heading", { name: "Revenue Definition" }).first()).toBeVisible();
 
-    const picker = page.locator("section", { hasText: "Manual references" });
-    await picker.getByLabel("Reference type").selectOption("glossary_term");
+    // The picker is a SectionCard, so its box is the innermost card carrying the
+    // heading. The type facet is a Radix listbox (not a native select), and its
+    // options are portalled out of the card, so they are chosen off `page`.
+    const picker = page.locator("[data-slot='card']").filter({ hasText: "Manual references" }).last();
+    await picker.getByLabel("Reference type").click();
+    await page.getByRole("option", { name: "Glossary term" }).click();
     await picker.getByPlaceholder(/Search glossary terms to reference/).fill("net");
     await picker.getByRole("button", { name: /Net Sales/ }).click();
 

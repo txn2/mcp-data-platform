@@ -28,6 +28,7 @@ export function FilterSelect({
   onChange,
   options,
   title,
+  disabled = false,
   className,
 }: {
   // The accessible name of the control, e.g. "Filter by status".
@@ -37,12 +38,17 @@ export function FilterSelect({
   options: FilterOption[];
   // Hover copy explaining what the facet means, when the options alone do not.
   title?: string;
+  // Set when the facet does not apply to what is on screen (e.g. a browse-only
+  // filter while a relevance search is running), so it reads as inert rather
+  // than as a filter that silently does nothing.
+  disabled?: boolean;
   className?: string;
 }) {
   return (
     <Select
       value={value === "" ? ALL : value}
       onValueChange={(v) => onChange(v === ALL ? "" : v)}
+      disabled={disabled}
     >
       <SelectTrigger
         size="sm"
