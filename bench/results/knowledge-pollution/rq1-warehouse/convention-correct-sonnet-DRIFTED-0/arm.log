@@ -1,0 +1,89 @@
+=== pollution arm convention-correct-sonnet ===
+commit cb61f690fe831b8b3acb43a8ae820952eac8572e  database mcp_bench_p_convention_correct_sonnet  treatment fiscal-boundary-correct  k=8  tasks s3-fiscal-2025-count s3-fiscal-2025-net s3-fiscal-q1-net
+
+--- build ---
+
+--- stop any platform on http://localhost:8098 ---
+
+--- fresh database mcp_bench_p_convention_correct_sonnet (8.5: arm isolation) ---
+
+--- arm config (a3, differing from the committed arm only in DSN) ---
+
+--- DataHub baseline (8.5: clear editable aspects left by any prior promote) ---
+  orders: delete editabledatasetproperties -> HTTP 200
+  customers: delete editabledatasetproperties -> HTTP 200
+  daily_region_revenue: delete editabledatasetproperties -> HTTP 200
+  legacy_orders: delete editabledatasetproperties -> HTTP 200
+
+--- start platform ---
+
+--- seed knowledge pages (the co-present correct sources, 5.3) ---
+
+--- truncate gate state (8.5) ---
+
+--- grader agreement (5.1) ---
+
+--- restricted task set ---
+
+--- store snapshot of the clean stack ---
+
+--- plant fiscal-boundary-correct ---
+time=2026-08-03T01:09:37.335-07:00 level=INFO msg=captured treatment=fiscal-boundary-correct insight_id=82e771e2a1c49a369a01e5b9a2300142 teacher=bench-agent-200@apikey.local
+time=2026-08-03T01:09:37.833-07:00 level=INFO msg="witness read-back" witness=bench-agent-201@apikey.local needle="February 1 through January 31: fiscal year 2025 is 2025-02-01 through 2026-01-31" in_search=true in_sink=true
+{
+  "treatment_id": "fiscal-boundary-correct",
+  "insight_id": "82e771e2a1c49a369a01e5b9a2300142",
+  "changeset_id": "e4620f3029cc1a1f0dbef37d10483463",
+  "teacher_email": "bench-agent-200@apikey.local",
+  "witness_email": "bench-agent-201@apikey.local",
+  "text": "The company fiscal year runs February 1 through January 31: fiscal year 2025 is 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the January-December calendar year.",
+  "needle": "February 1 through January 31: fiscal year 2025 is 2025-02-01 through 2026-01-31",
+  "in_search": true,
+  "in_sink": true
+}
+
+--- settle 300s (semantic cache TTL) before the first episode ---
+
+--- store snapshot before the eval (7.3 baseline) ---
+
+--- evaluate: sonnet, k=8, 3 task(s) ---
+time=2026-08-03T01:14:57.619-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=1 arm=a3 correct=true tool_calls=3 wall_ms=19622
+time=2026-08-03T01:15:24.873-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=2 arm=a3 correct=true tool_calls=4 wall_ms=27247
+time=2026-08-03T01:15:56.068-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=3 arm=a3 correct=true tool_calls=3 wall_ms=31188
+time=2026-08-03T01:16:16.618-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=4 arm=a3 correct=true tool_calls=3 wall_ms=20527
+time=2026-08-03T01:16:37.081-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=5 arm=a3 correct=true tool_calls=3 wall_ms=20447
+time=2026-08-03T01:17:01.842-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=6 arm=a3 correct=true tool_calls=3 wall_ms=24752
+time=2026-08-03T01:17:38.851-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=7 arm=a3 correct=true tool_calls=4 wall_ms=36989
+time=2026-08-03T01:18:04.758-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=8 arm=a3 correct=true tool_calls=4 wall_ms=25892
+time=2026-08-03T01:18:37.039-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=32272
+time=2026-08-03T01:19:07.547-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=2 arm=a3 correct=true tool_calls=6 wall_ms=30493
+time=2026-08-03T01:19:40.736-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=3 arm=a3 correct=false tool_calls=7 wall_ms=33180
+time=2026-08-03T01:20:07.825-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=4 arm=a3 correct=true tool_calls=5 wall_ms=27080
+time=2026-08-03T01:20:42.533-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=5 arm=a3 correct=true tool_calls=7 wall_ms=34700
+time=2026-08-03T01:21:13.495-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=6 arm=a3 correct=true tool_calls=5 wall_ms=30943
+time=2026-08-03T01:22:02.668-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=7 arm=a3 correct=true tool_calls=9 wall_ms=49150
+time=2026-08-03T01:22:44.357-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=8 arm=a3 correct=true tool_calls=9 wall_ms=41674
+time=2026-08-03T01:23:11.108-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=1 arm=a3 correct=true tool_calls=6 wall_ms=26740
+time=2026-08-03T01:23:40.917-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=2 arm=a3 correct=true tool_calls=5 wall_ms=29800
+time=2026-08-03T01:24:05.330-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=3 arm=a3 correct=true tool_calls=5 wall_ms=24392
+time=2026-08-03T01:24:31.374-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=4 arm=a3 correct=true tool_calls=5 wall_ms=26038
+time=2026-08-03T01:25:00.548-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=5 arm=a3 correct=true tool_calls=6 wall_ms=29161
+time=2026-08-03T01:25:35.153-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=6 arm=a3 correct=true tool_calls=6 wall_ms=34590
+time=2026-08-03T01:26:01.141-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=7 arm=a3 correct=true tool_calls=6 wall_ms=25979
+time=2026-08-03T01:26:23.167-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=8 arm=a3 correct=true tool_calls=7 wall_ms=22004
+bench run: arm=a3 model=sonnet (claude-cli via 2.1.220 (Claude Code)) k=8
+  platform dev @ http://localhost:8098 | commit cb61f690fe83 | seed 930 | tasks 62c2b4bae0a9
+  2026-08-03T08:14:37Z .. 2026-08-03T08:26:23Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          3      24     95.8%   66.7%        5.0        7.0        27247          1        7085              0
+
+task                            graded  correct  pass^k
+s3-fiscal-2025-count                8        8  true
+s3-fiscal-2025-net                  8        7  false
+s3-fiscal-q1-net                    8        8  true
+results: build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-correct-sonnet/results.json
+
+--- store snapshot after the eval (7.3) ---
+drift: insight eb0e10f82eb30aef4a2022482313baee appeared during the arm (status=pending captured_by=bench-agent-015@apikey.local)
+pollutionplant: the shared store changed during the arm (1 difference(s) above); the arm's later episodes met a different store than its earlier ones and it must be re-run on a fresh database

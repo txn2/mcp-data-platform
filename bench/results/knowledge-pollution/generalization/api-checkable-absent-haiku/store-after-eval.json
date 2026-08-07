@@ -1,0 +1,32 @@
+{
+  "read_at": "2026-08-07T00:10:30.252821Z",
+  "insights": [
+    {
+      "id": "4a74766cb78adfae34f73a1b828d581b",
+      "status": "pending",
+      "captured_by": "bench-agent-015@apikey.local"
+    },
+    {
+      "id": "6ef8e35fa0a295e6bc7e272e149b994b",
+      "status": "pending",
+      "captured_by": "bench-agent-019@apikey.local"
+    },
+    {
+      "id": "90fdd3dd1c5c2b96445ed1390a3c68bf",
+      "status": "pending",
+      "captured_by": "bench-agent-014@apikey.local"
+    },
+    {
+      "id": "ac7d1bd4e805eefcca709921600bc8c3",
+      "status": "pending",
+      "captured_by": "bench-agent-004@apikey.local"
+    },
+    {
+      "id": "ccaaedffb954abd62278a60316067b73",
+      "status": "pending",
+      "captured_by": "bench-agent-021@apikey.local"
+    }
+  ],
+  "changesets": null,
+  "pages": null
+}

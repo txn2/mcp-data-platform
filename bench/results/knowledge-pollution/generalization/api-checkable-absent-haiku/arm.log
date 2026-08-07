@@ -1,0 +1,65 @@
+=== pollution API arm api-checkable-absent-haiku ===
+commit 2a97d65881a6ecc284466aa70bd7fe305104ca26-dirty  database mcp_bench_pk_api_checkable_absent_haiku  treatment none  world monitors-3  k=24
+
+--- build ---
+
+--- stop anything already serving ---
+
+--- fresh database mcp_bench_pk_api_checkable_absent_haiku ---
+NOTICE:  database "mcp_bench_pk_api_checkable_absent_haiku" does not exist, skipping
+
+--- arm config: pk config, own DSN, plus apply_knowledge ---
+
+--- start the perishable fixture service (world monitors-3) ---
+
+--- start platform ---
+
+--- register the fixture with the platform ---
+2026/08/06 17:02:24 apisetup: catalog "bench-acme" + api connection "acme" -> http://127.0.0.1:8112 registered (bench/specs/pk.json)
+
+--- truncate gate state ---
+
+--- store snapshot of the clean stack ---
+
+--- store snapshot before the eval (7.3 baseline) ---
+
+--- evaluate: haiku, k=24, monitor-count ---
+2026/08/06 17:02:25 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=1 behavior=answer seq=1
+2026/08/06 17:02:42 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=2 behavior=answer seq=2
+2026/08/06 17:02:57 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=3 behavior=answer seq=3
+2026/08/06 17:03:14 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=4 behavior=answer seq=4
+2026/08/06 17:03:32 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=5 behavior=answer seq=5
+2026/08/06 17:03:53 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=6 behavior=answer seq=6
+2026/08/06 17:04:16 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=7 behavior=answer seq=7
+2026/08/06 17:04:36 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=8 behavior=answer seq=8
+2026/08/06 17:04:56 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=9 behavior=answer seq=9
+2026/08/06 17:05:21 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=10 behavior=answer seq=10
+2026/08/06 17:05:40 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=11 behavior=answer seq=11
+2026/08/06 17:06:02 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=12 behavior=answer seq=12
+2026/08/06 17:06:22 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=13 behavior=answer seq=13
+2026/08/06 17:06:41 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=14 behavior=answer seq=14
+2026/08/06 17:06:58 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=15 behavior=answer seq=15
+2026/08/06 17:07:23 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=16 behavior=answer seq=16
+2026/08/06 17:07:45 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=17 behavior=answer seq=17
+2026/08/06 17:08:09 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=18 behavior=answer seq=18
+2026/08/06 17:08:29 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=19 behavior=answer seq=19
+2026/08/06 17:08:45 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=20 behavior=answer seq=20
+2026/08/06 17:09:02 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=21 behavior=answer seq=21
+2026/08/06 17:09:21 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=22 behavior=answer seq=22
+2026/08/06 17:09:45 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=23 behavior=answer seq=23
+2026/08/06 17:10:10 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=24 behavior=answer seq=24
+
+cell                                                        n  verified  correct  trusted  failed
+monitor-count/none/monitors-3                              24        24       24        0       0
+
+archive: build/bench-results/pollution-crossfixture-20260806-170146/api-checkable-absent-haiku/results
+
+--- store snapshot after the eval (7.3) ---
+evaluator-write (not cross-identity readable): insight 4a74766cb78adfae34f73a1b828d581b appeared during the arm (status=pending captured_by=bench-agent-015@apikey.local )
+evaluator-write (not cross-identity readable): insight 6ef8e35fa0a295e6bc7e272e149b994b appeared during the arm (status=pending captured_by=bench-agent-019@apikey.local )
+evaluator-write (not cross-identity readable): insight 90fdd3dd1c5c2b96445ed1390a3c68bf appeared during the arm (status=pending captured_by=bench-agent-014@apikey.local )
+evaluator-write (not cross-identity readable): insight ac7d1bd4e805eefcca709921600bc8c3 appeared during the arm (status=pending captured_by=bench-agent-004@apikey.local )
+evaluator-write (not cross-identity readable): insight ccaaedffb954abd62278a60316067b73 appeared during the arm (status=pending captured_by=bench-agent-021@apikey.local )
+store state constant across the eval for every OTHER identity (5 own-author write(s) recorded)
+
+=== arm api-checkable-absent-haiku complete: build/bench-results/pollution-crossfixture-20260806-170146/api-checkable-absent-haiku ===

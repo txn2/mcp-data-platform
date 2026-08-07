@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
@@ -97,15 +98,74 @@ func (c *Client) ReadStoreState(ctx context.Context) (StoreState, error) {
 	return s, nil
 }
 
-// Drift reports every difference between the snapshot taken before an arm
-// and the one taken after it, as lines an operator can act on. An empty
-// result means the arm's episodes all met the same store.
-func (before StoreState) Drift(after StoreState) []string {
-	out := make([]string, 0, len(before.Insights)+len(after.Insights))
-	out = append(out, driftLines("insight", insightKeys(before.Insights), insightKeys(after.Insights))...)
-	out = append(out, driftLines("changeset", changesetKeys(before.Changesets), changesetKeys(after.Changesets))...)
-	out = append(out, driftLines("page", pageKeys(before.Pages), pageKeys(after.Pages))...)
+// StatusApplied is the one insight status a non-capturer can read. Mirrors
+// the platform's own rule: pkg/knowledge/provider_insights.go readableBy
+// admits an insight to anyone other than its capturer only once applied.
+const StatusApplied = "applied"
+
+// Difference is one change between two store snapshots.
+type Difference struct {
+	// Kind is insight, changeset, or page.
+	Kind string `json:"kind"`
+	// ID identifies the record (an id, or a page slug).
+	ID string `json:"id"`
+	// Detail is the human description of what changed.
+	Detail string `json:"detail"`
+	// CrossIdentity reports whether this change is one a DIFFERENT identity
+	// could observe. It is what decides whether the arm is invalidated: a
+	// record only its own author can read cannot have changed what any later
+	// episode was handed, so it is recorded rather than fatal.
+	CrossIdentity bool `json:"cross_identity"`
+}
+
+// String renders a difference as the line an operator reads.
+func (d Difference) String() string { return d.Kind + " " + d.ID + " " + d.Detail }
+
+// Drift reports every difference between the snapshot taken before an arm's
+// eval and the one taken after it. An empty result means every episode met
+// the same store.
+//
+// Each difference carries whether another identity could observe it, which
+// is the distinction the invariant turns on (protocol 7.3, as amended). A
+// changeset or a page is visible to everyone. An insight is visible to a
+// non-capturer only once applied, so an evaluator's own pending capture is
+// invisible to every later episode in the arm -- each attempt runs as its own
+// pool identity, and an identity never runs twice within an arm.
+func (before StoreState) Drift(after StoreState) []Difference {
+	out := make([]Difference, 0, len(before.Insights)+len(after.Insights))
+	out = append(out, driftLines("insight", insightKeys(before.Insights), insightKeys(after.Insights), insightVisible)...)
+	out = append(out, driftLines("changeset", changesetKeys(before.Changesets), changesetKeys(after.Changesets), alwaysVisible)...)
+	out = append(out, driftLines("page", pageKeys(before.Pages), pageKeys(after.Pages), alwaysVisible)...)
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
 	return out
+}
+
+// CrossIdentityDrift returns only the differences another identity could
+// observe: the ones that invalidate an arm.
+func CrossIdentityDrift(all []Difference) []Difference {
+	out := make([]Difference, 0, len(all))
+	for _, d := range all {
+		if d.CrossIdentity {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// visibility reports whether a record in the given before/after states is one
+// another identity could read. Both states are supplied because a record that
+// became applied, or stopped being applied, is a visible change either way.
+type visibility func(was, now string) bool
+
+// alwaysVisible marks record kinds every identity can read: changesets are
+// applied changes to a sink, and knowledge pages are platform-wide.
+func alwaysVisible(string, string) bool { return true }
+
+// insightVisible reports whether an insight was readable by a non-capturer at
+// either end of the arm, which is true exactly when it was applied.
+func insightVisible(was, now string) bool {
+	return strings.Contains(was, "status="+StatusApplied+" ") ||
+		strings.Contains(now, "status="+StatusApplied+" ")
 }
 
 // driftLines compares two keyed descriptions of the same record kind and
@@ -113,23 +173,22 @@ func (before StoreState) Drift(after StoreState) []string {
 // is reported as a change rather than as an add and a remove, because those
 // are different operator problems: a status flip is an evaluator writing,
 // and a vanished record is a store that was reset mid-arm.
-func driftLines(kind string, before, after map[string]string) []string {
-	out := make([]string, 0, len(before)+len(after))
+func driftLines(kind string, before, after map[string]string, visible visibility) []Difference {
+	out := make([]Difference, 0, len(before)+len(after))
 	for id, was := range before {
 		now, ok := after[id]
 		switch {
 		case !ok:
-			out = append(out, fmt.Sprintf("%s %s vanished during the arm (was %s)", kind, id, was))
+			out = append(out, Difference{kind, id, fmt.Sprintf("vanished during the arm (was %s)", was), visible(was, "")})
 		case now != was:
-			out = append(out, fmt.Sprintf("%s %s changed during the arm: %s -> %s", kind, id, was, now))
+			out = append(out, Difference{kind, id, fmt.Sprintf("changed during the arm: %s -> %s", was, now), visible(was, now)})
 		}
 	}
 	for id, now := range after {
 		if _, ok := before[id]; !ok {
-			out = append(out, fmt.Sprintf("%s %s appeared during the arm (%s)", kind, id, now))
+			out = append(out, Difference{kind, id, fmt.Sprintf("appeared during the arm (%s)", now), visible("", now)})
 		}
 	}
-	sort.Strings(out)
 	return out
 }
 
@@ -139,7 +198,7 @@ func driftLines(kind string, before, after map[string]string) []string {
 func insightKeys(in []InsightState) map[string]string {
 	out := make(map[string]string, len(in))
 	for _, s := range in {
-		out[s.ID] = fmt.Sprintf("status=%s captured_by=%s", s.Status, s.CapturedBy)
+		out[s.ID] = fmt.Sprintf("status=%s captured_by=%s ", s.Status, s.CapturedBy)
 	}
 	return out
 }

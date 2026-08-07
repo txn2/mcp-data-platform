@@ -1,0 +1,24 @@
+{
+  "read_at": "2026-08-07T00:15:35.264476Z",
+  "insights": [
+    {
+      "id": "0903b1c438999d5c18510f009641d837",
+      "status": "applied",
+      "captured_by": "bench-agent-140@apikey.local"
+    }
+  ],
+  "changesets": [
+    {
+      "id": "22d8611dcdb0e9b08d515f07e435e08d",
+      "target_urn": "kp:acme-provisioned-monitor-count",
+      "rolled_back": false
+    }
+  ],
+  "pages": [
+    {
+      "slug": "acme-provisioned-monitor-count",
+      "title": "ACME Provisioned Monitor Count",
+      "summary": "The ACME account has 3 listening monitors provisioned."
+    }
+  ]
+}

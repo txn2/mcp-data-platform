@@ -1,0 +1,266 @@
+# Benchmark arm PK - perishable-knowledge study (issue #1054).
+#
+# One arm, not an ablation set: #1054's arms are treatments carried in the
+# seeded knowledge and its delivery metadata, not platform configurations,
+# so every cell runs against this one profile. What the profile has to
+# provide is the union the study needs: the api_* surface over the
+# perishable fixture, and the memory surface the beliefs are stored in,
+# captured through, and superseded through.
+#
+# No connection state lives here: bench/apisetup registers the fixture
+# connection and the pk spec through the admin REST API after startup, the
+# platform's shipped connection path. The built-in platform-admin self
+# connection and the util fetch connection are disabled so the fixture
+# catalog is the ONLY api surface the agent can discover.
+#
+# The search-first gate stays at its shipped default (on). Unlike the
+# #1027 arms, discovery is not the variable under test here, and search is
+# one of the channels stored knowledge is delivered through, so disabling
+# it would remove a delivery path the study measures rather than remove a
+# confound. It costs one search call per episode, identically in every
+# cell.
+#
+# DataHub, Trino, and S3 are absent: the study's source is the API
+# connection, and knowledge.apply (which promotes to DataHub) is not part
+# of any hypothesis. RQ4's supersede and propagation run entirely through
+# the memory surface.
+#
+# The embedding provider is required for supersede: recall-first supersede
+# detects a restatement by vector similarity, so without embeddings a
+# corrected belief is never superseded and RQ4 would measure the missing
+# provider instead of the platform. Ollama with nomic-embed-text is the
+# same convention as a real memory-enabled deployment (run `ollama serve`
+# + `ollama pull nomic-embed-text` first).
+#
+# Audit runs with delivery: sync so the harness's audit read-back is
+# deterministic: when a tool call returns, its audit row is committed.
+#
+# Env:
+#   API_KEY_ADMIN   admin API key the harness authenticates with (Bearer)
+apiVersion: v1
+
+server:
+  name: mcp-data-platform-bench-pk
+  transport: http
+  address: ":8098"
+
+auth:
+  api_keys:
+    enabled: true
+    keys:
+      # Base key: the harness's audit and insight read-back credential.
+      - key: "${API_KEY_ADMIN}"
+        name: "bench-admin"
+        roles: ["admin"]
+      # Identity pool: one key per episode. Attempts must not share a
+      # credential, both so per-attempt audit correlation stays clean and
+      # because the search-first gate keys discovery on the authenticated
+      # identity. RQ4's cross-identity propagation also needs distinct
+      # identities to propagate between. Regenerate with the snippet in
+      # bench/docs/knowledge-layer-protocol.md if the cell count grows past this.
+      - {key: "${API_KEY_ADMIN}-001", name: "bench-agent-001", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-002", name: "bench-agent-002", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-003", name: "bench-agent-003", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-004", name: "bench-agent-004", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-005", name: "bench-agent-005", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-006", name: "bench-agent-006", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-007", name: "bench-agent-007", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-008", name: "bench-agent-008", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-009", name: "bench-agent-009", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-010", name: "bench-agent-010", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-011", name: "bench-agent-011", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-012", name: "bench-agent-012", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-013", name: "bench-agent-013", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-014", name: "bench-agent-014", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-015", name: "bench-agent-015", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-016", name: "bench-agent-016", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-017", name: "bench-agent-017", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-018", name: "bench-agent-018", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-019", name: "bench-agent-019", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-020", name: "bench-agent-020", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-021", name: "bench-agent-021", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-022", name: "bench-agent-022", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-023", name: "bench-agent-023", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-024", name: "bench-agent-024", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-025", name: "bench-agent-025", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-026", name: "bench-agent-026", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-027", name: "bench-agent-027", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-028", name: "bench-agent-028", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-029", name: "bench-agent-029", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-030", name: "bench-agent-030", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-031", name: "bench-agent-031", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-032", name: "bench-agent-032", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-033", name: "bench-agent-033", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-034", name: "bench-agent-034", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-035", name: "bench-agent-035", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-036", name: "bench-agent-036", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-037", name: "bench-agent-037", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-038", name: "bench-agent-038", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-039", name: "bench-agent-039", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-040", name: "bench-agent-040", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-041", name: "bench-agent-041", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-042", name: "bench-agent-042", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-043", name: "bench-agent-043", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-044", name: "bench-agent-044", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-045", name: "bench-agent-045", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-046", name: "bench-agent-046", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-047", name: "bench-agent-047", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-048", name: "bench-agent-048", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-049", name: "bench-agent-049", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-050", name: "bench-agent-050", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-051", name: "bench-agent-051", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-052", name: "bench-agent-052", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-053", name: "bench-agent-053", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-054", name: "bench-agent-054", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-055", name: "bench-agent-055", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-056", name: "bench-agent-056", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-057", name: "bench-agent-057", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-058", name: "bench-agent-058", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-059", name: "bench-agent-059", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-060", name: "bench-agent-060", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-061", name: "bench-agent-061", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-062", name: "bench-agent-062", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-063", name: "bench-agent-063", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-064", name: "bench-agent-064", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-065", name: "bench-agent-065", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-066", name: "bench-agent-066", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-067", name: "bench-agent-067", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-068", name: "bench-agent-068", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-069", name: "bench-agent-069", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-070", name: "bench-agent-070", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-071", name: "bench-agent-071", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-072", name: "bench-agent-072", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-073", name: "bench-agent-073", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-074", name: "bench-agent-074", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-075", name: "bench-agent-075", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-076", name: "bench-agent-076", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-077", name: "bench-agent-077", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-078", name: "bench-agent-078", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-079", name: "bench-agent-079", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-080", name: "bench-agent-080", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-081", name: "bench-agent-081", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-082", name: "bench-agent-082", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-083", name: "bench-agent-083", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-084", name: "bench-agent-084", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-085", name: "bench-agent-085", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-086", name: "bench-agent-086", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-087", name: "bench-agent-087", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-088", name: "bench-agent-088", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-089", name: "bench-agent-089", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-090", name: "bench-agent-090", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-091", name: "bench-agent-091", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-092", name: "bench-agent-092", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-093", name: "bench-agent-093", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-094", name: "bench-agent-094", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-095", name: "bench-agent-095", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-096", name: "bench-agent-096", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-097", name: "bench-agent-097", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-098", name: "bench-agent-098", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-099", name: "bench-agent-099", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-100", name: "bench-agent-100", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-101", name: "bench-agent-101", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-102", name: "bench-agent-102", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-103", name: "bench-agent-103", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-104", name: "bench-agent-104", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-105", name: "bench-agent-105", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-106", name: "bench-agent-106", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-107", name: "bench-agent-107", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-108", name: "bench-agent-108", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-109", name: "bench-agent-109", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-110", name: "bench-agent-110", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-111", name: "bench-agent-111", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-112", name: "bench-agent-112", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-113", name: "bench-agent-113", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-114", name: "bench-agent-114", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-115", name: "bench-agent-115", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-116", name: "bench-agent-116", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-117", name: "bench-agent-117", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-118", name: "bench-agent-118", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-119", name: "bench-agent-119", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-120", name: "bench-agent-120", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-121", name: "bench-agent-121", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-122", name: "bench-agent-122", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-123", name: "bench-agent-123", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-124", name: "bench-agent-124", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-125", name: "bench-agent-125", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-126", name: "bench-agent-126", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-127", name: "bench-agent-127", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-128", name: "bench-agent-128", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-129", name: "bench-agent-129", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-130", name: "bench-agent-130", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-131", name: "bench-agent-131", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-132", name: "bench-agent-132", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-133", name: "bench-agent-133", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-134", name: "bench-agent-134", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-135", name: "bench-agent-135", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-136", name: "bench-agent-136", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-137", name: "bench-agent-137", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-138", name: "bench-agent-138", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-139", name: "bench-agent-139", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-140", name: "bench-agent-140", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-141", name: "bench-agent-141", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-142", name: "bench-agent-142", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-143", name: "bench-agent-143", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-144", name: "bench-agent-144", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-145", name: "bench-agent-145", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-146", name: "bench-agent-146", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-147", name: "bench-agent-147", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-148", name: "bench-agent-148", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-149", name: "bench-agent-149", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-150", name: "bench-agent-150", roles: ["admin"]}
+
+database:
+  dsn: "postgres://platform:platform_secret@localhost:5432/mcp_bench_pk_api_checkable_wrong_haiku?sslmode=disable"
+  max_open_conns: 10
+
+audit:
+  enabled: true
+  log_tool_calls: true
+  delivery: sync
+
+# The per-user tool-call limiter would throttle the benchmark identities;
+# the study measures agent decisions, not the limiter.
+rate_limit:
+  enabled: false
+
+enrichment:
+  trino_semantic_enrichment: false
+  datahub_query_enrichment: false
+  s3_semantic_enrichment: false
+  datahub_storage_enrichment: false
+
+apigateway:
+  # Keep the fixture catalog the only discoverable api surface.
+  self_connection:
+    enabled: false
+  util_connection:
+    enabled: false
+
+# The persona is NAMED admin because the admin REST API (the harness's
+# read-back and apisetup registration path) requires the caller's resolved
+# persona to be the deployment's admin persona; MCP tool access is still
+# the allowlist below.
+#
+# list_connections is part of the shipped search-then-invoke flow: the
+# api_* tools take a connection name, and the platform's own not-found
+# error steers agents to list_connections to discover it. Omitting it sent
+# agents guessing connection names in the #1027 pilot.
+personas:
+  admin:
+    display_name: "Bench Perishable Knowledge (PK)"
+    roles: ["admin"]
+    tools:
+      # fetch travels with search: search returns references that only fetch
+      # can dereference. An arm that grants search without it measures a
+      # delivery architecture the platform does not ship (#1176).
+      allow: ["platform_info", "search", "fetch", "list_connections", "api_list_specs", "api_list_endpoints", "api_get_endpoint_schema", "api_invoke_endpoint", "memory_*", "apply_knowledge"]
+    connections:
+      allow: ["*"]
+  default_persona: admin
+
+memory:
+  embedding:
+    provider: ollama
+    ollama:
+      url: "http://localhost:11434"
+      model: nomic-embed-text

@@ -1,0 +1,11 @@
+{
+  "treatment_id": "fiscal-boundary-correct",
+  "insight_id": "688514d15b089a90396b89b5042415b6",
+  "changeset_id": "eff0bd29240dfb01dbbdc8942398243c",
+  "teacher_email": "bench-agent-200@apikey.local",
+  "witness_email": "bench-agent-201@apikey.local",
+  "text": "The company fiscal year runs February 1 through January 31: fiscal year 2025 is 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the January-December calendar year.",
+  "needle": "February 1 through January 31: fiscal year 2025 is 2025-02-01 through 2026-01-31",
+  "in_search": true,
+  "in_sink": true
+}

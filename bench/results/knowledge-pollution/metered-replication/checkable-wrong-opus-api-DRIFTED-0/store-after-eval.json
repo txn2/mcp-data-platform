@@ -1,0 +1,119 @@
+{
+  "read_at": "2026-08-07T05:31:21.025998Z",
+  "insights": [
+    {
+      "id": "0d879b39de650bae050e658a9329d126",
+      "status": "pending",
+      "captured_by": "bench-agent-003@apikey.local"
+    },
+    {
+      "id": "15e7e12a301c8d7b86e00985dd27e31a",
+      "status": "pending",
+      "captured_by": "bench-agent-004@apikey.local"
+    },
+    {
+      "id": "4b6bcf948cacfa7f2e929e4b936cd632",
+      "status": "pending",
+      "captured_by": "bench-agent-005@apikey.local"
+    },
+    {
+      "id": "76b40b0659e0f2fa3396a6a3a2014eba",
+      "status": "applied",
+      "captured_by": "bench-agent-001@apikey.local"
+    },
+    {
+      "id": "7e2b655d84e1aab50a72dca4c92c214a",
+      "status": "applied",
+      "captured_by": "bench-agent-200@apikey.local"
+    },
+    {
+      "id": "8408f6dc2275d6329f7b994dbb74a333",
+      "status": "pending",
+      "captured_by": "bench-agent-006@apikey.local"
+    },
+    {
+      "id": "a9191b7cd21d62d10cc8d4b1f7e67e78",
+      "status": "pending",
+      "captured_by": "bench-agent-007@apikey.local"
+    },
+    {
+      "id": "ad02f6e505df14956b2fb8ae7653c445",
+      "status": "applied",
+      "captured_by": "bench-agent-005@apikey.local"
+    },
+    {
+      "id": "ae64bc5137c129ae481af9f2c59f3de8",
+      "status": "pending",
+      "captured_by": "bench-agent-003@apikey.local"
+    },
+    {
+      "id": "b0555b0d1c17ef049e5bb0757cf41fe0",
+      "status": "pending",
+      "captured_by": "bench-agent-002@apikey.local"
+    },
+    {
+      "id": "d37baa5da54478c58fd4119c9e474bbe",
+      "status": "pending",
+      "captured_by": "bench-agent-004@apikey.local"
+    }
+  ],
+  "changesets": [
+    {
+      "id": "02e7763ba037eee89e25c7d7e06d2dc7",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    },
+    {
+      "id": "4894e438b91dfb440be085dc8cba91f8",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    },
+    {
+      "id": "522d378716ee6d6f75c369599ca035a1",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    },
+    {
+      "id": "57f6ca8c1a46e68fdf3102a41661f16a",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    },
+    {
+      "id": "5ce29745c1b253f359c461c2923ab1fc",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    },
+    {
+      "id": "8980ecb57a921b098acc737efd8cb5e8",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    },
+    {
+      "id": "a0632099725b18f3ba423196f6bebda2",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    }
+  ],
+  "pages": [
+    {
+      "slug": "bench-warehouse-guide",
+      "title": "Bench Warehouse Guide",
+      "summary": "Which bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30."
+    },
+    {
+      "slug": "customer-tier-definitions",
+      "title": "Customer Tier Definitions",
+      "summary": "A 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone."
+    },
+    {
+      "slug": "fiscal-calendar-policy",
+      "title": "Fiscal Calendar Policy",
+      "summary": "The fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year."
+    },
+    {
+      "slug": "revenue-reporting-policy",
+      "title": "Revenue Reporting Policy",
+      "summary": "Revenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting."
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "read_at": "2026-08-07T01:23:00.265258Z",
+  "insights": [
+    {
+      "id": "03d6d25bf72547e12be967c8ab8c9942",
+      "status": "pending",
+      "captured_by": "bench-agent-001@apikey.local"
+    },
+    {
+      "id": "075d3685b7750bedaea355507a7b4209",
+      "status": "pending",
+      "captured_by": "bench-agent-007@apikey.local"
+    },
+    {
+      "id": "0d63470f5a6ad582fc3db2e400a15c7a",
+      "status": "pending",
+      "captured_by": "bench-agent-003@apikey.local"
+    },
+    {
+      "id": "0f20f4bb1edbe82c3aa196f9fb2db334",
+      "status": "pending",
+      "captured_by": "bench-agent-022@apikey.local"
+    },
+    {
+      "id": "1fb386ffc95fd01d35434eeaf28a02b0",
+      "status": "pending",
+      "captured_by": "bench-agent-019@apikey.local"
+    },
+    {
+      "id": "258ef2db39612f5e8f03d3d1f0760e07",
+      "status": "pending",
+      "captured_by": "bench-agent-024@apikey.local"
+    },
+    {
+      "id": "2aaef29603215a0920d407eab476d19c",
+      "status": "pending",
+      "captured_by": "bench-agent-013@apikey.local"
+    },
+    {
+      "id": "2dac871051e566ee910b3ca650f20bd4",
+      "status": "pending",
+      "captured_by": "bench-agent-009@apikey.local"
+    },
+    {
+      "id": "39194ff9300bceaaa8a86e58e1544d19",
+      "status": "pending",
+      "captured_by": "bench-agent-011@apikey.local"
+    },
+    {
+      "id": "49e00d007490a4d0d058077784506855",
+      "status": "pending",
+      "captured_by": "bench-agent-002@apikey.local"
+    },
+    {
+      "id": "4eae361b06caf3df5c3d0162174418da",
+      "status": "pending",
+      "captured_by": "bench-agent-016@apikey.local"
+    },
+    {
+      "id": "580bbdb1b9a37ce3ce987a5c3866c115",
+      "status": "pending",
+      "captured_by": "bench-agent-005@apikey.local"
+    },
+    {
+      "id": "6ab713a42be52883284e121c46c4cc5a",
+      "status": "pending",
+      "captured_by": "bench-agent-004@apikey.local"
+    },
+    {
+      "id": "7293aa1f9d277918913116c9b888cdcd",
+      "status": "pending",
+      "captured_by": "bench-agent-012@apikey.local"
+    },
+    {
+      "id": "7fcae687a62257bf60d2dda57ddfb3de",
+      "status": "pending",
+      "captured_by": "bench-agent-018@apikey.local"
+    },
+    {
+      "id": "a34ebf1569eeda2666a0dca6fee7b539",
+      "status": "pending",
+      "captured_by": "bench-agent-006@apikey.local"
+    },
+    {
+      "id": "c4520ec6a0413e045c97d1fd0a775df1",
+      "status": "pending",
+      "captured_by": "bench-agent-017@apikey.local"
+    },
+    {
+      "id": "c5fd9dab77f2b79ecab7f958bb58b12e",
+      "status": "pending",
+      "captured_by": "bench-agent-010@apikey.local"
+    },
+    {
+      "id": "cba37db696db1a442abe89cfdb33b329",
+      "status": "pending",
+      "captured_by": "bench-agent-014@apikey.local"
+    },
+    {
+      "id": "ce34db47b9189b20458feb392e507037",
+      "status": "applied",
+      "captured_by": "bench-agent-140@apikey.local"
+    },
+    {
+      "id": "d28d21db14eb631f1d33ac45359e5f93",
+      "status": "pending",
+      "captured_by": "bench-agent-023@apikey.local"
+    },
+    {
+      "id": "de50ee41e686d698b4675dca88217b9f",
+      "status": "pending",
+      "captured_by": "bench-agent-021@apikey.local"
+    },
+    {
+      "id": "dfd6335cb05b1f5b82d34606e9ca838c",
+      "status": "pending",
+      "captured_by": "bench-agent-015@apikey.local"
+    },
+    {
+      "id": "f784ae15c5dab5fd0a0b258c65764b80",
+      "status": "pending",
+      "captured_by": "bench-agent-020@apikey.local"
+    }
+  ],
+  "changesets": [
+    {
+      "id": "604e25a7cd71c7adaf77f64b34a9aa09",
+      "target_urn": "kp:acme-provisioned-monitor-count",
+      "rolled_back": false
+    }
+  ],
+  "pages": [
+    {
+      "slug": "acme-provisioned-monitor-count",
+      "title": "ACME Provisioned Monitor Count",
+      "summary": "The ACME account has 5 listening monitors provisioned."
+    }
+  ]
+}

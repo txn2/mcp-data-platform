@@ -457,7 +457,7 @@ verify-release: verify mutate
 ## verify: Run the CI-equivalent per-commit suite (test, lint, security, SAST, coverage, release)
 ## NOTE: mutation testing is intentionally excluded — it lives in verify-release.
 ## Do not add `mutate` back to this per-commit target.
-verify: tools-check fmt swagger-check embed-clean test migrate-check test-realdb frontend-test frontend-lint frontend-e2e lint bench-test bench-lint security semgrep codeql coverage-report patch-coverage doc-check dead-code release-check
+verify: tools-check fmt swagger-check embed-clean test migrate-check test-realdb frontend-test frontend-lint frontend-e2e lint bench-test bench-lint bench-report-check security semgrep codeql coverage-report patch-coverage doc-check dead-code release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 	@# Write the gate sentinel: the short SHA-256 of the working-tree diff
@@ -1323,6 +1323,21 @@ bench-report-knowledge-layer-pdf:
 ## bench-report-knowledge-use-pdf: Render the knowledge-use benchmark report to PDF + HTML in build/report-knowledge-use/ (needs pandoc + tectonic; not part of verify)
 bench-report-knowledge-use-pdf:
 	@bash bench/reports/knowledge-use/render-report.sh
+
+## bench-report-knowledge-pollution-pdf: Render the knowledge-pollution benchmark report to PDF + HTML in build/report-knowledge-pollution/ (needs pandoc + tectonic; not part of verify)
+bench-report-knowledge-pollution-pdf:
+	@bash bench/reports/knowledge-pollution/render-report.sh
+
+## bench-report-check: Recompute the published benchmark reports from the committed archives and pin the headline numbers (stdlib python3, offline; part of verify)
+bench-report-check:
+	@echo "Recomputing the knowledge-pollution report from bench/results/ (pins the published headline numbers)..."
+	@python3 bench/reports/knowledge-pollution/pollution_tables.py > /dev/null || \
+		{ echo "FAIL: bench/reports/knowledge-pollution/pollution_tables.py — the archives no longer reproduce the published report."; \
+		  python3 bench/reports/knowledge-pollution/pollution_tables.py | grep -A2 "T13"; exit 1; }
+	@echo "Recomputing the knowledge-use report tables (smoke: script must run clean)..."
+	@python3 bench/reports/knowledge-use/pk_tables.py > /dev/null || \
+		{ echo "FAIL: bench/reports/knowledge-use/pk_tables.py no longer runs against bench/results/knowledge-use/."; exit 1; }
+	@echo "OK: report toolchains reproduce from the committed archives."
 
 ## bench-calibrate: Run the judge calibration and print its human-agreement rate (needs ANTHROPIC_API_KEY; uses the rubric's pinned model)
 bench-calibrate:

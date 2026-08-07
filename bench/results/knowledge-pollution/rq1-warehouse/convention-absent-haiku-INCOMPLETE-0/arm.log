@@ -1,0 +1,34 @@
+=== pollution arm convention-absent-haiku ===
+commit 23ecf6b0549711f186cf925f77fd7a376998cbfb  database mcp_bench_p_convention_absent_haiku  treatment none  k=8  tasks s3-fiscal-2025-count s3-fiscal-2025-net s3-fiscal-q1-net
+
+--- build ---
+
+--- stop any platform on http://localhost:8098 ---
+
+--- fresh database mcp_bench_p_convention_absent_haiku (8.5: arm isolation) ---
+NOTICE:  database "mcp_bench_p_convention_absent_haiku" does not exist, skipping
+
+--- arm config (a3, differing from the committed arm only in DSN) ---
+
+--- DataHub baseline (8.5: clear editable aspects left by any prior promote) ---
+  orders: delete editabledatasetproperties -> HTTP 200
+  customers: delete editabledatasetproperties -> HTTP 200
+  daily_region_revenue: delete editabledatasetproperties -> HTTP 200
+  legacy_orders: delete editabledatasetproperties -> HTTP 200
+
+--- start platform ---
+
+--- seed knowledge pages (the co-present correct sources, 5.3) ---
+
+--- truncate gate state (8.5) ---
+
+--- grader agreement (5.1) ---
+
+--- restricted task set ---
+
+--- store snapshot of the clean stack ---
+
+--- store snapshot before the eval (7.3 baseline) ---
+
+--- evaluate: haiku, k=8, 3 task(s) ---
+time=2026-08-03T12:18:31.971-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=35169

@@ -1,0 +1,9 @@
+bench run: arm=a3 model=claude-haiku-4-5-20251001 (anthropic) k=8
+  platform dev @ http://localhost:8098 | commit aa586450f459 | seed 930 | tasks db286dcd9e3b
+  2026-08-07T04:43:50Z .. 2026-08-07T04:46:08Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1       8     50.0%    0.0%        8.0       11.0        15728          4        1728              0
+
+task                            graded  correct  pass^k
+s3-fiscal-2025-count                8        4  false

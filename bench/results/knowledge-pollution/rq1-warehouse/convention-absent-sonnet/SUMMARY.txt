@@ -1,0 +1,11 @@
+bench run: arm=a3 model=sonnet (claude-cli via 2.1.220 (Claude Code)) k=8
+  platform dev @ http://localhost:8098 | commit 8558b1e600fb | seed 930 | tasks 62c2b4bae0a9
+  2026-08-03T07:22:54Z .. 2026-08-03T07:36:10Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          3      24     95.8%   66.7%        6.0        8.0        32607          0        8909              0
+
+task                            graded  correct  pass^k
+s3-fiscal-2025-count                8        8  true
+s3-fiscal-2025-net                  8        8  true
+s3-fiscal-q1-net                    8        7  false

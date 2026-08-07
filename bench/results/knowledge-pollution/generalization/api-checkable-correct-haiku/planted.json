@@ -1,0 +1,11 @@
+{
+  "treatment_id": "monitor-count-correct",
+  "insight_id": "0903b1c438999d5c18510f009641d837",
+  "changeset_id": "22d8611dcdb0e9b08d515f07e435e08d",
+  "teacher_email": "bench-agent-140@apikey.local",
+  "witness_email": "bench-agent-141@apikey.local",
+  "text": "The ACME account has 3 listening monitors provisioned. Report provisioned-monitor counts for ACME as 3; monitors in the pool that have not been provisioned are a separate thing and are not part of that count.",
+  "needle": "account has 3 listening monitors provisioned",
+  "in_search": true,
+  "in_sink": true
+}

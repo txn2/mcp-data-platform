@@ -41,11 +41,15 @@ Protocol: [`docs/knowledge-use-protocol.md`](../docs/knowledge-use-protocol.md).
 All seven families are under [`knowledge-use/`](knowledge-use/), indexed by
 [`knowledge-use/README.md`](knowledge-use/README.md).
 
-## Knowledge pollution (in progress)
+## Knowledge pollution (published)
 
-Epic: issue #1163. No report and no DOI yet. The protocol is pre-registered in
+Epic: issue #1163. Published as
+[`docs/reference/benchmark-report-knowledge-pollution.md`](../../docs/reference/benchmark-report-knowledge-pollution.md)
+(version 1.0, 2026-08-07; DOI 10.5281/zenodo.21834813). The protocol is
+pre-registered in
 [`docs/knowledge-pollution-study-design.md`](../docs/knowledge-pollution-study-design.md)
-and the confirmatory runs have not been executed.
+and the confirmatory matrix ran in full; every table recomputes offline via
+`bench/reports/knowledge-pollution/pollution_tables.py`.
 
 All families are under [`knowledge-pollution/`](knowledge-pollution/), indexed
 by [`knowledge-pollution/README.md`](knowledge-pollution/README.md).

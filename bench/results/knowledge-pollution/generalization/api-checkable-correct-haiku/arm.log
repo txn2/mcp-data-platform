@@ -1,0 +1,77 @@
+=== pollution API arm api-checkable-correct-haiku ===
+commit 2a97d65881a6ecc284466aa70bd7fe305104ca26-dirty  database mcp_bench_pk_api_checkable_correct_haiku  treatment monitor-count-correct  world monitors-3  k=24
+
+--- build ---
+
+--- stop anything already serving ---
+
+--- fresh database mcp_bench_pk_api_checkable_correct_haiku ---
+NOTICE:  database "mcp_bench_pk_api_checkable_correct_haiku" does not exist, skipping
+
+--- arm config: pk config, own DSN, plus apply_knowledge ---
+
+--- start the perishable fixture service (world monitors-3) ---
+
+--- start platform ---
+
+--- register the fixture with the platform ---
+2026/08/06 17:10:34 apisetup: catalog "bench-acme" + api connection "acme" -> http://127.0.0.1:8112 registered (bench/specs/pk.json)
+
+--- truncate gate state ---
+
+--- store snapshot of the clean stack ---
+
+--- plant monitor-count-correct ---
+time=2026-08-06T17:10:34.982-07:00 level=INFO msg=captured treatment=monitor-count-correct insight_id=0903b1c438999d5c18510f009641d837 teacher=bench-agent-140@apikey.local
+time=2026-08-06T17:10:35.219-07:00 level=INFO msg="witness read-back" witness=bench-agent-141@apikey.local needle="account has 3 listening monitors provisioned" in_search=true in_sink=true
+{
+  "treatment_id": "monitor-count-correct",
+  "insight_id": "0903b1c438999d5c18510f009641d837",
+  "changeset_id": "22d8611dcdb0e9b08d515f07e435e08d",
+  "teacher_email": "bench-agent-140@apikey.local",
+  "witness_email": "bench-agent-141@apikey.local",
+  "text": "The ACME account has 3 listening monitors provisioned. Report provisioned-monitor counts for ACME as 3; monitors in the pool that have not been provisioned are a separate thing and are not part of that count.",
+  "needle": "account has 3 listening monitors provisioned",
+  "in_search": true,
+  "in_sink": true
+}
+
+--- settle 300s before the first episode ---
+
+--- store snapshot before the eval (7.3 baseline) ---
+
+--- evaluate: haiku, k=24, monitor-count ---
+2026/08/06 17:15:35 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=1 behavior=answer seq=1
+2026/08/06 17:15:53 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=2 behavior=answer seq=2
+2026/08/06 17:16:05 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=3 behavior=answer seq=3
+2026/08/06 17:16:15 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=4 behavior=answer seq=4
+2026/08/06 17:16:27 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=5 behavior=answer seq=5
+2026/08/06 17:16:39 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=6 behavior=answer seq=6
+2026/08/06 17:16:51 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=7 behavior=answer seq=7
+2026/08/06 17:17:03 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=8 behavior=answer seq=8
+2026/08/06 17:17:15 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=9 behavior=answer seq=9
+2026/08/06 17:17:27 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=10 behavior=answer seq=10
+2026/08/06 17:17:40 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=11 behavior=answer seq=11
+2026/08/06 17:17:53 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=12 behavior=answer seq=12
+2026/08/06 17:18:04 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=13 behavior=answer seq=13
+2026/08/06 17:18:16 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=14 behavior=answer seq=14
+2026/08/06 17:18:29 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=15 behavior=answer seq=15
+2026/08/06 17:18:41 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=16 behavior=answer seq=16
+2026/08/06 17:18:52 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=17 behavior=answer seq=17
+2026/08/06 17:19:04 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=18 behavior=answer seq=18
+2026/08/06 17:19:16 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=19 behavior=answer seq=19
+2026/08/06 17:19:27 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=20 behavior=answer seq=20
+2026/08/06 17:19:38 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=21 behavior=answer seq=21
+2026/08/06 17:19:49 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=22 behavior=answer seq=22
+2026/08/06 17:20:04 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=23 behavior=answer seq=23
+2026/08/06 17:20:17 INFO cell attempt cell=monitor-count/none/monitors-3 replicate=24 behavior=answer seq=24
+
+cell                                                        n  verified  correct  trusted  failed
+monitor-count/none/monitors-3                              24         0       24        0       0
+
+archive: build/bench-results/pollution-crossfixture-20260806-170146/api-checkable-correct-haiku/results
+
+--- store snapshot after the eval (7.3) ---
+store state constant across the eval
+
+=== arm api-checkable-correct-haiku complete: build/bench-results/pollution-crossfixture-20260806-170146/api-checkable-correct-haiku ===

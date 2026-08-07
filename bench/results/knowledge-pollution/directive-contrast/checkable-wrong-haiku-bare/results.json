@@ -1,0 +1,708 @@
+{
+  "manifest": {
+    "started_at": "2026-08-05T20:25:57.279528Z",
+    "finished_at": "2026-08-05T20:31:26.115077Z",
+    "git_commit": "f75921024b9ac9d4a25ded54d85237fda55dad09",
+    "platform_version": "dev",
+    "target": "http://localhost:8098",
+    "arm": "a3",
+    "llm_provider": "claude-cli",
+    "client_version": "2.1.222 (Claude Code)",
+    "disallowed_tools": [
+      "Bash",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Read",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "TodoWrite",
+      "ToolSearch",
+      "ReadMcpResourceTool",
+      "ListMcpResourcesTool"
+    ],
+    "model": "haiku",
+    "seed": 930,
+    "task_set_hash": "c486a443831b7d27239393a7f42c971d726de385f2e3137afe9b8650410e0677",
+    "k": 24,
+    "suite": "s3"
+  },
+  "attempts": [
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 1,
+      "session_id": "dps_4aff7345704aebf5d0b141996cd3ce35",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 17770,
+      "input_tokens": 34,
+      "output_tokens": 972,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 157,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 103,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k1.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 2,
+      "session_id": "dps_e4688fe11ca67861872e622e9346136a",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11400,
+      "input_tokens": 26,
+      "output_tokens": 690,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 143,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k2.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 3,
+      "session_id": "dps_e1cf1d58877e5c7b7926110ac0e54694",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 13344,
+      "input_tokens": 26,
+      "output_tokens": 731,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 109,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k3.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 4,
+      "session_id": "dps_b680c3512fd4d97edbb04136af480f43",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11772,
+      "input_tokens": 26,
+      "output_tokens": 677,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 141,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k4.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 5,
+      "session_id": "dps_3100c52be8f0240fc66f2b98ad4181d8",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 13261,
+      "input_tokens": 26,
+      "output_tokens": 710,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 133,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k5.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 6,
+      "session_id": "dps_a3641be346d59e0f7382024ee1a44ac4",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 15322,
+      "input_tokens": 34,
+      "output_tokens": 870,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 180,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 103,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k6.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 7,
+      "session_id": "dps_46d32e1f68ed069abdd600f35375e11a",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11442,
+      "input_tokens": 26,
+      "output_tokens": 646,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 115,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k7.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 8,
+      "session_id": "dps_129788772fcea804bc463d6b7e98c423",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11264,
+      "input_tokens": 26,
+      "output_tokens": 640,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 125,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k8.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 9,
+      "session_id": "dps_20d4c3cfe9515fc148d60c1c7a40d67e",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 10957,
+      "input_tokens": 26,
+      "output_tokens": 606,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 164,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k9.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 10,
+      "session_id": "dps_dc2309f37a7345ab63763156f0f0201e",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11742,
+      "input_tokens": 26,
+      "output_tokens": 582,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 98,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k10.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 11,
+      "session_id": "dps_549f10ab8ee01bdce155de6ccd719470",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 17193,
+      "input_tokens": 34,
+      "output_tokens": 934,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 160,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 103,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k11.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 12,
+      "session_id": "dps_a13c1410900c64dc8e45d30999dbc2ce",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 14113,
+      "input_tokens": 34,
+      "output_tokens": 762,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 96,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 103,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k12.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 13,
+      "session_id": "dps_854b5ad0b1de7da8af9ad0e32efe0851",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 16153,
+      "input_tokens": 34,
+      "output_tokens": 949,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 122,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k13.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 14,
+      "session_id": "dps_f91065c1fa0e917f7ed20abc87eebe15",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11675,
+      "input_tokens": 26,
+      "output_tokens": 599,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 130,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k14.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 15,
+      "session_id": "dps_c5275c8faf09657f97c6064d1668e626",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 16658,
+      "input_tokens": 34,
+      "output_tokens": 861,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 110,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k15.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 16,
+      "session_id": "dps_e83b298d297d3cd0ab6a5e1bf35e1af6",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 19450,
+      "input_tokens": 34,
+      "output_tokens": 1117,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 115,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k16.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 17,
+      "session_id": "dps_fa9d53e2d2daade2e2232ee158b1de7c",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11071,
+      "input_tokens": 26,
+      "output_tokens": 624,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 132,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k17.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 18,
+      "session_id": "dps_94dd27e5d35340ee3c3dd860b91a133b",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 14510,
+      "input_tokens": 34,
+      "output_tokens": 789,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 154,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 103,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k18.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 19,
+      "session_id": "dps_dea98cdc6cc2d256866688594e2efa69",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 12090,
+      "input_tokens": 26,
+      "output_tokens": 696,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 130,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k19.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 20,
+      "session_id": "dps_5183ce19bbe2ed87fc03cfe63ea4983e",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 17075,
+      "input_tokens": 34,
+      "output_tokens": 862,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 135,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 103,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k20.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 21,
+      "session_id": "dps_1744d9a83f0954e828e11c0bb282d78d",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 10848,
+      "input_tokens": 26,
+      "output_tokens": 558,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 132,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k21.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 22,
+      "session_id": "dps_5bd5de7b32464cdce440f7a79cf71f6a",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 14024,
+      "input_tokens": 34,
+      "output_tokens": 798,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 126,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k22.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 23,
+      "session_id": "dps_eb04684cf7990d4f0f47129b31da2706",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 10514,
+      "input_tokens": 26,
+      "output_tokens": 546,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 129,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k23.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 24,
+      "session_id": "dps_d8b4e7ac180e1b56f90606d2de0bdf50",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 14947,
+      "input_tokens": 26,
+      "output_tokens": 621,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 111,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-directive-20260805-132046/checkable-wrong-haiku-bare/results.json.transcripts/s3-deprecated-order-count-a3-k24.json"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "graded": 24,
+      "correct": 6,
+      "pass_rate": 0.25,
+      "pass_k": false
+    }
+  ],
+  "suites": [
+    {
+      "suite": "s3",
+      "tasks": 1,
+      "graded": 24,
+      "accuracy": 0.25,
+      "pass_k_rate": 0,
+      "median_tool_calls": 1,
+      "p90_tool_calls": 2,
+      "median_wall_ms": 13261,
+      "tool_errors": 0,
+      "enrichment_tokens_full": 618,
+      "enrichment_tokens_dedup": 0
+    }
+  ]
+}

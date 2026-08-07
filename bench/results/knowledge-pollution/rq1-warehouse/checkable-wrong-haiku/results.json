@@ -1,0 +1,708 @@
+{
+  "manifest": {
+    "started_at": "2026-08-04T05:00:41.607636Z",
+    "finished_at": "2026-08-04T05:06:26.722414Z",
+    "git_commit": "dd973368783895b4c9f61ba3c8b7ef61ddb69f6a",
+    "platform_version": "dev",
+    "target": "http://localhost:8098",
+    "arm": "a3",
+    "llm_provider": "claude-cli",
+    "client_version": "2.1.221 (Claude Code)",
+    "disallowed_tools": [
+      "Bash",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Read",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "TodoWrite",
+      "ToolSearch",
+      "ReadMcpResourceTool",
+      "ListMcpResourcesTool"
+    ],
+    "model": "haiku",
+    "seed": 930,
+    "task_set_hash": "c486a443831b7d27239393a7f42c971d726de385f2e3137afe9b8650410e0677",
+    "k": 24,
+    "suite": "s3"
+  },
+  "attempts": [
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 1,
+      "session_id": "dps_7b7322aa5fec81e56477a8ec6951d71c",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 18064,
+      "input_tokens": 34,
+      "output_tokens": 1081,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 183,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 118,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k1.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 2,
+      "session_id": "dps_dc96e1d760bb9e53c34373e799d6285b",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11040,
+      "input_tokens": 26,
+      "output_tokens": 598,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 127,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k2.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 3,
+      "session_id": "dps_78931fca011d5b5118f81e8f15af241b",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 13254,
+      "input_tokens": 26,
+      "output_tokens": 815,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 132,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k3.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 4,
+      "session_id": "dps_d2962cfd2bea784ed268c0e67eed998e",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 12200,
+      "input_tokens": 26,
+      "output_tokens": 705,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 154,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k4.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 5,
+      "session_id": "dps_52e7a0258dccc742b13037068f7b9993",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 14876,
+      "input_tokens": 34,
+      "output_tokens": 864,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 158,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k5.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 6,
+      "session_id": "dps_88931ec885e998ad7fd6e37db90f7957",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 13281,
+      "input_tokens": 26,
+      "output_tokens": 748,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 175,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k6.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 7,
+      "session_id": "dps_1a6a58ab5d2ee2220d23ac0054d5a50e",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11619,
+      "input_tokens": 26,
+      "output_tokens": 711,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 137,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k7.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 8,
+      "session_id": "dps_44869e35fcb2b5b2edac9e9bed1d1793",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11705,
+      "input_tokens": 26,
+      "output_tokens": 684,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 130,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k8.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 9,
+      "session_id": "dps_a8d6269e0b46c6717f3d70030a2e08f4",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 20063,
+      "input_tokens": 34,
+      "output_tokens": 1086,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 212,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 118,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k9.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 10,
+      "session_id": "dps_ce19d154e3d4177d50d63d59297a6c03",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 12239,
+      "input_tokens": 26,
+      "output_tokens": 702,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 124,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k10.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 11,
+      "session_id": "dps_ca2b0ebc267dcffbcb5c28b68447f653",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 10977,
+      "input_tokens": 26,
+      "output_tokens": 624,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 135,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k11.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 12,
+      "session_id": "dps_8add9fce892333cc122916dbb48ec9dd",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 3,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 20065,
+      "input_tokens": 42,
+      "output_tokens": 1214,
+      "audit": {
+        "audited_calls": 3,
+        "errors": 0,
+        "total_duration_ms": 203,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 118,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k12.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 13,
+      "session_id": "dps_4f17e51dcfc53239511977250fe7fef1",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 13052,
+      "input_tokens": 26,
+      "output_tokens": 750,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 116,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k13.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 14,
+      "session_id": "dps_0eb555c2b93b04cdba726342003d2d08",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 17093,
+      "input_tokens": 34,
+      "output_tokens": 950,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 163,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 118,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k14.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 15,
+      "session_id": "dps_ae688a53b585cceac8bd309bf909a3e5",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 17102,
+      "input_tokens": 34,
+      "output_tokens": 942,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 117,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 118,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k15.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 16,
+      "session_id": "dps_a284d173b6b9e91762cb9d26e3bfddba",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 12673,
+      "input_tokens": 26,
+      "output_tokens": 678,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 116,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k16.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 17,
+      "session_id": "dps_6a7d24163ef3a5138bcebd93fa79824d",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 15470,
+      "input_tokens": 34,
+      "output_tokens": 985,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 144,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k17.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 18,
+      "session_id": "dps_bbaba5da8636b8d386c82f49eab50c3a",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 17254,
+      "input_tokens": 34,
+      "output_tokens": 988,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 118,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k18.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 19,
+      "session_id": "dps_241d6589816099edb4166e7e49d6401e",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 15772,
+      "input_tokens": 34,
+      "output_tokens": 909,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 112,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 118,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k19.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 20,
+      "session_id": "dps_52d56aa6db68650a753912b6308e531b",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 12665,
+      "input_tokens": 26,
+      "output_tokens": 645,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 126,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k20.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 21,
+      "session_id": "dps_f922b4939dc4a711f7d65c78183bd8d2",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11271,
+      "input_tokens": 26,
+      "output_tokens": 636,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 109,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k21.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 22,
+      "session_id": "dps_f3f30a09895608948e14f3826372992b",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 16050,
+      "input_tokens": 34,
+      "output_tokens": 987,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 160,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 118,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k22.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 23,
+      "session_id": "dps_ba62a980a4b068c94fb96ccc08326da4",
+      "correct": false,
+      "final_answer": "1140",
+      "got_value": 1140,
+      "tool_calls": 1,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 12103,
+      "input_tokens": 26,
+      "output_tokens": 729,
+      "audit": {
+        "audited_calls": 1,
+        "errors": 0,
+        "total_duration_ms": 135,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k23.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 24,
+      "session_id": "dps_2408508a6298cd61e0574a8141ffa5cf",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 14953,
+      "input_tokens": 34,
+      "output_tokens": 826,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 136,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 118,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-wrong-haiku/results.json.transcripts/s3-deprecated-order-count-a3-k24.json"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "graded": 24,
+      "correct": 8,
+      "pass_rate": 0.3333333333333333,
+      "pass_k": false
+    }
+  ],
+  "suites": [
+    {
+      "suite": "s3",
+      "tasks": 1,
+      "graded": 24,
+      "accuracy": 0.3333333333333333,
+      "pass_k_rate": 0,
+      "median_tool_calls": 1,
+      "p90_tool_calls": 2,
+      "median_wall_ms": 13254,
+      "tool_errors": 0,
+      "enrichment_tokens_full": 944,
+      "enrichment_tokens_dedup": 0
+    }
+  ]
+}

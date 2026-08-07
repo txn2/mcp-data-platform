@@ -1,0 +1,74 @@
+=== pollution arm convention-absent-haiku ===
+commit 296f86567aa69d0f01c6b911de000adafc0b58da  database mcp_bench_p_convention_absent_haiku  treatment none  k=8  tasks s3-fiscal-2025-count s3-fiscal-2025-net s3-fiscal-q1-net
+
+--- build ---
+
+--- stop any platform on http://localhost:8098 ---
+
+--- fresh database mcp_bench_p_convention_absent_haiku (8.5: arm isolation) ---
+
+--- arm config (a3, differing from the committed arm only in DSN) ---
+
+--- DataHub baseline (8.5: clear editable aspects left by any prior promote) ---
+  orders: delete editabledatasetproperties -> HTTP 200
+  customers: delete editabledatasetproperties -> HTTP 200
+  daily_region_revenue: delete editabledatasetproperties -> HTTP 200
+  legacy_orders: delete editabledatasetproperties -> HTTP 200
+
+--- start platform ---
+
+--- seed knowledge pages (the co-present correct sources, 5.3) ---
+
+--- truncate gate state (8.5) ---
+
+--- grader agreement (5.1) ---
+
+--- restricted task set ---
+
+--- store snapshot of the clean stack ---
+
+--- store snapshot before the eval (7.3 baseline) ---
+
+--- evaluate: haiku, k=8, 3 task(s) ---
+time=2026-08-03T17:10:46.449-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=1 arm=a3 correct=true tool_calls=4 wall_ms=19777
+time=2026-08-03T17:11:09.479-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=2 arm=a3 correct=true tool_calls=4 wall_ms=23007
+time=2026-08-03T17:11:50.761-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=3 arm=a3 correct=false tool_calls=8 wall_ms=41275
+time=2026-08-03T17:12:23.076-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=4 arm=a3 correct=true tool_calls=7 wall_ms=32292
+time=2026-08-03T17:12:46.676-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=5 arm=a3 correct=true tool_calls=5 wall_ms=23589
+time=2026-08-03T17:13:06.013-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=6 arm=a3 correct=true tool_calls=4 wall_ms=19331
+time=2026-08-03T17:13:41.369-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=7 arm=a3 correct=true tool_calls=7 wall_ms=35340
+time=2026-08-03T17:14:01.453-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=8 arm=a3 correct=true tool_calls=3 wall_ms=20075
+time=2026-08-03T17:14:27.771-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=1 arm=a3 correct=false tool_calls=5 wall_ms=26312
+time=2026-08-03T17:15:11.080-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=2 arm=a3 correct=true tool_calls=9 wall_ms=43296
+time=2026-08-03T17:15:56.242-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=3 arm=a3 correct=true tool_calls=10 wall_ms=45156
+time=2026-08-03T17:16:39.201-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=4 arm=a3 correct=true tool_calls=9 wall_ms=42954
+time=2026-08-03T17:17:08.136-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=5 arm=a3 correct=false tool_calls=6 wall_ms=28925
+time=2026-08-03T17:17:38.614-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=6 arm=a3 correct=false tool_calls=6 wall_ms=30471
+time=2026-08-03T17:18:17.847-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=7 arm=a3 correct=true tool_calls=9 wall_ms=39228
+time=2026-08-03T17:18:42.604-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=8 arm=a3 correct=false tool_calls=4 wall_ms=24730
+time=2026-08-03T17:19:14.738-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=1 arm=a3 correct=false tool_calls=6 wall_ms=32119
+time=2026-08-03T17:19:47.856-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=2 arm=a3 correct=false tool_calls=8 wall_ms=33071
+time=2026-08-03T17:20:15.753-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=3 arm=a3 correct=false tool_calls=6 wall_ms=27889
+time=2026-08-03T17:20:49.534-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=4 arm=a3 correct=false tool_calls=6 wall_ms=33775
+time=2026-08-03T17:21:24.847-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=5 arm=a3 correct=false tool_calls=8 wall_ms=35307
+time=2026-08-03T17:21:56.154-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=6 arm=a3 correct=true tool_calls=6 wall_ms=31290
+time=2026-08-03T17:22:24.604-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=7 arm=a3 correct=false tool_calls=5 wall_ms=28446
+time=2026-08-03T17:22:53.612-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=8 arm=a3 correct=false tool_calls=7 wall_ms=28988
+bench run: arm=a3 model=haiku (claude-cli via 2.1.220 (Claude Code)) k=8
+  platform dev @ http://localhost:8098 | commit 296f86567aa6 | seed 930 | tasks 62c2b4bae0a9
+  2026-08-04T00:10:26Z .. 2026-08-04T00:22:53Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          3      24     50.0%    0.0%        6.0        9.0        30471         11        9966              0
+
+task                            graded  correct  pass^k
+s3-fiscal-2025-count                8        7  false
+s3-fiscal-2025-net                  8        4  false
+s3-fiscal-q1-net                    8        1  false
+results: build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-haiku/results.json
+
+--- store snapshot after the eval (7.3) ---
+drift: insight a9986e7a5ac4b880accebb68e94a6356 appeared during the arm (status=pending captured_by=bench-agent-009@apikey.local)
+drift: insight b64258b16a67cc83138b6f6ee70f5a96 appeared during the arm (status=pending captured_by=bench-agent-021@apikey.local)
+drift: insight fae33292f2e84ee96f8c617a6a40d522 appeared during the arm (status=pending captured_by=bench-agent-024@apikey.local)
+pollutionplant: the shared store changed during the arm (3 difference(s) above); the arm's later episodes met a different store than its earlier ones and it must be re-run on a fresh database
