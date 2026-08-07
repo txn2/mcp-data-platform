@@ -43,9 +43,20 @@ labels, textareas, selects, tables, tabs, badges, and alerts come from
 `src/components/ui/` — no inline Tailwind button/input recipes in new code.
 Status pills wrap `ui/badge` semantic variants (`success`/`warning`/`danger`/
 `info`/`muted`, e.g. `components/cards/StatusBadge.tsx`) rather than restating
-tint classes. Warnings and error notices are `Alert`; dashed boxes are reserved
-for `EmptyState`. Modal geometry still goes through `components/ModalShell.tsx`
-(`ui/dialog.tsx` is vendored but existing modals keep the ModalShell contract).
+tint classes. Warnings, errors, and success notices are `Alert`, whose
+`destructive`/`warning`/`success` variants carry the same tints as the matching
+badge variants; dashed boxes are reserved for `EmptyState`. Modal geometry still
+goes through `components/ModalShell.tsx` (`ui/dialog.tsx` is vendored but
+existing modals keep the ModalShell contract).
+
+A shadcn `Select` is a Radix listbox, not a native `<select>`: an item cannot
+carry an empty value, so a facet's "no filter" choice travels under a sentinel
+that the component translates back at its own boundary, and Playwright chooses
+an option by clicking the trigger then the option rather than `selectOption()`.
+
+`MarkdownEditor` sizes itself to its parent (`h-full`), so it must not be a
+stretched grid item: in a grid cell it renders as tall as the cell *plus* its
+own label and spills over the fields below. Give it a plain block parent.
 
 ## Frontend lint gates (#816)
 

@@ -10,13 +10,21 @@ import { authenticate } from "../screenshots/helpers/auth";
 async function openPrompts(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto("/portal/prompts");
-  await expect(page.getByRole("button", { name: /My Prompts/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /My Prompts/ })).toBeVisible();
 }
 
 async function openLibraryTab(page: Page): Promise<void> {
   await openPrompts(page);
-  await page.getByRole("button", { name: /^Library/ }).click();
+  await page.getByRole("tab", { name: /^Library/ }).click();
   await expect(page.getByRole("heading", { name: "Sales Reporting" })).toBeVisible();
+}
+
+// The facets and the collection picker are shadcn/Radix selects, not native
+// ones, so a choice is a trigger click followed by an option click rather than
+// selectOption().
+async function chooseOption(page: Page, label: string, option: string | RegExp): Promise<void> {
+  await page.getByLabel(label, { exact: true }).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
 }
 
 test.describe("Prompt library buckets", () => {
@@ -39,7 +47,7 @@ test.describe("Prompt library buckets", () => {
     await expect(main).not.toContainText(/\bScope\b/);
     await expect(main).not.toContainText(/\bPersona\b/);
 
-    await page.getByRole("button", { name: /^Library/ }).click();
+    await page.getByRole("tab", { name: /^Library/ }).click();
     await expect(main).not.toContainText(/\bScope\b/);
     await expect(main).not.toContainText(/\bPersona\b/);
   });
@@ -70,7 +78,7 @@ test.describe("Prompt library facets and sorting", () => {
   test("collection facet narrows the list and clears", async ({ page }) => {
     await openLibraryTab(page);
 
-    await page.getByLabel("Filter by collection").selectOption({ label: "Data Operations" });
+    await chooseOption(page, "Filter by collection", "Data Operations");
     await expect(page.getByText("Data Quality Scan", { exact: true })).toBeVisible();
     await expect(page.getByText("Daily Sales Report", { exact: true })).not.toBeVisible();
 
@@ -81,7 +89,7 @@ test.describe("Prompt library facets and sorting", () => {
   test("usage facet isolates inactive prompts", async ({ page }) => {
     await openLibraryTab(page);
 
-    await page.getByLabel("Filter by usage").selectOption("inactive");
+    await chooseOption(page, "Filter by usage", "Never or long unused");
     await expect(page.getByText("Stock Level Alert", { exact: true })).toBeVisible();
     await expect(page.getByText("Daily Sales Report", { exact: true })).not.toBeVisible();
   });
@@ -89,8 +97,8 @@ test.describe("Prompt library facets and sorting", () => {
   test("an over-narrow facet combination shows the filtered empty state", async ({ page }) => {
     await openLibraryTab(page);
 
-    await page.getByLabel("Filter by collection").selectOption({ label: "Executive Briefings" });
-    await page.getByLabel("Filter by usage").selectOption("inactive");
+    await chooseOption(page, "Filter by collection", "Executive Briefings");
+    await chooseOption(page, "Filter by usage", "Never or long unused");
     await expect(page.getByText("No prompts match the current filters")).toBeVisible();
   });
 
@@ -197,11 +205,10 @@ test.describe("Prompt viewer verification surface", () => {
     await authenticate(page);
     await page.goto("/portal/prompts/prompt-004");
 
-    const picker = page.getByLabel("Collection");
-    await expect(picker).toBeVisible();
+    await expect(page.getByLabel("Collection", { exact: true })).toBeVisible();
     const [resp] = await Promise.all([
       page.waitForResponse((r) => r.url().includes("/prompts/prompt-004/collection") && r.request().method() === "PUT"),
-      picker.selectOption({ label: "Data Operations" }),
+      chooseOption(page, "Collection", "Data Operations"),
     ]);
     expect(resp.status()).toBe(200);
   });
@@ -212,6 +219,6 @@ test.describe("Prompt viewer verification surface", () => {
     await expect(page.getByText("Run from chat")).toBeVisible();
 
     await page.getByRole("button", { name: "Back", exact: true }).click();
-    await expect(page.getByRole("button", { name: /My Prompts/ })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /My Prompts/ })).toBeVisible();
   });
 });

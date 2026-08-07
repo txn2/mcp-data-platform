@@ -9,9 +9,21 @@ import {
   type PromptAttachment,
 } from "@/api/portal/hooks/attachments";
 import { useResources } from "@/api/resources/hooks";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
-import { cn } from "@/lib/utils";
+import { FormError, ListSkeleton } from "../primitives";
 
 // AttachmentsPanel manages the reference material a prompt carries (#1013):
 // the template it fills, the checklist it follows, the brand asset it embeds.
@@ -31,87 +43,106 @@ export function AttachmentsPanel({ prompt, canEdit }: { prompt: Prompt; canEdit:
     return null;
   }
 
-  const order = attachments.map((a) => a.resource_id);
-
   return (
-    <div className="rounded-lg border bg-card" data-testid="prompt-attachments">
-      <PanelHeader
-        count={attachments.length}
-        isLoading={isLoading}
-        canEdit={canEdit}
-        onTogglePick={() => { setPicking((p) => !p); setError(null); }}
-      />
-
-      {canEdit && attachments.length === 0 && !isLoading && <EmptyHint />}
-
-      {error && (
-        <p className="mx-4 mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-          {error}
-        </p>
-      )}
-
-      <ul className="divide-y">
-        {attachments.map((a, i) => (
-          <AttachmentRow
-            key={a.resource_id}
-            attachment={a}
-            promptId={prompt.id}
-            canEdit={canEdit}
-            isFirst={i === 0}
-            isLast={i === attachments.length - 1}
-            order={order}
-            onError={setError}
-          />
-        ))}
-      </ul>
-
-      {picking && (
-        <AttachmentPicker
+    <div data-testid="prompt-attachments">
+      <SectionCard
+        title={<PanelTitle count={attachments.length} />}
+        action={
+          canEdit && (
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => { setPicking((p) => !p); setError(null); }}
+            >
+              <Plus /> Attach
+            </Button>
+          )
+        }
+      >
+        <PanelBody
           promptId={prompt.id}
-          attached={order}
-          onClose={() => setPicking(false)}
+          attachments={attachments}
+          isLoading={isLoading}
+          canEdit={canEdit}
+          picking={picking}
+          error={error}
           onError={setError}
+          onClosePicker={() => setPicking(false)}
         />
-      )}
+      </SectionCard>
     </div>
   );
 }
 
-// EmptyHint tells a first-time author what attachments are for.
-function EmptyHint() {
+function PanelTitle({ count }: { count: number }) {
   return (
-    <p className="px-4 py-3 text-xs text-muted-foreground">
-      Attach a template, checklist, or reference file and every agent that runs this prompt
-      receives it as authoritative material.
-    </p>
+    <span className="flex items-center gap-2">
+      <Paperclip className="size-4 text-muted-foreground" />
+      Attached materials
+      {count > 0 && <Badge variant="muted" className="text-[11px]">{count}</Badge>}
+    </span>
   );
 }
 
-interface HeaderProps {
-  count: number;
+// PanelBody is the section's content in each state it can be in: loading, empty
+// and editable, listed, and listed with the picker open.
+function PanelBody({
+  promptId,
+  attachments,
+  isLoading,
+  canEdit,
+  picking,
+  error,
+  onError,
+  onClosePicker,
+}: {
+  promptId: string;
+  attachments: PromptAttachment[];
   isLoading: boolean;
   canEdit: boolean;
-  onTogglePick: () => void;
-}
-
-// PanelHeader is split out to keep the panel's own branching under the
-// complexity gate.
-function PanelHeader({ count, isLoading, canEdit, onTogglePick }: HeaderProps) {
+  picking: boolean;
+  error: string | null;
+  onError: (msg: string | null) => void;
+  onClosePicker: () => void;
+}) {
+  const order = attachments.map((a) => a.resource_id);
   return (
-    <div className="flex items-center gap-2 border-b px-4 py-2.5 text-sm font-semibold">
-      <Paperclip className="h-4 w-4 text-muted-foreground" />
-      Attached materials
-      {count > 0 && <span className="text-xs font-normal text-muted-foreground">{count}</span>}
-      {isLoading && <span className="text-xs font-normal text-muted-foreground">Loading...</span>}
-      {canEdit && (
-        <button
-          type="button"
-          onClick={onTogglePick}
-          className="ml-auto inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
-        >
-          <Plus className="h-3 w-3" />
-          Attach
-        </button>
+    <div className="space-y-3">
+      {isLoading && <ListSkeleton rows={2} />}
+
+      {canEdit && attachments.length === 0 && !isLoading && (
+        <EmptyState icon={Paperclip}>
+          Attach a template, checklist, or reference file and every agent that runs this prompt
+          receives it as authoritative material.
+        </EmptyState>
+      )}
+
+      <FormError message={error} />
+
+      {attachments.length > 0 && (
+        <ul className="divide-y rounded-lg border">
+          {attachments.map((a, i) => (
+            <AttachmentRow
+              key={a.resource_id}
+              attachment={a}
+              promptId={promptId}
+              canEdit={canEdit}
+              isFirst={i === 0}
+              isLast={i === attachments.length - 1}
+              order={order}
+              onError={onError}
+            />
+          ))}
+        </ul>
+      )}
+
+      {picking && (
+        <AttachmentPicker
+          promptId={promptId}
+          attached={order}
+          onClose={onClosePicker}
+          onError={onError}
+        />
       )}
     </div>
   );
@@ -163,26 +194,29 @@ function AttachmentRow({ attachment, promptId, canEdit, isFirst, isLast, order, 
 
       {canEdit && (
         <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon-xs"
             aria-label="Move up"
             disabled={isFirst || reorder.isPending}
             onClick={() => move(-1)}
-            className="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-30"
+            className="text-muted-foreground"
           >
-            <ArrowUp className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
+            <ArrowUp />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
             aria-label="Move down"
             disabled={isLast || reorder.isPending}
             onClick={() => move(1)}
-            className="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-30"
+            className="text-muted-foreground"
           >
-            <ArrowDown className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
+            <ArrowDown />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
             aria-label={`Detach ${attachment.display_name ?? attachment.resource_id}`}
             disabled={detach.isPending}
             onClick={() => {
@@ -191,10 +225,10 @@ function AttachmentRow({ attachment, promptId, canEdit, isFirst, isLast, order, 
                 onError: (err) => onError(err instanceof Error ? err.message : "Detach failed"),
               });
             }}
-            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-red-400 disabled:opacity-30"
+            className="text-muted-foreground hover:text-destructive"
           >
-            <X className="h-3.5 w-3.5" />
-          </button>
+            <X />
+          </Button>
         </div>
       )}
     </li>
@@ -206,9 +240,9 @@ function AttachmentRow({ attachment, promptId, canEdit, isFirst, isLast, order, 
 function BrokenLabel({ resourceId }: { resourceId: string }) {
   return (
     <div className="flex items-start gap-2" data-testid="attachment-broken">
-      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
       <div className="min-w-0">
-        <p className="text-sm text-amber-400">Missing resource</p>
+        <p className="text-sm text-amber-600 dark:text-amber-400">Missing resource</p>
         <p className="truncate text-xs text-muted-foreground">
           {resourceId} was deleted. Agents running this prompt are told the material is
           unavailable. Detach it or upload a replacement.
@@ -223,7 +257,7 @@ function BrokenLabel({ resourceId }: { resourceId: string }) {
 function UnreadableLabel() {
   return (
     <div className="flex items-start gap-2" data-testid="attachment-unreadable">
-      <EyeOff className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <EyeOff className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
       <div>
         <p className="text-sm text-muted-foreground">Restricted material</p>
         <p className="text-xs text-muted-foreground">
@@ -241,7 +275,7 @@ function ReadableLabel({ attachment }: { attachment: PromptAttachment }) {
       {attachment.description && (
         <p className="truncate text-xs text-muted-foreground">{markdownToPlainText(attachment.description)}</p>
       )}
-      <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <ScopeChip scope={attachment.scope} scopeId={attachment.scope_id} />
         {attachment.mime_type && <span>{attachment.mime_type}</span>}
         {attachment.size_bytes ? <span>{formatBytes(attachment.size_bytes)}</span> : null}
@@ -251,22 +285,21 @@ function ReadableLabel({ attachment }: { attachment: PromptAttachment }) {
   );
 }
 
+const SCOPE_VARIANTS: Record<string, "success" | "info" | "warning"> = {
+  global: "success",
+  persona: "info",
+  user: "warning",
+};
+
 // ScopeChip shows how widely a material is visible, which is the rule that
 // decides whether the prompt can be promoted while carrying it.
 function ScopeChip({ scope, scopeId }: { scope?: string; scopeId?: string }) {
   if (!scope) return null;
   const label = scope === "persona" && scopeId ? `persona: ${scopeId}` : scope;
   return (
-    <span
-      className={cn(
-        "rounded px-1.5 py-0.5",
-        scope === "global" && "bg-emerald-500/10 text-emerald-400",
-        scope === "persona" && "bg-sky-500/10 text-sky-400",
-        scope === "user" && "bg-amber-500/10 text-amber-400",
-      )}
-    >
+    <Badge variant={SCOPE_VARIANTS[scope] ?? "muted"} className="text-[11px]">
       {label}
-    </span>
+    </Badge>
   );
 }
 
@@ -276,6 +309,10 @@ interface PickerProps {
   onClose: () => void;
   onError: (msg: string | null) => void;
 }
+
+// ALL_CATEGORIES is the picker's unfiltered choice; a Select item cannot carry
+// the empty value the query parameter uses for it.
+const ALL_CATEGORIES = "__all__";
 
 // AttachmentPicker searches the caller's visible resources and attaches one.
 // It does not pre-filter by scope: the server owns that rule, and showing a
@@ -300,34 +337,33 @@ function AttachmentPicker({ promptId, attached, onClose, onError }: PickerProps)
   );
 
   return (
-    <div className="border-t bg-muted/30 p-4" data-testid="attachment-picker">
+    <div className="rounded-lg border bg-muted/30 p-3" data-testid="attachment-picker">
       <div className="flex flex-wrap items-center gap-2">
-        <input
+        <Input
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search resources"
           aria-label="Search resources"
-          className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-xs outline-none"
+          className="h-8 min-w-0 flex-1 text-xs md:text-xs"
         />
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          aria-label="Filter by category"
-          className="rounded-md border bg-background px-2 py-1 text-xs outline-none"
+        <Select
+          value={category || ALL_CATEGORIES}
+          onValueChange={(v) => setCategory(v === ALL_CATEGORIES ? "" : v)}
         >
-          <option value="">All categories</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
-        >
+          <SelectTrigger size="sm" aria-label="Filter by category" className="text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_CATEGORIES} className="text-xs">All categories</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button variant="outline" size="sm" onClick={onClose}>
           Done
-        </button>
+        </Button>
       </div>
 
       {isLoading && <p className="mt-3 text-xs text-muted-foreground">Loading resources...</p>}
@@ -341,8 +377,8 @@ function AttachmentPicker({ promptId, attached, onClose, onError }: PickerProps)
       <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto">
         {candidates.map((r) => (
           <li key={r.id}>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               disabled={attach.isPending}
               onClick={() => {
                 onError(null);
@@ -350,14 +386,14 @@ function AttachmentPicker({ promptId, attached, onClose, onError }: PickerProps)
                   onError: (err) => onError(err instanceof Error ? err.message : "Attach failed"),
                 });
               }}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent disabled:opacity-50"
+              className="h-auto w-full justify-start px-2 py-1.5 font-normal"
             >
-              <span className="min-w-0 flex-1 truncate text-xs">
+              <span className="min-w-0 flex-1 truncate text-left text-xs">
                 {r.display_name || r.filename}
               </span>
               <ScopeChip scope={r.scope} scopeId={r.scope_id} />
               <span className="shrink-0 text-xs text-muted-foreground">{r.mime_type}</span>
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

@@ -1,153 +1,175 @@
 import {
-  ArrowLeft,
+  ArrowUpCircle,
+  Check,
+  Copy,
+  FileBox,
+  MessageSquare,
   Pencil,
   Save,
-  X,
-  Trash2,
-  Copy,
-  Check,
-  FileBox,
   Share2,
-  ArrowUpCircle,
+  Trash2,
+  X,
 } from "lucide-react";
 import type { Prompt } from "@/api/admin/types";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
+import { PageHeader } from "@/components/patterns/PageHeader";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { PromptStatusBadge } from "../PromptStatusBadge";
 import { ScopeBadge } from "./ScopeBadge";
 
-// PromptViewerHeader is the title row and action bar for the prompt viewer:
-// back button, title, scope/status badges, and the mode-dependent action
-// buttons (copy/feedback/save-as-asset/share/promote/edit/delete when viewing;
-// save/cancel when editing). Purely presentational — all actions route through
-// handlers from PromptViewerPage. Extracted from PromptViewerPage.tsx (#819).
-export function PromptViewerHeader({
-  prompt,
-  editing,
-  isOwner,
-  copied,
-  createAssetPending,
-  updatePending,
-  saveDisabled,
-  onBack,
-  onCopyContent,
-  onSaveAsAsset,
-  onShare,
-  onRequestPromotion,
-  onEdit,
-  onDeleteRequest,
-  onSave,
-  onCancel,
-}: {
+interface ViewActionProps {
   prompt: Prompt;
-  editing: boolean;
   isOwner: boolean;
   copied: boolean;
   createAssetPending: boolean;
-  updatePending: boolean;
-  saveDisabled: boolean;
-  onBack: () => void;
   onCopyContent: () => void;
   onSaveAsAsset: () => void;
   onShare: () => void;
   onRequestPromotion: () => void;
   onEdit: () => void;
   onDeleteRequest: () => void;
+}
+
+// PromptViewerHeader is the title row and action bar for the prompt viewer:
+// back link, title, scope/status badges, and the mode-dependent action
+// buttons (copy/feedback/save-as-asset/share/promote/edit/delete when viewing;
+// save/cancel when editing). Purely presentational — all actions route through
+// handlers from PromptViewerPage. Extracted from PromptViewerPage.tsx (#819).
+export function PromptViewerHeader({
+  prompt,
+  editing,
+  updatePending,
+  saveDisabled,
+  onBack,
+  onSave,
+  onCancel,
+  ...view
+}: ViewActionProps & {
+  editing: boolean;
+  updatePending: boolean;
+  saveDisabled: boolean;
+  onBack: () => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <button
-        onClick={onBack}
-        className="rounded-md p-1.5 hover:bg-accent"
-        aria-label="Back"
+    <PageHeader
+      onBack={onBack}
+      icon={MessageSquare}
+      title={
+        <>
+          <span className="truncate" title={prompt.display_name || prompt.name}>
+            {prompt.display_name || prompt.name}
+          </span>
+          <ScopeBadge scope={prompt.scope} />
+          <PromptStatusBadge status={prompt.status} />
+          {prompt.review_requested && (
+            <Badge variant="warning">
+              <ArrowUpCircle /> Promotion requested
+            </Badge>
+          )}
+        </>
+      }
+      actions={
+        editing ? (
+          <EditActions
+            updatePending={updatePending}
+            saveDisabled={saveDisabled}
+            onSave={onSave}
+            onCancel={onCancel}
+          />
+        ) : (
+          <ViewActions prompt={prompt} {...view} />
+        )
+      }
+    />
+  );
+}
+
+function EditActions({
+  updatePending,
+  saveDisabled,
+  onSave,
+  onCancel,
+}: {
+  updatePending: boolean;
+  saveDisabled: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <>
+      <Button size="sm" onClick={onSave} disabled={saveDisabled}>
+        <Save /> {updatePending ? "Saving..." : "Save"}
+      </Button>
+      <Button variant="outline" size="sm" onClick={onCancel}>
+        <X /> Cancel
+      </Button>
+    </>
+  );
+}
+
+function ViewActions({
+  prompt,
+  isOwner,
+  copied,
+  createAssetPending,
+  onCopyContent,
+  onSaveAsAsset,
+  onShare,
+  onRequestPromotion,
+  onEdit,
+  onDeleteRequest,
+}: ViewActionProps) {
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={onCopyContent} title="Copy prompt content">
+        {copied ? <Check className="text-emerald-500" /> : <Copy />}
+        {copied ? "Copied" : "Copy"}
+      </Button>
+      <FeedbackButton target={{ type: "prompt", id: prompt.id }} canModerate={isOwner} />
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onSaveAsAsset}
+        disabled={createAssetPending}
+        title="Snapshot this prompt as a markdown asset in My Assets"
       >
-        <ArrowLeft className="h-4 w-4" />
-      </button>
-      <h2 className="text-lg font-semibold truncate max-w-[24rem]" title={prompt.display_name || prompt.name}>{prompt.display_name || prompt.name}</h2>
-      <ScopeBadge scope={prompt.scope} />
-      <PromptStatusBadge status={prompt.status} />
-      {prompt.review_requested && (
-        <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 whitespace-nowrap">
-          <ArrowUpCircle className="h-3 w-3" /> Promotion requested
-        </span>
+        <FileBox />
+        {createAssetPending ? "Saving..." : "Save as Asset"}
+      </Button>
+      {isOwner && (
+        <Button size="sm" onClick={onShare} title="Share this prompt with another user">
+          <Share2 /> Share
+        </Button>
       )}
-
-      {!editing && (
+      {isOwner && !prompt.review_requested && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRequestPromotion}
+          title="Request an admin promote this prompt to a shared scope"
+          className="border-amber-500/30 text-amber-600 hover:bg-amber-500/10 dark:text-amber-300"
+        >
+          <ArrowUpCircle /> Request Promotion
+        </Button>
+      )}
+      {isOwner && (
         <>
-          <button
-            onClick={onCopyContent}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
-            title="Copy prompt content"
+          <Button variant="outline" size="sm" onClick={onEdit}>
+            <Pencil /> Edit
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onDeleteRequest}
+            className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
           >
-            {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-            {copied ? "Copied" : "Copy"}
-          </button>
-          <FeedbackButton target={{ type: "prompt", id: prompt.id }} canModerate={isOwner} />
-          <button
-            onClick={onSaveAsAsset}
-            disabled={createAssetPending}
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
-            title="Snapshot this prompt as a markdown asset in My Assets"
-          >
-            <FileBox className="h-3.5 w-3.5" />
-            {createAssetPending ? "Saving..." : "Save as Asset"}
-          </button>
-          {isOwner && (
-            <button
-              onClick={onShare}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              title="Share this prompt with another user"
-            >
-              <Share2 className="h-3.5 w-3.5" />
-              Share
-            </button>
-          )}
-          {isOwner && !prompt.review_requested && (
-            <button
-              onClick={onRequestPromotion}
-              className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/30 px-3 py-1.5 text-sm font-medium text-amber-400 hover:bg-amber-500/10"
-              title="Request an admin promote this prompt to a shared scope"
-            >
-              <ArrowUpCircle className="h-3.5 w-3.5" /> Request Promotion
-            </button>
-          )}
-          {isOwner && (
-            <>
-              <button
-                onClick={onEdit}
-                className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
-              >
-                <Pencil className="h-3.5 w-3.5" /> Edit
-              </button>
-              <button
-                onClick={onDeleteRequest}
-                className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 className="h-3.5 w-3.5" /> Delete
-              </button>
-            </>
-          )}
+            <Trash2 /> Delete
+          </Button>
         </>
       )}
-
-      {editing && (
-        <>
-          <button
-            onClick={onSave}
-            disabled={saveDisabled}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            <Save className="h-3.5 w-3.5" /> {updatePending ? "Saving..." : "Save"}
-          </button>
-          <button
-            onClick={onCancel}
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
-          >
-            <X className="h-3.5 w-3.5" /> Cancel
-          </button>
-        </>
-      )}
-    </div>
+    </>
   );
 }

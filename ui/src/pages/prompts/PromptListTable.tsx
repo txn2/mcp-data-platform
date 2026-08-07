@@ -1,7 +1,17 @@
-import { ChevronDown, ChevronUp, ChevronsUpDown, FolderOpen, Users } from "lucide-react";
+import { FolderOpen, Users } from "lucide-react";
 import type { Prompt, PromptCollection, PromptUsage } from "@/api/admin/types";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
+import { SortableHead } from "./primitives";
 import { PromptStatusBadge } from "./PromptStatusBadge";
 import { formatLastRun, usageBadge, type UsageBadgeInfo } from "./promptUsage";
 import type { Row, SortDir, SortKey } from "./promptList";
@@ -40,14 +50,21 @@ export function PromptListTable({
 }: Props) {
   const header = (label: string, key?: SortKey, extra?: string) =>
     sortable && key ? (
-      <SortHeader label={label} sortKey={key} sortBy={sortBy} sortDir={sortDir} onSort={onSort} extra={extra} />
+      <SortableHead
+        label={label}
+        sortKey={key}
+        sortBy={sortBy}
+        sortDir={sortDir}
+        onSort={onSort}
+        className={cn("px-4", extra)}
+      />
     ) : (
-      <th className={cn("px-4 py-2 text-left font-medium text-muted-foreground", extra)}>{label}</th>
+      <TableHead className={cn("px-4 text-muted-foreground", extra)}>{label}</TableHead>
     );
 
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
-      <table className="w-full text-sm table-fixed">
+    <div className="overflow-hidden rounded-lg border bg-card">
+      <Table className="table-fixed">
         <colgroup>
           <col className="w-[32%]" />
           {showCollection && <col className="hidden md:table-column w-[140px]" />}
@@ -55,16 +72,16 @@ export function PromptListTable({
           <col className="w-[70px]" />
           <col className="w-[100px]" />
         </colgroup>
-        <thead className="border-b bg-muted/50">
-          <tr>
+        <TableHeader>
+          <TableRow className="bg-muted/50 hover:bg-muted/50">
             {header("Name", "name")}
             {showCollection && header("Collection", undefined, "hidden md:table-cell")}
             {header("Description")}
             {header("Runs", "runs", "text-right")}
             {header("Last run", "lastRun")}
-          </tr>
-        </thead>
-        <tbody className="divide-y">
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {rows.map((r) => (
             <PromptRow
               key={`${r.prompt.id}-${r.sharedBy ?? "own"}`}
@@ -77,42 +94,9 @@ export function PromptListTable({
               onOpen={onOpen}
             />
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </div>
-  );
-}
-
-function SortHeader({
-  label,
-  sortKey,
-  sortBy,
-  sortDir,
-  onSort,
-  extra,
-}: {
-  label: string;
-  sortKey: SortKey;
-  sortBy: SortKey;
-  sortDir: SortDir;
-  onSort: (key: SortKey) => void;
-  extra?: string;
-}) {
-  const active = sortBy === sortKey;
-  const Chevron = active ? (sortDir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
-  return (
-    <th
-      onClick={() => onSort(sortKey)}
-      className={cn(
-        "px-4 py-2 text-left font-medium text-muted-foreground cursor-pointer select-none hover:bg-muted/80",
-        extra,
-      )}
-    >
-      <span className="inline-flex items-center gap-1">
-        {label}
-        <Chevron className={cn("h-3 w-3", active ? "text-foreground" : "text-muted-foreground/50")} />
-      </span>
-    </th>
   );
 }
 
@@ -136,36 +120,36 @@ function PromptRow({
   const p = row.prompt;
   const badge = usageReady ? usageBadge(usage, p.created_at) : null;
   return (
-    <tr className="hover:bg-muted/30 cursor-pointer" onClick={() => onOpen(p)}>
-      <td className="px-4 py-2 align-top">
+    <TableRow className="cursor-pointer" onClick={() => onOpen(p)}>
+      <TableCell className="px-4 py-2 align-top whitespace-normal">
         <NameBadges row={row} showStatus={showStatus} badge={badge} />
         {row.sharedBy && (
           <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Users className="h-3 w-3" /> Shared by {row.sharedBy}
+            <Users className="size-3" /> Shared by {row.sharedBy}
           </div>
         )}
-      </td>
+      </TableCell>
       {showCollection && (
-        <td className="px-4 py-2 align-top hidden md:table-cell">
+        <TableCell className="hidden px-4 py-2 align-top md:table-cell">
           {collection ? (
-            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-              <FolderOpen className="h-3 w-3" /> {collection.name}
-            </span>
+            <Badge variant="outline" className="text-[11px] text-muted-foreground">
+              <FolderOpen /> {collection.name}
+            </Badge>
           ) : (
             <span className="text-xs text-muted-foreground/60">–</span>
           )}
-        </td>
+        </TableCell>
       )}
-      <td className="px-4 py-2 align-top text-muted-foreground">
-        <div className="break-words whitespace-normal">{markdownToPlainText(p.description)}</div>
-      </td>
-      <td className="px-4 py-2 align-top text-right tabular-nums text-muted-foreground">
+      <TableCell className="px-4 py-2 align-top text-muted-foreground whitespace-normal">
+        <div className="break-words">{markdownToPlainText(p.description)}</div>
+      </TableCell>
+      <TableCell className="px-4 py-2 text-right align-top tabular-nums text-muted-foreground">
         {usageReady ? (usage?.run_count ?? 0) : "–"}
-      </td>
-      <td className="px-4 py-2 align-top text-xs text-muted-foreground whitespace-nowrap">
+      </TableCell>
+      <TableCell className="px-4 py-2 align-top text-xs text-muted-foreground">
         {usageReady ? formatLastRun(usage) : "–"}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -177,9 +161,9 @@ function ScopeChip({ prompt }: { prompt: Prompt }) {
   const label =
     prompt.scope === "global" ? "global" : prompt.personas?.length ? prompt.personas.join(", ") : "persona";
   return (
-    <span className="inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-400">
+    <Badge variant="info" className="text-[11px]">
       {label}
-    </span>
+    </Badge>
   );
 }
 
@@ -187,24 +171,21 @@ function NameBadges({ row, showStatus, badge }: { row: Row; showStatus: boolean;
   const p = row.prompt;
   const ownBadges = showStatus && !row.sharedBy;
   return (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex flex-wrap items-center gap-2">
       <span className={cn("font-medium break-words", badge && "text-muted-foreground")}>
         {p.display_name || p.name}
       </span>
       {ownBadges && <ScopeChip prompt={p} />}
       {ownBadges && p.scope !== "system" && <PromptStatusBadge status={p.status} />}
       {p.review_requested && (
-        <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-400">
+        <Badge variant="warning" className="text-[11px]">
           promotion requested
-        </span>
+        </Badge>
       )}
       {badge && (
-        <span
-          className="inline-flex items-center rounded-full border border-zinc-500/30 bg-zinc-500/10 px-2 py-0.5 text-[11px] font-medium text-zinc-400"
-          title={badge.title}
-        >
+        <Badge variant="muted" className="text-[11px]" title={badge.title}>
           {badge.label}
-        </span>
+        </Badge>
       )}
     </div>
   );
