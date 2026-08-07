@@ -9,7 +9,11 @@ import {
   useDeletePromptCollection,
 } from "@/api/portal/hooks";
 import type { PromptCollection } from "@/api/admin/types";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ModalScroll } from "@/components/ModalShell";
+import { FormError, ListSkeleton } from "./primitives";
 
 // CollectionsManagerDialog creates, renames, and deletes prompt collections
 // (#1010). Any user can create a collection; renaming and deleting are limited
@@ -79,16 +83,12 @@ export function CollectionsManagerDialog({ onClose }: { onClose: () => void }) {
       <div className="rounded-lg border bg-background shadow-lg">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <FolderOpen className="h-4 w-4 text-muted-foreground" /> Manage
+            <FolderOpen className="size-4 text-muted-foreground" /> Manage
             collections
           </h3>
-          <button
-            onClick={onClose}
-            className="rounded-md p-1 hover:bg-accent"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+            <X />
+          </Button>
         </div>
 
         <CollectionList
@@ -142,40 +142,29 @@ function CollectionEditorForm({
       <div className="text-xs font-medium text-muted-foreground">
         {editing ? "Rename collection" : "New collection"}
       </div>
-      <input
+      <Input
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="Collection name"
-        className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
+        aria-label="Collection name"
       />
-      <input
+      <Input
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder="Description (optional)"
-        className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
+        aria-label="Collection description"
       />
-      {error && (
-        <div className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-          {error}
-        </div>
-      )}
+      <FormError message={error} />
       <div className="flex justify-end gap-2">
         {editing && (
-          <button
-            onClick={onCancel}
-            className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
-          >
+          <Button variant="outline" onClick={onCancel}>
             Cancel
-          </button>
+          </Button>
         )}
-        <button
-          onClick={onSubmit}
-          disabled={!name.trim() || pending}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          <Plus className="h-3.5 w-3.5" />
+        <Button onClick={onSubmit} disabled={!name.trim() || pending}>
+          <Plus />
           {pending ? "Saving..." : editing ? "Save" : "Create"}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -198,16 +187,17 @@ function CollectionList({
 }) {
   if (isLoading) {
     return (
-      <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-        Loading...
+      <div className="px-4 py-4">
+        <ListSkeleton rows={3} />
       </div>
     );
   }
   if (collections.length === 0) {
     return (
-      <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-        No collections yet. Create one below to group prompts by team, domain,
-        or workflow.
+      <div className="px-4 py-4">
+        <EmptyState icon={FolderOpen}>
+          No collections yet. Create one below to group prompts by team, domain, or workflow.
+        </EmptyState>
       </div>
     );
   }
@@ -216,34 +206,37 @@ function CollectionList({
       {collections.map((c) => (
         <li key={c.id} className="flex items-center gap-2 px-4 py-2.5 text-sm">
           <div className="min-w-0 flex-1">
-            <div className="font-medium truncate">{c.name}</div>
+            <div className="truncate font-medium">{c.name}</div>
             {c.description && (
-              <div className="text-xs text-muted-foreground truncate">
+              <div className="truncate text-xs text-muted-foreground">
                 {markdownToPlainText(c.description)}
               </div>
             )}
           </div>
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
             {c.prompt_count} prompt{c.prompt_count === 1 ? "" : "s"}
           </span>
           {canManage(c) && (
             <>
-              <button
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 onClick={() => onEdit(c)}
-                className="rounded-md p-1.5 hover:bg-accent"
                 aria-label={`Rename ${c.name}`}
               >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-              <button
+                <Pencil />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 onClick={() => onDelete(c)}
                 disabled={deletePending}
-                className="rounded-md p-1.5 text-destructive hover:bg-destructive/10 disabled:opacity-50"
                 aria-label={`Delete ${c.name}`}
                 title="Delete collection (its prompts stay, ungrouped)"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
               >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+                <Trash2 />
+              </Button>
             </>
           )}
         </li>

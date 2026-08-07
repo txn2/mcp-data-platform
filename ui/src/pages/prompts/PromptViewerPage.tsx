@@ -5,6 +5,8 @@ import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { useAuthStore } from "@/stores/auth";
 import { ShareDialog } from "@/components/ShareDialog";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Button } from "@/components/ui/button";
 import { validatePromptName, isPromptNameConflict } from "./promptName";
 import type { Prompt } from "@/api/admin/types";
 import { extractPromptArguments } from "./promptArguments";
@@ -18,6 +20,7 @@ import { InvocationHelp } from "./viewer/InvocationHelp";
 import { VersionHistory } from "./viewer/VersionHistory";
 import { CollectionPicker } from "./viewer/CollectionPicker";
 import { AttachmentsPanel } from "./viewer/AttachmentsPanel";
+import { usePromotionRequest } from "./viewer/usePromotionRequest";
 import type { EditForm, ViewMode } from "./viewer/types";
 
 interface Props {
@@ -58,22 +61,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [saveAsAssetNotice, setSaveAsAssetNotice] = useState<{ assetId: string; name: string } | null>(null);
-  const myPersona = useAuthStore((s) => s.user?.persona) ?? "";
-  const [promoteOpen, setPromoteOpen] = useState(false);
-  const [promoteScope, setPromoteScope] = useState<"persona" | "global">("persona");
-  const [promoteError, setPromoteError] = useState<string | null>(null);
-
-  const openPromote = useCallback(() => {
-    setPromoteError(null);
-    // Default to promoting into the user's own persona; fall back to global if
-    // they are not assigned to one.
-    setPromoteScope(myPersona ? "persona" : "global");
-    setPromoteOpen(true);
-  }, [myPersona]);
-  const closePromote = useCallback(() => {
-    setPromoteOpen(false);
-    setPromoteError(null);
-  }, []);
+  const promotion = usePromotionRequest(prompt);
 
   // Reset edit form when prompt loads/changes.
   useEffect(() => {
@@ -133,22 +121,6 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
       },
     );
   }, [prompt, form, updateMutation]);
-
-  const handleRequestPromotion = useCallback(() => {
-    if (!prompt) return;
-    setPromoteError(null);
-    if (promoteScope === "persona" && !myPersona) {
-      setPromoteError("You are not assigned to a persona; request global instead.");
-      return;
-    }
-    updateMutation.mutate(
-      { id: prompt.id, requested_scope: promoteScope, requested_personas: promoteScope === "persona" ? [myPersona] : [] },
-      {
-        onSuccess: () => closePromote(),
-        onError: (err) => setPromoteError(err instanceof Error ? err.message : "Request failed"),
-      },
-    );
-  }, [prompt, promoteScope, myPersona, updateMutation, closePromote]);
 
   const handleDelete = useCallback(() => {
     if (!prompt) return;
@@ -214,11 +186,16 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
 
   if (!prompt) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <MessageSquare className="h-12 w-12 mb-2 opacity-30" />
-        <p className="text-sm">Prompt not found</p>
-        <button onClick={onBack} className="mt-2 text-sm text-primary hover:underline">Back</button>
-      </div>
+      <EmptyState
+        icon={MessageSquare}
+        action={
+          <Button variant="outline" size="sm" onClick={onBack}>
+            Back
+          </Button>
+        }
+      >
+        Prompt not found
+      </EmptyState>
     );
   }
 
@@ -244,7 +221,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
         onCopyContent={handleCopyContent}
         onSaveAsAsset={handleSaveAsAsset}
         onShare={handleShare}
-        onRequestPromotion={openPromote}
+        onRequestPromotion={promotion.openDialog}
         onEdit={() => setEditing(true)}
         onDeleteRequest={() => setDeleteOpen(true)}
         onSave={handleSave}
@@ -302,15 +279,15 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
       />
 
       {/* Request promotion dialog */}
-      {promoteOpen && (
+      {promotion.open && (
         <RequestPromotionDialog
-          myPersona={myPersona}
-          promoteScope={promoteScope}
-          setPromoteScope={setPromoteScope}
-          promoteError={promoteError}
-          pending={updateMutation.isPending}
-          onCancel={closePromote}
-          onSubmit={handleRequestPromotion}
+          myPersona={promotion.myPersona}
+          promoteScope={promotion.scope}
+          setPromoteScope={promotion.setScope}
+          promoteError={promotion.error}
+          pending={promotion.pending}
+          onCancel={promotion.close}
+          onSubmit={promotion.submit}
         />
       )}
     </div>

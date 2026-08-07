@@ -1,11 +1,13 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Users, Globe, ArrowUpCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { ModalScroll } from "@/components/ModalShell";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { FormError } from "../primitives";
 
 // RequestPromotionDialog is the modal an owner uses to request an admin promote
 // their personal prompt to a persona or global scope. Rendered only while open
-// by the parent. Extracted verbatim from PromptViewerPage.tsx (#819).
+// by the parent.
 export function RequestPromotionDialog({
   myPersona,
   promoteScope,
@@ -24,8 +26,8 @@ export function RequestPromotionDialog({
   onSubmit: () => void;
 }) {
   return (
-    <ModalScroll onClose={onCancel} width="max-w-sm">
-      <div className="rounded-lg border bg-card p-6 shadow-lg space-y-4">
+    <ModalScroll onClose={onCancel} width="max-w-sm" label="Request promotion">
+      <div className="space-y-4 rounded-lg border bg-card p-6 shadow-lg">
         <div>
           <h3 className="text-sm font-semibold">Request promotion</h3>
           <p className="text-sm text-muted-foreground">
@@ -37,7 +39,7 @@ export function RequestPromotionDialog({
           <label
             className={cn(
               "flex items-center gap-2 text-sm",
-              myPersona ? "cursor-pointer" : "opacity-50 cursor-not-allowed",
+              myPersona ? "cursor-pointer" : "cursor-not-allowed opacity-50",
             )}
           >
             <input
@@ -47,51 +49,30 @@ export function RequestPromotionDialog({
               disabled={!myPersona}
               onChange={() => setPromoteScope("persona")}
             />
-            <Users className="h-4 w-4 text-purple-400" />
-            {myPersona ? (
-              <>
-                My persona{" "}
-                <span className="text-muted-foreground">({myPersona})</span>
-              </>
-            ) : (
-              <>
-                My persona{" "}
-                <span className="text-muted-foreground">
-                  (you are not in a persona)
-                </span>
-              </>
-            )}
+            <Users className="size-4 text-purple-500" />
+            My persona{" "}
+            <span className="text-muted-foreground">
+              ({myPersona || "you are not in a persona"})
+            </span>
           </label>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input
               type="radio"
               name="promote-scope"
               checked={promoteScope === "global"}
               onChange={() => setPromoteScope("global")}
             />
-            <Globe className="h-4 w-4 text-blue-400" /> Global (everyone)
+            <Globe className="size-4 text-blue-500" /> Global (everyone)
           </label>
         </div>
-        {promoteError && (
-          <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">
-            {promoteError}
-          </div>
-        )}
+        <FormError message={promoteError} />
         <div className="flex justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
-          >
+          <Button variant="outline" onClick={onCancel}>
             Cancel
-          </button>
-          <button
-            onClick={onSubmit}
-            disabled={pending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            <ArrowUpCircle className="h-3.5 w-3.5" />{" "}
-            {pending ? "Submitting..." : "Submit request"}
-          </button>
+          </Button>
+          <Button onClick={onSubmit} disabled={pending}>
+            <ArrowUpCircle /> {pending ? "Submitting..." : "Submit request"}
+          </Button>
         </div>
       </div>
     </ModalScroll>

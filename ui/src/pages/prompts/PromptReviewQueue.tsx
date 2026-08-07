@@ -7,6 +7,10 @@ import {
   useRejectPromptPromotion,
 } from "@/api/admin/hooks";
 import type { Prompt } from "@/api/admin/types";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { FormError } from "./primitives";
 
 // PromptReviewQueue surfaces personal prompts whose owners have requested
 // promotion to a shared scope (review_requested=true). An admin approves to
@@ -37,59 +41,86 @@ export function PromptReviewQueue() {
   };
 
   return (
-    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
-      <h3 className="text-sm font-semibold flex items-center gap-2">
-        Pending promotion requests
-        <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-400">{pending.length}</span>
-      </h3>
+    <SectionCard
+      className="border-amber-500/30 bg-amber-500/5"
+      title={
+        <span className="flex items-center gap-2">
+          Pending promotion requests
+          <Badge variant="warning">{pending.length}</Badge>
+        </span>
+      }
+    >
       <ul className="divide-y divide-border/60">
-        {pending.map((p: Prompt) => {
-          const busy = actingId === p.id;
-          return (
-            <li key={p.id} className="py-2 space-y-1">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="font-medium text-sm break-words">{p.display_name || p.name}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    <span>{p.owner_email || "—"}</span> requests promotion to{" "}
-                    {p.requested_scope === "global" ? (
-                      <span className="inline-flex items-center gap-1 text-blue-400"><Globe className="h-3 w-3" /> Global</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-purple-400">
-                        <Users className="h-3 w-3" /> Persona: {(p.requested_personas ?? []).join(", ") || "—"}
-                      </span>
-                    )}
-                  </div>
-                  {p.description && (
-                    <div className="text-xs text-muted-foreground mt-0.5 break-words">
-                      {markdownToPlainText(p.description)}
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <button
-                    onClick={() => run(approve, p.id)}
-                    disabled={busy}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                  >
-                    <Check className="h-3.5 w-3.5" /> {busy ? "Working..." : "Approve"}
-                  </button>
-                  <button
-                    onClick={() => run(reject, p.id)}
-                    disabled={busy}
-                    className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50"
-                  >
-                    <X className="h-3.5 w-3.5" /> Reject
-                  </button>
-                </div>
-              </div>
-              {actionError?.id === p.id && (
-                <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">{actionError.message}</div>
-              )}
-            </li>
-          );
-        })}
+        {pending.map((p: Prompt) => (
+          <ReviewRow
+            key={p.id}
+            prompt={p}
+            busy={actingId === p.id}
+            error={actionError?.id === p.id ? actionError.message : null}
+            onApprove={() => run(approve, p.id)}
+            onReject={() => run(reject, p.id)}
+          />
+        ))}
       </ul>
-    </div>
+    </SectionCard>
+  );
+}
+
+function ReviewRow({
+  prompt: p,
+  busy,
+  error,
+  onApprove,
+  onReject,
+}: {
+  prompt: Prompt;
+  busy: boolean;
+  error: string | null;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <li className="space-y-1 py-2">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium break-words">{p.display_name || p.name}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            <span>{p.owner_email || "—"}</span> requests promotion to{" "}
+            <RequestedScope prompt={p} />
+          </div>
+          {p.description && (
+            <div className="mt-0.5 text-xs break-words text-muted-foreground">
+              {markdownToPlainText(p.description)}
+            </div>
+          )}
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button size="sm" onClick={onApprove} disabled={busy}>
+            <Check /> {busy ? "Working..." : "Approve"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={onReject} disabled={busy}>
+            <X /> Reject
+          </Button>
+        </div>
+      </div>
+      <FormError message={error} />
+    </li>
+  );
+}
+
+// RequestedScope names the scope the owner asked for, with the icon that scope
+// carries everywhere else in the admin view.
+function RequestedScope({ prompt: p }: { prompt: Prompt }) {
+  if (p.requested_scope === "global") {
+    return (
+      <Badge variant="info">
+        <Globe /> Global
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-purple-600 dark:text-purple-300">
+      <Users /> Persona: {(p.requested_personas ?? []).join(", ") || "—"}
+    </Badge>
   );
 }

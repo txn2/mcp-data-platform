@@ -249,25 +249,12 @@
       "count": 1
     }
   },
-  "src/pages/prompts/AdminPromptsPage.tsx": {
-    "complexity": {
-      "count": 3
-    }
-  },
   "src/pages/prompts/MyPromptsPage.tsx": {
     "complexity": {
-      "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
       "count": 1
     }
   },
   "src/pages/prompts/PromptViewerPage.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/prompts/viewer/PromptViewerHeader.tsx": {
     "complexity": {
       "count": 1
     }

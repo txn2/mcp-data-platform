@@ -1,11 +1,56 @@
 import { X } from "lucide-react";
 import type { PromptCollection } from "@/api/admin/types";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { UsageFacet } from "./promptUsage";
 import { allFacets, facetsActive, type Facets } from "./promptList";
 
 // PromptFacetsBar narrows the library by collection, tag, status (My
 // Prompts), owner (Library), and usage (#1010). Rendered in browse mode only;
 // search results keep their rank order.
+
+// A Select item cannot carry an empty value, but "no filter" is exactly that in
+// the facet model, so the unfiltered choice travels under a sentinel and is
+// translated back at this boundary.
+const ANY = "__any__";
+
+interface Option {
+  value: string;
+  label: string;
+}
+
+function FacetSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Option[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select value={value || ANY} onValueChange={(v) => onChange(v === ANY ? "" : v)}>
+      <SelectTrigger size="sm" aria-label={label} className="text-xs">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.value || ANY} value={o.value || ANY} className="text-xs">
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 interface Props {
   facets: Facets;
@@ -16,71 +61,67 @@ interface Props {
   isMineTab: boolean;
 }
 
+const STATUS_OPTIONS: Option[] = [
+  { value: "", label: "All statuses" },
+  { value: "draft", label: "Draft" },
+  { value: "approved", label: "Approved" },
+  { value: "deprecated", label: "Deprecated" },
+  { value: "superseded", label: "Superseded" },
+];
+
+const USAGE_OPTIONS: Option[] = [
+  { value: "all", label: "Any activity" },
+  { value: "active", label: "Recently used" },
+  { value: "inactive", label: "Never or long unused" },
+];
+
 export function PromptFacetsBar({ facets, onChange, collections, tagOptions, ownerOptions, isMineTab }: Props) {
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs" data-testid="prompt-facets">
-      <select
+    <div className="flex flex-wrap items-center gap-2" data-testid="prompt-facets">
+      <FacetSelect
+        label="Filter by collection"
         value={facets.collection}
-        onChange={(e) => onChange({ ...facets, collection: e.target.value })}
-        className="rounded-md border bg-background px-2 py-1.5 outline-none"
-        aria-label="Filter by collection"
-      >
-        <option value="">All collections</option>
-        <option value="none">Uncollected</option>
-        {collections.map((c) => (
-          <option key={c.id} value={c.id}>{c.name}</option>
-        ))}
-      </select>
-      <select
+        onChange={(collection) => onChange({ ...facets, collection })}
+        options={[
+          { value: "", label: "All collections" },
+          { value: "none", label: "Uncollected" },
+          ...collections.map((c) => ({ value: c.id, label: c.name })),
+        ]}
+      />
+      <FacetSelect
+        label="Filter by tag"
         value={facets.tag}
-        onChange={(e) => onChange({ ...facets, tag: e.target.value })}
-        className="rounded-md border bg-background px-2 py-1.5 outline-none"
-        aria-label="Filter by tag"
-      >
-        <option value="">All tags</option>
-        {tagOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-      </select>
+        onChange={(tag) => onChange({ ...facets, tag })}
+        options={[{ value: "", label: "All tags" }, ...tagOptions.map((t) => ({ value: t, label: t }))]}
+      />
       {isMineTab ? (
-        <select
+        <FacetSelect
+          label="Filter by status"
           value={facets.status}
-          onChange={(e) => onChange({ ...facets, status: e.target.value })}
-          className="rounded-md border bg-background px-2 py-1.5 outline-none"
-          aria-label="Filter by status"
-        >
-          <option value="">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="approved">Approved</option>
-          <option value="deprecated">Deprecated</option>
-          <option value="superseded">Superseded</option>
-        </select>
+          onChange={(status) => onChange({ ...facets, status })}
+          options={STATUS_OPTIONS}
+        />
       ) : (
-        <select
+        <FacetSelect
+          label="Filter by owner"
           value={facets.owner}
-          onChange={(e) => onChange({ ...facets, owner: e.target.value })}
-          className="rounded-md border bg-background px-2 py-1.5 outline-none"
-          aria-label="Filter by owner"
-        >
-          <option value="">All owners</option>
-          {ownerOptions.map((o) => <option key={o} value={o}>{o}</option>)}
-        </select>
+          onChange={(owner) => onChange({ ...facets, owner })}
+          options={[
+            { value: "", label: "All owners" },
+            ...ownerOptions.map((o) => ({ value: o, label: o })),
+          ]}
+        />
       )}
-      <select
+      <FacetSelect
+        label="Filter by usage"
         value={facets.usage}
-        onChange={(e) => onChange({ ...facets, usage: e.target.value as UsageFacet })}
-        className="rounded-md border bg-background px-2 py-1.5 outline-none"
-        aria-label="Filter by usage"
-      >
-        <option value="all">Any activity</option>
-        <option value="active">Recently used</option>
-        <option value="inactive">Never or long unused</option>
-      </select>
+        onChange={(usage) => onChange({ ...facets, usage: usage as UsageFacet })}
+        options={USAGE_OPTIONS}
+      />
       {facetsActive(facets) && (
-        <button
-          onClick={() => onChange(allFacets)}
-          className="inline-flex items-center gap-1 rounded-md border px-2 py-1.5 hover:bg-accent"
-        >
-          <X className="h-3 w-3" /> Clear filters
-        </button>
+        <Button variant="outline" size="sm" onClick={() => onChange(allFacets)}>
+          <X /> Clear filters
+        </Button>
       )}
     </div>
   );

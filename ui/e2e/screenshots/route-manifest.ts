@@ -205,9 +205,9 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/prompts",
     category: "user",
     beforeCapture: async (page) => {
-      const btn = page.locator("button:has-text('Library')").first();
-      if (await btn.isVisible()) {
-        await btn.click();
+      const tab = page.getByRole("tab", { name: /^Library/ }).first();
+      if (await tab.isVisible()) {
+        await tab.click();
         await page.waitForTimeout(600);
       }
     },
