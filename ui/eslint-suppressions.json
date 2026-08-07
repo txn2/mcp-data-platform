@@ -249,25 +249,12 @@
       "count": 1
     }
   },
-  "src/pages/prompts/AdminPromptsPage.tsx": {
-    "complexity": {
-      "count": 3
-    }
-  },
   "src/pages/prompts/MyPromptsPage.tsx": {
     "complexity": {
-      "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
       "count": 1
     }
   },
   "src/pages/prompts/PromptViewerPage.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/prompts/viewer/PromptViewerHeader.tsx": {
     "complexity": {
       "count": 1
     }
@@ -335,22 +322,12 @@
   },
   "src/pages/settings/catalogs/SpecModal.tsx": {
     "complexity": {
-      "count": 2
-    }
-  },
-  "src/pages/settings/catalogs/SpecsManager.tsx": {
-    "complexity": {
-      "count": 2
+      "count": 1
     }
   },
   "src/pages/settings/catalogs/badges.tsx": {
     "complexity": {
       "count": 2
-    }
-  },
-  "src/pages/settings/connections/ApiGatewayConfigForm.tsx": {
-    "complexity": {
-      "count": 1
     }
   },
   "src/pages/settings/connections/ConnectionEditor.tsx": {

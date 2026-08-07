@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 // The section is the container: what it owns is the connection, the inner tab,
-// and the URL contract. Its three inner tabs are stood in so those concerns are
+// and the URL contract. Its inner tabs are stood in so those concerns are
 // tested without their data layers. Each stand-in carries internal state, so a
 // remount (which is how a connection change resets them) is observable.
 function Stub({ label }: { label: string }) {
@@ -29,6 +29,12 @@ vi.mock("./ContextDocsTab", () => ({
 vi.mock("./TagsTab", () => ({
   TagsTab: ({ conn }: { conn: string }) => <Stub label={`tags:${conn}`} />,
 }));
+vi.mock("./DomainsTab", () => ({
+  DomainsTab: ({ conn }: { conn: string }) => <Stub label={`domains:${conn}`} />,
+}));
+vi.mock("./GlossaryTab", () => ({
+  GlossaryTab: ({ conn }: { conn: string }) => <Stub label={`glossary:${conn}`} />,
+}));
 // Stand in a picker that switches connection, so the section's reaction to a
 // change is testable without the real select's data fetch.
 vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
@@ -50,6 +56,10 @@ vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
 import { CatalogSection } from "./CatalogSection";
 
 const path = () => window.location.pathname + window.location.search + window.location.hash;
+
+// The inner tab bar is a Radix tablist (SubTabBar over the shared Tabs
+// primitive); its triggers carry role "tab" and activate on mousedown.
+const clickTab = (name: string) => fireEvent.mouseDown(screen.getByRole("tab", { name }));
 
 // jsdom provides no localStorage, and the section's persistence is a real
 // behaviour (the selection has to outlive a refresh), so stand one in rather
@@ -79,6 +89,7 @@ describe("CatalogSection", () => {
     expect(screen.getByText("tables:primary body")).toBeInTheDocument();
     expect(screen.queryByText("docs:primary body")).not.toBeInTheDocument();
     expect(screen.queryByText("tags:primary body")).not.toBeInTheDocument();
+    expect(screen.queryByText("domains:primary body")).not.toBeInTheDocument();
     // One picker for the whole section, not one per inner tab.
     expect(screen.getAllByRole("button", { name: "pick primary" })).toHaveLength(1);
   });
@@ -89,8 +100,14 @@ describe("CatalogSection", () => {
     expect(screen.getByText("docs:primary body")).toBeInTheDocument();
   });
 
+  it("opens Domains from its hash", () => {
+    render(<CatalogSection initialSub="domains" />);
+    fireEvent.click(screen.getByRole("button", { name: "pick primary" }));
+    expect(screen.getByText("domains:primary body")).toBeInTheDocument();
+  });
+
   it("falls back to Tables for a hash that addresses nothing", () => {
-    render(<CatalogSection initialSub="glossary" />);
+    render(<CatalogSection initialSub="lineage" />);
     fireEvent.click(screen.getByRole("button", { name: "pick primary" }));
     expect(screen.getByText("tables:primary body")).toBeInTheDocument();
   });
@@ -100,18 +117,20 @@ describe("CatalogSection", () => {
     render(<CatalogSection />);
     fireEvent.click(screen.getByRole("button", { name: "pick primary" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Tags" }));
+    clickTab("Tags");
     expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#tags");
-    fireEvent.click(screen.getByRole("button", { name: "Context Docs" }));
+    clickTab("Context Docs");
     expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#context-docs");
-    fireEvent.click(screen.getByRole("button", { name: "Tables" }));
+    clickTab("Domains");
+    expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#domains");
+    clickTab("Tables");
     expect(path()).toBe("/knowledge/catalog?urn=urn:li:tag:pii#tables");
   });
 
   it("holds the connection across an inner tab switch", () => {
     render(<CatalogSection />);
     fireEvent.click(screen.getByRole("button", { name: "pick other" }));
-    fireEvent.click(screen.getByRole("button", { name: "Tags" }));
+    clickTab("Tags");
 
     // The whole point of nesting: the sibling inherits the connection instead of
     // re-picking one through top-level state.

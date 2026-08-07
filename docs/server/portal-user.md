@@ -285,11 +285,19 @@ The whole-corpus overview, with the detected clusters drawn as regions:
 
 ![Knowledge graph, whole corpus](../images/screenshots/light/user-knowledge-graph-corpus-light.webp#only-light)![Knowledge graph, whole corpus](../images/screenshots/dark/user-knowledge-graph-corpus-dark.webp#only-dark)
 
+#### What a page links to
+
+A knowledge page's **Manual references** panel is where an editor states what the page is about. It searches the portal's own entities — assets, collections, pages, prompts — and, when a DataHub connection is configured, the catalog's governance vocabularies: **glossary terms**, **tags**, and **domains**. Every type is searched by display name, so attaching the term *Net Revenue* never means typing the URN DataHub generated for it; picking a catalog type also asks which connection to search, since a governance entity belongs to one catalog and the portal's own entities belong to none. A deployment with no DataHub connection is offered only the four portal types, rather than three that could never return a match.
+
+An attached reference renders as a named chip in the **Related** panel and links to where that entity is managed: a glossary term to the Glossary tab, a tag to Tags, a domain to Domains, a table to Tables. The names are resolved from the catalog itself, because the key inside a governance URN is not a name — DataHub generates one for anything created without an explicit id — so a chip built from the URN alone would read as `8f3c1a94` where the page meant *Net Revenue*. When the catalog cannot be reached, the chip falls back to that key rather than failing the page. Resolving a name is a catalog read, so it is gated the same way the Catalog tab is: a persona granted no DataHub tool sees the URN-derived label, since a name it could not look up there should not arrive here instead.
+
+The link runs both ways: each governance detail page lists the knowledge pages that reference its entity, so a steward reading a term sees what has been written about it. References you cannot access are omitted from both directions.
+
 ### Catalog
 
 The **Catalog** sub-tab is the whole of your data catalog inside the portal, and the second of the two knowledge sinks. **Everything under Catalog is DataHub**; anything the portal's own database backs — knowledge pages, changesets — stays outside it. That rule is what keeps the top row at four tabs while the catalog surfaces grow underneath.
 
-Catalog holds its own inner tabs: **Tables**, **Context Docs**, and **Tags** — the described things first, the vocabulary that describes them second. The DataHub connection is picked once, at the top of the section, and applies to every inner tab; switching it returns each tab to its list, since an open table, document, or tag belongs to the connection it was read from. The section is URL-addressable at `/knowledge/catalog`, and the inner tab is carried in the hash (`/knowledge/catalog#tags`), so a refresh and browser back/forward land where you were. A single entity stays addressable at `/knowledge/catalog?urn=...`, which is what a catalog reference links to from anywhere in the portal.
+Catalog holds its own inner tabs: **Tables**, **Context Docs**, **Tags**, **Domains**, and **Glossary** — the described things first, the vocabularies that describe them second. The DataHub connection is picked once, at the top of the section, and applies to every inner tab; switching it returns each tab to its list, since an open table, document, tag, domain, or glossary entity belongs to the connection it was read from. The section is URL-addressable at `/knowledge/catalog`, and the inner tab is carried in the hash (`/knowledge/catalog#tags`), so a refresh and browser back/forward land where you were. A single entity stays addressable at `/knowledge/catalog?urn=...`, which is what a catalog reference links to from anywhere in the portal; the link names the tab that manages that kind of entity (`?urn=urn:li:glossaryTerm:...#glossary`), because Tables cannot show a term at all. Each tab claims only its own kinds, so a stale or hand-edited link opens the list rather than a read that could not succeed. Going back from a deep-linked entity drops the `?urn=` so a refresh does not reopen what you just left.
 
 ![Catalog](../images/screenshots/light/user-knowledge-catalog-light.webp#only-light)![Catalog](../images/screenshots/dark/user-knowledge-catalog-dark.webp#only-dark)
 
@@ -303,7 +311,29 @@ The **Context Docs** tab manages DataHub context documents: markdown notes attac
 
 #### Tags
 
-The **Tags** tab manages the tag vocabulary itself, rather than the tags carried by one table. List the connection's tags with their descriptions, filter by name, and open a tag to see what it means and which tables carry it; each of those tables links straight into the Tables tab's entity editor. With the matching grant on a write-enabled connection you can create a tag (`datahub_create`), edit its description (`datahub_update`), and retire one (`datahub_delete`); without those grants the same read surfaces appear with no editing controls. Deleting states its blast radius first — how many tables in the connection carry the tag — so retiring an unused tag and retiring one the warehouse depends on do not look identical. DataHub indexes new tags asynchronously, so a tag you just created may take a moment to appear in the list.
+The **Tags** tab manages the tag vocabulary itself, rather than the tags carried by one table. List the connection's tags with their descriptions, filter by name, and open a tag to see what it means and which tables carry it; each of those tables links straight into the Tables tab's entity editor. With the matching grant on a write-enabled connection you can create a tag (`datahub_create`), edit its description (`datahub_update`), and retire one (`datahub_delete`); without those grants the same read surfaces appear with no editing controls. A tag description is plain text, not markdown, and this is the one deliberate exception among the Catalog vocabularies: DataHub's own tag page renders the field as plain text, so formatting authored here would show as raw source everywhere else in the catalog. An open tag also lists the **knowledge pages that reference it**, so the prose written about a tag is one click from the tag itself; a tag no page cites shows no such list. Deleting states its blast radius first — how many tables in the connection carry the tag — so retiring an unused tag and retiring one the warehouse depends on do not look identical. DataHub indexes new tags asynchronously, so a tag you just created may take a moment to appear in the list.
+
+#### Domains
+
+The **Domains** tab manages the business areas the catalog is grouped into, rather than the domain carried by one table. List the connection's domains with their descriptions, filter by name, and open a domain to see what it covers and which tables are in it; each of those tables links straight into the Tables tab's entity editor. With the matching grant on a write-enabled connection you can create a domain (`datahub_create`), edit its description (`datahub_update`), retire one (`datahub_delete`), and move tables in and out of it (`datahub_update`); without those grants the same read surfaces appear with no editing controls. Domain descriptions are markdown: the domain view renders them formatted, and the description editor is the same split source/preview markdown editor used for table descriptions, knowledge pages, and prompts.
+
+An open domain also lists the **knowledge pages that reference it**, the same reverse lookup the tag and term views offer.
+
+Two limits the tab states rather than hides. The domain list is capped at 100 by DataHub itself — its `listDomains` query asks for that many and the lookup endpoint takes no limit — so a full list means there are domains this page cannot reach, and it says so. A table has at most one domain, so adding a table that is already in another domain **moves** it rather than giving it a second; the add form says so before you pick.
+
+Deleting states its blast radius first — how many tables in the connection are in the domain — and what it does with them: the delete removes the domain definition from DataHub and leaves those tables without a domain, since it touches no table. As with tags, DataHub indexes new domains asynchronously, so a domain you just created may take a moment to appear in the list.
+
+#### Glossary
+
+The **Glossary** tab manages the business glossary itself: the terms your organization defines and the nodes that organize them, rather than the terms carried by one table. It is a tree, so it is walked one branch at a time — the root shows the nodes and the terms with no parent, and opening a node shows what is inside it. A node is both a place in the tree and an entity of its own, so browsing into one *is* its detail view: its definition, its attached documents, and its children on the one screen.
+
+Opening a term shows five things: its definition, where it sits (a breadcrumb built from DataHub's parent chain, so it is the same wherever you reached the term from), the context documents attached to it, the knowledge pages that reference it, and the tables annotated with it. Each of those tables links straight into the Tables tab's entity editor, and the ones where a **column** rather than the table carries the term are marked. That distinction takes two reads: DataHub's `glossaryTerms` search filter matches a table annotated at either level, and only `fieldGlossaryTerms` isolates the column-level ones, so listing the first alone would report every carrier as a column carrier.
+
+With the matching grant on a write-enabled connection you can create a term or a node (`datahub_create`), edit either's definition (`datahub_update`), and retire a term or an **empty** node (`datahub_delete`); without those grants the same read surfaces appear with no editing controls. Term and node definitions are markdown: both views render them formatted, and the definition editor is the same split source/preview markdown editor used for table descriptions, knowledge pages, and prompts — so a definition can carry a heading, a list of the cases it includes and excludes, and a worked example. A new term or node lands in the branch you have open, and the form says which one that is before you submit.
+
+A node that still holds entries is not offered a delete at all. DataHub takes the node without taking what is inside it, so the honest options are to empty it first or leave it, and the tab says which — a confirmation that cannot state the outcome would be worse than no button. Deleting a term does state its blast radius: how many tables in the connection are annotated with it, and that the delete removes the term definition without removing the annotation from those tables, since it touches no table. As with tags and domains, DataHub indexes the glossary asynchronously, so what you create may take a moment to appear in the branch.
+
+One glossary backs both surfaces: a term defined here is immediately what the Tables tab's glossary picker offers, as it is in DataHub.
 
 These tabs are backed by the portal DataHub REST API at `/api/v1/portal/datahub/{connection}/...`. Reads require DataHub access on your persona; a write is permitted only when your persona grants the matching MCP tool **and** the target connection is write-enabled (`read_only: false`). Both checks are enforced server-side regardless of what the UI shows, and every write is recorded in the audit log. Tag and glossary-term edits are applied as batched add/remove sets so concurrent edits do not clobber one another. The pickers are backed by name-search lookup endpoints (`catalog/lookup/tags`, `catalog/lookup/glossary-terms`, `catalog/lookup/domains`). A malformed metadata value is rejected with `400 Bad Request`; `502 Bad Gateway` is reserved for genuine upstream DataHub failures.
 
@@ -318,20 +348,39 @@ Managing the tag vocabulary adds two routes, because the reads it needs already 
 
 A URN that is not a tag is a `400` before the call reaches DataHub, rather than a forwarded call surfacing as a misleading `502`. A newly created tag is not immediately listable: the list read is served from DataHub's search index, which is populated asynchronously, so the returned URN is authoritative until the index catches up.
 
-#### Glossary hierarchy endpoints
+#### Domain endpoints
 
-The business glossary is a tree — nodes containing sub-nodes and terms — and the name-search picker above flattens it. These endpoints expose the structure itself, so a client can browse the glossary rather than only search it. They require mcp-datahub v1.15.0 or later.
+Managing domains adds two routes, for the same reason tags did: everything else it needs already exists. Listing domains with their descriptions is `GET catalog/lookup/domains`, the same read behind the domain picker; the tables in a domain are `GET catalog/search?q=*&domain=<urn>`, through the catalog search's domain filter; a domain's description is edited with `PUT catalog/entity/description`; and moving a table into or out of a domain is `PUT catalog/entity/domain`, the same write the per-table entity editor makes, aimed at the table rather than at the domain.
 
-| Endpoint | Returns |
+| Endpoint | Behavior |
+| --- | --- |
+| `POST catalog/domains` | Creates a domain from `{name, description}` and returns the URN DataHub assigned it, `201`. Gated on `datahub_create` and a write-enabled connection. |
+| `DELETE catalog/domains?urn=` | Retires a domain definition. Gated on `datahub_delete` and a write-enabled connection. The URN is a query parameter rather than a path segment because a domain URN is itself colon-delimited. |
+
+A URN that is not a domain is a `400` before the call reaches DataHub. `GET catalog/lookup/domains` returns at most 100 domains because the upstream `listDomains` query is fixed at that count; the portal reports a full list as capped rather than as complete.
+
+#### Glossary endpoints
+
+The business glossary is a tree — nodes containing sub-nodes and terms — and the name-search picker above flattens it. These endpoints expose the structure itself, so a client can browse and maintain the glossary rather than only search it. They require mcp-datahub v1.15.0 or later.
+
+| Endpoint | Behavior |
 | --- | --- |
 | `GET catalog/glossary/roots` | The top of the tree: the nodes and the terms with no parent. Nodes and terms carry separate totals (`nodes_total`, `terms_total`) because DataHub pages the two independently. |
 | `GET catalog/glossary/children?urn=` | One page of the nodes and terms directly under a glossary node. DataHub pages a node's children as one mixed collection, so `start`, `count`, and `total` describe the combined page rather than either slice. |
 | `GET catalog/glossary/parents?urn=` | The ancestor nodes of a glossary term or node, direct parent first, so a client can render a breadcrumb without walking the tree. Each node carries its own parent URN, the next link up. |
+| `GET catalog/glossary/term?urn=` | One term by URN: its name and its definition. It is what opens a term a knowledge page cites — a citation carries only the URN, which neither the name-search picker nor the hierarchy reads can start from. There is no node counterpart because upstream has no by-URN node read; a node is reached by browsing the tree. A term the catalog does not hold is a `404`. |
 | `POST catalog/glossary/nodes` | Creates a node from `{name, definition, parent_node}` and returns its URN. An empty `parent_node` creates it at the root. Gated on `datahub_create` and a write-enabled connection. |
+| `POST catalog/glossary/terms` | Creates a term from the same body, and is the same handler: a term and a node differ only in which upstream call runs. Gated on `datahub_create` and a write-enabled connection. |
+| `DELETE catalog/glossary/entity?urn=` | Retires a glossary term **or** node. One route for both kinds because upstream is one call. Gated on `datahub_delete` and a write-enabled connection. |
+| `GET catalog/entity/documents?urn=` | The context documents attached to one catalog entity — a dataset, a glossary term, or a glossary node. The corpus-wide `documents/browse` and `documents/search` cannot express it: neither is scoped to what a given entity carries. |
+
+Two things the glossary needs are not routes of their own, because they already exist. A term's or node's **definition** is edited with `PUT catalog/entity/description`, which takes any entity URN: DataHub stores a glossary entity's text in the `glossaryTermInfo` / `glossaryNodeInfo` aspect's `definition` field, and the platform routes the write there by entity type. And the tables a term is applied to come from the catalog search's glossary filters: `GET catalog/search?q=*&glossary_term=<urn>` for every table annotated with it, and `&column_glossary_term=<urn>` for those where a column carries it. The two are distinct because DataHub's `glossaryTerms` index folds column-level annotations into the table's, and only `fieldGlossaryTerms` isolates them; there is no table-level-only filter field.
 
 Each node in a read carries `terms_count` and `nodes_count`, DataHub's own tally of its direct children, so a browser can render an expandable branch without first fetching it.
 
-A URN of the wrong kind is a `400` — children hang off a node only, while a parent chain exists for either kind of glossary entity — and a node DataHub does not know is a `404`, not a `502`.
+A URN of the wrong kind is a `400` — children hang off a node only, while a parent chain and a delete accept either kind of glossary entity — and a node DataHub does not know is a `404`, not a `502`.
+
+Deleting a node does not delete what is inside it, and deleting a term does not remove the term from the tables annotated with it: upstream `DeleteGlossaryEntity` touches only the entity named. That is why the portal shows a node's children and a term's usage before offering the delete.
 
 A node's children come from DataHub's graph index, which is populated asynchronously: a term or node created moments earlier may not appear under its parent yet. The parent chain reads the entity itself and is immediately consistent, so it is the reliable way to confirm a just-written parent.
 

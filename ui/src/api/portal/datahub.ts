@@ -1,117 +1,23 @@
 // DataHub Catalog and Context Docs API (#719/#720). Thin typed hooks over the
 // portal DataHub REST surface (#718) at /api/v1/portal/datahub/{connection}/...
+//
+// This is the one import path for the whole surface: the response types and URL
+// helpers live in ./datahubCore and the glossary in ./datahubGlossary, both
+// re-exported here, so a caller never has to know which module a hook is in.
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw, ApiError } from "./client";
+import { MIN_SEARCH_LEN, base, catalogKey, enc } from "./datahubCore";
+import type {
+  ContextDocument,
+  CatalogEntity,
+  DataHubConnection,
+  EntityRef,
+  OwnerChange,
+  TableSearchResult,
+} from "./datahubCore";
 
-// MIN_SEARCH_LEN is the shortest query that triggers a search request. The tabs
-// only render search results at this length, so the query hooks stay disabled
-// below it to avoid a wasted request per leading keystroke.
-export const MIN_SEARCH_LEN = 2;
-
-// --- types (mirror pkg/semantic and pkg/portal/datahubapi JSON) ---
-
-export interface DataHubConnection {
-  name: string;
-  writable: boolean;
-}
-
-export interface TableSearchResult {
-  urn: string;
-  name: string;
-  platform?: string;
-  description?: string;
-  tags?: string[];
-  domain?: string;
-  matched_field?: string;
-}
-
-export interface Owner {
-  urn: string;
-  type: string;
-  name?: string;
-  email?: string;
-}
-
-export interface GlossaryTerm {
-  urn: string;
-  name: string;
-  description?: string;
-}
-
-export interface Domain {
-  urn: string;
-  name: string;
-  description?: string;
-}
-
-export interface Deprecation {
-  deprecated: boolean;
-  note?: string;
-  actor?: string;
-  decommission_date?: string;
-}
-
-export interface TableContext {
-  urn?: string;
-  description?: string;
-  owners?: Owner[];
-  tags?: string[];
-  // tag_refs mirrors tags as URN + name pairs so the editor removes/dedupes a tag
-  // by its URN (tags carries only the display name). Populated on the detail read.
-  tag_refs?: EntityRef[];
-  glossary_terms?: GlossaryTerm[];
-  domain?: Domain | null;
-  deprecation?: Deprecation | null;
-  quality_score?: number | null;
-  custom_properties?: Record<string, string>;
-  last_modified?: string | null;
-}
-
-export interface ColumnContext {
-  name: string;
-  description?: string;
-  tags?: string[];
-  glossary_terms?: GlossaryTerm[];
-  is_pii?: boolean;
-  is_sensitive?: boolean;
-  business_name?: string;
-}
-
-export interface CatalogEntity {
-  urn: string;
-  context: TableContext | null;
-  columns?: Record<string, ColumnContext>;
-}
-
-export interface ContextDocument {
-  urn: string;
-  title: string;
-  sub_type?: string;
-  snippet?: string;
-  body?: string;
-  status?: string;
-  show_in_global_context: boolean;
-  related_asset_urns?: string[];
-}
-
-export interface OwnerChange {
-  owner_urn: string;
-  ownership_type?: string;
-}
-
-// EntityRef is a URN + display-name result from a catalog metadata picker lookup
-// (#785): the user picks by name, the UI submits the urn.
-export interface EntityRef {
-  urn: string;
-  name: string;
-  description?: string;
-}
-
-// documentId extracts the bare id from a context-document URN
-// (urn:li:document:<id> -> <id>) for the update/delete paths.
-export function documentId(urn: string): string {
-  return urn.replace(/^urn:li:document:/, "");
-}
+export * from "./datahubCore";
+export * from "./datahubGlossary";
 
 // --- query keys ---
 
@@ -128,15 +34,15 @@ const keys = {
   lookupGlossary: (conn: string, q: string) =>
     ["datahub", conn, "catalog", "lookup", "glossary", q] as const,
   lookupDomains: (conn: string) => ["datahub", conn, "catalog", "lookup", "domains"] as const,
+  domainList: (conn: string) => ["datahub", conn, "catalog", "domains"] as const,
+  domainMembers: (conn: string, urn: string) =>
+    ["datahub", conn, "catalog", "domains", "members", urn] as const,
   docsBrowse: (conn: string, limit: number, offset: number) =>
     ["datahub", conn, "documents", "browse", limit, offset] as const,
   docsSearch: (conn: string, q: string, limit: number) =>
     ["datahub", conn, "documents", "search", q, limit] as const,
   doc: (conn: string, id: string) => ["datahub", conn, "documents", id] as const,
 };
-
-const enc = encodeURIComponent;
-const base = (conn: string) => `/datahub/${enc(conn)}`;
 
 // --- connections ---
 
@@ -281,7 +187,7 @@ export function useTagUsage(conn: string, urn: string | null) {
 // definition change has to reach all of them.
 function useInvalidateTags(conn: string) {
   const qc = useQueryClient();
-  return () => void qc.invalidateQueries({ queryKey: ["datahub", conn, "catalog"] });
+  return () => void qc.invalidateQueries({ queryKey: catalogKey(conn) });
 }
 
 // useCreateTag defines a new tag. DataHub indexes tags asynchronously, so the
@@ -317,13 +223,99 @@ export function useDeleteTag(conn: string) {
   });
 }
 
+// --- domain governance (#1157) ---
+
+// DOMAIN_LIST_LIMIT is the number of domains the list read can return. Unlike
+// the tag list it is not a page this surface chooses: the upstream ListDomains
+// GraphQL query hardcodes `count: 100` (mcp-datahub pkg/client/queries.go), and
+// the lookup route takes no limit parameter, so 100 is the ceiling however the
+// list is asked for. A full list therefore means there may be more, and the
+// surface says so rather than presenting it as the whole set.
+export const DOMAIN_LIST_LIMIT = 100;
+
+// DOMAIN_MEMBER_LIMIT is the page the membership read asks for. The catalog
+// search honours it (the handler caps at 200), so a full page is a floor on the
+// membership, not a total.
+export const DOMAIN_MEMBER_LIMIT = 100;
+
+// useDomainList lists the domains on a connection for the Domains surface. It
+// shares the picker's lookup route (the backend read is the same one) but not
+// its query key or its `enabled` gate: the management list renders every domain
+// unconditionally. DataHub has no name-scoped domain search, so filtering is
+// client-side.
+export function useDomainList(conn: string) {
+  return useQuery({
+    queryKey: keys.domainList(conn),
+    enabled: !!conn,
+    queryFn: () =>
+      apiFetch<{ results: EntityRef[] }>(`${base(conn)}/catalog/lookup/domains`).then(
+        (r) => r.results ?? [],
+      ),
+  });
+}
+
+// useDomainMembers lists the tables in a domain, through the catalog search's
+// domain filter (the adapter maps it to DataHub's `domains` filter field). The
+// query is "*" because the filter, not the text, selects the rows.
+export function useDomainMembers(conn: string, urn: string | null) {
+  return useQuery({
+    queryKey: keys.domainMembers(conn, urn ?? ""),
+    enabled: !!conn && !!urn,
+    queryFn: () =>
+      apiFetch<{ results: TableSearchResult[] }>(
+        `${base(conn)}/catalog/search?q=*&domain=${enc(urn!)}&limit=${DOMAIN_MEMBER_LIMIT}`,
+      ).then((r) => r.results ?? []),
+  });
+}
+
+// useInvalidateDomains drops every cached catalog read for the connection. The
+// domain list, the domain picker, each domain's membership, and each entity's
+// domain chip all read domain state, so a domain change has to reach all of them.
+function useInvalidateDomains(conn: string) {
+  const qc = useQueryClient();
+  return () => void qc.invalidateQueries({ queryKey: catalogKey(conn) });
+}
+
+// useCreateDomain defines a new domain. DataHub indexes domains asynchronously,
+// so the domain may not appear in a re-listed page immediately; the returned URN
+// is authoritative in the meantime.
+export function useCreateDomain(conn: string) {
+  const invalidate = useInvalidateDomains(conn);
+  return useMutation({
+    mutationFn: (v: { name: string; description?: string }) =>
+      apiFetch<{ urn: string }>(`${base(conn)}/catalog/domains`, {
+        method: "POST",
+        body: JSON.stringify(v),
+      }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useDeleteDomain(conn: string) {
+  const invalidate = useInvalidateDomains(conn);
+  return useMutation({
+    // apiFetchRaw resolves the Response on any status, so a rejected DELETE must
+    // be turned into a thrown error here or the mutation would report success.
+    mutationFn: async (urn: string) => {
+      const res = await apiFetchRaw(`${base(conn)}/catalog/domains?urn=${enc(urn)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new ApiError(res.status, body.detail || res.statusText, body);
+      }
+    },
+    onSuccess: () => invalidate(),
+  });
+}
+
 // --- catalog writes ---
 
 function useInvalidateEntity(conn: string) {
   const qc = useQueryClient();
   return (urn: string) => {
     void qc.invalidateQueries({ queryKey: keys.entity(conn, urn) });
-    void qc.invalidateQueries({ queryKey: ["datahub", conn, "catalog"] });
+    void qc.invalidateQueries({ queryKey: catalogKey(conn) });
   };
 }
 

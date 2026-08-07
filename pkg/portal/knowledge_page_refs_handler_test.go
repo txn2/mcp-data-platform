@@ -461,6 +461,193 @@ func TestDatahubLabel(t *testing.T) {
 	assert.Equal(t, "nocolon", datahubLabel("nocolon"))
 }
 
+// stubCatalogLabeler is a CatalogLabeler that answers from a fixed table and
+// records what it was asked, so a test can assert both the name a reference
+// renders with and that the batch carried only what needed resolving.
+type stubCatalogLabeler struct {
+	names map[string]string
+	asked [][]string
+}
+
+func (s *stubCatalogLabeler) Labels(_ context.Context, urns []string) map[string]string {
+	s.asked = append(s.asked, urns)
+	out := map[string]string{}
+	for _, urn := range urns {
+		if name, ok := s.names[urn]; ok {
+			out[urn] = name
+		}
+	}
+	return out
+}
+
+// catalogPersona resolves every role to a persona that grants a DataHub tool,
+// which is what catalog access is gated on.
+func catalogPersona(_ []string) *PersonaInfo {
+	return &PersonaInfo{Name: "analyst", Tools: []string{"search", "datahub_get_entity"}}
+}
+
+// noCatalogPersona resolves to a persona with no DataHub tool at all.
+func noCatalogPersona(_ []string) *PersonaInfo {
+	return &PersonaInfo{Name: "restricted", Tools: []string{"search"}}
+}
+
+// newLabelingHandler builds a knowledge-page handler with a catalog labeler
+// wired, the shape the server has when a DataHub connection is configured.
+func newLabelingHandler(store knowledgepage.Store, user *User, labeler CatalogLabeler, persona PersonaResolver) *Handler {
+	return NewHandler(Deps{
+		KnowledgePageStore: store,
+		AdminRoles:         []string{"admin"},
+		RateLimit:          RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+		CatalogLabeler:     labeler,
+		PersonaResolver:    persona,
+	}, testAuthMiddleware(user))
+}
+
+// TestKnowledgePageRefs_GovernanceNamesResolve is the display-name contract
+// (#1159): a citation of a glossary term, a tag, or a domain renders as the
+// entity's name, not the generated key DataHub put inside its URN. Without the
+// labeler the same reference reads as "8f3c", which names nothing.
+func TestKnowledgePageRefs_GovernanceNamesResolve(t *testing.T) {
+	labeler := &stubCatalogLabeler{names: map[string]string{
+		"urn:li:glossaryTerm:8f3c": "Net Revenue",
+		"urn:li:tag:a1b2":          "PII",
+		"urn:li:domain:c3d4":       "Finance",
+	}}
+	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
+		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:glossaryTerm:8f3c", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:a1b2", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:domain:c3d4", Source: knowledgepage.RefSourceManual},
+	}}
+	h := newLabelingHandler(store, kpViewer, labeler, catalogPersona)
+
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/refs", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp refsResp
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+
+	labels := map[string]string{}
+	for _, r := range resp.Refs {
+		labels[r.URN] = r.Label
+	}
+	assert.Equal(t, "Net Revenue", labels["urn:li:glossaryTerm:8f3c"])
+	assert.Equal(t, "PII", labels["urn:li:tag:a1b2"])
+	assert.Equal(t, "Finance", labels["urn:li:domain:c3d4"])
+
+	// One batch for the whole page: a tag and a domain each cost a vocabulary
+	// listing upstream, so a per-reference resolve would multiply them.
+	require.Len(t, labeler.asked, 1)
+}
+
+// TestKnowledgePageRefs_UnresolvedFallsBackToTheURN proves an unnamed reference
+// keeps the name derivable from its URN rather than rendering blank, which is
+// what makes the resolve safe to fail.
+func TestKnowledgePageRefs_UnresolvedFallsBackToTheURN(t *testing.T) {
+	labeler := &stubCatalogLabeler{names: map[string]string{}}
+	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
+		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:pii", Source: knowledgepage.RefSourceManual},
+	}}
+	h := newLabelingHandler(store, kpViewer, labeler, catalogPersona)
+
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/refs", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp refsResp
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Refs, 1)
+	assert.Equal(t, "pii", resp.Refs[0].Label)
+}
+
+// TestKnowledgePageRefs_OnlyCatalogURNsAreResolved proves the batch carries only
+// catalog references: an mcp: reference is resolved from the portal's own
+// stores, so sending it upstream would be a pointless round trip.
+func TestKnowledgePageRefs_OnlyCatalogURNsAreResolved(t *testing.T) {
+	labeler := &stubCatalogLabeler{names: map[string]string{"urn:li:tag:pii": "PII"}}
+	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
+		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:pii", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetConnection, ConnectionKind: "trino", ConnectionName: "warehouse", Source: knowledgepage.RefSourceManual},
+		{TargetType: knowledgepage.RefTargetKnowledgePage, RefPageID: "kp2", Source: knowledgepage.RefSourceManual},
+	}}
+	h := newLabelingHandler(store, kpViewer, labeler, catalogPersona)
+
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/refs", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, labeler.asked, 1)
+	assert.Equal(t, []string{"urn:li:tag:pii"}, labeler.asked[0])
+}
+
+// TestKnowledgePageRefs_CatalogAccessGatesTheName proves the display name is
+// gated on catalog access, the same rule the DataHub REST surface applies. A
+// persona granted no DataHub tool cannot open the Catalog tab, so it must not
+// learn a governance entity's name through the reference list instead; it keeps
+// the label derivable from the URN, and the catalog is never read at all.
+func TestKnowledgePageRefs_CatalogAccessGatesTheName(t *testing.T) {
+	labeler := &stubCatalogLabeler{names: map[string]string{"urn:li:tag:a1b2": "PII"}}
+	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
+		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:a1b2", Source: knowledgepage.RefSourceManual},
+	}}
+	h := newLabelingHandler(store, kpViewer, labeler, noCatalogPersona)
+
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/refs", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp refsResp
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Refs, 1)
+	assert.Equal(t, "a1b2", resp.Refs[0].Label)
+	assert.Empty(t, labeler.asked, "a persona denied the catalog must not cause a catalog read")
+}
+
+// TestKnowledgePageRefs_AdminAlwaysGetsTheName proves the admin arm of the gate:
+// an admin holds catalog access regardless of what their persona resolves to,
+// matching the DataHub REST surface.
+func TestKnowledgePageRefs_AdminAlwaysGetsTheName(t *testing.T) {
+	labeler := &stubCatalogLabeler{names: map[string]string{"urn:li:tag:a1b2": "PII"}}
+	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
+		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:a1b2", Source: knowledgepage.RefSourceManual},
+	}}
+	h := newLabelingHandler(store, kpAdmin, labeler, noCatalogPersona)
+
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/refs", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp refsResp
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Refs, 1)
+	assert.Equal(t, "PII", resp.Refs[0].Label)
+}
+
+// TestKnowledgePageRefs_NoLabelerKeepsURNLabels proves a deployment with no
+// DataHub connection still renders catalog citations, through the URN-derived
+// name. The labeler is optional wiring, not a requirement.
+func TestKnowledgePageRefs_NoLabelerKeepsURNLabels(t *testing.T) {
+	store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
+		{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:tag:pii", Source: knowledgepage.RefSourceManual},
+	}}
+	h := newKnowledgePageHandler(store, kpViewer)
+
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/refs", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp refsResp
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Refs, 1)
+	assert.Equal(t, "pii", resp.Refs[0].Label)
+}
+
+// TestResolveKnowledgePageRefs_GovernanceNames covers the batch resolve endpoint
+// the markdown renderer calls, so an inline citation in a page body names its
+// term the same way the Related panel does.
+func TestResolveKnowledgePageRefs_GovernanceNames(t *testing.T) {
+	labeler := &stubCatalogLabeler{names: map[string]string{"urn:li:glossaryTerm:8f3c": "Net Revenue"}}
+	h := newLabelingHandler(&mockKnowledgePageStore{page: livePage()}, kpViewer, labeler, catalogPersona)
+
+	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve",
+		`{"urns":["urn:li:glossaryTerm:8f3c"]}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Refs []resolvedRef `json:"refs"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Refs, 1)
+	assert.Equal(t, "Net Revenue", resp.Refs[0].Label)
+}
+
 func TestCreateKnowledgePage_InlineReconcileErrorDoesNotFail(t *testing.T) {
 	// A reconcile failure is logged but must not fail the page create.
 	store := &mockKnowledgePageStore{refsErr: errors.New("boom")}

@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 
 type Variant = "success" | "error" | "warning" | "neutral";
 
@@ -7,22 +7,13 @@ interface StatusBadgeProps {
   children: React.ReactNode;
 }
 
-const variantStyles: Record<Variant, string> = {
-  success: "bg-green-100 text-green-800",
-  error: "bg-red-100 text-red-800",
-  warning: "bg-yellow-100 text-yellow-800",
-  neutral: "bg-gray-100 text-gray-800",
+const variantMap: Record<Variant, "success" | "danger" | "warning" | "muted"> = {
+  success: "success",
+  error: "danger",
+  warning: "warning",
+  neutral: "muted",
 };
 
 export function StatusBadge({ variant, children }: StatusBadgeProps) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        variantStyles[variant],
-      )}
-    >
-      {children}
-    </span>
-  );
+  return <Badge variant={variantMap[variant]}>{children}</Badge>;
 }

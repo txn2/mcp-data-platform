@@ -2,8 +2,13 @@ import { useMemo, useState } from "react";
 import { BadgeCheck, History, X } from "lucide-react";
 import type { Prompt, PromptVersion } from "@/api/admin/types";
 import { usePromptVersions } from "@/api/portal/hooks";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { diffLines, diffStats } from "@/lib/textDiff";
 import { cn } from "@/lib/utils";
+import { ListSkeleton } from "../primitives";
 
 // VersionHistory renders the prompt's version list with per-version approval
 // provenance and a line diff between any version and the current content
@@ -28,56 +33,60 @@ export function VersionHistory({ prompt }: { prompt: Prompt }) {
   }
 
   return (
-    <div className="rounded-lg border bg-card">
-      <div className="flex items-center gap-2 border-b px-4 py-2.5 text-sm font-semibold">
-        <History className="h-4 w-4 text-muted-foreground" />
-        Version history
-        {isLoading && <span className="text-xs font-normal text-muted-foreground">Loading...</span>}
+    <SectionCard
+      title={
+        <span className="flex items-center gap-2">
+          <History className="size-4 text-muted-foreground" />
+          Version history
+        </span>
+      }
+    >
+      <div className="space-y-3">
+        {pendingDraft && (
+          <Alert variant="warning" data-testid="pending-draft-banner">
+            <AlertDescription className="text-xs">
+              Draft v{pendingDraft.version} by {pendingDraft.author} is pending review. Readers are
+              served the approved v{prompt.version ?? 1} until an admin approves it.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {isLoading ? (
+          <ListSkeleton rows={3} />
+        ) : (
+          <ul className="divide-y rounded-lg border">
+            {versions.map((v) => (
+              <VersionRow
+                key={v.id}
+                version={v}
+                isCurrent={v.version === prompt.version}
+                isDiffOpen={diffVersion === v.version}
+                onToggleDiff={() =>
+                  setDiffVersion((cur) => (cur === v.version ? null : v.version))
+                }
+              />
+            ))}
+          </ul>
+        )}
+
+        {selected && (
+          <VersionDiff
+            from={selected}
+            currentContent={prompt.content}
+            currentVersion={prompt.version ?? 0}
+            onClose={() => setDiffVersion(null)}
+          />
+        )}
       </div>
-
-      {pendingDraft && (
-        <div
-          data-testid="pending-draft-banner"
-          className="mx-4 mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400"
-        >
-          Draft v{pendingDraft.version} by {pendingDraft.author} is pending review. Readers are
-          served the approved v{prompt.version ?? 1} until an admin approves it.
-        </div>
-      )}
-
-      {!isLoading && (
-        <ul className="divide-y">
-          {versions.map((v) => (
-            <VersionRow
-              key={v.id}
-              version={v}
-              isCurrent={v.version === prompt.version}
-              isDiffOpen={diffVersion === v.version}
-              onToggleDiff={() =>
-                setDiffVersion((cur) => (cur === v.version ? null : v.version))
-              }
-            />
-          ))}
-        </ul>
-      )}
-
-      {selected && (
-        <VersionDiff
-          from={selected}
-          currentContent={prompt.content}
-          currentVersion={prompt.version ?? 0}
-          onClose={() => setDiffVersion(null)}
-        />
-      )}
-    </div>
+    </SectionCard>
   );
 }
 
-const versionStatusStyles: Record<PromptVersion["status"], string> = {
-  applied: "bg-green-500/10 text-green-500 border-green-500/20",
-  draft: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  superseded: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
-  rejected: "bg-red-500/10 text-red-400 border-red-500/20",
+const versionStatusVariants: Record<PromptVersion["status"], "success" | "warning" | "muted" | "danger"> = {
+  applied: "success",
+  draft: "warning",
+  superseded: "muted",
+  rejected: "danger",
 };
 
 function VersionRow({
@@ -93,21 +102,18 @@ function VersionRow({
 }) {
   return (
     <li className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
-      <span className="font-mono text-xs font-semibold w-8">v{v.version}</span>
-      <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium", versionStatusStyles[v.status])}>
-        {v.status}
-      </span>
-      {isCurrent && (
-        <span className="inline-flex items-center rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-400">
-          current
-        </span>
-      )}
+      <span className="w-8 font-mono text-xs font-semibold">v{v.version}</span>
+      <Badge variant={versionStatusVariants[v.status]} className="text-[11px]">{v.status}</Badge>
+      {isCurrent && <Badge variant="info" className="text-[11px]">current</Badge>}
       <span className="text-xs text-muted-foreground">
         {v.author || "unknown"} · {new Date(v.created_at).toLocaleDateString()}
       </span>
       {v.approved_by && (
-        <span className="inline-flex items-center gap-1 text-xs text-green-500" title={v.approved_at ? `Approved ${new Date(v.approved_at).toLocaleString()}` : "Approved"}>
-          <BadgeCheck className="h-3.5 w-3.5" />
+        <span
+          className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400"
+          title={v.approved_at ? `Approved ${new Date(v.approved_at).toLocaleString()}` : "Approved"}
+        >
+          <BadgeCheck className="size-3.5" />
           approved by {v.approved_by}
         </span>
       )}
@@ -115,15 +121,14 @@ function VersionRow({
           (the server redacts never-served content); a diff of a stub would be
           meaningless, so the button requires content. */}
       {v.content !== "" && (
-        <button
+        <Button
+          variant="outline"
+          size="xs"
           onClick={onToggleDiff}
-          className={cn(
-            "ml-auto rounded-md border px-2 py-1 text-xs font-medium hover:bg-accent",
-            isDiffOpen && "bg-accent",
-          )}
+          className={cn("ml-auto", isDiffOpen && "bg-accent")}
         >
           {isDiffOpen ? "Hide diff" : "Diff vs current"}
-        </button>
+        </Button>
       )}
     </li>
   );
@@ -146,29 +151,35 @@ function VersionDiff({
   }, [from.content, currentContent]);
 
   return (
-    <div data-testid="version-diff" className="border-t">
-      <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground">
+    <div data-testid="version-diff" className="overflow-hidden rounded-lg border">
+      <div className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
         <span className="font-medium text-foreground">
           v{from.version} → v{currentVersion} (current)
         </span>
-        <span className="text-green-500">+{stats.added}</span>
-        <span className="text-red-400">-{stats.removed}</span>
+        <span className="text-emerald-600 dark:text-emerald-400">+{stats.added}</span>
+        <span className="text-destructive">-{stats.removed}</span>
         {stats.added === 0 && stats.removed === 0 && <span>content identical</span>}
-        <button onClick={onClose} className="ml-auto rounded-md p-1 hover:bg-accent" aria-label="Close diff">
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onClose}
+          aria-label="Close diff"
+          className="ml-auto"
+        >
+          <X />
+        </Button>
       </div>
-      <pre className="max-h-96 overflow-auto bg-muted/20 px-0 py-2 text-xs font-mono leading-5">
+      <pre className="max-h-96 overflow-auto bg-muted/20 px-0 py-2 font-mono text-xs leading-5">
         {lines.map((l, i) => (
           <div
             key={i}
             className={cn(
-              "px-4 whitespace-pre-wrap break-words",
+              "px-4 break-words whitespace-pre-wrap",
               l.kind === "added" && "bg-green-500/10 text-green-600 dark:text-green-400",
               l.kind === "removed" && "bg-red-500/10 text-red-500 dark:text-red-400",
             )}
           >
-            <span className="select-none inline-block w-4 text-muted-foreground/70">
+            <span className="inline-block w-4 text-muted-foreground/70 select-none">
               {l.kind === "added" ? "+" : l.kind === "removed" ? "-" : " "}
             </span>
             {l.text}

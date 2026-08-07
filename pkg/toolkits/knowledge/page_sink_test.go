@@ -608,6 +608,51 @@ func jsonStrings(t *testing.T, v any) []string {
 	return out
 }
 
+// TestPromoteToPage_AttachesGovernanceReferences proves MCP parity for #1159:
+// an agent promoting knowledge can cite the governance entities the page is
+// about — a glossary term, a tag, a domain — and those citations land on the
+// page as stored references, which is what the portal's governance detail views
+// read back through the reverse lookup.
+//
+// It goes through the apply handler rather than the parser directly, because
+// what matters is that the whole promotion path accepts them: the citation
+// policy, the existence filter (a catalog URN has no foreign key to check), and
+// the write.
+func TestPromoteToPage_AttachesGovernanceReferences(t *testing.T) {
+	governance := []string{
+		"urn:li:glossaryTerm:8f3c1a94-6d21-4f0e-9d1b-2f5a7c0e4b11",
+		"urn:li:tag:pii",
+		"urn:li:domain:c3d4e5f6-1122-4a3b-8c9d-0e1f2a3b4c5d",
+	}
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	input := applyPageInput([]string{"i1"})
+	input.Page.References = governance
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	require.False(t, res.IsError, "governance citations must not be rejected: %s", res)
+	out := parseJSONResult(t, res)
+	// Absent (or empty) means nothing was dropped; the field is omitted when the
+	// promotion lost no citation.
+	assert.Empty(t, out["references_dropped"], "no governance citation may be dropped")
+	assert.EqualValues(t, len(governance), out["references_attached"])
+
+	require.Len(t, pw.inserted, 1, "the promotion creates one page")
+	pageID := pw.inserted[0]
+	stored := make([]string, 0, len(pw.refs[pageID]))
+	for _, r := range pw.refs[pageID] {
+		assert.Equal(t, knowledgepage.RefTargetDataHub, r.TargetType,
+			"a governance citation is stored as a catalog reference, keyed by entity_urn")
+		stored = append(stored, r.URN())
+	}
+	assert.ElementsMatch(t, governance, stored,
+		"each governance URN round-trips to storage verbatim, which is what the reverse lookup matches on")
+}
+
 // TestPromoteToPage_ReportsDroppedInsightRefs proves acceptance criterion 1 of
 // #696: a promotion whose insight-carried references include a non-existent target
 // returns that target in references_dropped, while the references that resolved are

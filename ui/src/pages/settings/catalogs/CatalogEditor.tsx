@@ -10,6 +10,9 @@ import {
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { PromptDialog } from "@/components/PromptDialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { LabeledInput, LabeledTextarea } from "./forms";
 import { SpecsManager } from "./SpecsManager";
 
@@ -106,47 +109,47 @@ export function CatalogEditor({
           <div className="flex flex-wrap justify-end gap-2">
             {editing ? (
               <>
-                <button
+                <Button type="button" size="sm" onClick={handleSave} disabled={update.isPending}>
+                  <Check /> Save
+                </Button>
+                <Button
                   type="button"
-                  onClick={handleSave}
-                  disabled={update.isPending}
-                  className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-                >
-                  <Check className="h-4 w-4" /> Save
-                </button>
-                <button
-                  type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setEditing(false)}
-                  className="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
                 >
                   Cancel
-                </button>
+                </Button>
               </>
             ) : (
               <>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setEditing(true)}
-                  className="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
                 >
                   Edit
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setCloneOpen(true)}
-                  className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
                 >
-                  <Copy className="h-4 w-4" /> Clone
-                </button>
-                <button
+                  <Copy /> Clone
+                </Button>
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setConfirmDeleteOpen(true)}
                   disabled={catalog.ref_count > 0}
                   title={catalog.ref_count > 0 ? "Cannot delete; still referenced by a connection" : ""}
-                  className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                 >
-                  <Trash2 className="h-4 w-4" /> Delete
-                </button>
+                  <Trash2 /> Delete
+                </Button>
               </>
             )}
           </div>
@@ -189,9 +192,7 @@ export function CatalogEditor({
             <h2 className="text-lg font-semibold break-words">{catalog.display_name}</h2>
             <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <code className="break-all">{catalog.id}</code>
-              {catalog.version && (
-                <span className="rounded bg-muted px-1.5 py-0.5">v{catalog.version}</span>
-              )}
+              {catalog.version && <Badge variant="muted">v{catalog.version}</Badge>}
               {catalog.ref_count > 0 && (
                 <span>· referenced by {catalog.ref_count} connection{catalog.ref_count === 1 ? "" : "s"}</span>
               )}
@@ -206,10 +207,10 @@ export function CatalogEditor({
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       <SpecsManager catalogID={catalogID} isReadOnly={isReadOnly} />

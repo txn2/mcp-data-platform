@@ -42,9 +42,17 @@ type Reader interface {
 	ListRootGlossaryTerms(ctx context.Context, offset, limit int) ([]semantic.GlossaryTerm, int, error)
 	ListGlossaryNodeChildren(ctx context.Context, nodeURN string, offset, limit int) (*semantic.GlossaryChildren, error)
 	GetGlossaryParentChain(ctx context.Context, urn string) ([]semantic.GlossaryNode, error)
+	// GetGlossaryTerm reads one term by URN (#1159). It is the only by-URN read
+	// any governance vocabulary has upstream: a tag or a domain resolves only by
+	// listing its vocabulary and matching, which is what shapes the label
+	// resolver in labels.go and the deep-link paths in the portal.
+	GetGlossaryTerm(ctx context.Context, urn string) (*semantic.GlossaryTerm, error)
 	SearchDocuments(ctx context.Context, query string, limit int) ([]semantic.DocumentResult, error)
 	BrowseDocuments(ctx context.Context, offset, limit int) ([]semantic.DocumentResult, int, error)
 	GetDocument(ctx context.Context, urn string) (*semantic.DocumentResult, error)
+	// GetRelatedDocuments returns the context documents attached to one entity
+	// (#1158), which the corpus-wide browse and search reads cannot express.
+	GetRelatedDocuments(ctx context.Context, urn string) ([]semantic.DocumentResult, error)
 }
 
 // OwnerChange is an owner to add along with its ownership type.
@@ -80,6 +88,15 @@ type Writer interface {
 	// parentNode or at the root when it is empty, returning the new node's URN
 	// (#1155).
 	CreateGlossaryNode(ctx context.Context, name, definition, parentNode string) (string, error)
+	// CreateGlossaryTerm adds a term to the business glossary, under parentNode
+	// or at the root when it is empty, returning the new term's URN (#1158).
+	// Editing a term's definition is UpdateDescription with the term's URN,
+	// which is why there is no term-specific update here.
+	CreateGlossaryTerm(ctx context.Context, name, definition, parentNode string) (string, error)
+	// DeleteGlossaryEntity retires a glossary term or node. Upstream is one call
+	// for both kinds, and it removes neither a node's children nor a term's
+	// assignments, which is why the portal shows both before offering the delete.
+	DeleteGlossaryEntity(ctx context.Context, urn string) error
 	// CreateTag defines a new tag and returns its URN (#1156). Editing a tag's
 	// description is UpdateDescription with the tag's URN, which is why there is
 	// no tag-specific update here.
@@ -88,6 +105,15 @@ type Writer interface {
 	// the tag, which is why the portal shows a tag's current usage before
 	// offering the delete.
 	DeleteTag(ctx context.Context, tagURN string) error
+	// CreateDomain defines a new domain and returns its URN (#1157). Editing a
+	// domain's description is UpdateDescription with the domain's URN, and
+	// moving a table into or out of a domain is SetDomain/UnsetDomain, which is
+	// why neither has a domain-specific method here.
+	CreateDomain(ctx context.Context, name, description string) (string, error)
+	// DeleteDomain removes a domain definition. Nothing here clears the domain
+	// from the tables that carry it, which is why the portal shows a domain's
+	// current membership before offering the delete.
+	DeleteDomain(ctx context.Context, domainURN string) error
 	UpsertContextDocument(ctx context.Context, in DocumentInput) (*semantic.DocumentResult, error)
 	DeleteContextDocument(ctx context.Context, documentID string) error
 }
@@ -230,6 +256,23 @@ func (cw clientWriter) CreateGlossaryNode(ctx context.Context, name, definition,
 	return urn, nil
 }
 
+// CreateGlossaryTerm creates a glossary term and returns its URN.
+func (cw clientWriter) CreateGlossaryTerm(ctx context.Context, name, definition, parentNode string) (string, error) {
+	urn, err := cw.w.CreateGlossaryTerm(ctx, name, definition, parentNode)
+	if err != nil {
+		return "", fmt.Errorf(errWriter, err)
+	}
+	return urn, nil
+}
+
+// DeleteGlossaryEntity removes a glossary term or node.
+func (cw clientWriter) DeleteGlossaryEntity(ctx context.Context, urn string) error {
+	if err := cw.w.DeleteGlossaryEntity(ctx, urn); err != nil {
+		return fmt.Errorf(errWriter, err)
+	}
+	return nil
+}
+
 // CreateTag creates a tag definition and returns its URN.
 func (cw clientWriter) CreateTag(ctx context.Context, name, description string) (string, error) {
 	urn, err := cw.w.CreateTag(ctx, name, description)
@@ -242,6 +285,23 @@ func (cw clientWriter) CreateTag(ctx context.Context, name, description string) 
 // DeleteTag removes a tag definition.
 func (cw clientWriter) DeleteTag(ctx context.Context, tagURN string) error {
 	if err := cw.w.DeleteTag(ctx, tagURN); err != nil {
+		return fmt.Errorf(errWriter, err)
+	}
+	return nil
+}
+
+// CreateDomain creates a domain definition and returns its URN.
+func (cw clientWriter) CreateDomain(ctx context.Context, name, description string) (string, error) {
+	urn, err := cw.w.CreateDomain(ctx, name, description)
+	if err != nil {
+		return "", fmt.Errorf(errWriter, err)
+	}
+	return urn, nil
+}
+
+// DeleteDomain removes a domain definition.
+func (cw clientWriter) DeleteDomain(ctx context.Context, domainURN string) error {
+	if err := cw.w.DeleteDomain(ctx, domainURN); err != nil {
 		return fmt.Errorf(errWriter, err)
 	}
 	return nil

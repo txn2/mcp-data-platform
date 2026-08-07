@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { ArrowLeft } from "lucide-react";
 import { useCatalogEntity } from "@/api/portal/datahub";
 import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
 import { useAuthStore } from "@/stores/auth";
 import { CatalogList } from "./catalog/CatalogList";
 import { EntityBody } from "./catalog/sections";
+import { BackToList } from "./catalog/governance";
 import { ListSkeleton } from "./catalog/primitives";
+import { clearURNFromLocation, deepLinkedURN } from "./catalog/utils";
 
 /**
  * CatalogTab is the Tables tab of the Catalog section (#719, #1194):
@@ -20,7 +21,7 @@ export function CatalogTab({ conn }: { conn: string }) {
   // anywhere in the portal — a knowledge-page chip, a node in the knowledge
   // graph — can link straight to it. Held in state as well so opening one from
   // the list does not depend on a router.
-  const [urn, setUrn] = useState<string | null>(() => urnFromLocation());
+  const [urn, setUrn] = useState<string | null>(() => deepLinkedURN("tables"));
   const writable = useConnectionWritable(conn);
   const hasWriteTool = useAuthStore(
     (s) => (s.user?.tools?.includes("datahub_update") ?? false) || s.isAdmin(),
@@ -46,28 +47,6 @@ export function CatalogTab({ conn }: { conn: string }) {
   );
 }
 
-/** CATALOG_URN_PARAM is the query parameter that deep-links one catalog entity. */
-export const CATALOG_URN_PARAM = "urn";
-
-/** urnFromLocation reads the deep-linked entity URN, if any. Only a well-formed
- * `urn:` value is accepted, so nothing else in the query string can be coerced
- * into a catalog lookup. */
-function urnFromLocation(): string | null {
-  if (typeof window === "undefined") return null;
-  const value = new URLSearchParams(window.location.search).get(CATALOG_URN_PARAM);
-  return value && value.startsWith("urn:") ? value : null;
-}
-
-/** clearURNFromLocation drops the deep link when the reader goes back to the
- * list, so a refresh does not reopen the entity they just left. */
-function clearURNFromLocation() {
-  if (typeof window === "undefined") return;
-  const url = new URL(window.location.href);
-  if (!url.searchParams.has(CATALOG_URN_PARAM)) return;
-  url.searchParams.delete(CATALOG_URN_PARAM);
-  window.history.replaceState(window.history.state, "", url.toString());
-}
-
 function CatalogEntityDetail({
   conn,
   urn,
@@ -83,12 +62,7 @@ function CatalogEntityDetail({
 
   return (
     <div className="space-y-4">
-      <button
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" /> Back to tables
-      </button>
+      <BackToList label="Back to tables" onBack={onBack} />
 
       {isError || !data ? (
         isLoading ? (

@@ -75,7 +75,7 @@ export async function openKnowledgeGraph(page: Page): Promise<void> {
  */
 export async function openInsightReviewDrawer(page: Page): Promise<void> {
   await page
-    .getByRole("button", { name: /Review queue/i })
+    .getByRole("tab", { name: /Review queue/i })
     .click({ timeout: 3_000 })
     .catch(() => {});
   await page.waitForTimeout(400);

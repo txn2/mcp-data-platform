@@ -188,6 +188,58 @@ func TestNew_CatalogGating(t *testing.T) {
 	})
 }
 
+// governanceSemantic embeds the noop provider and adds the vocabulary reads, so
+// it satisfies semantic.GovernanceReader — the capability the noop provider (and
+// therefore a deployment with no real catalog) lacks.
+type governanceSemantic struct {
+	semantic.Provider
+}
+
+func (governanceSemantic) ListDomains(context.Context) ([]semantic.EntityRef, error) { return nil, nil }
+
+func (governanceSemantic) SearchGlossaryTerms(context.Context, string, int) ([]semantic.EntityRef, error) {
+	return nil, nil
+}
+
+func (governanceSemantic) SearchTags(context.Context, string, int) ([]semantic.EntityRef, error) {
+	return nil, nil
+}
+
+func TestNew_GovernanceGating(t *testing.T) {
+	t.Run("a governance-capable catalog adds the governance source", func(t *testing.T) {
+		h := New(Config{
+			ToolkitName:      "default",
+			CatalogEnabled:   true,
+			SemanticProvider: governanceSemantic{Provider: semantic.NewNoopProvider()},
+			Registry:         registry.NewRegistry(),
+		})
+		assert.Contains(t, providerNames(t, h), knowledge.SourceGovernance)
+	})
+
+	t.Run("a catalog without the vocabulary reads adds none", func(t *testing.T) {
+		// The noop provider has GetGlossaryTerm and SearchTables but no vocabulary
+		// lists, so it would be an always-empty governance source.
+		h := New(Config{
+			ToolkitName:      "default",
+			CatalogEnabled:   true,
+			SemanticProvider: semantic.NewNoopProvider(),
+			Registry:         registry.NewRegistry(),
+		})
+		assert.NotContains(t, providerNames(t, h), knowledge.SourceGovernance)
+	})
+
+	t.Run("catalog gated off adds none even with a capable provider", func(t *testing.T) {
+		h := New(Config{
+			ToolkitName:      "default",
+			CatalogEnabled:   false,
+			SemanticProvider: governanceSemantic{Provider: semantic.NewNoopProvider()},
+			MemoryStore:      memory.NewNoopStore(),
+			Registry:         registry.NewRegistry(),
+		})
+		assert.NotContains(t, providerNames(t, h), knowledge.SourceGovernance)
+	})
+}
+
 func TestNew_ThreadSearcherProvider(t *testing.T) {
 	h := New(Config{
 		ToolkitName: "default",

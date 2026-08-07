@@ -165,12 +165,23 @@ func (p *ConnectionsProvider) Fetch(_ context.Context, ref string, caller Caller
 	return nil, true, ErrNotFound
 }
 
-// connectionScore is the fraction of query tokens that appear as a substring of
-// the connection's searchable text (name, kind, description). A connection that
-// matches more of the query ranks higher; zero means no token matched and the
-// connection is dropped.
+// connectionScore is the token-overlap score of the connection's searchable text
+// (name, kind, description). Zero means no token matched and the connection is
+// dropped.
 func connectionScore(c ConnectionInfo, tokens []string) float64 {
-	hay := strings.ToLower(strings.Join([]string{c.Name, c.Kind, c.Description}, " "))
+	return tokenOverlapScore(strings.Join([]string{c.Name, c.Kind, c.Description}, " "), tokens)
+}
+
+// tokenOverlapScore is the fraction of query tokens that appear as a substring of
+// a record's searchable text, in [0,1]. It is the lexical rule the sources with no
+// backend ranking of their own share — connections and DataHub domains, neither of
+// which any upstream search can rank — held once so the two cannot drift. A record
+// matching more of the query ranks higher; zero means nothing matched.
+func tokenOverlapScore(text string, tokens []string) float64 {
+	if len(tokens) == 0 {
+		return 0
+	}
+	hay := strings.ToLower(text)
 	matched := 0
 	for _, tok := range tokens {
 		if strings.Contains(hay, tok) {

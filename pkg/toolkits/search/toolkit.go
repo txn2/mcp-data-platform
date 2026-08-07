@@ -98,7 +98,7 @@ var searchSchema = json.RawMessage(`{
   "properties": {
     "intent": {
       "type": "string",
-      "description": "Natural-language description of what you are looking for, across every source you can access: the technical catalog, context documents, canonical knowledge pages (business/domain ontology), your memory, captured insights, your feedback, saved assets, uploaded reference material (resources), prompts, API endpoints, and connections. Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
+      "description": "Natural-language description of what you are looking for, across every source you can access: the technical catalog, the governance vocabulary (glossary terms, tags, domains), context documents, canonical knowledge pages (business/domain ontology), your memory, captured insights, your feedback, saved assets, uploaded reference material (resources), prompts, API endpoints, and connections. Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
     },
     "context": {
       "type": "string",
@@ -116,7 +116,7 @@ var searchSchema = json.RawMessage(`{
     "sources": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Optional: narrow the search to specific sources (e.g. [\"catalog\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: catalog, context_documents, knowledge_pages, memory, insights, feedback, assets, resources, prompts, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored. To BROWSE (enumerate) a source instead of searching it, pass exactly one source here with no intent and no entity_urns (browsable sources: knowledge_pages, context_documents)."
+      "description": "Optional: narrow the search to specific sources (e.g. [\"catalog\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: catalog, governance, context_documents, knowledge_pages, memory, insights, feedback, assets, resources, prompts, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored. To BROWSE (enumerate) a source instead of searching it, pass exactly one source here with no intent and no entity_urns (browsable sources: knowledge_pages, context_documents)."
     },
     "limit": {
       "type": "integer",
@@ -156,7 +156,7 @@ var fetchSchema = json.RawMessage(`{
   "properties": {
     "reference": {
       "type": "string",
-      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), saved assets (mcp:asset:<id>), uploaded reference material (mcp:resource:<id>), prompts (mcp:prompt:<id>), connections (mcp:connection:(kind,name)), captured insights (mcp:insight:<id>), and your personal memory (mcp:memory:<id>). The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). A text resource comes back with its contents inline; a binary one comes back as metadata plus its mcp:// URI and size. Your memory is scoped to you; so are your insights until one is applied, at which point it is organization knowledge anyone can read. Returns the full content the search snippet was a preview of."
+      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), glossary terms (urn:li:glossaryTerm:<id>), tags (urn:li:tag:<id>), domains (urn:li:domain:<id>), saved assets (mcp:asset:<id>), uploaded reference material (mcp:resource:<id>), prompts (mcp:prompt:<id>), connections (mcp:connection:(kind,name)), captured insights (mcp:insight:<id>), and your personal memory (mcp:memory:<id>). A glossary term, tag, or domain comes back with its definition and the datasets that carry it. The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). A text resource comes back with its contents inline; a binary one comes back as metadata plus its mcp:// URI and size. Your memory is scoped to you; so are your insights until one is applied, at which point it is organization knowledge anyone can read. Returns the full content the search snippet was a preview of."
     }
   }
 }`)
@@ -279,11 +279,14 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Title: "Search",
 		Description: "The one way to discover. Call this FIRST, before any other tool, to find what is " +
 			"already known and to learn where the answer to a question lives. One query fans across every " +
-			"source you can access (the technical catalog, context documents, canonical knowledge pages, your memory, " +
+			"source you can access (the technical catalog, the governance vocabulary, context documents, canonical " +
+			"knowledge pages, your memory, " +
 			"captured insights, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and " +
 			"connections) and returns results grouped by source with a coverage " +
 			"summary, so you see the full shape of the answer space instead of tunneling into the first tool " +
-			"that comes to mind. For example 'how do we calculate churn' or 'customer retention'. Results are " +
+			"that comes to mind. For example 'how do we calculate churn' or 'customer retention'. A question " +
+			"about what a business term MEANS answers itself here: the governance source returns the glossary " +
+			"term, tag, or domain with its definition in the hit, not just the datasets that carry it. Results are " +
 			"navigational pointers (title, reference, source); read one in full with fetch (pass its reference) " +
 			"or drill in with a scoped tool (trino_query, api_invoke_endpoint). Pass entity_urns to pull what " +
 			"you know about specific datasets. Personal results are scoped to you, except that an insight " +
@@ -305,7 +308,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Title: "Fetch",
 		Description: "Read a reference in full. search returns navigational pointers with truncated " +
 			"snippets; fetch dereferences one pointer's reference back to its complete content (a knowledge " +
-			"page's body, a context document's full text, a dataset's catalog context, an asset's metadata, " +
+			"page's body, a context document's full text, a dataset's catalog context, a glossary term's, " +
+			"tag's, or domain's definition plus the datasets that carry it, an asset's metadata, " +
 			"an uploaded resource's contents, a prompt, a connection descriptor, a captured insight, " +
 			"or one of your personal memory records). A reference is either a urn:li:... form (the external " +
 			"DataHub catalog scheme) or an mcp:... form (the internal-platform scheme); fetch accepts both. " +

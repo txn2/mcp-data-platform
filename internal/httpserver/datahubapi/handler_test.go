@@ -54,11 +54,38 @@ type fakeDataHub struct {
 	children     map[string]*semantic.GlossaryChildren
 	parents      map[string][]semantic.GlossaryNode
 	childrenPage [2]int
-	createdNode  glossaryNodeRequest
+	createdNode  glossaryEntityRequest
+
+	// Glossary editing (#1158). relatedDocs is keyed by the entity URN a
+	// document is attached to, and searchFilter records the filter the last
+	// catalog search reached the reader with, so a term-usage read is checked
+	// for what it asked DataHub rather than only that it answered.
+	createdTerm    glossaryEntityRequest
+	deletedGlossry string
+	relatedDocs    map[string][]semantic.DocumentResult
+	searchFilter   semantic.SearchFilter
+
+	// Term reads by URN (#1159). An absent key is ErrNotFound, matching the
+	// upstream client: DataHub answers an unknown term with an empty stub, which
+	// the client converts, so the handler's 404 path is exercised against the
+	// behavior the real backend has.
+	terms map[string]*semantic.GlossaryTerm
+	// reads counts the vocabulary and term reads the label resolver makes, so a
+	// test can assert a read did NOT happen — which is the only way to prove the
+	// resolver skips a kind it does not need or a connection it need not ask.
+	reads int
 
 	// Tag governance (#1156).
-	createdTag tagRequest
+	createdTag vocabularyRequest
 	deletedTag string
+
+	// Domain governance (#1157). setDomain/unsetDomain record the entity a
+	// membership edit targeted, so a membership write is checked for what it
+	// moved rather than only that a call happened.
+	createdDomain vocabularyRequest
+	deletedDomain string
+	setDomain     [2]string
+	unsetDomain   string
 }
 
 func newFakeDataHub() *fakeDataHub {
@@ -102,12 +129,31 @@ func (f *fakeDataHub) GetColumnsContext(_ context.Context, _ semantic.TableIdent
 	return map[string]*semantic.ColumnContext{}, nil
 }
 
-func (f *fakeDataHub) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+func (f *fakeDataHub) SearchTables(_ context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	f.mu.Lock()
+	f.searchFilter = filter
+	f.mu.Unlock()
 	return f.tables, f.readErr
 }
 
 func (f *fakeDataHub) SearchTags(_ context.Context, _ string, _ int) ([]semantic.EntityRef, error) {
+	f.countRead()
 	return f.refs, f.readErr
+}
+
+// countRead records one read, under the mutex because the label resolver issues
+// its per-kind reads concurrently.
+func (f *fakeDataHub) countRead() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reads++
+}
+
+// readCount returns the reads recorded so far.
+func (f *fakeDataHub) readCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reads
 }
 
 func (f *fakeDataHub) SearchGlossaryTerms(_ context.Context, _ string, _ int) ([]semantic.EntityRef, error) {
@@ -115,6 +161,7 @@ func (f *fakeDataHub) SearchGlossaryTerms(_ context.Context, _ string, _ int) ([
 }
 
 func (f *fakeDataHub) ListDomains(_ context.Context) ([]semantic.EntityRef, error) {
+	f.countRead()
 	return f.refs, f.readErr
 }
 
@@ -159,6 +206,20 @@ func (f *fakeDataHub) ListGlossaryNodeChildren(_ context.Context, nodeURN string
 	return children, nil
 }
 
+func (f *fakeDataHub) GetGlossaryTerm(_ context.Context, urn string) (*semantic.GlossaryTerm, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reads++
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
+	term, ok := f.terms[urn]
+	if !ok {
+		return nil, fmt.Errorf("glossary term %s: %w", urn, dhclient.ErrNotFound)
+	}
+	return term, nil
+}
+
 func (f *fakeDataHub) GetGlossaryParentChain(_ context.Context, urn string) ([]semantic.GlossaryNode, error) {
 	if f.readErr != nil {
 		return nil, f.readErr
@@ -173,8 +234,39 @@ func (f *fakeDataHub) CreateGlossaryNode(_ context.Context, name, definition, pa
 	if f.writeErr != nil {
 		return "", f.writeErr
 	}
-	f.createdNode = glossaryNodeRequest{Name: name, Definition: definition, ParentNode: parentNode}
+	f.createdNode = glossaryEntityRequest{Name: name, Definition: definition, ParentNode: parentNode}
 	return "urn:li:glossaryNode:" + name, nil
+}
+
+func (f *fakeDataHub) CreateGlossaryTerm(_ context.Context, name, definition, parentNode string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "CreateGlossaryTerm")
+	if f.writeErr != nil {
+		return "", f.writeErr
+	}
+	f.createdTerm = glossaryEntityRequest{Name: name, Definition: definition, ParentNode: parentNode}
+	return "urn:li:glossaryTerm:" + name, nil
+}
+
+func (f *fakeDataHub) DeleteGlossaryEntity(_ context.Context, urn string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "DeleteGlossaryEntity")
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	f.deletedGlossry = urn
+	return nil
+}
+
+func (f *fakeDataHub) GetRelatedDocuments(_ context.Context, urn string) ([]semantic.DocumentResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
+	return f.relatedDocs[urn], nil
 }
 
 // --- tags (#1156) ---
@@ -186,7 +278,7 @@ func (f *fakeDataHub) CreateTag(_ context.Context, name, description string) (st
 	if f.writeErr != nil {
 		return "", f.writeErr
 	}
-	f.createdTag = tagRequest{Name: name, Description: description}
+	f.createdTag = vocabularyRequest{Name: name, Description: description}
 	return "urn:li:tag:" + name, nil
 }
 
@@ -278,18 +370,50 @@ func (f *fakeDataHub) ApplyOwnerChanges(_ context.Context, _ string, _ []OwnerCh
 	return f.writeErr
 }
 
-func (f *fakeDataHub) SetDomain(_ context.Context, _, _ string) error {
+func (f *fakeDataHub) SetDomain(_ context.Context, entityURN, domainURN string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "SetDomain")
-	return f.writeErr
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	f.setDomain = [2]string{entityURN, domainURN}
+	return nil
 }
 
-func (f *fakeDataHub) UnsetDomain(_ context.Context, _ string) error {
+func (f *fakeDataHub) UnsetDomain(_ context.Context, entityURN string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "UnsetDomain")
-	return f.writeErr
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	f.unsetDomain = entityURN
+	return nil
+}
+
+// --- domains (#1157) ---
+
+func (f *fakeDataHub) CreateDomain(_ context.Context, name, description string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "CreateDomain")
+	if f.writeErr != nil {
+		return "", f.writeErr
+	}
+	f.createdDomain = vocabularyRequest{Name: name, Description: description}
+	return "urn:li:domain:" + name, nil
+}
+
+func (f *fakeDataHub) DeleteDomain(_ context.Context, domainURN string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "DeleteDomain")
+	if f.writeErr != nil {
+		return f.writeErr
+	}
+	f.deletedDomain = domainURN
+	return nil
 }
 
 func (f *fakeDataHub) UpsertContextDocument(_ context.Context, in DocumentInput) (*semantic.DocumentResult, error) {
@@ -355,6 +479,14 @@ func writerResolver() portal.PersonaResolver {
 func readerResolver() portal.PersonaResolver {
 	return func([]string) *portal.PersonaInfo {
 		return &portal.PersonaInfo{Name: "analyst", Tools: []string{"datahub_browse"}}
+	}
+}
+
+// updaterResolver grants every DataHub write except the delete, so a refusal it
+// produces is the delete gate specifically rather than "no write access".
+func updaterResolver() portal.PersonaResolver {
+	return func([]string) *portal.PersonaInfo {
+		return &portal.PersonaInfo{Name: "editor", Tools: []string{datahubCreateTool, datahubUpdateTool}}
 	}
 }
 

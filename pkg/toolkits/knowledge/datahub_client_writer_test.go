@@ -1527,6 +1527,122 @@ func TestDataHubClientWriter_CreateGlossaryNode_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "creating glossary node Finance")
 }
 
+// TestDataHubClientWriter_CreateGlossaryTerm proves the create reaches DataHub
+// with the term's name, definition, and parent node, and returns the new URN
+// (#1158). DataHub carries a glossary entity's text in the input's "description"
+// field even though it stores it as the aspect's "definition".
+func TestDataHubClientWriter_CreateGlossaryTerm(t *testing.T) {
+	var gotInput map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables struct {
+				Input map[string]any `json:"input"`
+			} `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		gotInput = req.Variables.Input
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"createGlossaryTerm": "urn:li:glossaryTerm:revenue"}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateGlossaryTerm(context.Background(), "Revenue", "Top line", "urn:li:glossaryNode:finance")
+
+	require.NoError(t, err)
+	assert.Equal(t, "urn:li:glossaryTerm:revenue", urn)
+	assert.Equal(t, "Revenue", gotInput["name"])
+	assert.Equal(t, "Top line", gotInput["description"])
+	assert.Equal(t, "urn:li:glossaryNode:finance", gotInput["parentNode"])
+}
+
+// TestDataHubClientWriter_CreateGlossaryTerm_Root confirms an empty parent
+// creates the term at the root: no parentNode is sent at all, rather than an
+// empty string DataHub would reject.
+func TestDataHubClientWriter_CreateGlossaryTerm_Root(t *testing.T) {
+	var gotInput map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables struct {
+				Input map[string]any `json:"input"`
+			} `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		gotInput = req.Variables.Input
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"createGlossaryTerm": "urn:li:glossaryTerm:orphan"}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateGlossaryTerm(context.Background(), "Orphan", "", "")
+
+	require.NoError(t, err)
+	assert.Equal(t, "urn:li:glossaryTerm:orphan", urn)
+	_, hasParent := gotInput["parentNode"]
+	assert.False(t, hasParent, "parentNode must be omitted for a root term")
+}
+
+// TestDataHubClientWriter_CreateGlossaryTerm_Error confirms a backend refusal
+// surfaces as an error naming the operation, not an empty URN and nil error.
+func TestDataHubClientWriter_CreateGlossaryTerm_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Errors: []any{map[string]any{"message": "permission denied"}},
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateGlossaryTerm(context.Background(), "Revenue", "", "")
+
+	assert.Error(t, err)
+	assert.Empty(t, urn)
+	assert.Contains(t, err.Error(), "creating glossary term Revenue")
+}
+
+// TestDataHubClientWriter_DeleteGlossaryEntity retires a term or a node through
+// the single upstream call (#1158).
+func TestDataHubClientWriter_DeleteGlossaryEntity(t *testing.T) {
+	var gotURN string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables struct {
+				URN string `json:"urn"`
+			} `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		gotURN = req.Variables.URN
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Data: json.RawMessage(`{"deleteGlossaryEntity": true}`)})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	require.NoError(t, writer.DeleteGlossaryEntity(context.Background(), "urn:li:glossaryNode:finance"))
+	assert.Equal(t, "urn:li:glossaryNode:finance", gotURN)
+}
+
+// TestDataHubClientWriter_DeleteGlossaryEntity_Error surfaces a refusal as an
+// error naming the operation.
+func TestDataHubClientWriter_DeleteGlossaryEntity_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Errors: []any{map[string]any{"message": "boom"}}})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.DeleteGlossaryEntity(context.Background(), "urn:li:glossaryTerm:revenue")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "deleting glossary entity")
+}
+
 // TestDataHubClientWriter_CreateTag proves the create reaches DataHub with the
 // tag's name and description and returns the URN DataHub assigned (#1156).
 func TestDataHubClientWriter_CreateTag(t *testing.T) {
@@ -1572,6 +1688,78 @@ func TestDataHubClientWriter_CreateTag_Error(t *testing.T) {
 	assert.Error(t, err)
 	assert.Empty(t, urn)
 	assert.Contains(t, err.Error(), "creating tag certified")
+}
+
+// TestDataHubClientWriter_CreateDomain proves the create reaches DataHub with
+// the domain's name and description and returns the URN DataHub assigned (#1157).
+func TestDataHubClientWriter_CreateDomain(t *testing.T) {
+	var gotInput map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Variables struct {
+				Input map[string]any `json:"input"`
+			} `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		gotInput = req.Variables.Input
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"createDomain": "urn:li:domain:finance"}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateDomain(context.Background(), "Finance", "Revenue and billing")
+
+	require.NoError(t, err)
+	assert.Equal(t, "urn:li:domain:finance", urn)
+	assert.Equal(t, "Finance", gotInput["name"])
+	assert.Equal(t, "Revenue and billing", gotInput["description"])
+}
+
+// TestDataHubClientWriter_CreateDomain_Error confirms a backend refusal surfaces
+// as an error naming the domain, not an empty URN and a nil error.
+func TestDataHubClientWriter_CreateDomain_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Errors: []any{map[string]any{"message": "permission denied"}},
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	urn, err := writer.CreateDomain(context.Background(), "Finance", "")
+
+	assert.Error(t, err)
+	assert.Empty(t, urn)
+	assert.Contains(t, err.Error(), "creating domain Finance")
+}
+
+func TestDataHubClientWriter_DeleteDomain(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Data: json.RawMessage(`{"deleteDomain": true}`)})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.DeleteDomain(context.Background(), "urn:li:domain:finance")
+	require.NoError(t, err)
+}
+
+func TestDataHubClientWriter_DeleteDomain_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Errors: []any{map[string]any{"message": "boom"}}})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.DeleteDomain(context.Background(), "urn:li:domain:finance")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "deleting domain")
 }
 
 func TestDataHubClientWriter_CreateCuratedQuery_Error(t *testing.T) {

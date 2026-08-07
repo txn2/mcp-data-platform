@@ -1,21 +1,36 @@
 import { useState } from "react";
-import { ArrowLeft, Search, Plus, Tag as TagIcon, Trash2 } from "lucide-react";
+import { ArrowLeft, Search, Plus, Tag as TagIcon } from "lucide-react";
 import {
   useTagList,
   useTagUsage,
   useCreateTag,
   useDeleteTag,
-  useUpdateDescription,
   TAG_LIST_LIMIT,
   type EntityRef,
-  type TableSearchResult,
 } from "@/api/portal/datahub";
 import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
+import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { PageHeader } from "@/components/patterns/PageHeader";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
 import { useDebounced } from "@/lib/useDebounced";
-import { catalogHref } from "@/lib/entityRefs";
-import { ListSkeleton, MutationError } from "./catalog/primitives";
-import { shortUrn } from "./catalog/utils";
+import { CancelButton, ListSkeleton, MutationError } from "./catalog/primitives";
+import { clearURNFromLocation, deepLinkedURN, shortUrn } from "./catalog/utils";
+import {
+  DeepLinkedEntry,
+  DeleteControl,
+  EntityDescription,
+  PageCapNotice,
+  TableLink,
+  VocabCard,
+  type Usage,
+} from "./catalog/governance";
 
 // NO_CARRIERS is the one wording for "nothing carries this tag", shared by the
 // usage list and the delete confirmation so the two never disagree.
@@ -40,6 +55,11 @@ export function TagsTab({
 }) {
   const [mode, setMode] = useState<"list" | "create">("list");
   const [selected, setSelected] = useState<EntityRef | null>(null);
+  // linked is the tag a `?urn=` deep link addresses (#1159): a knowledge page
+  // citing a tag opens it here. It is a URN rather than an entry because the
+  // link carries no name, and it is cleared from the URL on the way back so a
+  // refresh does not reopen what the reader just left.
+  const [linked, setLinked] = useState<string | null>(() => deepLinkedURN("tags"));
   const writable = useConnectionWritable(conn);
   const tools = useAuthStore((s) => s.user?.tools);
   const isAdmin = useAuthStore((s) => s.isAdmin());
@@ -50,21 +70,31 @@ export function TagsTab({
 
   const back = () => {
     setSelected(null);
+    setLinked(null);
+    clearURNFromLocation();
     setMode("list");
   };
+
+  const detail = (tag: EntityRef) => (
+    <TagDetail
+      key={tag.urn}
+      conn={conn}
+      tag={tag}
+      canEdit={canEdit}
+      canDelete={canDelete}
+      onBack={back}
+      onNavigate={onNavigate}
+    />
+  );
 
   return (
     <div className="space-y-4">
       {selected ? (
-        <TagDetail
-          key={selected.urn}
-          conn={conn}
-          tag={selected}
-          canEdit={canEdit}
-          canDelete={canDelete}
-          onBack={back}
-          onNavigate={onNavigate}
-        />
+        detail(selected)
+      ) : linked ? (
+        <LinkedTag conn={conn} urn={linked} onBack={back}>
+          {detail}
+        </LinkedTag>
       ) : mode === "create" ? (
         <TagForm conn={conn} onDone={back} />
       ) : (
@@ -76,6 +106,35 @@ export function TagsTab({
         />
       )}
     </div>
+  );
+}
+
+// LinkedTag resolves a deep-linked tag URN against this connection's tag list,
+// which is the only read DataHub offers for a tag: there is no fetch-by-URN.
+function LinkedTag({
+  conn,
+  urn,
+  onBack,
+  children,
+}: {
+  conn: string;
+  urn: string;
+  onBack: () => void;
+  children: (tag: EntityRef) => React.ReactNode;
+}) {
+  const { data, isLoading, isError } = useTagList(conn, "");
+  return (
+    <DeepLinkedEntry
+      urn={urn}
+      entries={data}
+      isLoading={isLoading}
+      isError={isError}
+      what="tag"
+      backLabel="Back to tags"
+      onBack={onBack}
+    >
+      {children}
+    </DeepLinkedEntry>
   );
 }
 
@@ -98,88 +157,49 @@ function TagList({
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter tags by name…"
-            className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm outline-none ring-ring focus:ring-2"
+            className="pl-9"
           />
         </div>
         {canCreate && (
-          <button
-            onClick={onCreate}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="h-4 w-4" /> New tag
-          </button>
+          <Button onClick={onCreate}>
+            <Plus /> New tag
+          </Button>
         )}
       </div>
 
       {isError ? (
-        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Failed to load tags.
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>Failed to load tags.</AlertDescription>
+        </Alert>
       ) : isLoading ? (
         <ListSkeleton />
       ) : !tags || tags.length === 0 ? (
-        <p className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-          {debounced.trim()
-            ? "No tags match that name."
-            : "This connection has no tags yet."}
-        </p>
+        <EmptyState>
+          {debounced.trim() ? "No tags match that name." : "This connection has no tags yet."}
+        </EmptyState>
       ) : (
         <>
           <PageCapNotice
             shown={tags.length}
+            limit={TAG_LIST_LIMIT}
             what="tags"
             hint="Filter by name to reach the rest."
           />
           <ul className="grid gap-2 sm:grid-cols-2">
             {tags.map((t) => (
               <li key={t.urn}>
-                <button
-                  onClick={() => onOpen(t)}
-                  className="flex h-full w-full flex-col gap-1 rounded-lg border p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/50"
-                >
-                  <span className="flex items-center gap-2 text-sm font-medium">
-                    <TagIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    {t.name || shortUrn(t.urn)}
-                  </span>
-                  {t.description ? (
-                    <span className="line-clamp-2 text-xs text-muted-foreground">
-                      {t.description}
-                    </span>
-                  ) : (
-                    <span className="text-xs italic text-muted-foreground">No description</span>
-                  )}
-                </button>
+                <VocabCard entry={t} icon={TagIcon} onOpen={() => onOpen(t)} />
               </li>
             ))}
           </ul>
         </>
       )}
     </div>
-  );
-}
-
-// PageCapNotice states that a read came back full, so a capped list is never
-// presented as the whole set. Both tag reads page at TAG_LIST_LIMIT, which is
-// what the server will actually return.
-function PageCapNotice({
-  shown,
-  what,
-  hint,
-}: {
-  shown: number;
-  what: string;
-  hint: string;
-}) {
-  if (shown < TAG_LIST_LIMIT) return null;
-  return (
-    <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-      Showing the first {TAG_LIST_LIMIT} {what}; there may be more. {hint}
-    </p>
   );
 }
 
@@ -203,20 +223,13 @@ function TagDetail({
 
   return (
     <div className="space-y-4">
-      <button
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" /> Back to tags
-      </button>
-
-      <div>
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <TagIcon className="h-4 w-4 text-muted-foreground" />
-          {tag.name || shortUrn(tag.urn)}
-        </h2>
-        <p className="break-all text-xs text-muted-foreground">{tag.urn}</p>
-      </div>
+      <PageHeader
+        backLabel="Back to tags"
+        onBack={onBack}
+        icon={TagIcon}
+        title={tag.name || shortUrn(tag.urn)}
+        urn={tag.urn}
+      />
 
       {canDelete && (
         <TagDeleteControl
@@ -227,43 +240,54 @@ function TagDetail({
         />
       )}
 
-      <TagDescription conn={conn} tag={tag} canEdit={canEdit} />
+      {/* Plain, not markdown: DataHub's own tag page renders this field as
+          plain text, so a markdown editor here would invite formatting that
+          shows as raw source everywhere else in the catalog (#1200). */}
+      <EntityDescription
+        conn={conn}
+        entity={tag}
+        canEdit={canEdit}
+        label="Tag description"
+        format="plain"
+      />
 
-      <section className="space-y-2">
-        <h3 className="text-sm font-medium">Tables carrying this tag</h3>
+      {/* The knowledge written about this tag, from the reverse lookup over
+          page references. It renders nothing when no accessible page cites it. */}
+      <KnowledgeBacklinks urn={tag.urn} onNavigate={onNavigate} />
+
+      <SectionCard title="Tables carrying this tag">
         {usage.isError ? (
           <p className="text-sm text-destructive">Failed to load the tables carrying this tag.</p>
         ) : usage.isLoading ? (
           <ListSkeleton />
         ) : carriers.length === 0 ? (
-          <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-            {NO_CARRIERS}
-          </p>
+          <EmptyState>{NO_CARRIERS}</EmptyState>
         ) : (
           <>
             <PageCapNotice
               shown={carriers.length}
+              limit={TAG_LIST_LIMIT}
               what="tables"
               hint="Search the Tables tab by tag to see the rest."
             />
             <ul className="space-y-2">
               {carriers.map((d) => (
                 <li key={d.urn}>
-                  <CarrierLink table={d} onNavigate={onNavigate} />
+                  <TableLink table={d} onNavigate={onNavigate} />
                 </li>
               ))}
             </ul>
           </>
         )}
-      </section>
+      </SectionCard>
     </div>
   );
 }
 
-// TagDeleteControl retires a tag definition behind a confirmation that states
-// the blast radius first: how many tables in this connection carry the tag.
-// Deleting a tag nothing carries and deleting one the warehouse depends on look
-// identical without it.
+// TagDeleteControl retires a tag definition behind the shared confirmation,
+// supplying the impact sentence that is specific to a tag: how many tables in
+// this connection carry it. Deleting a tag nothing carries and deleting one the
+// warehouse depends on look identical without it.
 function TagDeleteControl({
   conn,
   tag,
@@ -272,54 +296,24 @@ function TagDeleteControl({
 }: {
   conn: string;
   tag: EntityRef;
-  usage: { loading: boolean; failed: boolean; count: number };
+  usage: Usage;
   onDeleted: () => void;
 }) {
   const del = useDeleteTag(conn);
-  const [confirming, setConfirming] = useState(false);
-
   return (
-    <div className="space-y-2">
-      <div className="flex justify-end gap-2">
-        {confirming ? (
-          <>
-            <button
-              onClick={() => del.mutate(tag.urn, { onSuccess: onDeleted })}
-              disabled={del.isPending}
-              className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
-            >
-              Confirm delete
-            </button>
-            <button
-              onClick={() => setConfirming(false)}
-              className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
-            >
-              Cancel
-            </button>
-          </>
-        ) : (
-          <button
-            onClick={() => setConfirming(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Delete tag
-          </button>
-        )}
-      </div>
-      {confirming && (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
-          <DeleteImpact usage={usage} />
-        </p>
-      )}
-      <MutationError mut={del} />
-    </div>
+    <DeleteControl
+      label="Delete tag"
+      impact={<DeleteImpact usage={usage} />}
+      mut={del}
+      onConfirm={() => del.mutate(tag.urn, { onSuccess: onDeleted })}
+    />
   );
 }
 
 // DeleteImpact states what the delete will affect, in each state the usage read
 // can be in. A failed read says so: reporting "nothing carries this tag" from a
 // read that never answered would understate the delete.
-function DeleteImpact({ usage }: { usage: { loading: boolean; failed: boolean; count: number } }) {
+function DeleteImpact({ usage }: { usage: Usage }) {
   if (usage.loading) return <>Checking what carries this tag…</>;
   if (usage.failed) {
     return <>Could not check what carries this tag, so the effect of deleting it is unknown.</>;
@@ -334,129 +328,6 @@ function DeleteImpact({ usage }: { usage: { loading: boolean; failed: boolean; c
   return <>{carried} Deleting removes the tag definition from DataHub.</>;
 }
 
-// CarrierLink renders one table carrying the tag. It deep-links into the
-// Tables tab's entity editor through the shared catalogHref, and stays a plain
-// row when there is no navigator or the URN is not a catalog reference, so it is
-// never styled as a link it cannot follow.
-function CarrierLink({
-  table,
-  onNavigate,
-}: {
-  table: TableSearchResult;
-  onNavigate?: (path: string) => void;
-}) {
-  const href = catalogHref(table.urn);
-  const body = (
-    <>
-      <span className="text-sm font-medium">{table.name || shortUrn(table.urn)}</span>
-      {table.description && (
-        <span className="line-clamp-2 text-xs text-muted-foreground">{table.description}</span>
-      )}
-    </>
-  );
-  const shell = "flex flex-col gap-0.5 rounded-lg border p-3";
-
-  if (!href || !onNavigate) {
-    return <div className={shell}>{body}</div>;
-  }
-  return (
-    <a
-      href={href}
-      onClick={(e) => {
-        e.preventDefault();
-        onNavigate(href);
-      }}
-      className={`${shell} transition-colors hover:border-primary/50 hover:bg-muted/50`}
-    >
-      {body}
-    </a>
-  );
-}
-
-// TagDescription renders a tag's description and, for an editor, the edit form.
-// The save is the shared entity-description write with the tag's URN: DataHub
-// stores a tag's text in the tagProperties aspect, and the platform's
-// UpdateDescription already routes by entity type.
-function TagDescription({
-  conn,
-  tag,
-  canEdit,
-}: {
-  conn: string;
-  tag: EntityRef;
-  canEdit: boolean;
-}) {
-  const update = useUpdateDescription(conn);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(tag.description ?? "");
-  // The mutation's own result is the freshest description on this screen: the
-  // tag came from a list read that a save does not refetch into this component.
-  const current = update.isSuccess ? draft : (tag.description ?? "");
-
-  if (editing) {
-    return (
-      <section className="space-y-2">
-        <h3 className="text-sm font-medium">Description</h3>
-        <textarea
-          aria-label="Tag description"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          rows={3}
-          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
-        />
-        <div className="flex gap-2">
-          <button
-            onClick={() =>
-              update.mutate(
-                { urn: tag.urn, description: draft.trim() },
-                { onSuccess: () => setEditing(false) },
-              )
-            }
-            disabled={update.isPending}
-            className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            Save
-          </button>
-          <button
-            onClick={() => {
-              setDraft(current);
-              setEditing(false);
-            }}
-            className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
-          >
-            Cancel
-          </button>
-        </div>
-        <MutationError mut={update} />
-      </section>
-    );
-  }
-
-  return (
-    <section className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-medium">Description</h3>
-        {canEdit && (
-          <button
-            onClick={() => {
-              setDraft(current);
-              setEditing(true);
-            }}
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            Edit description
-          </button>
-        )}
-      </div>
-      {current ? (
-        <p className="text-sm">{current}</p>
-      ) : (
-        <p className="text-sm italic text-muted-foreground">No description</p>
-      )}
-    </section>
-  );
-}
-
 function TagForm({ conn, onDone }: { conn: string; onDone: () => void }) {
   const create = useCreateTag(conn);
   const [name, setName] = useState("");
@@ -466,32 +337,32 @@ function TagForm({ conn, onDone }: { conn: string; onDone: () => void }) {
     <div className="space-y-4">
       <button
         onClick={onDone}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        <ArrowLeft className="h-4 w-4" /> Cancel
+        <ArrowLeft className="size-4" /> Cancel
       </button>
       <h2 className="text-lg font-semibold">New tag</h2>
 
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">Name</span>
-        <input
+      <div className="space-y-1.5">
+        <Label htmlFor="tag-name">Name</Label>
+        <Input
+          id="tag-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. certified"
-          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
         />
-      </label>
+      </div>
 
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">Description</span>
-        <textarea
+      <div className="space-y-1.5">
+        <Label htmlFor="tag-description">Description</Label>
+        <Textarea
+          id="tag-description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={3}
           placeholder="What this tag means, and when to apply it."
-          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
         />
-      </label>
+      </div>
 
       <p className="text-xs text-muted-foreground">
         DataHub indexes new tags asynchronously, so a tag you create may take a moment to appear in
@@ -501,7 +372,7 @@ function TagForm({ conn, onDone }: { conn: string; onDone: () => void }) {
       <MutationError mut={create} />
 
       <div className="flex gap-2">
-        <button
+        <Button
           onClick={() =>
             create.mutate(
               { name: name.trim(), description: description.trim() || undefined },
@@ -509,13 +380,10 @@ function TagForm({ conn, onDone }: { conn: string; onDone: () => void }) {
             )
           }
           disabled={name.trim() === "" || create.isPending}
-          className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           Create tag
-        </button>
-        <button onClick={onDone} className="rounded-md border px-4 py-1.5 text-sm hover:bg-muted">
-          Cancel
-        </button>
+        </Button>
+        <CancelButton onClick={onDone} />
       </div>
     </div>
   );

@@ -8,6 +8,7 @@ import { authenticate } from "../screenshots/helpers/auth";
 // CatalogSection -- not the container in isolation.
 
 const tagFilter = /Filter tags by name/;
+const domainFilter = /Filter domains by name/;
 const tableSearch = /Search tables by name/;
 const docSearch = /Search context documents/;
 
@@ -25,44 +26,52 @@ test.describe("Catalog section", () => {
     await page.goto("/portal/knowledge");
 
     for (const label of ["Search All", "Knowledge Pages", "Catalog", "Changesets"]) {
-      await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
+      await expect(page.getByRole("tab", { name: label, exact: true })).toBeVisible();
     }
     // Tags and Context Docs are no longer siblings; they live one level down.
-    await expect(page.getByRole("button", { name: "Tags", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Context Docs", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Tags", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Context Docs", exact: true })).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Catalog", exact: true }).click();
-    for (const label of ["Tables", "Context Docs", "Tags"]) {
-      await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "Catalog", exact: true }).click();
+    for (const label of ["Tables", "Context Docs", "Tags", "Domains", "Glossary"]) {
+      await expect(page.getByRole("tab", { name: label, exact: true })).toBeVisible();
     }
   });
 
   test("renders one connection picker for the whole section", async ({ page }) => {
     await gotoCatalog(page);
     await expect(page.getByLabel("DataHub connection")).toHaveCount(1);
-    await page.getByRole("button", { name: "Tags", exact: true }).click();
+    await page.getByRole("tab", { name: "Tags", exact: true }).click();
     await expect(page.getByLabel("DataHub connection")).toHaveCount(1);
   });
 
   test("moves between inner tabs and records each one in the URL", async ({ page }) => {
     await gotoCatalog(page);
 
-    await page.getByRole("button", { name: "Tags", exact: true }).click();
+    await page.getByRole("tab", { name: "Tags", exact: true }).click();
     await expect(page.getByPlaceholder(tagFilter)).toBeVisible();
     expect(page.url()).toContain("/knowledge/catalog#tags");
 
-    await page.getByRole("button", { name: "Context Docs", exact: true }).click();
+    await page.getByRole("tab", { name: "Domains", exact: true }).click();
+    await expect(page.getByPlaceholder(domainFilter)).toBeVisible();
+    expect(page.url()).toContain("/knowledge/catalog#domains");
+
+    await page.getByRole("tab", { name: "Glossary", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Glossary" })).toBeVisible();
+    expect(page.url()).toContain("/knowledge/catalog#glossary");
+
+    await page.getByRole("tab", { name: "Context Docs", exact: true }).click();
     await expect(page.getByPlaceholder(docSearch)).toBeVisible();
     expect(page.url()).toContain("/knowledge/catalog#context-docs");
 
-    await page.getByRole("button", { name: "Tables", exact: true }).click();
+    await page.getByRole("tab", { name: "Tables", exact: true }).click();
     await expect(page.getByPlaceholder(tableSearch)).toBeVisible();
     expect(page.url()).toContain("/knowledge/catalog#tables");
   });
 
   test("the inner tab survives a reload", async ({ page }) => {
     await gotoCatalog(page);
-    await page.getByRole("button", { name: "Tags", exact: true }).click();
+    await page.getByRole("tab", { name: "Tags", exact: true }).click();
     await expect(page.getByPlaceholder(tagFilter)).toBeVisible();
 
     await page.reload();
@@ -73,8 +82,8 @@ test.describe("Catalog section", () => {
   test("the inner tab survives back and forward", async ({ page }) => {
     await authenticate(page);
     await page.goto("/portal/knowledge");
-    await page.getByRole("button", { name: "Catalog", exact: true }).click();
-    await page.getByRole("button", { name: "Context Docs", exact: true }).click();
+    await page.getByRole("tab", { name: "Catalog", exact: true }).click();
+    await page.getByRole("tab", { name: "Context Docs", exact: true }).click();
     await expect(page.getByPlaceholder(docSearch)).toBeVisible();
 
     // Selecting an inner tab rewrites the hash rather than pushing an entry, so
@@ -96,13 +105,13 @@ test.describe("Catalog section", () => {
     await expect(page.getByRole("heading", { name: /daily_sales/ })).toBeVisible();
 
     // Switching inner tabs rewrites only the hash, so the deep link survives.
-    await page.getByRole("button", { name: "Tags", exact: true }).click();
+    await page.getByRole("tab", { name: "Tags", exact: true }).click();
     await expect(page.getByPlaceholder(tagFilter)).toBeVisible();
     expect(page.url()).toContain("urn=");
     expect(page.url()).toContain("#tags");
 
     // And coming back re-opens the entity the URL still names.
-    await page.getByRole("button", { name: "Tables", exact: true }).click();
+    await page.getByRole("tab", { name: "Tables", exact: true }).click();
     await expect(page.getByRole("heading", { name: /daily_sales/ })).toBeVisible();
   });
 
@@ -111,10 +120,10 @@ test.describe("Catalog section", () => {
 
     await page.goto("/portal/knowledge/tags");
     await expect(page.getByPlaceholder(tagFilter)).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Catalog", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Catalog", exact: true })).toHaveCount(0);
 
     await page.goto("/portal/knowledge/context-docs");
     await expect(page.getByPlaceholder(docSearch)).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Catalog", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Catalog", exact: true })).toHaveCount(0);
   });
 });

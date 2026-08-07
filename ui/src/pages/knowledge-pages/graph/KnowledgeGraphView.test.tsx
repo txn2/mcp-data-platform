@@ -378,7 +378,7 @@ describe("KnowledgeGraphView catalog nodes", () => {
     fireEvent.click(within(screen.getByRole("complementary")).getByRole("button", { name: /Open/ }));
 
     expect(onNavigate).toHaveBeenCalledWith(
-      `/knowledge/catalog?urn=${encodeURIComponent(CATALOG_URN)}`,
+      `/knowledge/catalog?urn=${encodeURIComponent(CATALOG_URN)}#tables`,
     );
   });
 

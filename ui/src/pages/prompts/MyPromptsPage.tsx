@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Search, Plus, MessageSquare, FolderOpen } from "lucide-react";
 import {
   useMyPrompts,
   useSearchMyPrompts,
@@ -8,12 +7,12 @@ import {
   usePromptCollections,
 } from "@/api/portal/hooks";
 import type { Prompt, PromptCollection } from "@/api/admin/types";
-import { markdownToPlainText } from "@/lib/markdownText";
-import { cn } from "@/lib/utils";
 import { CollectionsManagerDialog } from "./CollectionsManagerDialog";
 import { PromptCreateForm } from "./PromptCreateForm";
 import { PromptFacetsBar } from "./PromptFacetsBar";
-import { PromptListTable } from "./PromptListTable";
+import { LibraryToolbar } from "./library/LibraryToolbar";
+import { PromptResults } from "./library/PromptResults";
+import type { LibraryGroup, Tab } from "./library/types";
 import type { UsageFacet } from "./promptUsage";
 import {
   allFacets,
@@ -28,17 +27,6 @@ import {
 
 interface Props {
   onNavigate: (path: string) => void;
-}
-
-// The library's two buckets (#1010, #1124): My Prompts is every prompt the
-// caller owns, at any scope (shared scopes carry a badge), plus prompts shared
-// with them (attributed); Library is the approved shared set visible to them,
-// grouped by collection.
-type Tab = "mine" | "library";
-
-interface LibraryGroup {
-  collection: PromptCollection | undefined;
-  rows: Row[];
 }
 
 export function MyPromptsPage({ onNavigate }: Props) {
@@ -201,40 +189,24 @@ export function MyPromptsPage({ onNavigate }: Props) {
         ? "You don't own any prompts yet"
         : "The library is empty";
 
+  const emptyHint = searching || filtersOn
+    ? undefined
+    : isMineTab
+      ? "Create a prompt, or open the Library tab for your team's approved prompts."
+      : "Approved team prompts appear here once promoted.";
+
   return (
     <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex items-center gap-3">
-        <div className="flex rounded-md border bg-muted/50">
-          <button
-            onClick={() => switchTab("mine")}
-            className={cn("px-3 py-1.5 text-sm font-medium rounded-md", tab === "mine" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground")}
-          >
-            My Prompts ({myRows.length})
-          </button>
-          <button
-            onClick={() => switchTab("library")}
-            className={cn("px-3 py-1.5 text-sm font-medium rounded-md", tab === "library" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground")}
-          >
-            Library ({libraryRows.length})
-          </button>
-        </div>
-        <div className="relative max-w-md flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search prompts by meaning..." className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2" />
-        </div>
-        <button
-          onClick={() => setManagingCollections(true)}
-          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent whitespace-nowrap"
-        >
-          <FolderOpen className="h-4 w-4" /> Collections
-        </button>
-        {isMineTab && (
-          <button onClick={() => setCreating(true)} className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 whitespace-nowrap">
-            <Plus className="h-4 w-4" /> New Prompt
-          </button>
-        )}
-      </div>
+      <LibraryToolbar
+        tab={tab}
+        onTabChange={switchTab}
+        mineCount={myRows.length}
+        libraryCount={libraryRows.length}
+        search={search}
+        onSearchChange={setSearch}
+        onManageCollections={() => setManagingCollections(true)}
+        onCreate={isMineTab ? () => setCreating(true) : undefined}
+      />
 
       {/* Facets (browse mode; search results keep their rank order) */}
       {!searching && (
@@ -262,58 +234,20 @@ export function MyPromptsPage({ onNavigate }: Props) {
         </p>
       )}
 
-      {/* Lists */}
-      {listLoading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">{searching ? "Searching..." : "Loading..."}</div>
-      ) : searching ? (
-        searchRows.length === 0 ? (
-          <EmptyState message={emptyMessage} />
-        ) : (
-          <PromptListTable rows={searchRows} showCollection sortable={false} {...tableProps} />
-        )
-      ) : isMineTab ? (
-        visibleRows.length === 0 ? (
-          <EmptyState message={emptyMessage} hint={!filtersOn ? "Create a prompt, or open the Library tab for your team's approved prompts." : undefined} />
-        ) : (
-          <PromptListTable rows={visibleRows} showCollection sortable {...tableProps} />
-        )
-      ) : groupedLibrary.length === 0 ? (
-        <EmptyState message={emptyMessage} hint={!filtersOn ? "Approved team prompts appear here once promoted." : undefined} />
-      ) : (
-        <div className="space-y-4">
-          {groupedLibrary.map((group) => (
-            <div key={group.collection?.id ?? "uncollected"} className="space-y-1.5">
-              <div className="flex items-baseline gap-2 px-1">
-                <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-                  <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
-                  {group.collection?.name ?? "General"}
-                </h3>
-                {group.collection?.description && (
-                  <span className="text-xs text-muted-foreground truncate">
-                    {markdownToPlainText(group.collection.description)}
-                  </span>
-                )}
-                <span className="text-xs text-muted-foreground/70">({group.rows.length})</span>
-              </div>
-              <PromptListTable rows={group.rows} showCollection={false} sortable {...tableProps} />
-            </div>
-          ))}
-        </div>
-      )}
+      <PromptResults
+        loading={listLoading}
+        searching={searching}
+        isMineTab={isMineTab}
+        rows={searching ? searchRows : visibleRows}
+        groups={groupedLibrary}
+        emptyMessage={emptyMessage}
+        emptyHint={emptyHint}
+        tableProps={tableProps}
+      />
 
       {managingCollections && (
         <CollectionsManagerDialog onClose={() => setManagingCollections(false)} />
       )}
-    </div>
-  );
-}
-
-function EmptyState({ message, hint }: { message: string; hint?: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-      <MessageSquare className="h-12 w-12 mb-2 opacity-30" />
-      <p className="text-sm font-medium">{message}</p>
-      {hint && <p className="text-xs mt-1">{hint}</p>}
     </div>
   );
 }

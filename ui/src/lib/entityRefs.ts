@@ -51,9 +51,61 @@ export function entityHref(type: string, id: string): string | null {
 }
 
 /**
+ * CatalogSubTab is a surface inside the portal's Catalog section (#1194). It is
+ * declared here, with the rest of the reference route table, because which inner
+ * tab a catalog reference opens is part of where that reference points.
+ */
+export type CatalogSubTab = "tables" | "context_docs" | "tags" | "domains" | "glossary";
+
+/**
+ * CATALOG_SUB_HASHES spells each inner tab for a URL. The type members are
+ * identifiers, so context_docs cannot carry the hyphen the URL wants.
+ */
+export const CATALOG_SUB_HASHES: Record<CatalogSubTab, string> = {
+  tables: "tables",
+  context_docs: "context-docs",
+  tags: "tags",
+  domains: "domains",
+  glossary: "glossary",
+};
+
+// CATALOG_SUB_BY_URN_TYPE maps a DataHub entity type to the Catalog inner tab
+// that shows that kind of entity (#1159). A type that is not here — a dataset,
+// most of all — belongs to Tables, which is the default.
+const CATALOG_SUB_BY_URN_TYPE: Record<string, CatalogSubTab> = {
+  glossaryTerm: "glossary",
+  glossaryNode: "glossary",
+  tag: "tags",
+  domain: "domains",
+};
+
+/** datahubEntityType extracts the entity-type segment of a DataHub URN
+ * ("urn:li:tag:pii" -> "tag"), or "" when the URN is not of that form. */
+function datahubEntityType(urn: string): string {
+  if (!urn.startsWith("urn:li:")) return "";
+  const rest = urn.slice("urn:li:".length);
+  const sep = rest.indexOf(":");
+  return sep > 0 ? rest.slice(0, sep) : "";
+}
+
+/**
+ * catalogSubForURN returns the Catalog inner tab that shows a catalog entity.
+ * A governance entity — a glossary term or node, a tag, a domain — has its own
+ * tab under Catalog, so a reference to one opens where it is managed rather
+ * than on Tables, which cannot show it at all.
+ */
+export function catalogSubForURN(urn: string): CatalogSubTab {
+  return CATALOG_SUB_BY_URN_TYPE[datahubEntityType(urn.trim())] ?? "tables";
+}
+
+/**
  * catalogHref returns the in-app path that opens one catalog entity in the
  * Knowledge > Catalog tab. A DataHub reference is keyed by its whole URN, not by
  * a simple id, so it cannot go through entityHref's id-based route table.
+ *
+ * The inner tab rides in the hash rather than the path (#1194): Catalog is one
+ * route, and a second route would remount the hub and drop the connection its
+ * inner tabs share.
  *
  * Returns null for anything that is not a URN, so a malformed reference is
  * treated as non-navigable rather than interpolated into a link.
@@ -61,7 +113,8 @@ export function entityHref(type: string, id: string): string | null {
 export function catalogHref(urn: string): string | null {
   const trimmed = urn.trim();
   if (!trimmed.startsWith(externalURNPrefix)) return null;
-  return `/knowledge/catalog?urn=${encodeURIComponent(trimmed)}`;
+  const sub = catalogSubForURN(trimmed);
+  return `/knowledge/catalog?urn=${encodeURIComponent(trimmed)}#${CATALOG_SUB_HASHES[sub]}`;
 }
 
 /** externalURNPrefix marks a catalog (DataHub) reference. */
@@ -113,10 +166,32 @@ export function trimRefToken(token: string): string {
   return token.replace(TRAILING_PUNCT_RE, "");
 }
 
-/** PickableRefType is an entity type the manual-reference picker can search. */
-export type PickableRefType = "asset" | "collection" | "knowledge_page" | "prompt";
+/** PickableRefType is an entity type the manual-reference picker can search: the
+ * portal's own single-id entities, plus the DataHub governance vocabularies a
+ * page can be written about (#1159). */
+export type PickableRefType =
+  | "asset"
+  | "collection"
+  | "knowledge_page"
+  | "prompt"
+  | "glossary_term"
+  | "tag"
+  | "domain";
 
-/** buildRefUrn serializes an internal entity reference for a single-id type. */
+/** CATALOG_REF_TYPES are the pickable types the DataHub catalog holds. They are
+ * picked and stored as catalog URNs, not as mcp: references, so they need a
+ * connection to search and never go through buildRefUrn. */
+const CATALOG_REF_TYPES = new Set<PickableRefType>(["glossary_term", "tag", "domain"]);
+
+/** isCatalogRefType reports whether a pickable type lives in the DataHub
+ * catalog rather than the portal's own database. */
+export function isCatalogRefType(type: PickableRefType): boolean {
+  return CATALOG_REF_TYPES.has(type);
+}
+
+/** buildRefUrn serializes an internal entity reference for a single-id type. A
+ * catalog type has no id-based form, so it is not one of these: its URN comes
+ * from the catalog itself. */
 export function buildRefUrn(type: PickableRefType, id: string): string {
   return `mcp:${type}:${id}`;
 }

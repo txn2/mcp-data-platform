@@ -101,6 +101,31 @@ type PersonaInfo struct {
 // PersonaResolver resolves a user's roles to their persona info.
 type PersonaResolver func(roles []string) *PersonaInfo
 
+// DataHubToolPrefix prefixes every DataHub MCP tool name.
+const DataHubToolPrefix = "datahub_"
+
+// HasCatalogAccess reports whether a user may read the DataHub catalog: their
+// persona grants any DataHub tool (read or write), or they are an admin. It is
+// the one rule behind every catalog read the portal serves — the DataHub REST
+// surface (internal/httpserver/datahubapi) and the knowledge-page reference
+// labels (#1159) — so a persona denied the catalog is denied it on both, and
+// the portal never discloses more than the persona-filtered MCP surface would.
+func HasCatalogAccess(user *User, resolver PersonaResolver, adminRoles []string) bool {
+	if user == nil {
+		return false
+	}
+	if resolver != nil {
+		if info := resolver(user.Roles); info != nil {
+			for _, t := range info.Tools {
+				if strings.HasPrefix(t, DataHubToolPrefix) {
+					return true
+				}
+			}
+		}
+	}
+	return access.HasAnyRole(user.Roles, adminRoles)
+}
+
 // Deps holds dependencies for the portal handler.
 type Deps struct {
 	AssetStore         AssetStore
@@ -144,6 +169,12 @@ type Deps struct {
 	// (internal/httpserver/datahubapi.Handler.Register) so the DataHub feature lives in its
 	// own package; nil leaves the /api/v1/portal/datahub/* routes unregistered.
 	DataHubRegistrar func(*http.ServeMux)
+	// CatalogLabeler names the DataHub governance entities a knowledge page
+	// references (#1159), so a citation to a glossary term, a tag, or a domain
+	// renders as its display name instead of the generated key inside its URN.
+	// It is provided by the same cmd wiring as DataHubRegistrar; nil (no DataHub
+	// connection) falls back to the name derivable from the URN itself.
+	CatalogLabeler CatalogLabeler
 	// MentionResolver filters the @-mentions written in a thread comment to
 	// the people who can open the thread's target (#627). nil disables
 	// mentions (no database): tokens stay ordinary text and notify nobody.

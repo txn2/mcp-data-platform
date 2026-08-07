@@ -1,8 +1,11 @@
 import { useCallback, useState } from "react";
 import { DataHubConnectionSelect } from "@/components/knowledge/DataHubConnectionSelect";
+import { InfoHint } from "@/components/patterns/InfoHint";
 import { CatalogTab } from "./CatalogTab";
 import { ContextDocsTab } from "./ContextDocsTab";
 import { TagsTab } from "./TagsTab";
+import { DomainsTab } from "./DomainsTab";
+import { GlossaryTab } from "./GlossaryTab";
 import { SubTabBar } from "./hub/SubTabBar";
 import { catalogSubHash, normalizeCatalogSub, type CatalogSubTab } from "./hubHash";
 
@@ -12,8 +15,8 @@ import { catalogSubHash, normalizeCatalogSub, type CatalogSubTab } from "./hubHa
 const DH_CONN_STORAGE_KEY = "mcp-portal-datahub-conn";
 
 // SUB_TAB_META labels and explains each inner tab. It is a Record, so a new
-// CatalogSubTab (Domains, #1157; Glossary, #1158) fails the build until it has
-// both here, rather than rendering an unlabelled tab with no explanation.
+// CatalogSubTab fails the build until it has both here, rather than rendering an
+// unlabelled tab with no explanation.
 const SUB_TAB_META: Record<CatalogSubTab, { label: string; description: string }> = {
   tables: {
     label: "Tables",
@@ -30,11 +33,21 @@ const SUB_TAB_META: Record<CatalogSubTab, { label: string; description: string }
     description:
       "The tag vocabulary itself, rather than the tags carried by one table. Browse or filter this connection's tags, open one to see what it means and which tables carry it, and create, describe, or retire a tag when your persona grants the matching datahub tool and the connection is writable.",
   },
+  domains: {
+    label: "Domains",
+    description:
+      "The business areas the catalog is grouped into, rather than the domain carried by one table. Browse or filter this connection's domains, open one to see what it covers and which tables are in it, and create, describe, or retire a domain — and move tables in and out of it — when your persona grants the matching datahub tool and the connection is writable.",
+  },
+  glossary: {
+    label: "Glossary",
+    description:
+      "The business glossary: the terms this organization defines, in the hierarchy of nodes that organizes them. Walk the tree, open a term to see its definition, where it sits, the notes attached to it, and the tables it is applied to, and create, describe, or retire a term or a node when your persona grants the matching datahub tool and the connection is writable.",
+  },
 };
 
 // SUB_TABS is the inner tab bar in display order (#1194): the described things
-// first, the vocabulary that describes them second.
-const SUB_TABS = (["tables", "context_docs", "tags"] as const).map((key) => ({
+// first, the vocabularies that describe them second.
+const SUB_TABS = (["tables", "context_docs", "tags", "domains", "glossary"] as const).map((key) => ({
   key,
   label: SUB_TAB_META[key].label,
 }));
@@ -92,22 +105,30 @@ export function CatalogSection({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    // The Catalog surface is one bordered panel: its inner tab bar and
+    // connection picker sit in the panel's header strip, so the third level of
+    // navigation visibly belongs to this surface instead of stacking as another
+    // free-floating bar.
+    <div className="rounded-xl border bg-card shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
         <SubTabBar tabs={SUB_TABS} active={sub} onSelect={selectSub} dense />
-        <DataHubConnectionSelect value={conn} onChange={setConn} />
+        <InfoHint label="About this catalog tab">{SUB_TAB_META[sub].description}</InfoHint>
+        <div className="ml-auto">
+          <DataHubConnectionSelect value={conn} onChange={setConn} />
+        </div>
       </div>
-      <p className="text-sm text-muted-foreground">{SUB_TAB_META[sub].description}</p>
 
       {/* Keying on the connection resets each inner tab's own navigation when
-          the connection changes: an open table, document, or tag belongs to one
-          connection, and leaving it on screen would read its detail from the
-          new one. */}
+          the connection changes: an open table, document, tag, domain, or
+          glossary entity belongs to one connection, and leaving it on screen
+          would read its detail from the new one. */}
       {conn && (
-        <div key={conn}>
+        <div key={conn} className="p-4">
           {sub === "tables" && <CatalogTab conn={conn} />}
           {sub === "context_docs" && <ContextDocsTab conn={conn} />}
           {sub === "tags" && <TagsTab conn={conn} onNavigate={onNavigate} />}
+          {sub === "domains" && <DomainsTab conn={conn} onNavigate={onNavigate} />}
+          {sub === "glossary" && <GlossaryTab conn={conn} onNavigate={onNavigate} />}
         </div>
       )}
     </div>
