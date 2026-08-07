@@ -1,6 +1,7 @@
 import { FileText, MessageSquareText, FolderOpen, BookOpen, Plug, Database, Link2, Unlink } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { parseRef, refHref, type ResolvedRef, type RefType } from "@/lib/entityRefs";
+import { Badge } from "@/components/ui/badge";
 
 const TYPE_ICONS: Record<RefType, LucideIcon> = {
   asset: FileText,
@@ -11,6 +12,34 @@ const TYPE_ICONS: Record<RefType, LucideIcon> = {
   datahub: Database,
   unknown: Link2,
 };
+
+// A chip is a ui/badge sized for inline prose: square-cornered so it reads as a
+// citation rather than a status pill, and out of the markdown renderer's typography.
+const CHIP = "not-prose mx-0.5 rounded-md border align-baseline no-underline";
+
+type ParsedRef = ReturnType<typeof parseRef>;
+
+// chipIdentity is what a reference calls itself: the server's resolution when it
+// has one, the URN's own shape when it does not, and the raw URN as a last
+// resort — a chip always says something.
+function chipIdentity(urn: string, parsed: ParsedRef, resolved?: ResolvedRef) {
+  return {
+    type: (resolved?.type ?? parsed?.type ?? "unknown") as RefType,
+    label: resolved?.label ?? parsed?.fallbackLabel ?? urn,
+  };
+}
+
+// chipFace adds where the reference goes, if anywhere: a destination only for a
+// live reference with both a route and a navigator.
+function chipFace(urn: string, hasNavigator: boolean, resolved?: ResolvedRef) {
+  const parsed = parseRef(urn);
+  const broken = resolved != null && !resolved.exists;
+  const href =
+    broken || !parsed || !hasNavigator
+      ? null
+      : refHref(parsed.type, parsed.id, parsed.urn);
+  return { ...chipIdentity(urn, parsed, resolved), broken, href };
+}
 
 /**
  * EntityChip renders an entity reference (mcp:/urn:li:) as a typed chip: a type
@@ -36,18 +65,12 @@ export function EntityChip({
   resolved?: ResolvedRef;
   onNavigate?: (path: string) => void;
 }) {
-  const parsed = parseRef(urn);
-  const type = (resolved?.type ?? parsed?.type ?? "unknown") as RefType;
-  const label = resolved?.label ?? parsed?.fallbackLabel ?? urn;
-  const broken = resolved ? !resolved.exists : false;
+  const { type, label, broken, href } = chipFace(urn, onNavigate != null, resolved);
   const Icon = broken ? Unlink : (TYPE_ICONS[type] ?? Link2);
-
-  const base =
-    "not-prose mx-0.5 inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 align-baseline text-xs font-medium no-underline";
 
   const inner = (
     <>
-      <Icon className="h-3 w-3 shrink-0" aria-hidden />
+      <Icon className="size-3 shrink-0" aria-hidden />
       <span>{label}</span>
     </>
   );
@@ -55,32 +78,37 @@ export function EntityChip({
   // A live (non-broken) reference deep-links when it has a route and a navigator.
   // A catalog citation is navigable too: it opens the entity in the Catalog
   // tab, so a DataHub reference is a link everywhere a reference is rendered.
-  const href = broken ? null : parsed && onNavigate ? refHref(parsed.type, parsed.id, parsed.urn) : null;
   if (href && onNavigate) {
     return (
-      <a
-        href={href}
-        title={urn}
-        onClick={(e) => {
-          e.preventDefault();
-          onNavigate(href);
-        }}
-        className={`${base} border-primary/20 bg-primary/10 text-primary cursor-pointer hover:bg-primary/20`}
+      <Badge
+        asChild
+        variant="outline"
+        className={`${CHIP} border-primary/20 bg-primary/10 text-primary [a&]:hover:bg-primary/20 [a&]:hover:text-primary`}
       >
-        {inner}
-      </a>
+        <a
+          href={href}
+          title={urn}
+          onClick={(e) => {
+            e.preventDefault();
+            onNavigate(href);
+          }}
+        >
+          {inner}
+        </a>
+      </Badge>
     );
   }
 
   // Non-link chips: broken refs are struck through and muted; a live ref with no
   // destination is neutral (normal text) but never in link styling, so it does
   // not look clickable when it is not.
-  const tone = broken
-    ? "border-border bg-muted text-muted-foreground line-through"
-    : "border-border bg-muted text-foreground";
   return (
-    <span title={broken ? `${urn} (no longer exists)` : urn} className={`${base} ${tone}`}>
+    <Badge
+      variant="muted"
+      title={broken ? `${urn} (no longer exists)` : urn}
+      className={`${CHIP} border-border ${broken ? "line-through" : "text-foreground"}`}
+    >
       {inner}
-    </span>
+    </Badge>
   );
 }

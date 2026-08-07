@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { X, Plus, Search } from "lucide-react";
+import { X, Plus } from "lucide-react";
 import {
   useKnowledgePageRefs,
   useSetKnowledgePageRefs,
@@ -17,6 +17,16 @@ import {
 } from "@/api/portal/datahub";
 import { filterDomains } from "@/pages/knowledge/catalog/utils";
 import { buildRefUrn, isCatalogRefType, type PickableRefType } from "@/lib/entityRefs";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { SearchInput } from "@/components/patterns/SearchInput";
+import { SectionCard } from "@/components/patterns/SectionCard";
 import { DataHubConnectionSelect } from "./DataHubConnectionSelect";
 import { EntityChip } from "./EntityChip";
 
@@ -116,6 +126,19 @@ function useCatalogSearch(type: PickableRefType, query: string, conn: string): C
   }, [type, query, terms.data, tags.data, domains.data]);
 }
 
+// useRefCandidates runs whichever of the two searches the selected type belongs
+// to, holding the other at an empty query so only one read is in flight.
+function useRefCandidates(
+  type: PickableRefType,
+  query: string,
+  conn: string,
+): Candidate[] {
+  const isCatalog = isCatalogRefType(type);
+  const portal = usePortalSearch(type, isCatalog ? "" : query);
+  const catalog = useCatalogSearch(type, isCatalog ? query : "", isCatalog ? conn : "");
+  return isCatalog ? catalog : portal;
+}
+
 // CATALOG_MAX bounds the client-filtered domain list to the same page the
 // name-searched lookups return, so one type does not drop a hundred rows into
 // the dropdown while the others show eight.
@@ -151,10 +174,7 @@ export function RefPicker({ pageId, onNavigate }: { pageId: string; onNavigate?:
   const [conn, setConn] = useState("");
   const [query, setQuery] = useState("");
   const trimmed = query.trim();
-  const isCatalog = isCatalogRefType(type);
-  const portalCandidates = usePortalSearch(type, isCatalog ? "" : trimmed);
-  const catalogCandidates = useCatalogSearch(type, isCatalog ? trimmed : "", isCatalog ? conn : "");
-  const candidates = isCatalog ? catalogCandidates : portalCandidates;
+  const candidates = useRefCandidates(type, trimmed, conn);
 
   const addRef = (urn: string) => {
     if (manualUrns.includes(urn)) return;
@@ -163,12 +183,8 @@ export function RefPicker({ pageId, onNavigate }: { pageId: string; onNavigate?:
   };
   const removeRef = (urn: string) => setRefs.mutate(manualUrns.filter((u) => u !== urn));
 
-  const selectedType = types.find((t) => t.value === type);
-
   return (
-    <section className="rounded-lg border border-border bg-card p-4">
-      <h2 className="mb-3 text-sm font-semibold text-foreground">Manual references</h2>
-
+    <SectionCard title="Manual references">
       <ManualRefs
         refs={manual}
         disabled={setRefs.isPending}
@@ -176,33 +192,15 @@ export function RefPicker({ pageId, onNavigate }: { pageId: string; onNavigate?:
         onNavigate={onNavigate}
       />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={type}
-          onChange={(e) => setType(e.target.value as PickableRefType)}
-          aria-label="Reference type"
-          className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-        >
-          {types.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-        <div className="relative min-w-48 flex-1">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Search ${(selectedType?.label ?? type).toLowerCase()}s to reference...`}
-            className="w-full rounded-md border border-border bg-background py-1.5 pl-8 pr-2 text-sm"
-          />
-        </div>
-        {/* The connection picker appears only for a catalog type: a governance
-            entity belongs to one catalog, and the portal's own entities belong
-            to none. */}
-        {isCatalog && <DataHubConnectionSelect value={conn} onChange={setConn} />}
-      </div>
+      <SearchBar
+        types={types}
+        type={type}
+        onType={setType}
+        query={query}
+        onQuery={setQuery}
+        conn={conn}
+        onConn={setConn}
+      />
 
       {trimmed.length > 0 && (
         <CandidateList
@@ -212,7 +210,57 @@ export function RefPicker({ pageId, onNavigate }: { pageId: string; onNavigate?:
           onAdd={addRef}
         />
       )}
-    </section>
+    </SectionCard>
+  );
+}
+
+// SearchBar is what an author searches with: the kind of thing being attached,
+// the name they are looking for, and — for a governance type only — which
+// catalog to look in.
+function SearchBar({
+  types,
+  type,
+  onType,
+  query,
+  onQuery,
+  conn,
+  onConn,
+}: {
+  types: { value: PickableRefType; label: string }[];
+  type: PickableRefType;
+  onType: (t: PickableRefType) => void;
+  query: string;
+  onQuery: (q: string) => void;
+  conn: string;
+  onConn: (c: string) => void;
+}) {
+  const label = types.find((t) => t.value === type)?.label ?? type;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Select value={type} onValueChange={(v) => onType(v as PickableRefType)}>
+        <SelectTrigger size="sm" aria-label="Reference type">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {types.map((t) => (
+            <SelectItem key={t.value} value={t.value}>
+              {t.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <SearchInput
+        className="min-w-48 flex-1"
+        inputClassName="h-8"
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        placeholder={`Search ${label.toLowerCase()}s to reference...`}
+      />
+      {/* The connection picker appears only for a catalog type: a governance
+          entity belongs to one catalog, and the portal's own entities belong
+          to none. */}
+      {isCatalogRefType(type) && <DataHubConnectionSelect value={conn} onChange={onConn} />}
+    </div>
   );
 }
 
@@ -242,15 +290,17 @@ function ManualRefs({
             resolved={{ urn: ref.urn, type: ref.type, label: ref.label, exists: ref.exists, accessible: true }}
             onNavigate={onNavigate}
           />
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-xs"
             onClick={() => onRemove(ref.urn)}
             disabled={disabled}
             aria-label={`Remove ${ref.label}`}
-            className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+            className="text-muted-foreground hover:text-destructive"
           >
-            <X className="h-3.5 w-3.5" />
-          </button>
+            <X />
+          </Button>
         </span>
       ))}
     </div>
@@ -271,7 +321,7 @@ function CandidateList({
   onAdd: (urn: string) => void;
 }) {
   return (
-    <ul className="mt-2 max-h-56 overflow-y-auto rounded-md border border-border">
+    <ul className="mt-2 max-h-56 overflow-y-auto rounded-md border">
       {candidates.length === 0 ? (
         <li className="px-3 py-2 text-sm text-muted-foreground">No matches.</li>
       ) : (
@@ -279,19 +329,20 @@ function CandidateList({
           const already = existing.includes(c.urn);
           return (
             <li key={c.urn}>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 onClick={() => onAdd(c.urn)}
                 disabled={already || disabled}
-                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-50"
+                className="h-auto w-full justify-between rounded-none px-3 py-2 font-normal"
               >
                 <span className="truncate">{c.label}</span>
                 {already ? (
                   <span className="text-xs text-muted-foreground">added</span>
                 ) : (
-                  <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <Plus className="shrink-0 text-muted-foreground" />
                 )}
-              </button>
+              </Button>
             </li>
           );
         })

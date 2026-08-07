@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Lightbulb, Brain } from "lucide-react";
+
 import {
   useMyInsights,
   useMyInsightStats,
@@ -7,185 +9,56 @@ import {
   useSearchMyInsights,
   useSearchMyMemories,
 } from "@/api/portal/hooks";
-import { StatCard } from "@/components/cards/StatCard";
-import { Lightbulb, ChevronLeft, ChevronRight, Search } from "lucide-react";
-import type { Insight, MemoryRecord } from "@/api/portal/types";
-import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
-import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
-import { formatEntityUrn } from "@/lib/formatEntityUrn";
-import { markdownToPlainText } from "@/lib/markdownText";
+import type { Insight, InsightStats, MemoryRecord, MemoryStats } from "@/api/portal/types";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { FilterSelect } from "@/components/patterns/FilterSelect";
+import { Pager } from "@/components/patterns/Pager";
+import { SearchInput } from "@/components/patterns/SearchInput";
 import { useDebounced } from "@/lib/useDebounced";
-import { SINK_CLASSES, sinkClassLabel } from "@/lib/sinkClass";
-
-const STATUS_BADGES: Record<string, { label: string; cls: string }> = {
-  pending: {
-    label: "Pending",
-    cls: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-  },
-  approved: {
-    label: "Approved",
-    cls: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-  },
-  applied: {
-    label: "Applied",
-    cls: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-  },
-  rejected: {
-    label: "Rejected",
-    cls: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-  },
-  superseded: {
-    label: "Superseded",
-    cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-  },
-  active: {
-    label: "Active",
-    cls: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-  },
-  stale: {
-    label: "Stale",
-    cls: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-  },
-  archived: {
-    label: "Archived",
-    cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-  },
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  correction: "Correction",
-  business_context: "Business Context",
-  data_quality: "Data Quality",
-  usage_guidance: "Usage Guidance",
-  relationship: "Relationship",
-  enhancement: "Enhancement",
-  general: "General",
-};
+import { SINK_CLASSES } from "@/lib/sinkClass";
+import { InsightCard, MemoryCard } from "./mine/cards";
+import { activeList, Results, StatGrid, StatusChips, type StatusOption } from "./mine/parts";
 
 const PAGE_SIZE = 20;
 
-// SearchBox is a controlled text input with a leading search icon, shared
-// by the Knowledge and Memory tabs.
-function SearchBox({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <div className="relative min-w-[220px] flex-1">
-      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-      />
-    </div>
-  );
+const INSIGHT_STATUSES: StatusOption[] = [
+  { value: "", label: "All" },
+  { value: "pending", label: "Pending" },
+  { value: "approved", label: "Approved" },
+  { value: "applied", label: "Applied" },
+  { value: "rejected", label: "Rejected" },
+];
+
+const MEMORY_STATUSES: StatusOption[] = [
+  { value: "", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "stale", label: "Stale" },
+  { value: "archived", label: "Archived" },
+];
+
+const SINK_CLASS_OPTIONS = [{ value: "", label: "All classes" }, ...SINK_CLASSES];
+
+// The insight summary counts the statuses the server reports; the total is their
+// sum, since an insight is always in exactly one of them.
+function insightStats(s: InsightStats | undefined) {
+  const byStatus = s?.by_status ?? {};
+  const total = Object.values(byStatus).reduce((a, b) => a + b, 0);
+  return [
+    { label: "Total Insights", value: total },
+    { label: "Pending", value: byStatus.pending ?? 0 },
+    { label: "Approved", value: byStatus.approved ?? 0 },
+    { label: "Applied", value: byStatus.applied ?? 0 },
+  ];
 }
 
-function BadgeLabel({ status }: { status: string }) {
-  const badge = STATUS_BADGES[status] ?? {
-    label: status,
-    cls: "bg-gray-100 text-gray-600",
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}
-    >
-      {badge.label}
-    </span>
-  );
-}
-
-function InsightCard({ insight }: { insight: Insight }) {
-  return (
-    <div className="rounded-lg border bg-card p-4 space-y-2">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <BadgeLabel status={insight.status} />
-          <span className="text-xs text-muted-foreground">
-            {CATEGORY_LABELS[insight.category] ?? insight.category}
-          </span>
-        </div>
-        <span
-          className="shrink-0 text-[11px] text-muted-foreground"
-          title={new Date(insight.created_at).toLocaleString()}
-        >
-          {new Date(insight.created_at).toLocaleDateString()}
-        </span>
-      </div>
-      <MarkdownRenderer content={insight.insight_text} bare />
-      {insight.entity_urns.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {insight.entity_urns.map((urn) => (
-            <span
-              key={urn}
-              title={urn}
-              className="inline-block rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-muted-foreground"
-            >
-              {formatEntityUrn(urn)}
-            </span>
-          ))}
-        </div>
-      )}
-      {insight.review_notes && (
-        <p className="text-xs text-muted-foreground italic">
-          Review: {markdownToPlainText(insight.review_notes)}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function MemoryCard({ record }: { record: MemoryRecord }) {
-  return (
-    <div className="rounded-lg border bg-card p-4 space-y-2">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <BadgeLabel status={record.status} />
-          {sinkClassLabel(record.sink_class) && (
-            <span className="text-xs text-muted-foreground">
-              {sinkClassLabel(record.sink_class)}
-            </span>
-          )}
-          <span className="text-xs text-muted-foreground">
-            {CATEGORY_LABELS[record.category] ?? record.category}
-          </span>
-        </div>
-        <span
-          className="shrink-0 text-[11px] text-muted-foreground"
-          title={new Date(record.created_at).toLocaleString()}
-        >
-          {new Date(record.created_at).toLocaleDateString()}
-        </span>
-      </div>
-      <CollapsibleMarkdown content={record.content} />
-      {record.entity_urns && record.entity_urns.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {record.entity_urns.map((urn) => (
-            <span
-              key={urn}
-              title={urn}
-              className="inline-block rounded bg-muted px-1.5 py-0.5 text-xs font-mono text-muted-foreground"
-            >
-              {formatEntityUrn(urn)}
-            </span>
-          ))}
-        </div>
-      )}
-      {record.status === "stale" && record.stale_reason && (
-        <p className="text-xs text-muted-foreground italic">
-          Stale: {record.stale_reason}
-        </p>
-      )}
-    </div>
-  );
+function memoryStats(s: MemoryStats | undefined) {
+  const byStatus = s?.by_status ?? {};
+  return [
+    { label: "Total Memories", value: s?.total ?? 0 },
+    { label: "Active", value: byStatus.active ?? 0 },
+    { label: "Stale", value: byStatus.stale ?? 0 },
+    { label: "Archived", value: byStatus.archived ?? 0 },
+  ];
 }
 
 // The former MyKnowledgePage tab wrapper was folded into KnowledgeHub (#661);
@@ -215,126 +88,67 @@ export function MyKnowledgeSection() {
     limit: PAGE_SIZE,
   });
 
-  const s = stats.data;
-  const totalItems = insights.data?.total ?? 0;
-  const items = searching
-    ? (searchResults.data?.data ?? [])
-    : (insights.data?.data ?? []);
-  const listLoading = searching ? searchResults.isLoading : insights.isLoading;
-  const hasNext = offset + PAGE_SIZE < totalItems;
-  const hasPrev = offset > 0;
-
-  const total = s?.by_status
-    ? Object.values(s.by_status).reduce((a, b) => a + b, 0)
-    : 0;
-
-  const statusFilters = [
-    { value: "", label: "All" },
-    { value: "pending", label: "Pending" },
-    { value: "approved", label: "Approved" },
-    { value: "applied", label: "Applied" },
-    { value: "rejected", label: "Rejected" },
-  ];
+  const { items, loading, total } = activeList<Insight>(searching, searchResults, insights);
 
   return (
     <>
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard label="Total Insights" value={total} />
-        <StatCard label="Pending" value={s?.by_status?.pending ?? 0} />
-        <StatCard label="Approved" value={s?.by_status?.approved ?? 0} />
-        <StatCard label="Applied" value={s?.by_status?.applied ?? 0} />
-      </div>
+      <StatGrid stats={insightStats(stats.data)} />
 
-      {/* Search + Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <SearchBox
+        <SearchInput
+          className="min-w-[220px] flex-1"
           value={searchInput}
-          onChange={setSearchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Search insights..."
+          aria-label="Search insights"
         />
-        <div className="flex items-center gap-1">
-          {statusFilters.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => {
-                setStatusFilter(f.value);
-                setOffset(0);
-              }}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                statusFilter === f.value
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <StatusChips
+          options={INSIGHT_STATUSES}
+          value={statusFilter}
+          onChange={(v) => {
+            setStatusFilter(v);
+            setOffset(0);
+          }}
+        />
       </div>
 
-      {/* Insights List */}
-      {listLoading ? (
-        <p className="text-sm text-muted-foreground">
-          {searching ? "Searching..." : "Loading..."}
-        </p>
-      ) : searching && items.length === 0 ? (
-        <p className="py-12 text-center text-sm text-muted-foreground">
-          No insights match &quot;{search.trim()}&quot;.
-        </p>
-      ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-          <Lightbulb className="h-12 w-12 mb-2 opacity-30" />
-          <p className="text-sm font-medium">No insights yet</p>
-          <div className="mt-3 max-w-md text-center space-y-2">
-            <p className="text-xs">
-              When you share knowledge about your data (corrections,
-              business context, quality observations) it gets captured
-              here for review.
+      <Results
+        loading={loading}
+        searching={searching}
+        query={search.trim()}
+        count={items.length}
+        empty={
+          <EmptyState icon={Lightbulb} className="gap-3">
+            <p className="text-sm font-medium text-foreground">No insights yet</p>
+            <p className="mx-auto mt-2 max-w-md text-xs">
+              When you share knowledge about your data (corrections, business
+              context, quality observations) it gets captured here for review.
             </p>
-            <p className="text-xs">
+            <p className="mx-auto mt-2 max-w-md text-xs">
               Try telling your agent something like{" "}
               <em>&quot;the revenue column excludes returns&quot;</em> or{" "}
               <em>&quot;this table is refreshed weekly&quot;</em>.
             </p>
-            <p className="text-xs">
+            <p className="mx-auto mt-2 max-w-md text-xs">
               Reviewed insights can be promoted into your team&apos;s shared
               knowledge.
             </p>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {items.map((insight) => (
-            <InsightCard key={insight.id} insight={insight} />
-          ))}
-        </div>
-      )}
+          </EmptyState>
+        }
+      >
+        {items.map((insight) => (
+          <InsightCard key={insight.id} insight={insight} />
+        ))}
+      </Results>
 
       {/* Pagination (browse mode only; search returns a ranked top-K) */}
-      {!searching && totalItems > PAGE_SIZE && (
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>
-            {offset + 1}-{Math.min(offset + PAGE_SIZE, totalItems)} of{" "}
-            {totalItems}
-          </span>
-          <div className="flex gap-1">
-            <button
-              disabled={!hasPrev}
-              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-              className="rounded p-1 hover:bg-muted disabled:opacity-30"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              disabled={!hasNext}
-              onClick={() => setOffset(offset + PAGE_SIZE)}
-              className="rounded p-1 hover:bg-muted disabled:opacity-30"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
+      {!searching && total > PAGE_SIZE && (
+        <Pager
+          page={Math.floor(offset / PAGE_SIZE) + 1}
+          perPage={PAGE_SIZE}
+          total={total}
+          onPage={(p) => setOffset((p - 1) * PAGE_SIZE)}
+        />
       )}
     </>
   );
@@ -365,130 +179,78 @@ export function MyMemorySection() {
     status: statusFilter || undefined,
     limit: PAGE_SIZE,
   });
-  const s = stats.data;
-  const totalItems = memories.data?.total ?? 0;
-  const items = searching
-    ? (searchResults.data?.data ?? [])
-    : (memories.data?.data ?? []);
-  const listLoading = searching ? searchResults.isLoading : memories.isLoading;
-  const hasNext = offset + PAGE_SIZE < totalItems;
-  const hasPrev = offset > 0;
 
-  const statusFilters = [
-    { value: "", label: "All" },
-    { value: "active", label: "Active" },
-    { value: "stale", label: "Stale" },
-    { value: "archived", label: "Archived" },
-  ];
-
-  const sinkClassFilters = [{ value: "", label: "All classes" }, ...SINK_CLASSES];
+  const { items, loading, total } = activeList<MemoryRecord>(
+    searching,
+    searchResults,
+    memories,
+  );
 
   return (
     <>
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard label="Total Memories" value={s?.total ?? 0} />
-        <StatCard label="Active" value={s?.by_status?.active ?? 0} />
-        <StatCard label="Stale" value={s?.by_status?.stale ?? 0} />
-        <StatCard label="Archived" value={s?.by_status?.archived ?? 0} />
-      </div>
+      <StatGrid stats={memoryStats(stats.data)} />
 
-      {/* Search + Filters */}
       <div className="flex flex-wrap items-center gap-3">
-        <SearchBox
+        <SearchInput
+          className="min-w-[220px] flex-1"
           value={searchInput}
-          onChange={setSearchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Search memories..."
+          aria-label="Search memories"
         />
-        <div className="flex items-center gap-1">
-          {statusFilters.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => {
-                setStatusFilter(f.value);
-                setOffset(0);
-              }}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                statusFilter === f.value
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-        <select
-          value={sinkClassFilter}
-          onChange={(e) => {
-            setSinkClassFilter(e.target.value);
+        <StatusChips
+          options={MEMORY_STATUSES}
+          value={statusFilter}
+          onChange={(v) => {
+            setStatusFilter(v);
             setOffset(0);
           }}
+        />
+        <FilterSelect
+          label="Filter by class"
+          title="The lifecycle class a memory was captured as"
+          value={sinkClassFilter}
+          onChange={(v) => {
+            setSinkClassFilter(v);
+            setOffset(0);
+          }}
+          options={SINK_CLASS_OPTIONS}
           // The class filter applies to the browse list; relevance search ranks
           // by text and status only, so disable it while searching to avoid
           // implying it narrows the results.
           disabled={searching}
-          className="rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2 disabled:opacity-50"
-          aria-label="Filter by class"
-        >
-          {sinkClassFilters.map((f) => (
-            <option key={f.value} value={f.value}>
-              {f.label}
-            </option>
-          ))}
-        </select>
+        />
       </div>
 
-      {/* Memory List */}
-      {listLoading ? (
-        <p className="text-sm text-muted-foreground">
-          {searching ? "Searching..." : "Loading..."}
-        </p>
-      ) : searching && items.length === 0 ? (
-        <p className="py-12 text-center text-sm text-muted-foreground">
-          No memories match &quot;{search.trim()}&quot;.
-        </p>
-      ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-          <p className="text-sm font-medium">No memories yet</p>
-          <p className="mt-2 max-w-md text-center text-xs">
-            Memories are created automatically as you work with the platform.
-            Corrections, preferences, and observations about your data are
-            stored here so agents remember your context across sessions.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {items.map((record) => (
-            <MemoryCard key={record.id} record={record} />
-          ))}
-        </div>
-      )}
+      <Results
+        loading={loading}
+        searching={searching}
+        query={search.trim()}
+        count={items.length}
+        empty={
+          <EmptyState icon={Brain} className="gap-3">
+            <p className="text-sm font-medium text-foreground">No memories yet</p>
+            <p className="mx-auto mt-2 max-w-md text-xs">
+              Memories are created automatically as you work with the platform.
+              Corrections, preferences, and observations about your data are
+              stored here so agents remember your context across sessions.
+            </p>
+          </EmptyState>
+        }
+      >
+        {items.map((record) => (
+          <MemoryCard key={record.id} record={record} />
+        ))}
+      </Results>
 
       {/* Pagination (browse mode only; search returns a ranked top-K) */}
-      {!searching && totalItems > PAGE_SIZE && (
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>
-            {offset + 1}-{Math.min(offset + PAGE_SIZE, totalItems)} of{" "}
-            {totalItems}
-          </span>
-          <div className="flex gap-1">
-            <button
-              disabled={!hasPrev}
-              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-              className="rounded p-1 hover:bg-muted disabled:opacity-30"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              disabled={!hasNext}
-              onClick={() => setOffset(offset + PAGE_SIZE)}
-              className="rounded p-1 hover:bg-muted disabled:opacity-30"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
+      {!searching && total > PAGE_SIZE && (
+        <Pager
+          page={Math.floor(offset / PAGE_SIZE) + 1}
+          perPage={PAGE_SIZE}
+          total={total}
+          onPage={(p) => setOffset((p - 1) * PAGE_SIZE)}
+        />
       )}
     </>
   );

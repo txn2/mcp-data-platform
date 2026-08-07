@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useKnowledgePageRefs, type PageEntityRef } from "@/api/portal/hooks";
+import { SectionCard } from "@/components/patterns/SectionCard";
 import { EntityChip } from "./EntityChip";
 
 const TYPE_ORDER = ["asset", "prompt", "collection", "connection", "knowledge_page", "datahub"];
@@ -34,8 +35,7 @@ export function RelatedPanel({ pageId, onNavigate }: { pageId: string; onNavigat
   if (refs.length === 0) return null;
 
   return (
-    <aside className="rounded-lg border border-border bg-card p-4">
-      <h2 className="mb-3 text-sm font-semibold text-foreground">Related</h2>
+    <SectionCard title="Related">
       <div className="space-y-3">
         {TYPE_ORDER.filter((t) => groups.has(t)).map((t) => (
           <div key={t}>
@@ -55,6 +55,6 @@ export function RelatedPanel({ pageId, onNavigate }: { pageId: string; onNavigat
           </div>
         ))}
       </div>
-    </aside>
+    </SectionCard>
   );
 }

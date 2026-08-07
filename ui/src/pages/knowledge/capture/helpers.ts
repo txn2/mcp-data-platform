@@ -22,21 +22,13 @@ export const INSIGHT_STATUSES = [
 
 export type BadgeVariant = "success" | "error" | "warning" | "neutral";
 
-export function insightStatusVariant(status: string): BadgeVariant {
-  switch (status) {
-    case "pending":
-      return "warning";
-    case "approved":
-    case "applied":
-      return "success";
-    case "rejected":
-    case "rolled_back":
-      return "error";
-    case "superseded":
-      return "neutral";
-    default:
-      return "neutral";
-  }
+// confidenceVariant tints how sure the capture was. Low confidence is neutral
+// rather than red: an unsure insight is not a failure, it is one a reviewer
+// should read more closely.
+export function confidenceVariant(confidence: string): BadgeVariant {
+  if (confidence === "high") return "success";
+  if (confidence === "medium") return "warning";
+  return "neutral";
 }
 
 export function formatCategory(cat: string): string {

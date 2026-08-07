@@ -1,6 +1,8 @@
 import { Fragment, useState } from "react";
 import { Database, Lightbulb, BookOpen, ChevronDown } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+
 // The three lifecycle stages, color-coded by maturity: raw memory (neutral),
 // proposed insight (amber, the "awaiting review" semantic used elsewhere), and
 // canonical knowledge (primary). The tint progression itself teaches that data
@@ -86,17 +88,18 @@ export function LifecycleHeader() {
           ))}
         </ol>
 
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={toggle}
           aria-expanded={expanded}
-          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="shrink-0 text-muted-foreground"
         >
           <span className="hidden sm:inline">{expanded ? "Hide" : "How it works"}</span>
           <ChevronDown
-            className={`h-4 w-4 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+            className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
           />
-        </button>
+        </Button>
       </div>
 
       {/* Grid-rows 0fr/1fr animates to content height with no max-height guess. */}

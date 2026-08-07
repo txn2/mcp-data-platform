@@ -94,9 +94,10 @@ describe("KnowledgeCaptureTab staleness (#764)", () => {
 
   it("passes order=oldest to useInsights when Oldest First is selected", () => {
     render(<KnowledgeCaptureTab />);
-    fireEvent.change(screen.getByLabelText("Sort by age"), {
-      target: { value: "oldest" },
-    });
+    // The facet is a Radix listbox: jsdom has no PointerEvent, so it opens on a
+    // key press rather than a pointer down (see src/test/setup.ts).
+    fireEvent.keyDown(screen.getByLabelText("Sort by age"), { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: "Oldest First" }));
     const calls = vi.mocked(useInsights).mock.calls;
     const lastCall = calls[calls.length - 1];
     expect(lastCall?.[0]).toMatchObject({ order: "oldest" });
