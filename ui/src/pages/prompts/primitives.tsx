@@ -1,47 +1,16 @@
-import { AlertCircle, ChevronDown, ChevronsUpDown, ChevronUp } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TableHead } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-// The pieces every prompt view repeats: a sortable column header, a labelled
-// form field, a save/load failure banner, and the placeholder a list shows
-// while it loads. They live here so the library, the viewer, and the admin
-// table state each of them once.
-
-export function SortableHead<K extends string>({
-  label,
-  sortKey,
-  sortBy,
-  sortDir,
-  onSort,
-  className,
-}: {
-  label: string;
-  sortKey: K;
-  sortBy: K;
-  sortDir: "asc" | "desc";
-  onSort: (key: K) => void;
-  className?: string;
-}) {
-  const active = sortBy === sortKey;
-  const Chevron = active ? (sortDir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
-  return (
-    <TableHead
-      onClick={() => onSort(sortKey)}
-      className={cn(
-        "cursor-pointer text-muted-foreground select-none hover:bg-muted/80",
-        className,
-      )}
-    >
-      <span className="inline-flex items-center gap-1">
-        {label}
-        <Chevron className={cn("size-3", active ? "text-foreground" : "text-muted-foreground/50")} />
-      </span>
-    </TableHead>
-  );
-}
+// The pieces every prompt view repeats: a labelled form field, a save/load
+// failure banner, and the placeholder a list shows while it loads. They live
+// here so the library, the viewer, and the admin table state each of them
+// once. The sortable column header moved to the shared patterns (#1207) once
+// the audit events table needed the same header; it is re-exported so prompt
+// views keep importing it from here.
+export { SortableHead } from "@/components/patterns/SortableHead";
 
 // Field is one labelled control. The caller owns the control so it can be an
 // Input, a Textarea, a Select, or an editor; the id ties it to the label.

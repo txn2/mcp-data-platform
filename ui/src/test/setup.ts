@@ -9,3 +9,11 @@ class ResizeObserverStub {
 }
 globalThis.ResizeObserver =
   globalThis.ResizeObserver ?? (ResizeObserverStub as unknown as typeof ResizeObserver);
+
+// Radix listboxes (ui/select) capture the pointer while a menu is open and
+// scroll the active item into view. jsdom implements neither, so opening a
+// Select in a test throws before the options render.
+HTMLElement.prototype.hasPointerCapture ??= () => false;
+HTMLElement.prototype.setPointerCapture ??= () => {};
+HTMLElement.prototype.releasePointerCapture ??= () => {};
+HTMLElement.prototype.scrollIntoView ??= () => {};

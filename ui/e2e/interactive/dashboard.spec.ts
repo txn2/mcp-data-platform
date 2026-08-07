@@ -12,11 +12,13 @@ const PRESETS = ["1h", "6h", "24h", "7d"] as const;
 async function gotoDashboard(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto("/portal/admin");
-  await expect(page.getByRole("button", { name: "MCP", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "MCP", exact: true })).toBeVisible();
 }
 
+// The dashboard's tab bar is the shared ui/tabs primitive (#1207), so its
+// items are tabs rather than buttons.
 async function clickTab(page: Page, name: string): Promise<void> {
-  await page.getByRole("button", { name, exact: true }).click();
+  await page.getByRole("tab", { name, exact: true }).click();
 }
 
 test.describe("Admin Dashboard", () => {
@@ -89,7 +91,9 @@ test.describe("Admin Dashboard", () => {
     await expect(sankey).toBeVisible();
     // Sankey fills its container width and the bottom node label is within bounds.
     const flowBox = await sankey.boundingBox();
-    const panelBox = await sankey.locator("xpath=ancestor::div[contains(@class,'rounded-lg')][1]").boundingBox();
+    const panelBox = await sankey
+      .locator("xpath=ancestor::div[@data-slot='card'][1]")
+      .boundingBox();
     expect(flowBox!.width).toBeGreaterThan(panelBox!.width - 40);
     // Usage Rhythm heatmap is present here too, with the full 7x24 grid.
     const heatmap = page.locator('svg[aria-label="Call volume by day of week and hour of day"]');

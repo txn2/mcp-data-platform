@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { APIGatewayView } from "./APIGatewayView";
 import { HealthView } from "./HealthView";
 import { IndexingPage } from "@/pages/indexing/IndexingPage";
@@ -23,31 +24,45 @@ export function AuditLogPage({ initialTab, onNavigate }: { initialTab?: string; 
   );
 
   return (
-    <div className="space-y-4">
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b">
-
+    <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="gap-4">
+      {/* The dashboard's primary navigation: underline tabs (the `line`
+          variant) so it reads as the page's top level, above any pill bar a
+          view renders inside its own panel. */}
+      <TabsList
+        variant="line"
+        className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-1 border-b p-0"
+      >
         {TAB_ITEMS.map((t) => (
-          <button
+          <TabsTrigger
             key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              tab === t.key
-                ? "border-b-2 border-primary text-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
+            value={t.key}
+            // The active underline defaults to sitting below the list; pull it
+            // onto the bar's own bottom border so the two are one line.
+            className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
           >
             {t.label}
-          </button>
+          </TabsTrigger>
         ))}
-      </div>
+      </TabsList>
 
-      {tab === "mcp" && <OverviewTab onNavigate={onNavigate} />}
-      {tab === "apigateway" && <APIGatewayView />}
-      {tab === "health" && <HealthView />}
-      {tab === "indexing" && <IndexingPage />}
-      {tab === "events" && <EventsTab onNavigate={onNavigate} />}
-      {tab === "notifications" && <NotificationsTab />}
-    </div>
+      <TabsContent value="mcp">
+        <OverviewTab onNavigate={onNavigate} />
+      </TabsContent>
+      <TabsContent value="apigateway">
+        <APIGatewayView />
+      </TabsContent>
+      <TabsContent value="health">
+        <HealthView />
+      </TabsContent>
+      <TabsContent value="indexing">
+        <IndexingPage />
+      </TabsContent>
+      <TabsContent value="events">
+        <EventsTab onNavigate={onNavigate} />
+      </TabsContent>
+      <TabsContent value="notifications">
+        <NotificationsTab />
+      </TabsContent>
+    </Tabs>
   );
 }

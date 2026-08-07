@@ -55,6 +55,15 @@ function show(data: NotificationList | undefined = list(), state: { isLoading?: 
   render(<NotificationsTab />);
 }
 
+// chooseOption drives one of the Radix listbox facets: open the trigger by
+// its accessible name, then click the named option.
+function chooseOption(name: RegExp | string, option: string): void {
+  // jsdom has no PointerEvent, so the trigger's pointerdown handler never
+  // fires; the listbox is opened with the keyboard instead.
+  fireEvent.keyDown(screen.getByRole("combobox", { name }), { key: "Enter" });
+  fireEvent.click(screen.getByRole("option", { name: option }));
+}
+
 beforeEach(() => {
   mockUseList.mockReset();
   mockUseStats.mockReset();
@@ -110,7 +119,9 @@ describe("NotificationsTab", () => {
       expect.objectContaining({ recipient: "bob@example.com" }),
     );
 
-    fireEvent.change(screen.getByLabelText(/filter by category/i), { target: { value: "mention" } });
+    // The category facet is a Radix listbox, not a native <select>: it is
+    // driven by opening the trigger and choosing an option.
+    chooseOption(/filter by category/i, "Mentions");
     expect(mockUseList).toHaveBeenLastCalledWith(
       expect.objectContaining({ category: "mention" }),
     );

@@ -1,6 +1,8 @@
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+
 import { type IndexVerdict } from "@/api/admin/indexjobs";
-import { STATUS_COLORS } from "./helpers";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 
 export function ProviderBanner({
   status,
@@ -13,82 +15,72 @@ export function ProviderBanner({
   model: string;
   dimension: number;
 }) {
+  // The summary behind this banner re-polls every few seconds, so it is a
+  // status region: role="alert" would re-announce the provider state on every
+  // refresh.
   if (status === "ok") {
     return (
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-2 text-sm">
-        <span className="flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400">
-          <CheckCircle2 className="h-4 w-4" /> Embedding provider active
-        </span>
-        <span className="text-muted-foreground">
+      <Alert variant="success" role="status">
+        <CheckCircle2 />
+        <AlertTitle>Embedding provider active</AlertTitle>
+        <AlertDescription>
           {kind || "provider"}
           {model ? ` · ${model}` : ""} · {dimension}-dim
-        </span>
-      </div>
+        </AlertDescription>
+      </Alert>
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm">
-      <span className="flex items-center gap-1.5 font-medium text-amber-700 dark:text-amber-400">
-        <AlertTriangle className="h-4 w-4" /> Embedding provider unconfigured
-      </span>
-      <span className="text-muted-foreground">
-        Semantic and hybrid ranking fall back to lexical until a provider is wired. Indexing is paused.
-      </span>
-    </div>
+    <Alert variant="warning" role="status">
+      <AlertTriangle />
+      <AlertTitle>Embedding provider unconfigured</AlertTitle>
+      <AlertDescription>
+        Semantic and hybrid ranking fall back to lexical until a provider is wired. Indexing is
+        paused.
+      </AlertDescription>
+    </Alert>
   );
 }
 
-// VERDICT_META maps each server-computed verdict to its label, palette,
+// VERDICT_META maps each server-computed verdict to its label, badge variant,
 // and icon so the lead health word is consistent everywhere it renders.
 const VERDICT_META: Record<
   IndexVerdict,
-  { label: string; text: string; bg: string; border: string; spin?: boolean; Icon: typeof CheckCircle2 }
+  {
+    label: string;
+    variant: "success" | "info" | "danger";
+    spin?: boolean;
+    Icon: typeof CheckCircle2;
+  }
 > = {
-  healthy: {
-    label: "Up to date",
-    text: "text-emerald-600 dark:text-emerald-400",
-    bg: "bg-emerald-500/10",
-    border: "border-emerald-500/30",
-    Icon: CheckCircle2,
-  },
-  indexing: {
-    label: "Indexing…",
-    text: "text-blue-600 dark:text-blue-400",
-    bg: "bg-blue-500/10",
-    border: "border-blue-500/30",
-    spin: true,
-    Icon: Loader2,
-  },
-  degraded: {
-    label: "Degraded",
-    text: "text-red-600 dark:text-red-400",
-    bg: "bg-red-500/10",
-    border: "border-red-500/40",
-    Icon: AlertTriangle,
-  },
+  healthy: { label: "Up to date", variant: "success", Icon: CheckCircle2 },
+  indexing: { label: "Indexing…", variant: "info", spin: true, Icon: Loader2 },
+  degraded: { label: "Degraded", variant: "danger", Icon: AlertTriangle },
 };
 
 export function VerdictBadge({ verdict }: { verdict: IndexVerdict }) {
   const m = VERDICT_META[verdict] ?? VERDICT_META.healthy;
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${m.border} ${m.bg} ${m.text}`}
-    >
-      <m.Icon className={`h-3 w-3 ${m.spin ? "animate-spin" : ""}`} /> {m.label}
-    </span>
+    <Badge variant={m.variant}>
+      <m.Icon className={m.spin ? "animate-spin" : undefined} /> {m.label}
+    </Badge>
   );
 }
 
+// JOB_STATUS_VARIANT tints a job-queue state with the same semantics the rest
+// of the platform's status pills use: queued work is a warning, in-flight is
+// informational, a finished run is success or danger.
+const JOB_STATUS_VARIANT: Record<string, "warning" | "info" | "success" | "danger"> = {
+  pending: "warning",
+  running: "info",
+  succeeded: "success",
+  failed: "danger",
+};
+
 export function JobStatusChip({ status }: { status: string }) {
   return (
-    <span
-      className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium"
-      style={{
-        color: STATUS_COLORS[status] ?? "hsl(var(--muted-foreground))",
-        backgroundColor: `${STATUS_COLORS[status] ?? "hsl(var(--muted))"}1a`,
-      }}
-    >
+    <Badge variant={JOB_STATUS_VARIANT[status] ?? "muted"} className="rounded px-1.5">
       {status}
-    </span>
+    </Badge>
   );
 }
