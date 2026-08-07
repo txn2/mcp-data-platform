@@ -2,13 +2,52 @@ import { useState } from "react";
 import { Trash2, Database } from "lucide-react";
 import { useDeleteConnectionInstance } from "@/api/admin/hooks";
 import type { EffectiveConnection } from "@/api/admin/types";
-import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { GatewayActionBar, GatewayRulesDrawer } from "../GatewayActions";
 import { ConnectionOAuthStatusCard } from "../ConnectionOAuthStatusCard";
 import { CONFIG_LABELS, kindColor } from "./constants";
 import { GatewayHealthDetail } from "./HealthBadges";
-import { ModalScroll } from "@/components/ModalShell";
+
+// ConfigRows renders the raw config key/value pairs of a connection, using the
+// per-kind human labels where one exists and falling back to the raw key.
+function ConfigRows({
+  kind,
+  entries,
+}: {
+  kind: string;
+  entries: [string, unknown][];
+}) {
+  const labelMap = CONFIG_LABELS[kind] ?? {};
+  return (
+    <div className="divide-y rounded-md border">
+      {entries.map(([key, value]) => {
+        const displayValue =
+          typeof value === "object" && value !== null
+            ? JSON.stringify(value)
+            : String(value);
+        const displayLabel = labelMap[key];
+        return (
+          <div key={key} className="flex items-center gap-4 px-4 py-2">
+            <span
+              className="w-48 shrink-0 truncate text-xs text-muted-foreground"
+              title={key}
+            >
+              {displayLabel ?? key}
+              {displayLabel && (
+                <span className="ml-1 font-mono text-[10px] opacity-50">{key}</span>
+              )}
+            </span>
+            <span className="flex-1 truncate font-mono text-xs">{displayValue}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function ConnectionViewer({
   connection,
@@ -52,20 +91,17 @@ export function ConnectionViewer({
   );
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold">{connection.name}</h2>
-            <span
-              className={cn(
-                "rounded-full px-2.5 py-0.5 text-xs font-medium",
-                kindColor(connection.kind),
-              )}
-            >
+            {/* Kind is a category, not a status, so it carries its own tint
+                from the shared kind palette on an outline badge. */}
+            <Badge variant="outline" className={kindColor(connection.kind)}>
               {connection.kind}
-            </span>
+            </Badge>
           </div>
           {connection.description && (
             <div className="mt-1">
@@ -86,20 +122,19 @@ export function ConnectionViewer({
         </div>
         {!isReadOnly && (
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onEdit}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-            >
+            <Button type="button" size="sm" onClick={onEdit}>
               Edit
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="outline"
+              size="icon-sm"
               onClick={() => setConfirmDelete(true)}
-              className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30"
+              aria-label={`Delete ${connection.kind}/${connection.name}`}
+              className="text-muted-foreground hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
             >
-              <Trash2 className="h-3 w-3" />
-            </button>
+              <Trash2 />
+            </Button>
           </div>
         )}
       </div>
@@ -156,74 +191,47 @@ export function ConnectionViewer({
 
       {/* Config */}
       {configEntries.length > 0 && (
-        <div>
-          <div className="mb-3 flex items-center gap-2">
-            <Database className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <SectionCard
+          title={
+            <span className="flex items-center gap-2">
+              <Database className="size-4 text-muted-foreground" />
               Configuration
-            </h3>
-          </div>
-          <div className="rounded-md border divide-y">
-            {configEntries.map(([key, value]) => {
-              const displayValue =
-                typeof value === "object" && value !== null
-                  ? JSON.stringify(value)
-                  : String(value);
-              const labelMap = CONFIG_LABELS[connection.kind] ?? {};
-              const displayLabel = labelMap[key];
-              return (
-                <div key={key} className="flex items-center gap-4 px-4 py-2">
-                  <span
-                    className="text-xs text-muted-foreground w-48 shrink-0 truncate"
-                    title={key}
-                  >
-                    {displayLabel ?? key}
-                    {displayLabel && (
-                      <span className="ml-1 font-mono text-[10px] opacity-50">
-                        {key}
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-xs font-mono flex-1 truncate">
-                    {displayValue}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+            </span>
+          }
+        >
+          <ConfigRows kind={connection.kind} entries={configEntries} />
+        </SectionCard>
       )}
 
       {/* DataHub Integration */}
       {hasDataHub && (
-        <div>
-          <div className="mb-3 flex items-center gap-2">
-            <Database className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <SectionCard
+          title={
+            <span className="flex items-center gap-2">
+              <Database className="size-4 text-muted-foreground" />
               DataHub Integration
-            </h3>
-          </div>
-          <div className="rounded-md border divide-y">
+            </span>
+          }
+        >
+          <div className="divide-y rounded-md border">
             {datahubSourceName && (
               <div className="flex items-center gap-4 px-4 py-2">
-                <span className="text-xs font-mono text-muted-foreground w-48 shrink-0">
+                <span className="w-48 shrink-0 font-mono text-xs text-muted-foreground">
                   DataHub Source Name
                 </span>
-                <span className="text-xs font-mono flex-1">
-                  {datahubSourceName}
-                </span>
+                <span className="flex-1 font-mono text-xs">{datahubSourceName}</span>
               </div>
             )}
             {catalogMapping && Object.keys(catalogMapping).length > 0 && (
               <div className="px-4 py-2">
-                <span className="text-xs font-mono text-muted-foreground block mb-1">
+                <span className="mb-1 block font-mono text-xs text-muted-foreground">
                   Catalog Mapping
                 </span>
                 <div className="ml-4 space-y-0.5">
                   {Object.entries(catalogMapping).map(([local, datahub]) => (
                     <div
                       key={local}
-                      className="flex items-center gap-2 text-xs font-mono"
+                      className="flex items-center gap-2 font-mono text-xs"
                     >
                       <span>{local}</span>
                       <span className="text-muted-foreground">&rarr;</span>
@@ -234,43 +242,33 @@ export function ConnectionViewer({
               </div>
             )}
           </div>
-        </div>
+        </SectionCard>
       )}
 
-      {/* Delete confirmation */}
-      {confirmDelete && (
-        <ModalScroll onClose={() => setConfirmDelete(false)} width="max-w-sm">
-          <div className="rounded-lg border bg-card p-6 shadow-lg">
-            <h3 className="text-sm font-semibold mb-2">Delete Connection</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Are you sure you want to delete &quot;{connection.kind}/
-              {connection.name}&quot;? This cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(false)}
-                className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  deleteMutation.mutate(
-                    { kind: connection.kind, name: connection.name },
-                    { onSuccess: onDeleted },
-                  );
-                  setConfirmDelete(false);
-                }}
-                className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </ModalScroll>
-      )}
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        destructive
+        title="Delete Connection"
+        description={
+          <>
+            Are you sure you want to delete{" "}
+            <code className="font-mono">
+              {connection.kind}/{connection.name}
+            </code>
+            ? This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        loading={deleteMutation.isPending}
+        onConfirm={() => {
+          deleteMutation.mutate(
+            { kind: connection.kind, name: connection.name },
+            { onSuccess: onDeleted },
+          );
+          setConfirmDelete(false);
+        }}
+      />
     </div>
   );
 }
@@ -279,7 +277,7 @@ function InfoCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border bg-muted/20 px-3 py-2">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="text-sm font-medium truncate">{value}</p>
+      <p className="truncate text-sm font-medium">{value}</p>
     </div>
   );
 }

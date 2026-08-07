@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { AlertCircle, X } from "lucide-react";
 
 import {
@@ -6,8 +6,12 @@ import {
   useUploadAPICatalogSpec,
   useUpsertAPICatalogSpec,
 } from "@/api/admin/hooks";
-import { cn } from "@/lib/utils";
 import { ModalShell } from "@/components/ModalShell";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LabeledInput, LabeledTextarea } from "./forms";
 
 // ---------------------------------------------------------------------------
@@ -61,6 +65,7 @@ export function SpecModal({
   const [description, setDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const fileInputID = useId();
 
   useEffect(() => {
     if (!existing) return;
@@ -156,33 +161,30 @@ export function SpecModal({
               ? `Edit spec — ${existingSpecName}`
               : "Add component spec"}
           </h3>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
             onClick={onClose}
-            className="rounded p-1 hover:bg-muted"
             aria-label="Close"
           >
-            <X className="h-4 w-4" />
-          </button>
+            <X />
+          </Button>
         </div>
       }
       footer={
         <div className="flex justify-end gap-2 border-t px-4 py-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
-          >
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
             onClick={submit}
             disabled={upsert.isPending || upload.isPending}
-            className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
             {upsert.isPending || upload.isPending ? "Saving…" : "Save"}
-          </button>
+          </Button>
         </div>
       }
     >
@@ -199,39 +201,32 @@ export function SpecModal({
           placeholder="default"
         />
 
-        <div className="flex gap-2 border-b">
-          {(["paste", "upload", "url"] as SourceTab[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={cn(
-                "border-b-2 px-3 py-1.5 text-sm",
-                tab === t
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {t === "paste" ? "Paste" : t === "upload" ? "Upload" : "URL"}
-            </button>
-          ))}
-        </div>
+        {/* The tab is the source of the spec's content, and it decides which
+            mutation Save issues — so it is a real tab set, not three sections. */}
+        <Tabs value={tab} onValueChange={(v) => setTab(v as SourceTab)}>
+          <TabsList variant="line">
+            <TabsTrigger value="paste">Paste</TabsTrigger>
+            <TabsTrigger value="upload">Upload</TabsTrigger>
+            <TabsTrigger value="url">URL</TabsTrigger>
+          </TabsList>
 
-        {tab === "paste" && (
-          <LabeledTextarea
-            label="OpenAPI YAML or JSON"
-            value={content}
-            onChange={setContent}
-            placeholder="openapi: 3.0.0&#10;info:&#10;  title: Vendor&#10;..."
-            rows={14}
-            mono
-          />
-        )}
+          <TabsContent value="paste" className="pt-2">
+            <LabeledTextarea
+              label="OpenAPI YAML or JSON"
+              value={content}
+              onChange={setContent}
+              placeholder="openapi: 3.0.0&#10;info:&#10;  title: Vendor&#10;..."
+              rows={14}
+              mono
+            />
+          </TabsContent>
 
-        {tab === "upload" && (
-          <div>
-            <label className="mb-1 block text-xs font-medium">Spec file</label>
-            <input
+          <TabsContent value="upload" className="space-y-1.5 pt-2">
+            <Label htmlFor={fileInputID} className="text-xs">
+              Spec file
+            </Label>
+            <Input
+              id={fileInputID}
               type="file"
               accept=".yaml,.yml,.json,application/yaml,application/json,text/yaml"
               onChange={(e) => {
@@ -243,25 +238,25 @@ export function SpecModal({
                   );
                 }
               }}
-              className="block text-sm"
+              className="py-1"
             />
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Max 10 MB. YAML or JSON. The server validates the content as
               OpenAPI 3.x before saving.
             </p>
-          </div>
-        )}
+          </TabsContent>
 
-        {tab === "url" && (
-          <LabeledInput
-            label="Spec URL"
-            help="HTTPS URL to a publicly reachable OpenAPI document. The server fetches once at save and stores the content; click Refresh on the spec row to re-fetch."
-            value={sourceURL}
-            onChange={setSourceURL}
-            placeholder="https://petstore3.swagger.io/api/v3/openapi.json"
-            mono
-          />
-        )}
+          <TabsContent value="url" className="pt-2">
+            <LabeledInput
+              label="Spec URL"
+              help="HTTPS URL to a publicly reachable OpenAPI document. The server fetches once at save and stores the content; click Refresh on the spec row to re-fetch."
+              value={sourceURL}
+              onChange={setSourceURL}
+              placeholder="https://petstore3.swagger.io/api/v3/openapi.json"
+              mono
+            />
+          </TabsContent>
+        </Tabs>
 
         <LabeledInput
           label="Base path (optional)"
@@ -290,10 +285,10 @@ export function SpecModal({
         />
 
         {error && (
-          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{error}</span>
-          </div>
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
       </div>
     </ModalShell>

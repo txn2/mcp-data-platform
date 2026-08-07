@@ -1,8 +1,15 @@
+import { useId } from "react";
 import { Save, Check, AlertCircle } from "lucide-react";
 import type { EffectiveConnection } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { AVAILABLE_KINDS } from "./constants";
+import { ConfigSelect } from "./fields";
 import { useConnectionForm } from "./useConnectionForm";
 import { TrinoConfigForm } from "./TrinoConfigForm";
 import { S3ConfigForm } from "./S3ConfigForm";
@@ -15,6 +22,8 @@ interface EditorProps {
   onCancel: () => void;
   onDirtyChange: (dirty: boolean) => void;
 }
+
+const KIND_OPTIONS = AVAILABLE_KINDS.map((k) => ({ value: k, label: k }));
 
 export function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: EditorProps) {
   const {
@@ -34,84 +43,71 @@ export function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }
     handleSave,
     isPending,
   } = useConnectionForm({ connection, onSave, onDirtyChange });
+  const nameID = useId();
+  const nameHelpID = `${nameID}-help`;
 
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b px-6 py-3 bg-muted/10">
+      <div className="flex items-center justify-between border-b bg-muted/10 px-6 py-3">
         <h2 className="text-sm font-semibold">
           {connection ? `Edit: ${connection.kind}/${connection.name}` : "New Connection"}
         </h2>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
-          >
+          <Button type="button" variant="outline" size="sm" onClick={onCancel}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
             onClick={handleSave}
             disabled={isPending || !isConfigValid || (isCreate && (!name.trim() || !nameValid))}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all disabled:opacity-50",
-              saveSuccess
-                ? "bg-green-600 text-white"
-                : "bg-primary text-primary-foreground hover:bg-primary/90",
-            )}
+            // Save confirmation is a transient success state on the button
+            // itself, so the confirmation lands where the click did.
+            className={cn(saveSuccess && "bg-emerald-600 text-white hover:bg-emerald-600")}
           >
             {saveSuccess ? (
               <>
-                <Check className="h-3 w-3" />
+                <Check />
                 Saved
               </>
             ) : isPending ? (
               "Saving..."
             ) : (
               <>
-                <Save className="h-3 w-3" />
+                <Save />
                 {isCreate ? "Create" : "Save"}
               </>
             )}
-          </button>
+          </Button>
         </div>
       </div>
 
       {saveError && (
-        <div className="flex items-center gap-2 border-b bg-red-50 px-6 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-400">
-          <AlertCircle className="h-3.5 w-3.5" />
-          {saveError}
-        </div>
+        <Alert variant="destructive" className="rounded-none border-x-0 border-t-0">
+          <AlertCircle />
+          <AlertDescription>{saveError}</AlertDescription>
+        </Alert>
       )}
 
       {/* Form */}
-      <div className="flex-1 overflow-auto p-6 space-y-6">
+      <div className="flex-1 space-y-6 overflow-auto p-6">
         {/* Kind & Name */}
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium">Kind</label>
-            <select
-              value={kind}
-              onChange={(e) => setKind(e.target.value)}
-              disabled={!isCreate}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {AVAILABLE_KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Connection type. Cannot be changed after creation.
-            </p>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium">
+          <ConfigSelect
+            label="Kind"
+            value={kind}
+            onChange={setKind}
+            options={KIND_OPTIONS}
+            disabled={!isCreate}
+            help="Connection type. Cannot be changed after creation."
+          />
+          <div className="space-y-1.5">
+            <Label htmlFor={nameID} className="text-xs">
               Identifier
-            </label>
-            <input
+            </Label>
+            <Input
+              id={nameID}
               type="text"
               value={name}
               onChange={(e) => {
@@ -128,28 +124,27 @@ export function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
-              aria-describedby="connection-name-help"
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono outline-none ring-ring focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-describedby={nameHelpID}
+              aria-invalid={isCreate && name.length > 0 && !nameValid ? true : undefined}
+              className="font-mono"
             />
-            <p
-              id="connection-name-help"
-              className="mt-1 text-xs text-muted-foreground"
-            >
+            <p id={nameHelpID} className="text-xs text-muted-foreground">
               Machine identifier used in API routes and persona patterns.
               Lowercase letters, digits, hyphens, underscores. Must start with
               a letter. Cannot be changed after creation.
             </p>
             {isCreate && name.length > 0 && !nameValid && (
-              <p className="mt-1 text-xs text-destructive">
+              <p className="text-xs text-destructive">
                 Identifier must start with a lowercase letter.
               </p>
             )}
           </div>
         </div>
 
-        {/* Description */}
-        <div>
-          <label className="mb-1 block text-xs font-medium">Description</label>
+        {/* Description. MarkdownEditor sizes itself to its parent, so it gets a
+            plain block parent rather than a stretched grid cell. */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Description</Label>
           <MarkdownEditor
             value={description}
             onChange={setDescription}
@@ -159,11 +154,8 @@ export function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }
         </div>
 
         {/* Kind-specific configuration form */}
-        <div className="rounded-lg border">
-          <div className="px-4 py-3 border-b bg-muted/10">
-            <span className="text-sm font-medium">Configuration</span>
-          </div>
-          <div className="px-4 py-4 space-y-4">
+        <SectionCard title="Configuration">
+          <div className="space-y-4">
             {kind === "trino" && (
               <TrinoConfigForm config={configObj} onChange={updateConfig} />
             )}
@@ -182,7 +174,7 @@ export function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }
               />
             )}
           </div>
-        </div>
+        </SectionCard>
       </div>
     </div>
   );
