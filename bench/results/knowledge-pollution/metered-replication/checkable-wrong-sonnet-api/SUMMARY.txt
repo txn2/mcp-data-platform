@@ -1,0 +1,9 @@
+bench run: arm=a3 model=claude-sonnet-5 (anthropic) k=8
+  platform dev @ http://localhost:8098 | commit aa586450f459 | seed 930 | tasks c486a443831b
+  2026-08-07T05:17:03Z .. 2026-08-07T05:20:14Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1       8    100.0%  100.0%        4.0        6.0        19497          0        2496              0
+
+task                            graded  correct  pass^k
+s3-deprecated-order-count           8        8  true

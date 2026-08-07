@@ -54,6 +54,11 @@ DIRECTIVE=imperative
 # null on the API fixture interpretable rather than ambiguous between fixture
 # and sink.
 SINK=default
+# Episode driver. claude-cli is the subscription path every arm so far has
+# used. anthropic is the raw Messages API path (protocol 13): it carries a
+# metered cost and exists to show the effect is a property of the platform and
+# model rather than of one client harness.
+DRIVER=claude-cli
 
 usage() {
 	sed -n '2,26p' "$0" >&2
@@ -70,6 +75,7 @@ while [[ $# -gt 0 ]]; do
 	--allow-meta-tools) ALLOW_META=1; shift ;;
 	--directive) DIRECTIVE="$2"; shift 2 ;;
 	--sink) SINK="$2"; shift 2 ;;
+	--driver) DRIVER="$2"; shift 2 ;;
 	*) echo "unknown argument: $1" >&2; usage ;;
 	esac
 done
@@ -82,13 +88,18 @@ done
 # checkable class runs one task at k=24.
 case "$CLASS" in
 convention)
+	# TASKS_OVERRIDE narrows the unit set. The metered replication (13)
+	# authorizes the count task alone at k=8 per tier; running the class's
+	# full three tasks would triple the authorized spend.
 	TASK_IDS=(s3-fiscal-2025-count s3-fiscal-2025-net s3-fiscal-q1-net)
-	K=8
+	[[ -n "${TASKS_OVERRIDE:-}" ]] && read -r -a TASK_IDS <<<"$TASKS_OVERRIDE"
+	K=${K_OVERRIDE:-8}
 	TREATMENT_BASE="fiscal-boundary"
 	;;
 checkable)
 	TASK_IDS=(s3-deprecated-order-count)
-	K=24
+	[[ -n "${TASKS_OVERRIDE:-}" ]] && read -r -a TASK_IDS <<<"$TASKS_OVERRIDE"
+	K=${K_OVERRIDE:-24}
 	TREATMENT_BASE="order-count"
 	;;
 *)
@@ -284,11 +295,29 @@ fi
 step "store snapshot before the eval (7.3 baseline)"
 build/pollutionplant -mode store-state -url "$BENCH_URL" -credential "$BENCH_KEY" >"$OUT/store-before-eval.json"
 
-step "evaluate: $TIER, k=$K, ${#TASK_IDS[@]} task(s)"
+step "evaluate: $TIER, k=$K, ${#TASK_IDS[@]} task(s), driver $DRIVER"
 DISALLOW=(-disallow-tools "$META_TOOLS")
 if [[ "$ALLOW_META" -eq 1 ]]; then
 	echo "  Section 12 sensitivity cell: meta-tools ALLOWED for this cell only"
 	DISALLOW=()
+fi
+# The raw-API driver runs the harness's own agent loop, so there is no client
+# whose tools could be disallowed and no client version to pin. It needs a
+# full model id rather than a claude-cli alias, and it needs the key.
+MODEL="$TIER"
+if [[ "$DRIVER" == anthropic ]]; then
+	DISALLOW=()
+	case "$TIER" in
+	haiku) MODEL="claude-haiku-4-5-20251001" ;;
+	sonnet) MODEL="claude-sonnet-5" ;;
+	opus) MODEL="claude-opus-5" ;;
+	*) MODEL="$TIER" ;;
+	esac
+	[[ -n "${ANTHROPIC_API_KEY:-}" ]] || {
+		echo "ERROR: --driver anthropic is metered and needs ANTHROPIC_API_KEY (source ~/.bench-key.env)" >&2
+		exit 1
+	}
+	echo "  METERED RUN: raw Messages API, model $MODEL"
 fi
 # ${arr[@]+"${arr[@]}"} rather than "${arr[@]}": under `set -u`, bash 3.2 (the
 # system bash on macOS) treats an empty array's expansion as an unbound
@@ -306,7 +335,7 @@ build/benchrun \
 	-url "$BENCH_URL" -credential "$BENCH_KEY" \
 	-audit-timeout 60s \
 	-arm a3 -suite s3 -tasks "$TASKS_DIR" -k "$K" \
-	-llm claude-cli -model "$TIER" -identity-keys 320 \
+	-llm "$DRIVER" -model "$MODEL" -identity-keys 320 \
 	-git-commit "$COMMIT" \
 	${DISALLOW[@]+"${DISALLOW[@]}"} \
 	-out "$OUT/results.json"
