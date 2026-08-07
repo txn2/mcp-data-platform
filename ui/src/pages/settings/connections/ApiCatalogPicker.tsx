@@ -1,4 +1,14 @@
+import { AlertTriangle } from "lucide-react";
+
 import { useAPICatalogs } from "@/api/admin/hooks";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { ConfigSelect } from "./fields";
+
+// The catalogs admin page, reached from both surfaces below.
+function catalogsHref(): string {
+  return `${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/admin/api-catalogs`;
+}
 
 // APICatalogPicker renders the dropdown that points an api-kind
 // connection at one of the globally-owned API catalogs. The model
@@ -15,36 +25,43 @@ export function APICatalogPicker({
 }) {
   const { data: catalogs, isLoading } = useAPICatalogs();
   const value = String(config.catalog_id ?? "");
+  const options = [
+    {
+      value: "",
+      label: "— No spec (model can still invoke explicit method+path) —",
+    },
+    ...(catalogs ?? []).map((c) => ({
+      value: c.id,
+      label: `${c.display_name}${c.version ? ` (v${c.version})` : ""} — ${c.spec_count} spec${
+        c.spec_count === 1 ? "" : "s"
+      }`,
+    })),
+  ];
+  // A listbox shows nothing for a value it has no item for, so while the
+  // catalog list is still loading (or if the referenced catalog was deleted)
+  // the stored id travels as its own option. Otherwise the field reads as
+  // "no catalog" on a connection that has one.
+  if (value && !options.some((o) => o.value === value)) {
+    options.push({ value, label: value });
+  }
   return (
-    <div>
-      <label className="mb-1 block text-xs font-medium">OpenAPI Catalog</label>
-      <select
-        value={value}
-        onChange={(e) =>
-          onChange({
-            ...config,
-            catalog_id: e.target.value === "" ? undefined : e.target.value,
-          })
-        }
-        className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-      >
-        <option value="">— No spec (model can still invoke explicit method+path) —</option>
-        {(catalogs ?? []).map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.display_name}
-            {c.version ? ` (v${c.version})` : ""} — {c.spec_count} spec
-            {c.spec_count === 1 ? "" : "s"}
-          </option>
-        ))}
-      </select>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Catalogs are managed under{" "}
-        <a className="underline" href={`${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/admin/api-catalogs`}>
-          API Catalogs
-        </a>
-        . One catalog can back many connections. {isLoading && "Loading…"}
-      </p>
-    </div>
+    <ConfigSelect
+      label="OpenAPI Catalog"
+      value={value}
+      onChange={(v) =>
+        onChange({ ...config, catalog_id: v === "" ? undefined : v })
+      }
+      options={options}
+      help={
+        <>
+          Catalogs are managed under{" "}
+          <a className="underline" href={catalogsHref()}>
+            API Catalogs
+          </a>
+          . One catalog can back many connections. {isLoading && "Loading…"}
+        </>
+      }
+    />
   );
 }
 
@@ -65,31 +82,40 @@ export function LegacyOpenAPISpecBanner({
   if (config.catalog_id) {
     // Operator already wired a catalog — offer to clear the stale field.
     return (
-      <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
-        This connection still carries a deprecated inline <code>openapi_spec</code> field.
-        It is no longer read by the toolkit; the catalog above is what the model sees.
-        <button
-          type="button"
-          onClick={() => {
-            const next = { ...config };
-            delete next.openapi_spec;
-            onChange(next);
-          }}
-          className="ml-2 underline"
-        >
-          Clear it
-        </button>
-      </div>
+      <Alert variant="warning">
+        <AlertTriangle />
+        <AlertDescription>
+          <span>
+            This connection still carries a deprecated inline <code>openapi_spec</code> field.
+            It is no longer read by the toolkit; the catalog above is what the model sees.
+          </span>
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            onClick={() => {
+              const next = { ...config };
+              delete next.openapi_spec;
+              onChange(next);
+            }}
+          >
+            Clear it
+          </Button>
+        </AlertDescription>
+      </Alert>
     );
   }
   return (
-    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
-      This connection uses an inline OpenAPI spec which is no longer supported.
-      Create a catalog under{" "}
-      <a className="underline" href={`${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/admin/api-catalogs`}>
-        API Catalogs
-      </a>{" "}
-      and select it above. Until you do, <code>api_list_endpoints</code> returns no operations.
-    </div>
+    <Alert variant="warning">
+      <AlertTriangle />
+      <AlertDescription>
+        This connection uses an inline OpenAPI spec which is no longer supported.
+        Create a catalog under{" "}
+        <a className="underline" href={catalogsHref()}>
+          API Catalogs
+        </a>{" "}
+        and select it above. Until you do, <code>api_list_endpoints</code> returns no operations.
+      </AlertDescription>
+    </Alert>
   );
 }

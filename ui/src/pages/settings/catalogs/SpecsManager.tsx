@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 
 import {
   type APICatalogSpec,
@@ -11,118 +11,13 @@ import {
   useRefreshAPICatalogSpec,
 } from "@/api/admin/hooks";
 import { apiFetch } from "@/api/admin/client";
-import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import {
-  CatalogEmbeddingHealthBanner,
-  EmbeddingStatusBadge,
-  SourceBadge,
-} from "./badges";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { CatalogEmbeddingHealthBanner } from "./badges";
+import { SpecList } from "./SpecList";
 import { SpecModal } from "./SpecModal";
-
-// SpecList renders the loading / empty / populated states of the
-// component-spec table. Extracted from SpecsManager so the manager
-// function stays within the size budget; the per-row action wiring
-// (retry, refresh, edit, delete) is passed in as callbacks.
-function SpecList({
-  loading,
-  specs,
-  statusByName,
-  isReadOnly,
-  pendingRetry,
-  pendingRefresh,
-  onRetry,
-  onRefresh,
-  onEdit,
-  onDelete,
-}: {
-  loading: boolean;
-  specs: APICatalogSpec[];
-  statusByName: Record<string, APICatalogEmbeddingSpecStatus>;
-  isReadOnly: boolean;
-  pendingRetry: Set<string>;
-  pendingRefresh: Set<string>;
-  onRetry: (specName: string) => void;
-  onRefresh: (specName: string) => void;
-  onEdit: (specName: string) => void;
-  onDelete: (specName: string) => void;
-}) {
-  if (loading) {
-    return <div className="text-sm text-muted-foreground">Loading…</div>;
-  }
-  if (specs.length === 0) {
-    return (
-      <div className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-        No specs yet. Add one to expose endpoints on the connections that reference this catalog.
-      </div>
-    );
-  }
-  return (
-    <ul className="divide-y rounded-md border">
-      {specs.map((s) => {
-        const status = statusByName[s.spec_name];
-        const failed = status?.job_status === "failed";
-        // Embedded specs are re-seeded from their toolkit at startup, so
-        // edits/deletes here do not persist; present them as read-only.
-        const specReadOnly = isReadOnly || s.source_kind === "embedded";
-        return (
-          <li key={s.spec_name} className="flex items-center gap-3 px-3 py-2 text-sm">
-            <span className="flex-1 truncate font-mono">{s.spec_name}</span>
-            <SourceBadge kind={s.source_kind} url={s.source_url} />
-            <EmbeddingStatusBadge status={status} />
-            {s.last_fetched_at && (
-              <span className="text-xs text-muted-foreground">
-                fetched {new Date(s.last_fetched_at).toLocaleString()}
-              </span>
-            )}
-            {!specReadOnly && (
-              <div className="flex gap-1">
-                {failed && (
-                  <button
-                    type="button"
-                    onClick={() => onRetry(s.spec_name)}
-                    disabled={pendingRetry.has(s.spec_name)}
-                    title={`Retry embedding (last error: ${status?.job_last_error ?? "unknown"})`}
-                    className="rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {pendingRetry.has(s.spec_name) ? "Retrying…" : "Retry"}
-                  </button>
-                )}
-                {s.source_kind === "url" && (
-                  <button
-                    type="button"
-                    onClick={() => onRefresh(s.spec_name)}
-                    disabled={pendingRefresh.has(s.spec_name)}
-                    title={pendingRefresh.has(s.spec_name) ? "Refreshing…" : "Refresh from URL"}
-                    className="rounded p-1 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <RefreshCw
-                      className={cn("h-4 w-4", pendingRefresh.has(s.spec_name) && "animate-spin")}
-                    />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => onEdit(s.spec_name)}
-                  className="rounded p-1 hover:bg-muted"
-                >
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(s.spec_name)}
-                  className="rounded p-1 text-destructive hover:bg-destructive/10"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
 
 export function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly: boolean }) {
   const [specs, setSpecs] = useState<APICatalogSpec[]>([]);
@@ -292,56 +187,48 @@ export function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isR
   }, [catalogID, refreshCounter]);
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Component specs</h3>
-        {!isReadOnly && (
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs hover:bg-muted"
+    <SectionCard
+      title="Component specs"
+      action={
+        !isReadOnly && (
+          <Button type="button" variant="outline" size="sm" onClick={() => setAdding(true)}>
+            <Plus /> Add spec
+          </Button>
+        )
+      }
+    >
+      <div className="space-y-3">
+        {health && <CatalogEmbeddingHealthBanner health={health} />}
+
+        {statusMessage && (
+          <Alert
+            variant={statusMessage.kind === "error" ? "destructive" : "success"}
+            role={statusMessage.kind === "error" ? "alert" : "status"}
           >
-            <Plus className="h-3.5 w-3.5" /> Add spec
-          </button>
+            <AlertDescription className="flex w-full items-start justify-between gap-3">
+              <span>{statusMessage.text}</span>
+              <Button type="button" variant="link" size="xs" onClick={dismissStatus}>
+                dismiss
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
+
+        <SpecList
+          loading={loading}
+          specs={specs}
+          statusByName={statusByName}
+          isReadOnly={isReadOnly}
+          actions={{
+            pendingRetry,
+            pendingRefresh,
+            onRetry: handleRetry,
+            onRefresh: handleRefresh,
+            onEdit: setEditing,
+            onDelete: setPendingDelete,
+          }}
+        />
       </div>
-
-      {health && <CatalogEmbeddingHealthBanner health={health} />}
-
-      {statusMessage && (
-        <div
-          role={statusMessage.kind === "error" ? "alert" : "status"}
-          className={cn(
-            "flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs",
-            statusMessage.kind === "success" &&
-              "border-emerald-500/30 bg-emerald-50 text-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-200",
-            statusMessage.kind === "error" &&
-              "border-destructive/40 bg-destructive/10 text-destructive",
-          )}
-        >
-          <span>{statusMessage.text}</span>
-          <button
-            type="button"
-            onClick={dismissStatus}
-            className="text-xs underline-offset-2 hover:underline"
-          >
-            dismiss
-          </button>
-        </div>
-      )}
-
-      <SpecList
-        loading={loading}
-        specs={specs}
-        statusByName={statusByName}
-        isReadOnly={isReadOnly}
-        pendingRetry={pendingRetry}
-        pendingRefresh={pendingRefresh}
-        onRetry={handleRetry}
-        onRefresh={handleRefresh}
-        onEdit={setEditing}
-        onDelete={setPendingDelete}
-      />
 
       {(adding || editing) && (
         <SpecModal
@@ -394,6 +281,6 @@ export function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isR
           }
         }}
       />
-    </div>
+    </SectionCard>
   );
 }

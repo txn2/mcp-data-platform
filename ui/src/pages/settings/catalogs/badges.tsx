@@ -9,43 +9,40 @@ import {
   type APICatalogSpec,
   type APICatalogEmbeddingSpecStatus,
 } from "@/api/admin/hooks";
-import { cn } from "@/lib/utils";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 
 // EmbeddingStatusBadge surfaces the per-spec embedding state
-// computed by the job queue. The badge color and label
+// computed by the job queue. The badge variant and label
 // communicate one of six states the operator can react to:
 //
-//   green:  "N/M indexed"     — spec is fully indexed; semantic
+//   success: "N/M indexed"     — spec is fully indexed; semantic
 //                                ranking is active.
-//   blue:   "indexing N/M"    — a worker is currently embedding
+//   info:    "indexing N/M"    — a worker is currently embedding
 //                                this spec; counts move as the
 //                                worker progresses.
-//   amber:  "queued"          — the job is in the queue waiting
+//   warning: "queued"          — the job is in the queue waiting
 //                                for a worker to pick it up (first
 //                                attempt, no error history).
-//   amber+: "retrying (N tries)" — the job failed at least once
+//   warning: "retrying (N tries)" — the job failed at least once
 //                                and is queued for another try.
 //                                Tooltip surfaces last_error so the
 //                                operator can decide whether to
 //                                wait, cancel, or investigate. Was
 //                                the silent failure mode #479 fixed.
-//   red:    "failed (last_error)" — the job exhausted retries.
-//                                The operator can click Retry
-//                                next to the badge to force a
-//                                fresh attempt.
-//   gray:   "not indexed"     — the spec has no operations or
+//   danger:  "failed"          — the job exhausted retries. The
+//                                operator can click Retry next to
+//                                the badge to force a fresh attempt.
+//   muted:   "not indexed"     — the spec has no operations or
 //                                no job has run for it (legacy
 //                                state cleared by the next
 //                                reconciler tick).
 export function EmbeddingStatusBadge({ status }: { status?: APICatalogEmbeddingSpecStatus }) {
   if (!status) {
     return (
-      <span
-        title="Embedding status not yet loaded"
-        className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
-      >
+      <Badge variant="muted" title="Embedding status not yet loaded">
         loading…
-      </span>
+      </Badge>
     );
   }
   const fully =
@@ -53,12 +50,12 @@ export function EmbeddingStatusBadge({ status }: { status?: APICatalogEmbeddingS
   const jobStatus = status.job_status ?? "";
   if (fully && (jobStatus === "succeeded" || jobStatus === "")) {
     return (
-      <span
+      <Badge
+        variant="success"
         title={`${status.embedding_count}/${status.operation_count} operations indexed; semantic ranking active`}
-        className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
       >
         {status.embedding_count}/{status.operation_count} indexed
-      </span>
+      </Badge>
     );
   }
   if (jobStatus === "running") {
@@ -68,12 +65,12 @@ export function EmbeddingStatusBadge({ status }: { status?: APICatalogEmbeddingS
     // before the final commit. See #430.
     const progress = status.embedded_so_far ?? status.embedding_count;
     return (
-      <span
+      <Badge
+        variant="info"
         title={`Worker is embedding this spec (attempt ${status.job_attempts ?? 1})`}
-        className="inline-flex items-center gap-1 rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-900 dark:bg-sky-950/30 dark:text-sky-200"
       >
         indexing {progress}/{status.operation_count}
-      </span>
+      </Badge>
     );
   }
   if (jobStatus === "pending") {
@@ -89,50 +86,41 @@ export function EmbeddingStatusBadge({ status }: { status?: APICatalogEmbeddingS
       const errMsg = status.job_last_error || "no error message recorded";
       const tries = attempts === 1 ? "1 try" : `${attempts} tries`;
       return (
-        <span
+        <Badge
+          variant="warning"
           title={`Retrying after failure. ${tries} so far. Last error: ${errMsg}`}
-          className="inline-flex items-center gap-1 rounded bg-amber-200 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"
         >
           retrying ({tries})
-        </span>
+        </Badge>
       );
     }
     return (
-      <span
-        title="Queued for embedding"
-        className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
-      >
+      <Badge variant="warning" title="Queued for embedding">
         queued
-      </span>
+      </Badge>
     );
   }
   if (jobStatus === "failed") {
     return (
-      <span
-        title={status.job_last_error || "embedding failed"}
-        className="inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-xs text-destructive"
-      >
+      <Badge variant="danger" title={status.job_last_error || "embedding failed"}>
         failed
-      </span>
+      </Badge>
     );
   }
   if (status.operation_count === 0) {
     return (
-      <span
-        title="Spec has zero operations; nothing to embed"
-        className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
-      >
+      <Badge variant="muted" title="Spec has zero operations; nothing to embed">
         empty
-      </span>
+      </Badge>
     );
   }
   return (
-    <span
+    <Badge
+      variant="warning"
       title="No embedding job has run for this spec yet; reconciler will pick it up"
-      className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
     >
       not indexed
-    </span>
+    </Badge>
   );
 }
 
@@ -156,9 +144,14 @@ export function CatalogEmbeddingHealthBanner({
     health.specs_failed === 0;
   if (allIndexed) {
     return (
-      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
-        All {health.specs_total} specs indexed. Semantic ranking is active across this catalog.
-      </div>
+      // A polled summary, so role="status" (polite): Alert's default
+      // role="alert" would interrupt a screen reader every time the worker
+      // moves a count.
+      <Alert variant="success" role="status">
+        <AlertDescription>
+          All {health.specs_total} specs indexed. Semantic ranking is active across this catalog.
+        </AlertDescription>
+      </Alert>
     );
   }
   const parts: string[] = [];
@@ -166,37 +159,43 @@ export function CatalogEmbeddingHealthBanner({
   if (health.specs_pending > 0) parts.push(`${health.specs_pending} queued`);
   if (health.specs_failed > 0) parts.push(`${health.specs_failed} failed`);
   return (
-    <div
-      className={cn(
-        "rounded-md border px-3 py-2 text-xs",
-        health.specs_failed > 0
-          ? "border-destructive/40 bg-destructive/10 text-destructive"
-          : "border-amber-500/30 bg-amber-500/10 text-amber-100",
-      )}
-    >
-      {health.specs_indexed}/{health.specs_total} specs indexed
-      {parts.length > 0 ? ` (${parts.join(", ")})` : ""}
-    </div>
+    <Alert variant={health.specs_failed > 0 ? "destructive" : "warning"} role="status">
+      <AlertDescription>
+        {health.specs_indexed}/{health.specs_total} specs indexed
+        {parts.length > 0 ? ` (${parts.join(", ")})` : ""}
+      </AlertDescription>
+    </Alert>
   );
 }
 
+// SourceBadge names where a component spec's content came from. The four
+// source kinds are categories, not states, so each rides a distinct badge
+// variant: operator-pasted (muted), uploaded (info), fetched from a URL
+// (success), and platform-embedded (outline — the read-only kind that is
+// re-seeded from its toolkit at startup).
+const SOURCE_BADGES: Record<
+  string,
+  {
+    icon: typeof FileText;
+    label: string;
+    variant: "muted" | "info" | "success" | "outline";
+  }
+> = {
+  inline: { icon: FileText, label: "inline", variant: "muted" },
+  upload: { icon: Upload, label: "upload", variant: "info" },
+  url: { icon: LinkIcon, label: "URL", variant: "success" },
+  embedded: { icon: Package, label: "embedded", variant: "outline" },
+};
+
 export function SourceBadge({ kind, url }: { kind: APICatalogSpec["source_kind"]; url?: string }) {
-  const configs: Record<string, { icon: typeof FileText; label: string; tone: string }> = {
-    inline: { icon: FileText, label: "inline", tone: "bg-muted text-muted-foreground" },
-    upload: { icon: Upload, label: "upload", tone: "bg-blue-100 text-blue-900 dark:bg-blue-950/30 dark:text-blue-200" },
-    url: { icon: LinkIcon, label: "URL", tone: "bg-green-100 text-green-900 dark:bg-green-950/30 dark:text-green-200" },
-    embedded: { icon: Package, label: "embedded", tone: "bg-purple-100 text-purple-900 dark:bg-purple-950/30 dark:text-purple-200" },
-  };
   // Fall back to the raw kind for any value the backend adds later, so an
   // unknown source_kind degrades to a plain badge instead of crashing the page.
-  const config = configs[kind] ?? { icon: FileText, label: kind || "unknown", tone: "bg-muted text-muted-foreground" };
+  const config =
+    SOURCE_BADGES[kind] ?? { icon: FileText, label: kind || "unknown", variant: "muted" as const };
   const Icon = config.icon;
   return (
-    <span
-      title={url || undefined}
-      className={cn("inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs", config.tone)}
-    >
-      <Icon className="h-3 w-3" /> {config.label}
-    </span>
+    <Badge variant={config.variant} title={url || undefined}>
+      <Icon aria-hidden /> {config.label}
+    </Badge>
   );
 }

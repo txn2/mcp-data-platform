@@ -1,4 +1,6 @@
 import { type APICatalogSummary } from "@/api/admin/hooks";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 // CatalogListItem is one row in the left-nav catalog list. When the
@@ -19,28 +21,31 @@ export function CatalogListItem({
   showVersion?: boolean;
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
       onClick={onSelect}
+      aria-current={selected ? "true" : undefined}
+      // A nav row, not a control: two stacked lines of text, so it sizes to
+      // its content instead of the button's fixed height.
       className={cn(
-        "block w-full rounded px-3 py-2 text-left text-sm hover:bg-muted",
+        "h-auto w-full flex-col items-stretch gap-0.5 px-3 py-2 text-left font-normal",
         selected && "bg-muted",
       )}
     >
-      <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate">{catalog.display_name}</span>
+      <span className="flex w-full items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-sm">{catalog.display_name}</span>
         {showVersion && catalog.version && (
-          <span className="shrink-0 rounded bg-muted-foreground/10 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          <Badge variant="muted" className="font-mono text-[10px]">
             v{catalog.version}
-          </span>
+          </Badge>
         )}
-      </div>
-      <div className="text-xs text-muted-foreground">
+      </span>
+      <span className="w-full text-xs text-muted-foreground">
         {catalog.spec_count} spec{catalog.spec_count === 1 ? "" : "s"}
         {catalog.ref_count > 0 ? (
           <span> · {catalog.ref_count} connection{catalog.ref_count === 1 ? "" : "s"}</span>
         ) : null}
-      </div>
-    </button>
+      </span>
+    </Button>
   );
 }

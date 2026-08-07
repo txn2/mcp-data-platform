@@ -1,5 +1,10 @@
-import { cn } from "@/lib/utils";
-import { update, type ConfigFormProps } from "./fields";
+import { useId } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { ConfigGroup, update, type ConfigFormProps } from "./fields";
 
 // TLSMaterialEditor renders the per-connection mTLS material section:
 // client cert + private key (both required together) and an optional
@@ -21,24 +26,21 @@ export function TLSMaterialEditor({
   const expiry = String(config.mtls_cert_not_after ?? "");
   const isMTLSMode = config.auth_mode === "mtls";
   return (
-    <div className="rounded-md border bg-muted/20 px-3 py-3 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <ConfigGroup
+      title={
+        <span className="flex items-center gap-2">
           TLS / mTLS
           {isMTLSMode && (
-            <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
-              required for auth_mode: mtls
-            </span>
+            <Badge variant="info">required for auth_mode: mtls</Badge>
           )}
-        </div>
-        <button
-          type="button"
-          onClick={onOpenHelp}
-          className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-        >
+        </span>
+      }
+      action={
+        <Button type="button" variant="link" size="xs" onClick={onOpenHelp}>
           Learn about TLS / mTLS
-        </button>
-      </div>
+        </Button>
+      }
+    >
       <PEMTextarea
         label="Client certificate (PEM)"
         value={String(config.mtls_client_cert_pem ?? "")}
@@ -60,7 +62,7 @@ export function TLSMaterialEditor({
         placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
       />
       {expiry && <CertExpiryBadge notAfter={expiry} />}
-    </div>
+    </ConfigGroup>
   );
 }
 
@@ -83,48 +85,57 @@ function PEMTextarea({
   placeholder?: string;
   sensitive?: boolean;
 }) {
+  const id = useId();
+  const helpID = `${id}-help`;
   return (
-    <div>
-      <label className="mb-1 block text-xs font-medium">{label}</label>
-      <textarea
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      <Textarea
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         autoComplete={sensitive ? "off" : undefined}
         spellCheck={false}
         rows={5}
-        className="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono outline-none ring-ring focus:ring-2"
+        aria-describedby={help ? helpID : undefined}
+        // A PEM block needs its five rows before anything is pasted, so the
+        // fixed sizing wins over ui/textarea's content sizing.
+        className="field-sizing-fixed font-mono text-xs"
       />
-      {help && <p className="mt-1 text-xs text-muted-foreground">{help}</p>}
+      {help && (
+        <p id={helpID} className="text-xs text-muted-foreground">
+          {help}
+        </p>
+      )}
     </div>
   );
 }
 
 // CertExpiryBadge renders a one-line summary of the client cert's
-// NotAfter, color-coded by remaining time. Treats every input as a
+// NotAfter, variant-coded by remaining time. Treats every input as a
 // server-formatted RFC3339 string (the admin handler computes this
 // server-side via crypto/x509). A parse failure renders nothing
 // rather than guessing.
 function CertExpiryBadge({ notAfter }: { notAfter: string }) {
   const ms = Date.parse(notAfter);
   if (Number.isNaN(ms)) return null;
-  const now = Date.now();
-  const days = Math.floor((ms - now) / (24 * 60 * 60 * 1000));
-  let label: string;
-  let tone: string;
+  const days = Math.floor((ms - Date.now()) / (24 * 60 * 60 * 1000));
   if (days < 0) {
-    label = `Certificate expired ${-days} day${-days === 1 ? "" : "s"} ago`;
-    tone = "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200";
-  } else if (days < 30) {
-    label = `Certificate expires in ${days} day${days === 1 ? "" : "s"}`;
-    tone = "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
-  } else {
-    label = `Certificate valid for ${days} more days`;
-    tone = "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
+    return (
+      <Badge variant="danger">
+        Certificate expired {-days} day{-days === 1 ? "" : "s"} ago
+      </Badge>
+    );
   }
-  return (
-    <div className={cn("inline-flex rounded px-2 py-1 text-xs font-medium", tone)}>
-      {label}
-    </div>
-  );
+  if (days < 30) {
+    return (
+      <Badge variant="warning">
+        Certificate expires in {days} day{days === 1 ? "" : "s"}
+      </Badge>
+    );
+  }
+  return <Badge variant="success">Certificate valid for {days} more days</Badge>;
 }

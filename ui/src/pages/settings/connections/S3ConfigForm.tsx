@@ -1,3 +1,4 @@
+import { Separator } from "@/components/ui/separator";
 import {
   ConfigField,
   ConfigToggle,
@@ -60,8 +61,9 @@ export function S3ConfigForm({ config, onChange }: ConfigFormProps) {
         onChange={(v) => onChange(update(config, "use_path_style", v))}
         help="Use path-style URLs (bucket in path, not subdomain). Required for MinIO and most S3-compatible stores."
       />
-      <div className="border-t pt-4 mt-2">
-        <p className="text-xs font-medium mb-3">DataHub Integration</p>
+      <Separator className="mt-2" />
+      <div className="space-y-4">
+        <p className="text-xs font-medium">DataHub Integration</p>
         <ConfigField
           label="DataHub Source Name"
           value={String(config.datahub_source_name ?? "")}
