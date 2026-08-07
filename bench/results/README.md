@@ -56,10 +56,12 @@ by [`knowledge-pollution/README.md`](knowledge-pollution/README.md).
 
 ## Context economics (in progress)
 
-Epic: issue #1164. No protocol and no report yet, so nothing under this slug is
-pre-registered. Its one family is an archival re-analysis of another study's
-archives, kept here under the cross-study re-analysis convention in
-[`../README.md`](../README.md).
+Epic: issue #1164; protocol
+[`../docs/context-economics-study-design.md`](../docs/context-economics-study-design.md).
+The study's own arms land with #1171, so its one family so far is an archival
+re-analysis of another study's archives, kept here under the cross-study
+re-analysis convention in [`../README.md`](../README.md) and reproduced by
+[`../reports/context-economics/`](../reports/context-economics/).
 
 Families are indexed by
 [`context-economics/README.md`](context-economics/README.md).
