@@ -37,10 +37,10 @@ done about the published record — which is not always a re-run.
 
 ## Deferred study extensions (proposed, never probed)
 
-Extensions of the published knowledge-layer study that were written down as
-follow-up work, then deferred without a probe. They differ from the retired
-candidates above: nothing was measured and nothing was falsified, so none of
-them is concluded. They are recorded here rather than left open because each
+Extensions written down as follow-up work, then deferred without a probe; all
+but the last are extensions of the published knowledge-layer study. They differ
+from the retired candidates above: nothing was measured and nothing was
+falsified, so none of them is concluded. They are recorded here rather than left open because each
 would cost a full run and none has a product question waiting on its answer,
 and an open ticket nobody can act on reads as work in flight.
 
@@ -56,6 +56,7 @@ forms a new study in the series with its own protocol.
 | Multi-model cold-start climb (#980 A3): repeat the curve on three or more models | The largest spend in the set. Single-model generalization is an acknowledged limit of the published report (Section 7), stated as such rather than hidden | A decision to publish a generalization claim, or a second model showing a materially different climb by accident |
 | Forgetting and decay after supersede (#980 A5) | Depends on the A2 harness, and the supersede mechanism already probed at ceiling (see the supersede-reliability row above) | The A2 harness existing for another reason, or a stale value resurfacing in production |
 | Channel ablation, sink x discovery mode (#980 A6) | Existed to arbitrate the two #1131 levers. #1131 now takes the platform-controlled lever on the report's own evidence that platform search delivers, so the matrix no longer gates a decision | Wanting to close the sink-delivery confound the report flagged (Section 6) as a publication goal in its own right |
+| Wide-table `column_context_filtering` (context-economics H2b): what the flag saves when a query touches a subset of a wide table | The bench warehouse has no wide table — `memory.bench.customers` has five columns and `memory.bench.orders` six (`bench/seed/trino/setup.sql`) — so the flag can withhold context for at most four columns per describe call, against a median episode of tens of thousands of tokens. An episode-level arm on this fixture is a guaranteed null that would say nothing about the mechanism, so the protocol drops it as a metered arm and keeps a zero-spend scripted payload measurement in its place (`context-economics-study-design.md`, section 4.2) | A fixture with a genuinely wide table and tasks whose SQL touches a small subset of it, which is fixture work in its own right; or a deployment reporting enrichment payload as a material cost on wide tables |
 | Standalone memory suite (#982 section 3): generalize S5 out of the data-analysis framing into long multi-session arcs with no warehouse dependency | The mechanisms it would measure — capture, personal recall, cross-identity transfer, supersede correctness and duplicate rate, abstention — are the ones S5 already measures inside the knowledge-layer study, so the delta is external validity for memory-primary deployments rather than a decision nobody can otherwise make. The cost is the whole of it: a second seeded, airgapped ground-truth corpus with no warehouse in it. Its retention-and-decay axis depends on the A2 harness, deferred in its own row above | A memory-primary deployment needing a citable number that the warehouse framing would not support, or an S5 metric that turns out to be an artifact of the warehouse dataset rather than a property of the memory layer |
 
 ## Platform decisions taken on benchmark evidence
