@@ -1,20 +1,17 @@
-import { useState, useEffect, useRef } from "react";
-import { Search, FileText, Image, Code, File, Users, Globe, Table2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { File } from "lucide-react";
 import { useInfiniteAdminAssets } from "@/api/admin/hooks";
-import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
+import { contentTypeIcon } from "@/components/ContentTypeBadge";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { SearchInput } from "@/components/patterns/SearchInput";
+import { InfiniteFooter } from "@/components/InfiniteFooter";
+import { ShareIndicators } from "@/components/ShareIndicators";
+import { Card } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatBytes, formatOwner } from "@/lib/format";
 
 interface Props {
   onNavigate: (path: string) => void;
-}
-
-function contentTypeIcon(ct: string) {
-  const lower = ct.toLowerCase();
-  if (lower.includes("csv")) return Table2;
-  if (lower.includes("html") || lower.includes("jsx")) return Code;
-  if (lower.includes("svg") || lower.includes("image")) return Image;
-  if (lower.includes("markdown") || lower.includes("text")) return FileText;
-  return File;
 }
 
 export function AdminAssetsPage({ onNavigate }: Props) {
@@ -33,117 +30,90 @@ export function AdminAssetsPage({ onNavigate }: Props) {
 
   const assets = data?.data ?? [];
 
-  // Infinite scroll: auto-load the next page when the sentinel scrolls into
-  // view. The Load-more button below stays as a manual fallback / indicator.
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  useInfiniteScroll(sentinelRef, {
-    hasMore: hasNextPage,
-    isLoading: isFetchingNextPage,
-    onLoadMore: fetchNextPage,
-  });
-
   return (
     <div className="space-y-4">
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name, description, owner, or tag..."
-          className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-        />
-      </div>
+      <SearchInput
+        className="max-w-md"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by name, description, owner, or tag..."
+      />
 
-      {/* Results table */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
-          Loading...
-        </div>
+        <p className="py-12 text-center text-sm text-muted-foreground">Loading...</p>
       ) : assets.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-          <File className="h-12 w-12 mb-2 opacity-30" />
-          <p className="text-sm font-medium">No assets found</p>
-        </div>
+        <EmptyState icon={File}>
+          <p className="font-medium">No assets found</p>
+        </EmptyState>
       ) : (
-        <div className="rounded-lg border bg-card overflow-hidden">
-          <table className="w-full text-sm table-fixed">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[40%]">Name</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[20%]">Owner</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Type</th>
-                <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-[8%]">Size</th>
-                <th className="px-4 py-2.5 text-center font-medium text-muted-foreground w-[8%]">Shared</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Created</th>
-              </tr>
-            </thead>
-            <tbody>
+        <Card className="gap-0 overflow-hidden py-0">
+          <Table className="table-fixed">
+            <TableHeader>
+              <TableRow className="bg-muted/50">
+                <TableHead className="w-[40%] text-muted-foreground">Name</TableHead>
+                <TableHead className="w-[20%] text-muted-foreground">Owner</TableHead>
+                <TableHead className="w-[12%] text-muted-foreground">Type</TableHead>
+                <TableHead className="w-[8%] text-right text-muted-foreground">Size</TableHead>
+                <TableHead className="w-[8%] text-center text-muted-foreground">Shared</TableHead>
+                <TableHead className="w-[12%] text-muted-foreground">Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {assets.map((asset) => {
                 const Icon = contentTypeIcon(asset.content_type);
-                const summary = data?.share_summaries?.[asset.id];
                 return (
-                  <tr
+                  <TableRow
                     key={asset.id}
                     onClick={() => onNavigate(`/admin/assets/${asset.id}`)}
-                    className="border-b last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
+                    className="cursor-pointer"
                   >
-                    <td className="px-4 py-2.5 max-w-0">
+                    {/* ui/table sets whitespace-nowrap on every cell; the two
+                        prose columns opt back in so the trailing columns are
+                        not pushed behind a horizontal scroll. */}
+                    <TableCell className="max-w-0 whitespace-normal">
                       <div className="flex items-center gap-2">
-                        <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="font-medium truncate">{asset.name}</span>
+                        <Icon className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate font-medium">{asset.name}</span>
                       </div>
-                    </td>
-                    <td className="px-4 py-2.5 max-w-0">
-                      <span className="text-muted-foreground truncate block">{formatOwner(asset)}</span>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className="font-mono text-xs text-muted-foreground">{asset.content_type}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-muted-foreground">
+                    </TableCell>
+                    <TableCell className="max-w-0 whitespace-normal">
+                      <span className="block truncate text-muted-foreground">{formatOwner(asset)}</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {asset.content_type}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
                       {formatBytes(asset.size_bytes)}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex justify-center gap-1.5">
-                        {summary?.has_user_share && (
-                          <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                        )}
-                        {summary?.has_public_link && (
-                          <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
+                    </TableCell>
+                    <TableCell>
+                      <ShareIndicators
+                        summary={data?.share_summaries?.[asset.id]}
+                        className="justify-center gap-1.5"
+                      />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
                       {new Date(asset.created_at).toLocaleDateString()}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </Card>
       )}
 
-      {hasNextPage && (
-        <>
-          {/* Sentinel: observed to auto-load the next page on scroll. */}
-          <div ref={sentinelRef} aria-hidden="true" className="h-px" />
-          <div className="flex justify-center pt-1">
-            <button
-              type="button"
-              onClick={() => fetchNextPage()}
-              disabled={isFetchingNextPage}
-              className="rounded-md border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-60"
-            >
-              {isFetchingNextPage ? "Loading more…" : "Load more"}
-            </button>
-          </div>
-        </>
-      )}
+      <InfiniteFooter
+        hasMore={hasNextPage}
+        isLoadingMore={isFetchingNextPage}
+        // Wrapped: InfiniteFooter hands its click handler the event, which
+        // fetchNextPage would read as its options argument.
+        onLoadMore={() => fetchNextPage()}
+      />
 
       {data && assets.length < data.total && (
-        <p className="text-sm text-muted-foreground text-center">
+        <p className="text-center text-sm text-muted-foreground">
           Showing {assets.length} of {data.total} assets
         </p>
       )}
