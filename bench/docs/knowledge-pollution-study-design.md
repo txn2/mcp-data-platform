@@ -1,5 +1,16 @@
 # Knowledge pollution: a pre-registered study of wrong shared insights and what governs their adoption
 
+> **Status: study concluded (2026-08-07) — results published as
+> [`docs/reference/benchmark-report-knowledge-pollution.md`](../../docs/reference/benchmark-report-knowledge-pollution.md)**
+> (report version 1.0; DOI 10.5281/zenodo.21834813). The confirmatory
+> matrix, the section 6.4 directive contrast, the section 6.5 generalization
+> arms, and the section 13 raw-API replication all ran; RQ3 and the section
+> 12 sensitivity cell did not, and the report says so. Kept unchanged as the
+> pre-registration of record; the report documents its own relationship to
+> this protocol, including one instrument defect found at recompute (the
+> plant's reviewer note disclosed the plant through `fetch`; register row in
+> `findings-register.md`).
+
 Study protocol for issue #1166, sub-ticket of epic #1163. This document is a
 pre-registration: hypotheses, arms, decision rules, estimator forms, and
 falsifiers are fixed here, before the confirmatory data, so that a null or

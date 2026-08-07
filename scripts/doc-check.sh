@@ -89,7 +89,7 @@ check_benchmark_tool_refs() {
         echo "SKIP benchmark-tool check: $reg not found."
         return 0
     fi
-    local files="docs/reference/benchmarks.md docs/reference/benchmark-report.md docs/reference/benchmark-report-knowledge-use.md"
+    local files="docs/reference/benchmarks.md docs/reference/benchmark-report.md docs/reference/benchmark-report-knowledge-use.md docs/reference/benchmark-report-knowledge-pollution.md"
     local allow tok f violations=0
     allow=$(grep -vE '^[[:space:]]*(#|$)' "$reg")
     if [ -f "$nontools" ]; then

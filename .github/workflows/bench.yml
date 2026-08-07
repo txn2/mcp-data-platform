@@ -57,6 +57,13 @@ jobs:
       - name: Build, vet, and test the harness
         run: make bench-test
 
+      - name: Recompute the published reports from the archives
+        # Pins the published headline numbers to bench/results/ (stdlib
+        # python3, offline). A drift between the archives, the recompute
+        # toolchain, and the published report pages fails here instead of
+        # reaching a reader. Also part of `make verify` (bench-report-check).
+        run: make bench-report-check
+
       - name: Lint the harness
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
