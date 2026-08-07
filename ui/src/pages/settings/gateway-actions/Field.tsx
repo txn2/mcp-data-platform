@@ -1,4 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useId } from "react";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -8,18 +10,25 @@ import { cn } from "@/lib/utils";
 export function Field({
   label,
   hint,
+  htmlFor,
   children,
 }: {
   label: string;
   hint?: string;
+  // The id of the control this labels. Omitted where the caller renders its
+  // own labelled control inside.
+  htmlFor?: string;
   children: React.ReactNode;
 }) {
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between gap-2">
-        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <Label
+          htmlFor={htmlFor}
+          className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+        >
           {label}
-        </label>
+        </Label>
         {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
       </div>
       {children}
@@ -38,6 +47,7 @@ export function JSONField<T>({
   value: T;
   onChange: (v: T) => void;
 }) {
+  const id = useId();
   const [text, setText] = useState(() => JSON.stringify(value, null, 2));
   const [error, setError] = useState<string | null>(null);
 
@@ -55,15 +65,16 @@ export function JSONField<T>({
   );
 
   return (
-    <Field label={label} hint={hint}>
-      <textarea
-        className={cn(
-          "w-full rounded-md border bg-background px-2 py-1 text-xs font-mono",
-          error && "border-destructive",
-        )}
+    <Field label={label} hint={hint} htmlFor={id}>
+      {/* field-sizing-fixed: ui/textarea grows to its content by default,
+          which would override the five rows this editor asks for. */}
+      <Textarea
+        id={id}
         rows={5}
         value={text}
         onChange={(e) => handleChange(e.target.value)}
+        aria-invalid={error !== null}
+        className={cn("field-sizing-fixed min-h-0 px-2 py-1 font-mono text-xs")}
       />
       {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
     </Field>

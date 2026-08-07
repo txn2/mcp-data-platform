@@ -58,6 +58,19 @@ an option by clicking the trigger then the option rather than `selectOption()`.
 stretched grid item: in a grid cell it renders as tall as the cell *plus* its
 own label and spills over the fields below. Give it a plain block parent.
 
+`ui/table` puts `whitespace-nowrap` on every cell. A table with more than about
+four columns of prose therefore overflows its card and hides the trailing
+column behind a horizontal scroll: opt the prose cells back in with
+`whitespace-normal` (see `pages/settings/keys/KeysTable.tsx`) rather than
+letting the actions column disappear. `ui/textarea` has the mirror-image trap —
+`field-sizing-content` silently overrides a stated `rows`, so add
+`field-sizing-fixed` whenever the caller asks for a fixed height.
+
+`PageHeader` lays its title block and actions out in one `flex-wrap` row, and
+flex wraps *before* it shrinks: a subtitle long enough to fill the row pushes
+the page action onto its own line. Give long header prose its own measure
+(`<span className="block max-w-2xl">`) so the action stays on the title's row.
+
 ## Frontend lint gates (#816)
 
 The frontend enforces the same kind of per-function complexity budgets the Go

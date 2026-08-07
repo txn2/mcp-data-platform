@@ -6,10 +6,18 @@ import {
   useSystemInfo,
 } from "@/api/admin/hooks";
 import type { PersonaDetail } from "@/api/admin/types";
-import { cn } from "@/lib/utils";
-import { Plus, Users } from "lucide-react";
+import { Users } from "lucide-react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Badge } from "@/components/ui/badge";
 import { PersonaEditor, type PersonaDraft } from "./PersonaEditor";
-import { ModalScroll } from "@/components/ModalShell";
+import {
+  DetailList,
+  DetailListAddButton,
+  DetailListEmpty,
+  DetailListItem,
+  MasterDetail,
+} from "./MasterDetail";
 
 function emptyDraft(): PersonaDraft {
   return {
@@ -189,190 +197,126 @@ export function PersonasPanel() {
   );
 
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* Left: Persona list */}
-      <div className="w-56 shrink-0 border-r bg-muted/10 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto">
+    <MasterDetail
+      list={
+        <DetailList
+          footer={
+            !isReadOnly && (
+              <DetailListAddButton
+                active={isCreating}
+                label="New Persona"
+                onClick={handleCreate}
+              />
+            )
+          }
+        >
           {personas.map((p) => (
-            <button
+            <DetailListItem
               key={p.name}
-              type="button"
+              selected={selected === p.name && !isCreating}
               onClick={() => handleSelect(p.name)}
-              className={cn(
-                "flex w-full flex-col px-4 py-3 text-left border-b transition-colors",
-                selected === p.name && !isCreating
-                  ? "bg-primary/5 border-l-2 border-l-primary"
-                  : "border-l-2 border-l-transparent hover:bg-muted/50",
-              )}
             >
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-medium truncate">
+              <span className="flex items-center gap-1.5">
+                <span className="truncate text-sm font-medium">
                   {p.display_name}
                 </span>
+                {/* Where the persona is defined decides whether an edit
+                    persists, so the source rides the same info/muted pair the
+                    rest of the admin surfaces use for "database" vs "file". */}
                 {p.source && (
-                  <span
-                    className={cn(
-                      "shrink-0 rounded px-1 py-0 text-xs font-medium",
-                      p.source === "file"
-                        ? "bg-muted text-muted-foreground"
-                        : "bg-primary/10 text-primary",
-                    )}
+                  <Badge
+                    variant={p.source === "file" ? "muted" : "info"}
+                    className="rounded px-1"
                   >
                     {p.source === "file" ? "file" : "database"}
-                  </span>
+                  </Badge>
                 )}
-              </div>
-              <span className="text-xs font-mono text-muted-foreground truncate">
+              </span>
+              <span className="truncate font-mono text-xs text-muted-foreground">
                 {p.name}
               </span>
-              <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+              <span className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                 <span>{p.roles.length} roles</span>
                 <span>{p.tool_count} tools</span>
-              </div>
-            </button>
+              </span>
+            </DetailListItem>
           ))}
           {personas.length === 0 && (
-            <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-              No personas configured
-            </div>
+            <DetailListEmpty>No personas configured</DetailListEmpty>
           )}
-        </div>
-        {!isReadOnly && (
-          <div className="border-t p-2">
-            <button
-              type="button"
-              onClick={handleCreate}
-              className={cn(
-                "flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors",
-                isCreating
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              New Persona
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Right: Editor */}
-      <div className="flex-1 overflow-auto">
-        {isCreating ? (
-          <PersonaEditor
-            key="__create__"
-            draft={draft}
-            onUpdate={updateDraft}
-            onSave={handleSaved}
-            onCancel={handleCancel}
-            isCreate
-            dirty={dirty}
-            selectedName={null}
-          />
-        ) : selected && detail ? (
-          <PersonaEditor
-            key={selected}
-            draft={draft}
-            onUpdate={updateDraft}
-            onSave={handleSaved}
-            onCancel={handleCancel}
-            isCreate={false}
-            dirty={dirty}
-            selectedName={selected}
-            canDelete={canDelete}
-            onDelete={() => setConfirmDelete(true)}
-            sourceNote={sourceNoteFor(detail, isReadOnly)}
-            isReadOnly={isReadOnly}
-          />
-        ) : !selected ? (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            <div className="text-center">
-              <Users className="mx-auto mb-2 h-8 w-8 opacity-30" />
-              <p>Select a persona or create a new one</p>
-            </div>
-          </div>
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Loading...
-          </div>
-        )}
-      </div>
-
-      {pendingNav && (
-        <ConfirmModal
-          title="Discard unsaved changes?"
-          message="You have unsaved changes to this persona. If you continue, your edits will be lost."
-          confirmLabel="Discard"
-          onConfirm={() => {
-            const apply = pendingNav;
-            setPendingNav(null);
-            apply();
-          }}
-          onCancel={() => setPendingNav(null)}
-          destructive
+        </DetailList>
+      }
+    >
+      {isCreating ? (
+        <PersonaEditor
+          key="__create__"
+          draft={draft}
+          onUpdate={updateDraft}
+          onSave={handleSaved}
+          onCancel={handleCancel}
+          isCreate
+          dirty={dirty}
+          selectedName={null}
         />
+      ) : selected && detail ? (
+        <PersonaEditor
+          key={selected}
+          draft={draft}
+          onUpdate={updateDraft}
+          onSave={handleSaved}
+          onCancel={handleCancel}
+          isCreate={false}
+          dirty={dirty}
+          selectedName={selected}
+          canDelete={canDelete}
+          onDelete={() => setConfirmDelete(true)}
+          sourceNote={sourceNoteFor(detail, isReadOnly)}
+          isReadOnly={isReadOnly}
+        />
+      ) : !selected ? (
+        <div className="flex h-full items-center justify-center p-6">
+          <EmptyState icon={Users} className="w-full max-w-sm">
+            Select a persona or create a new one
+          </EmptyState>
+        </div>
+      ) : (
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          Loading...
+        </div>
       )}
 
-      {confirmDelete && detail && (
-        <ConfirmModal
+      <ConfirmDialog
+        open={pendingNav !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingNav(null);
+        }}
+        destructive
+        title="Discard unsaved changes?"
+        description="You have unsaved changes to this persona. If you continue, your edits will be lost."
+        confirmLabel="Discard"
+        onConfirm={() => {
+          const apply = pendingNav;
+          setPendingNav(null);
+          apply?.();
+        }}
+      />
+
+      {detail && (
+        <ConfirmDialog
+          open={confirmDelete}
+          onOpenChange={setConfirmDelete}
+          destructive
           title="Delete Persona"
-          message={
+          description={
             detail.source === "both"
               ? `Are you sure you want to remove the database override for "${detail.display_name}"? It will revert to the version defined in the config file.`
               : `Are you sure you want to delete "${detail.display_name}"? This cannot be undone.`
           }
           confirmLabel="Delete"
+          loading={deleteMutation.isPending}
           onConfirm={handleDelete}
-          onCancel={() => setConfirmDelete(false)}
-          destructive
         />
       )}
-    </div>
-  );
-}
-
-function ConfirmModal({
-  title,
-  message,
-  confirmLabel,
-  onConfirm,
-  onCancel,
-  destructive,
-}: {
-  title: string;
-  message: string;
-  confirmLabel: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-  destructive?: boolean;
-}) {
-  return (
-    <ModalScroll onClose={onCancel} width="max-w-sm">
-      <div className="rounded-lg border bg-card p-6 shadow-lg">
-        <h3 className="text-sm font-semibold mb-2">{title}</h3>
-        <p className="text-sm text-muted-foreground mb-4">{message}</p>
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-medium",
-              destructive
-                ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                : "bg-primary text-primary-foreground hover:bg-primary/90",
-            )}
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </ModalScroll>
+    </MasterDetail>
   );
 }

@@ -297,12 +297,12 @@
   },
   "src/pages/settings/KeysPage.tsx": {
     "complexity": {
-      "count": 2
+      "count": 1
     }
   },
   "src/pages/settings/PersonaEditor.tsx": {
     "complexity": {
-      "count": 2
+      "count": 1
     }
   },
   "src/pages/settings/PersonasPanel.tsx": {
@@ -347,14 +347,6 @@
   },
   "src/pages/settings/connections/useConnectionForm.ts": {
     "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/settings/persona/RuleList.tsx": {
-    "complexity": {
-      "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
       "count": 1
     }
   },

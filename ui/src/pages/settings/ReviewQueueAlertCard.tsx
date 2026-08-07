@@ -5,7 +5,12 @@ import {
   useSetReviewQueueAlert,
   type ReviewQueueAlertSettings,
 } from "@/api/admin/hooks";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ConfigField, ConfigToggle } from "./connections/fields";
+import { SettingsCard } from "./panels";
 import {
   ErrorBanner,
   ReadOnlyBanner,
@@ -72,10 +77,13 @@ function RecipientsEditor({
   }, [draft, recipients, onChange]);
 
   return (
-    <div>
-      <label className="mb-1 block text-xs font-medium">Recipients</label>
+    <div className="space-y-1.5">
+      {/* The heading names the list; the input's own aria-label names what
+          typing in it does. Wiring the two together would replace "Add
+          recipient" with "Recipients" on the control that adds one. */}
+      <Label className="text-xs">Recipients</Label>
       <div className="flex gap-2">
-        <input
+        <Input
           type="email"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -90,39 +98,35 @@ function RecipientsEditor({
           onBlur={add}
           placeholder="data-admin@example.com"
           aria-label="Add recipient"
-          className="w-full rounded-md border bg-background px-3 py-2 font-mono text-sm outline-none ring-ring focus:ring-2"
+          className="font-mono"
         />
-        <button
-          type="button"
-          onClick={add}
-          disabled={!draft.trim()}
-          className="inline-flex items-center gap-1 rounded-md border px-3 py-2 text-xs font-medium hover:bg-accent disabled:opacity-50"
-        >
-          <Plus className="h-3 w-3" />
+        <Button type="button" variant="outline" onClick={add} disabled={!draft.trim()}>
+          <Plus />
           Add
-        </button>
+        </Button>
       </div>
       {recipients.length > 0 && (
-        <ul className="mt-2 flex flex-wrap gap-1.5">
+        <ul className="flex flex-wrap gap-1.5 pt-1">
           {recipients.map((email) => (
-            <li
-              key={email}
-              className="inline-flex items-center gap-1 rounded-full border bg-muted/40 py-1 pl-2.5 pr-1 font-mono text-xs"
-            >
-              {email}
-              <button
-                type="button"
-                onClick={() => onChange(recipients.filter((r) => r !== email))}
-                aria-label={`Remove ${email}`}
-                className="rounded-full p-0.5 hover:bg-accent"
-              >
-                <X className="h-3 w-3" />
-              </button>
+            <li key={email}>
+              <Badge variant="outline" className="gap-1 bg-muted/40 py-1 pl-2.5 pr-1 font-mono">
+                {email}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => onChange(recipients.filter((r) => r !== email))}
+                  aria-label={`Remove ${email}`}
+                  className="size-4 rounded-full"
+                >
+                  <X />
+                </Button>
+              </Badge>
             </li>
           ))}
         </ul>
       )}
-      <p className="mt-1 text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Each recipient's own notification preferences still apply: someone who turned
         email notifications off receives nothing.
       </p>
@@ -263,28 +267,23 @@ export function ReviewQueueAlertCard({ isReadOnly }: { isReadOnly: boolean }) {
   }, [form, save]);
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
-      {/* Warnings come from the SAVED configuration: an enabled alert with no
-          recipients or no threshold saves cleanly and delivers nothing. */}
-      <StatusBanners
-        warnings={settings?.warnings ?? []}
-        isReadOnly={isReadOnly}
-        loadFailed={!!loadError}
-        onRetry={() => void refetch()}
-      />
-
-      <div className="flex items-center justify-between border-b px-5 py-3">
-        <div className="flex items-center gap-3">
-          <BellRing className="h-4 w-4 text-muted-foreground" />
-          <div>
-            <h3 className="text-sm font-semibold leading-none">Review queue alert</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Email a digest when knowledge insights are left unreviewed
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
+    <SettingsCard
+      icon={BellRing}
+      title="Review queue alert"
+      description="Email a digest when knowledge insights are left unreviewed"
+      // Warnings come from the SAVED configuration: an enabled alert with no
+      // recipients or no threshold saves cleanly and delivers nothing.
+      notices={
+        <StatusBanners
+          warnings={settings?.warnings ?? []}
+          isReadOnly={isReadOnly}
+          loadFailed={!!loadError}
+          onRetry={() => void refetch()}
+        />
+      }
+      feedback={<SaveFeedbackBanners saveError={saveError} dirty={dirty} />}
+      action={
+        <>
           <UpdatedByMeta
             updatedBy={settings?.updated_by}
             updatedAt={settings?.updated_at}
@@ -297,15 +296,13 @@ export function ReviewQueueAlertCard({ isReadOnly }: { isReadOnly: boolean }) {
               onSave={handleSave}
             />
           )}
-        </div>
-      </div>
-
-      <SaveFeedbackBanners saveError={saveError} dirty={dirty} />
-
+        </>
+      }
+    >
       {isLoading ? (
-        <div className="p-5 text-sm text-muted-foreground">Loading...</div>
+        <p className="text-sm text-muted-foreground">Loading...</p>
       ) : (
-        <div className="space-y-4 p-5">
+        <div className="space-y-4">
           <ConfigToggle
             label="Enabled"
             help="Check the pending review queue hourly and alert when it crosses a threshold"
@@ -319,6 +316,6 @@ export function ReviewQueueAlertCard({ isReadOnly }: { isReadOnly: boolean }) {
           />
         </div>
       )}
-    </div>
+    </SettingsCard>
   );
 }

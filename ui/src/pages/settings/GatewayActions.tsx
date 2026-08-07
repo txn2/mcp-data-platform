@@ -5,6 +5,9 @@ import {
   useEnrichmentRules,
 } from "@/api/admin/hooks";
 import type { EnrichmentRule, GatewayProbeTool } from "@/api/admin/types";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Plug, RefreshCw, Workflow, Plus, X } from "lucide-react";
 import { RuleListItem } from "./gateway-actions/RuleListItem";
@@ -72,62 +75,62 @@ export function GatewayActionBar({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2">
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={handleTest}
           disabled={test.isPending}
-          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
         >
-          <Plug className="h-3 w-3" />
+          <Plug />
           {test.isPending ? "Testing..." : "Test connection"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={handleRefresh}
           disabled={refresh.isPending}
-          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
         >
-          <RefreshCw className={cn("h-3 w-3", refresh.isPending && "animate-spin")} />
+          <RefreshCw className={cn(refresh.isPending && "animate-spin")} />
           {refresh.isPending ? "Refreshing..." : "Refresh tools"}
-        </button>
-        <button
-          type="button"
-          onClick={onOpenRules}
-          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <Workflow className="h-3 w-3" />
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={onOpenRules}>
+          <Workflow />
           Enrichment rules
-        </button>
+        </Button>
       </div>
       {testResult && (
-        <div
-          className={cn(
-            "rounded-md border px-3 py-2 text-xs",
-            testResult.healthy
-              ? "border-emerald-500/30 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200"
-              : "border-destructive/30 bg-destructive/10 text-destructive",
-          )}
+        <Alert
+          variant={testResult.healthy ? "success" : "destructive"}
+          className="px-3 py-2"
         >
-          <div className="font-medium">{testResult.healthy ? "Connected" : "Failed"}</div>
-          <div className="mt-0.5">{testResult.message}</div>
-          {testResult.tools && testResult.tools.length > 0 && (
-            <details className="mt-1.5">
-              <summary className="cursor-pointer text-xs uppercase tracking-wider opacity-70">
-                Discovered tools
-              </summary>
-              <ul className="mt-1 space-y-0.5 font-mono">
-                {testResult.tools.map((t) => (
-                  <li key={t.local_name}>
-                    {t.local_name}
-                    {t.description && (
-                      <span className="ml-2 text-xs opacity-70 font-sans">{t.description}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </div>
+          <AlertTitle className="text-xs">
+            {testResult.healthy ? "Connected" : "Failed"}
+          </AlertTitle>
+          <AlertDescription className="text-xs">
+            <span>{testResult.message}</span>
+            {testResult.tools && testResult.tools.length > 0 && (
+              <details className="mt-1.5">
+                <summary className="cursor-pointer text-xs uppercase tracking-wider opacity-70">
+                  Discovered tools
+                </summary>
+                <ul className="mt-1 space-y-0.5 font-mono">
+                  {testResult.tools.map((t) => (
+                    <li key={t.local_name}>
+                      {t.local_name}
+                      {t.description && (
+                        <span className="ml-2 font-sans text-xs opacity-70">
+                          {t.description}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </AlertDescription>
+        </Alert>
       )}
       {/* OAuth status block is rendered by the parent
           ConnectionsPanel via ConnectionOAuthStatusCard so the SAME
@@ -162,17 +165,18 @@ export function GatewayRulesDrawer({
               for connection <span className="font-mono">{connectionName}</span>
             </p>
           </div>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
             onClick={onClose}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             aria-label="Close"
           >
-            <X className="h-4 w-4" />
-          </button>
+            <X />
+          </Button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="space-y-4 p-6">
           {editingRule ? (
             <RuleEditor
               connectionName={connectionName}
@@ -182,21 +186,19 @@ export function GatewayRulesDrawer({
           ) : (
             <>
               <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setEditingRule("new")}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-                >
-                  <Plus className="h-3 w-3" />
+                <Button type="button" size="sm" onClick={() => setEditingRule("new")}>
+                  <Plus />
                   New rule
-                </button>
+                </Button>
               </div>
               {isLoading ? (
-                <div className="text-center text-sm text-muted-foreground py-8">Loading rules...</div>
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  Loading rules...
+                </p>
               ) : !rules || rules.length === 0 ? (
-                <div className="text-center text-sm text-muted-foreground py-8">
+                <EmptyState icon={Workflow}>
                   No enrichment rules. Click <strong>New rule</strong> to add one.
-                </div>
+                </EmptyState>
               ) : (
                 <ul className="space-y-2">
                   {rules.map((r) => (
