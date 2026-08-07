@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Trash2, GripVertical, FileText, Eye } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { Button } from "@/components/ui/button";
 import type { ItemDraft } from "./types";
 
 /** Sortable item card within a section. */
@@ -14,7 +15,9 @@ export function SortableItem({
   onRemove: () => void;
   onPreview: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: item.id });
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+    id: item.id,
+  });
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const style = {
@@ -26,28 +29,58 @@ export function SortableItem({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-2 rounded border bg-muted/50 px-3 py-1.5 text-sm"
+      className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5 text-sm"
     >
-      <button {...attributes} {...listeners} className="cursor-grab text-muted-foreground hover:text-foreground" title="Drag to reorder">
-        <GripVertical className="h-3.5 w-3.5" />
-      </button>
-      <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      <Button
+        {...attributes}
+        {...listeners}
+        variant="ghost"
+        size="icon-xs"
+        title="Drag to reorder"
+        className="cursor-grab text-muted-foreground"
+      >
+        <GripVertical />
+      </Button>
+      <FileText className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="flex-1 truncate">{item.assetName || item.asset_id}</span>
       {item.assetContentType && (
-        <span className="text-xs text-muted-foreground shrink-0">{item.assetContentType}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{item.assetContentType}</span>
       )}
-      <button onClick={onPreview} className="text-muted-foreground hover:text-foreground shrink-0" title="Preview">
-        <Eye className="h-3 w-3" />
-      </button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        onClick={onPreview}
+        title="Preview"
+        className="text-muted-foreground"
+      >
+        <Eye />
+      </Button>
+      {/* Removing a draft item is undone by adding it back, so it confirms in
+          place rather than opening a dialog over the section being edited. */}
       {confirmDelete ? (
-        <span className="flex items-center gap-1 shrink-0">
-          <button onClick={onRemove} className="text-xs text-destructive font-medium hover:underline">Remove</button>
-          <button onClick={() => setConfirmDelete(false)} className="text-xs text-muted-foreground hover:underline">Cancel</button>
+        <span className="flex shrink-0 items-center gap-1">
+          <Button variant="link" size="xs" onClick={onRemove} className="text-destructive">
+            Remove
+          </Button>
+          <Button
+            variant="link"
+            size="xs"
+            onClick={() => setConfirmDelete(false)}
+            className="text-muted-foreground"
+          >
+            Cancel
+          </Button>
         </span>
       ) : (
-        <button onClick={() => setConfirmDelete(true)} className="text-muted-foreground hover:text-destructive shrink-0" title="Remove">
-          <Trash2 className="h-3 w-3" />
-        </button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => setConfirmDelete(true)}
+          title="Remove"
+          className="text-muted-foreground hover:text-destructive"
+        >
+          <Trash2 />
+        </Button>
       )}
     </div>
   );

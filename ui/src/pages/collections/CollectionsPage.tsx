@@ -1,48 +1,31 @@
-import { useEffect, useState } from "react";
-import { Search, FolderOpen, Plus, LayoutGrid, List, Users, Globe } from "lucide-react";
-import { useInfiniteCollections, useCreateCollection, useSearchCollections, useInfiniteSharedCollections, useThreadCounts } from "@/api/portal/hooks";
-import type { Collection, SharePermission } from "@/api/portal/types";
-import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
+import { useState } from "react";
+import { useCreateCollection } from "@/api/portal/hooks";
 import { AssetsTabs } from "@/components/AssetsTabs";
-import { InfiniteFooter } from "@/components/InfiniteFooter";
-import { ScopeFilter, getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
-import { SharePermissionBadge } from "@/components/SharePermissionBadge";
-import { markdownToPlainText } from "@/lib/markdownText";
-import { AuthImg } from "@/components/AuthImg";
 import { CollectionThumbnailQueue } from "@/components/CollectionThumbnailQueue";
-
-const VIEW_STORAGE_KEY = "asset-view-mode";
-type ViewMode = "grid" | "table";
-
-function getStoredViewMode(): ViewMode {
-  const stored = localStorage.getItem(VIEW_STORAGE_KEY);
-  return stored === "table" ? "table" : "grid";
-}
+import { InfiniteFooter } from "@/components/InfiniteFooter";
+import { getStoredViewMode, storeViewMode, type ViewMode } from "@/components/listView";
+import { getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
+import { CollectionFilterBar } from "./browse/CollectionFilterBar";
+import { CollectionGrid } from "./browse/CollectionGrid";
+import { CollectionsEmpty } from "./browse/CollectionsEmpty";
+import { CollectionTable } from "./browse/CollectionTable";
+import { useCollectionBrowse, type CollectionBrowse } from "./browse/useCollectionBrowse";
 
 interface Props {
   onNavigate: (path: string) => void;
 }
 
-interface ShareMeta {
-  shared_by: string;
-  permission: SharePermission;
-  shared_at: string;
-}
-
-interface DisplayCollection {
-  collection: Collection;
-  share?: ShareMeta;
-}
-
 export function CollectionsPage({ onNavigate }: Props) {
   const [scope, setScope] = useState<Scope>(getStoredScope);
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
+  const createMutation = useCreateCollection();
 
-  function toggleViewMode(mode: ViewMode) {
+  const browse = useCollectionBrowse({ scope, search });
+
+  function changeViewMode(mode: ViewMode) {
     setViewMode(mode);
-    localStorage.setItem(VIEW_STORAGE_KEY, mode);
+    storeViewMode(mode);
   }
 
   function changeScope(next: Scope) {
@@ -50,99 +33,11 @@ export function CollectionsPage({ onNavigate }: Props) {
     storeScope(next);
   }
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(t);
-  }, [search]);
-  const searching = debouncedSearch.trim().length > 0;
-  // Relevance ranking only covers the caller's own collections; shared/all
-  // scopes fall back to client-side matching.
-  const semanticSearch = searching && scope === "mine";
-
-  // Browse and shared lists paginate: each accumulates pages so callers with
-  // more than one page of collections can load them all via "Load more" /
-  // infinite scroll (#972). Semantic search returns a ranked top-K, so it has no
-  // additional pages to fetch.
-  const mineQuery = useInfiniteCollections();
-  const { data, isLoading } = mineQuery;
-  const searchResults = useSearchCollections(semanticSearch ? debouncedSearch : "");
-  const sharedQuery = useInfiniteSharedCollections();
-  const { data: sharedData, isLoading: sharedLoading } = sharedQuery;
-  const createMutation = useCreateCollection();
-
-  const mineCollections: Collection[] = semanticSearch
-    ? (searchResults.data?.data ?? []).map((s) => s.collection)
-    : (data?.data ?? []);
-  const sharedItems: DisplayCollection[] = (sharedData?.data ?? []).map((s) => ({
-    collection: s.collection,
-    share: { shared_by: s.shared_by, permission: s.permission, shared_at: s.shared_at },
-  }));
-
-  let items: DisplayCollection[];
-  if (scope === "mine") {
-    items = mineCollections.map((collection) => ({ collection }));
-  } else if (scope === "shared") {
-    items = sharedItems;
-  } else {
-    const mineIds = new Set(mineCollections.map((c) => c.id));
-    items = [
-      ...mineCollections.map((collection) => ({ collection })),
-      ...sharedItems.filter((s) => !mineIds.has(s.collection.id)),
-    ];
-  }
-
-  function matchesClientFilters(c: Collection): boolean {
-    const q = debouncedSearch.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      (c.name?.toLowerCase().includes(q) ?? false) ||
-      (c.description?.toLowerCase().includes(q) ?? false) ||
-      (c.asset_tags ?? []).some((t) => t.toLowerCase().includes(q))
-    );
-  }
-  const displayItems = scope === "mine" ? items : items.filter((it) => matchesClientFilters(it.collection));
-
-  const isLoadingList =
-    scope === "mine"
-      ? semanticSearch
-        ? searchResults.isLoading
-        : isLoading
-      : scope === "shared"
-        ? sharedLoading
-        : isLoading || sharedLoading;
-
-  const collections = displayItems.map((it) => it.collection);
-  const { data: threadCounts } = useThreadCounts(
-    "collection",
-    collections.map((c) => c.id),
-  );
-
-  // Load-more spans whichever paginated lists the active scope draws from: the
-  // browse list (mine/all) and/or the shared list (shared/all). Semantic search
-  // returns a ranked top-K with no further pages. Deriving the controls from one
-  // activeQueries list keeps the button state and the fetch action in sync.
-  const activeQueries: {
-    hasNextPage: boolean;
-    isFetchingNextPage: boolean;
-    fetchNextPage: () => void;
-  }[] = [];
-  if (!semanticSearch) {
-    if (scope !== "shared") activeQueries.push(mineQuery);
-    if (scope !== "mine") activeQueries.push(sharedQuery);
-  }
-  const canLoadMore = activeQueries.some((q) => q.hasNextPage);
-  const loadingMore = activeQueries.some((q) => q.isFetchingNextPage);
-  function loadMore() {
-    for (const q of activeQueries) {
-      if (q.hasNextPage && !q.isFetchingNextPage) q.fetchNextPage();
-    }
-  }
-
+  // A new collection is created empty and opened straight in its editor: there
+  // is nothing to see on a collection with no sections yet.
   async function handleCreate() {
     if (createMutation.isPending) return;
-    const result = await createMutation.mutateAsync({
-      name: "Untitled Collection",
-    });
+    const result = await createMutation.mutateAsync({ name: "Untitled Collection" });
     onNavigate(`/collections/${result.id}/edit`);
   }
 
@@ -150,269 +45,110 @@ export function CollectionsPage({ onNavigate }: Props) {
     <div className="space-y-4">
       <AssetsTabs active="collections" onNavigate={onNavigate} />
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <ScopeFilter value={scope} onChange={changeScope} />
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={scope === "mine" ? "Search collections by meaning..." : "Search collections..."}
-            className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-          />
-        </div>
-        {scope !== "shared" && (
-          <button
-            onClick={() => void handleCreate()}
-            disabled={createMutation.isPending}
-            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            <Plus className="h-4 w-4" />
-            {createMutation.isPending ? "Creating..." : "New Collection"}
-          </button>
-        )}
-        <div className="flex gap-0.5 rounded-md border p-0.5">
-          <button
-            onClick={() => toggleViewMode("grid")}
-            title="Grid view"
-            className={`rounded-sm p-1.5 transition-colors ${viewMode === "grid" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => toggleViewMode("table")}
-            title="Table view"
-            className={`rounded-sm p-1.5 transition-colors ${viewMode === "table" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            <List className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
+      <CollectionFilterBar
+        scope={scope}
+        onScopeChange={changeScope}
+        search={search}
+        onSearchChange={setSearch}
+        viewMode={viewMode}
+        onViewModeChange={changeViewMode}
+        onCreate={() => void handleCreate()}
+        creating={createMutation.isPending}
+      />
 
-      {/* Results */}
-      {isLoadingList ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
-          {semanticSearch ? "Searching..." : "Loading..."}
-        </div>
-      ) : displayItems.length === 0 ? (
-        // With more pages available (shared/all client-side filters only see the
-        // loaded rows), steer to "Load more" instead of a contradictory empty
-        // state next to a Load-more button.
-        canLoadMore ? (
-          <div className="flex items-center justify-center py-12 text-center text-sm text-muted-foreground">
-            No matching collections in the loaded set yet &mdash; load more to keep looking.
-          </div>
-        ) : (
-          <EmptyState scope={scope} searching={searching} query={debouncedSearch.trim()} />
-        )
-      ) : viewMode === "grid" ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {displayItems.map(({ collection: coll, share }) => {
-            const summary = data?.share_summaries?.[coll.id];
-            const tags = coll.asset_tags ?? [];
-            return (
-              <button
-                key={coll.id}
-                type="button"
-                onClick={() => onNavigate(`/collections/${coll.id}`)}
-                className="relative flex flex-col items-start rounded-lg border bg-card text-left transition-colors hover:bg-accent/50 hover:border-primary/30 overflow-hidden"
-              >
-                <div className="w-full aspect-[4/3] bg-muted">
-                  {coll.thumbnail_s3_key ? (
-                    <AuthImg
-                      src={`/api/v1/portal/collections/${coll.id}/thumbnail`}
-                      alt=""
-                      className="w-full h-full object-cover object-top"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <FolderOpen className="h-8 w-8 text-muted-foreground/30" />
-                    </div>
-                  )}
-                </div>
-                <div className="p-4 w-full">
-                  {!share && summary && (summary.has_user_share || summary.has_public_link) && (
-                    <div className="absolute top-2 right-2 flex gap-1 bg-background/80 rounded-full px-1.5 py-0.5">
-                      {summary.has_user_share && (
-                        <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                      )}
-                      {summary.has_public_link && (
-                        <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                      )}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 mb-2 w-full">
-                    <FolderOpen className="h-5 w-5 text-muted-foreground shrink-0" />
-                    <span className="text-sm font-medium truncate flex-1">
-                      {coll.name}
-                    </span>
-                    <FeedbackCountBadge count={threadCounts?.[coll.id]} />
-                  </div>
-                  {coll.description && (
-                    <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
-                      {markdownToPlainText(coll.description)}
-                    </p>
-                  )}
-                  {tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-2">
-                      {tags.slice(0, 4).map((t) => (
-                        <span key={t} className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
-                          {t}
-                        </span>
-                      ))}
-                      {tags.length > 4 && (
-                        <span className="text-xs text-muted-foreground">+{tags.length - 4}</span>
-                      )}
-                    </div>
-                  )}
-                  {share && (
-                    <div className="flex items-center gap-1.5 mb-2 text-xs text-muted-foreground">
-                      <span className="truncate">Shared by {share.shared_by}</span>
-                      <SharePermissionBadge permission={share.permission} />
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
-                    <span>{new Date(share ? share.shared_at : coll.created_at).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="rounded-lg border bg-card overflow-hidden">
-          <table className="w-full text-sm table-fixed">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[35%]">Name</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[30%]">Tags</th>
-                <th className="px-4 py-2.5 text-center font-medium text-muted-foreground w-[8%]">Shared</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayItems.map(({ collection: coll, share }) => {
-                const summary = data?.share_summaries?.[coll.id];
-                const tags = coll.asset_tags ?? [];
-                return (
-                  <tr
-                    key={coll.id}
-                    onClick={() => onNavigate(`/collections/${coll.id}`)}
-                    className="border-b last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
-                  >
-                    <td className="px-4 py-2.5 max-w-0">
-                      <div className="flex items-center gap-2">
-                        <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <span className="font-medium truncate block">{coll.name}</span>
-                          {share ? (
-                            <span className="text-xs text-muted-foreground truncate block">Shared by {share.shared_by}</span>
-                          ) : coll.description ? (
-                            <span className="text-xs text-muted-foreground truncate block">
-                              {markdownToPlainText(coll.description)}
-                            </span>
-                          ) : null}
-                        </div>
-                        <FeedbackCountBadge count={threadCounts?.[coll.id]} />
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 max-w-0">
-                      <div className="flex flex-wrap gap-1">
-                        {tags.slice(0, 4).map((t) => (
-                          <span key={t} className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[100px]">
-                            {t}
-                          </span>
-                        ))}
-                        {tags.length > 4 && (
-                          <span className="text-xs text-muted-foreground">+{tags.length - 4}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex justify-center gap-1.5">
-                        {share ? (
-                          <SharePermissionBadge permission={share.permission} />
-                        ) : (
-                          <>
-                            {summary?.has_user_share && (
-                              <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                            )}
-                            {summary?.has_public_link && (
-                              <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {new Date(share ? share.shared_at : coll.created_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <Results browse={browse} scope={scope} viewMode={viewMode} onNavigate={onNavigate} />
 
-      <InfiniteFooter hasMore={canLoadMore} isLoadingMore={loadingMore} onLoadMore={loadMore} />
+      <InfiniteFooter
+        hasMore={browse.canLoadMore}
+        isLoadingMore={browse.loadingMore}
+        onLoadMore={browse.loadMore}
+      />
 
-      {scope === "mine" && semanticSearch ? (
-        collections.length > 0 && (
-          <p className="text-xs text-muted-foreground text-center">
-            Ranked by relevance to &ldquo;{debouncedSearch.trim()}&rdquo; across your collections.
-          </p>
-        )
-      ) : scope === "mine" ? (
-        // Only advertise a remaining count while more can actually be loaded.
-        // flattenPages de-dupes by id but total is the raw server count, so a
-        // concurrent insert that re-emits a deduped row would otherwise leave a
-        // permanent "Showing 119 of 120" with no Load-more control to close it.
-        data && canLoadMore && collections.length < data.total && (
-          <p className="text-sm text-muted-foreground text-center">
-            Showing {collections.length} of {data.total} collections
-          </p>
-        )
-      ) : (
-        displayItems.length > 0 && (
-          <p className="text-sm text-muted-foreground text-center">
-            Showing {displayItems.length} {scope === "shared" ? "shared " : ""}collection{displayItems.length === 1 ? "" : "s"}
-          </p>
-        )
-      )}
+      <ResultCount browse={browse} scope={scope} />
 
-      <CollectionThumbnailQueue collections={collections} />
+      <CollectionThumbnailQueue collections={browse.collections} />
     </div>
   );
 }
 
-function EmptyState({ scope, searching, query }: { scope: Scope; searching: boolean; query: string }) {
-  if (searching) {
+/** The list itself: loading, empty for one of several reasons, or the rows. */
+function Results({
+  browse,
+  scope,
+  viewMode,
+  onNavigate,
+}: {
+  browse: CollectionBrowse;
+  scope: Scope;
+  viewMode: ViewMode;
+  onNavigate: (path: string) => void;
+}) {
+  if (browse.isLoadingList) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <Search className="h-12 w-12 mb-2 opacity-30" />
-        <p className="text-sm font-medium">No collections match &ldquo;{query}&rdquo;</p>
-      </div>
-    );
-  }
-  if (scope === "shared") {
-    return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <Users className="h-12 w-12 mb-2 opacity-30" />
-        <p className="text-sm font-medium">No shared collections</p>
-        <p className="text-xs mt-1">Collections others share with you will appear here.</p>
-      </div>
-    );
-  }
-  return (
-    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-      <FolderOpen className="h-12 w-12 mb-2 opacity-30" />
-      <p className="text-sm font-medium">No collections yet</p>
-      <p className="text-xs mt-1">
-        Create a collection to organize your assets into curated groups.
+      <p className="py-12 text-center text-sm text-muted-foreground">
+        {browse.semanticSearch ? "Searching..." : "Loading..."}
       </p>
-    </div>
+    );
+  }
+
+  if (browse.displayItems.length === 0) {
+    // With more pages available (shared/all client-side filters only see the
+    // loaded rows), steer to "Load more" instead of a contradictory empty
+    // state next to a Load-more button.
+    return browse.canLoadMore ? (
+      <p className="py-12 text-center text-sm text-muted-foreground">
+        No matching collections in the loaded set yet &mdash; load more to keep looking.
+      </p>
+    ) : (
+      <CollectionsEmpty scope={scope} searching={browse.searching} query={browse.query} />
+    );
+  }
+
+  return viewMode === "grid" ? (
+    <CollectionGrid
+      items={browse.displayItems}
+      shareSummaries={browse.shareSummaries}
+      threadCounts={browse.threadCounts}
+      onNavigate={onNavigate}
+    />
+  ) : (
+    <CollectionTable
+      items={browse.displayItems}
+      shareSummaries={browse.shareSummaries}
+      threadCounts={browse.threadCounts}
+      onNavigate={onNavigate}
+    />
+  );
+}
+
+/** How much of the list is on screen, phrased for the scope that produced it. */
+function ResultCount({ browse, scope }: { browse: CollectionBrowse; scope: Scope }) {
+  if (scope !== "mine") {
+    if (browse.displayItems.length === 0) return null;
+    return (
+      <p className="text-center text-sm text-muted-foreground">
+        Showing {browse.displayItems.length} {scope === "shared" ? "shared " : ""}collection
+        {browse.displayItems.length === 1 ? "" : "s"}
+      </p>
+    );
+  }
+  if (browse.semanticSearch) {
+    if (browse.collections.length === 0) return null;
+    return (
+      <p className="text-center text-xs text-muted-foreground">
+        Ranked by relevance to &ldquo;{browse.query}&rdquo; across your collections.
+      </p>
+    );
+  }
+  // Only advertise a remaining count while more can actually be loaded.
+  // flattenPages de-dupes by id but total is the raw server count, so a
+  // concurrent insert that re-emits a deduped row would otherwise leave a
+  // permanent "Showing 119 of 120" with no Load-more control to close it.
+  if (!browse.canLoadMore || browse.total === undefined) return null;
+  if (browse.collections.length >= browse.total) return null;
+  return (
+    <p className="text-center text-sm text-muted-foreground">
+      Showing {browse.collections.length} of {browse.total} collections
+    </p>
   );
 }

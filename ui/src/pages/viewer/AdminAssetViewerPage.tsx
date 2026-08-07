@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAdminAsset, useAdminAssetContent, useAdminUpdateAsset, useAdminDeleteAsset, useAdminUpdateAssetContent, useAdminAssetVersions, useAdminRevertVersion, useAdminVersionContent } from "@/api/admin/hooks";
 import { AssetViewer } from "@/components/AssetViewer";
+import { Badge } from "@/components/ui/badge";
 import { formatOwner } from "@/lib/format";
 
 interface Props {
@@ -37,9 +38,9 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
       contentUpdateMutation={contentUpdateMutation}
       toolbarExtra={
         asset ? (
-          <span className="text-xs text-muted-foreground px-2 py-1 bg-muted rounded-md truncate max-w-[200px]">
-            Owner: {formatOwner(asset)}
-          </span>
+          <Badge variant="muted" className="max-w-[200px]">
+            <span className="truncate">Owner: {formatOwner(asset)}</span>
+          </Badge>
         ) : undefined
       }
       detailRows={

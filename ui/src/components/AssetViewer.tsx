@@ -1,6 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
+import { FileQuestion } from "lucide-react";
 import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
+import { EmptyState } from "@/components/patterns/EmptyState";
 import { ShareDialog } from "@/components/ShareDialog";
+import { Button } from "@/components/ui/button";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { isThumbnailSupported } from "@/lib/thumbnail";
 import { isEditableContent } from "@/components/renderers/registry";
@@ -136,16 +139,16 @@ export function AssetViewer({
 
   if (!asset) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <p>Asset not found</p>
-        <button
-          type="button"
-          onClick={onBack}
-          className="mt-2 text-sm text-primary hover:underline"
-        >
-          Back
-        </button>
-      </div>
+      <EmptyState
+        icon={FileQuestion}
+        action={
+          <Button variant="outline" size="sm" onClick={onBack}>
+            Back
+          </Button>
+        }
+      >
+        <p className="font-medium">Asset not found</p>
+      </EmptyState>
     );
   }
 

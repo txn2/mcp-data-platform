@@ -17,12 +17,17 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Asset } from "@/api/portal/types";
-import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { AssetPreviewModal } from "@/components/AssetPreviewModal";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import { SortableItem } from "./SortableItem";
 import { AssetBrowserModal } from "./AssetBrowserModal";
 import type { SectionDraft, ItemDraft } from "./types";
-import { ModalScroll } from "@/components/ModalShell";
 
 export function SortableSection({
   section,
@@ -36,11 +41,7 @@ export function SortableSection({
 }: {
   section: SectionDraft;
   index: number;
-  onUpdate: (
-    index: number,
-    field: "title" | "description",
-    value: string,
-  ) => void;
+  onUpdate: (index: number, field: "title" | "description", value: string) => void;
   onRemove: (index: number) => void;
   onAddItem: (
     sectionIndex: number,
@@ -49,15 +50,12 @@ export function SortableSection({
     assetContentType: string,
   ) => void;
   onRemoveItem: (sectionIndex: number, itemIndex: number) => void;
-  onReorderItems: (
-    sectionIndex: number,
-    oldIndex: number,
-    newIndex: number,
-  ) => void;
+  onReorderItems: (sectionIndex: number, oldIndex: number, newIndex: number) => void;
   assets: Asset[];
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id: section.id });
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+    id: section.id,
+  });
   const [browserOpen, setBrowserOpen] = useState(false);
   const [itemPreview, setItemPreview] = useState<ItemDraft | null>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -65,9 +63,7 @@ export function SortableSection({
 
   const sensors = useSensors(
     useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
   const style = {
@@ -89,58 +85,60 @@ export function SortableSection({
   const itemCount = section.items.length;
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="rounded-lg border bg-card overflow-hidden"
-    >
+    <Card ref={setNodeRef} style={style} className="gap-0 overflow-hidden py-0">
       {/* Header — always visible, acts as collapse toggle */}
-      <div className="flex items-center gap-2 px-4 py-3 bg-muted/20">
-        <button
+      <div className="flex items-center gap-2 bg-muted/20 px-4 py-3">
+        <Button
           {...attributes}
           {...listeners}
-          className="cursor-grab text-muted-foreground hover:text-foreground"
+          variant="ghost"
+          size="icon-xs"
           title="Drag to reorder"
+          className="cursor-grab text-muted-foreground"
         >
-          <GripVertical className="h-4 w-4" />
-        </button>
+          <GripVertical />
+        </Button>
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
+          aria-expanded={!collapsed}
           className="flex flex-1 items-center gap-2 text-left"
         >
           <ChevronDown
-            className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`}
+            className={cn(
+              "size-3.5 text-muted-foreground transition-transform",
+              collapsed && "-rotate-90",
+            )}
           />
-          <span className="text-sm font-medium truncate">{displayTitle}</span>
+          <span className="truncate text-sm font-medium">{displayTitle}</span>
           <span className="text-xs text-muted-foreground">
             {itemCount} {itemCount === 1 ? "asset" : "assets"}
           </span>
         </button>
-        <button
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={() => setConfirmDelete(true)}
-          className="text-muted-foreground hover:text-destructive"
           title="Remove section"
+          className="text-muted-foreground hover:text-destructive"
         >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+          <Trash2 />
+        </Button>
       </div>
 
-      {/* Expandable content */}
       {!collapsed && (
-        <div className="p-4 space-y-3 border-t">
-          <input
+        <div className="space-y-3 border-t p-4">
+          <Input
             type="text"
             value={section.title}
             onChange={(e) => onUpdate(index, "title", e.target.value)}
+            aria-label="Section title"
             placeholder="Section title"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
           />
 
-          <div>
-            <label className="block text-xs text-muted-foreground mb-1">
-              Description (markdown)
-            </label>
+          {/* MarkdownEditor sizes itself to its parent, so it gets a plain block. */}
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Description (markdown)</Label>
             <MarkdownEditor
               value={section.description}
               onChange={(v) => onUpdate(index, "description", v)}
@@ -149,11 +147,8 @@ export function SortableSection({
             />
           </div>
 
-          {/* Items with drag-and-drop */}
-          <div>
-            <label className="block text-xs text-muted-foreground mb-1">
-              Assets
-            </label>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Assets</Label>
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
@@ -177,50 +172,23 @@ export function SortableSection({
             </DndContext>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setBrowserOpen(true)}
-            className="flex items-center gap-1.5 text-xs text-primary hover:underline"
-          >
-            <Plus className="h-3 w-3" />
+          <Button variant="ghost" size="xs" onClick={() => setBrowserOpen(true)}>
+            <Plus />
             Browse Assets
-          </button>
+          </Button>
         </div>
       )}
 
-      {/* Delete confirmation modal */}
-      {confirmDelete && (
-        <ModalScroll onClose={() => setConfirmDelete(false)} width="max-w-sm">
-          <div className="rounded-lg border bg-card p-6 shadow-lg">
-            <h3 className="text-sm font-semibold mb-2">Delete Section</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Are you sure you want to delete <strong>{displayTitle}</strong>?
-              {itemCount > 0 &&
-                ` This will remove ${itemCount} ${itemCount === 1 ? "asset" : "assets"} from the section.`}{" "}
-              This cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(false)}
-                className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setConfirmDelete(false);
-                  onRemove(index);
-                }}
-                className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </ModalScroll>
-      )}
+      <DeleteSectionConfirm
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={displayTitle}
+        itemCount={itemCount}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          onRemove(index);
+        }}
+      />
 
       {browserOpen && (
         <AssetBrowserModal
@@ -233,13 +201,55 @@ export function SortableSection({
       )}
 
       {itemPreview && (
-        <AssetPreviewModal
-          assetId={itemPreview.asset_id}
-          assetName={itemPreview.assetName || itemPreview.asset_id}
-          contentType={itemPreview.assetContentType || "text/plain"}
-          onClose={() => setItemPreview(null)}
-        />
+        <ItemPreview item={itemPreview} onClose={() => setItemPreview(null)} />
       )}
-    </div>
+    </Card>
+  );
+}
+
+/** Deleting a section takes its assets out of the collection with it. */
+function DeleteSectionConfirm({
+  open,
+  onOpenChange,
+  title,
+  itemCount,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  itemCount: number;
+  onConfirm: () => void;
+}) {
+  const assets = itemCount === 1 ? "asset" : "assets";
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Delete Section"
+      description={
+        <>
+          Delete <strong>{title}</strong>?
+          {itemCount > 0 && ` This removes ${itemCount} ${assets} from the section.`} This cannot
+          be undone.
+        </>
+      }
+      confirmLabel="Delete"
+      destructive
+      onConfirm={onConfirm}
+    />
+  );
+}
+
+/** A draft item carries only what the collection saved, so the preview falls
+ *  back to the asset id and to plain text when a name or type is missing. */
+function ItemPreview({ item, onClose }: { item: ItemDraft; onClose: () => void }) {
+  return (
+    <AssetPreviewModal
+      assetId={item.asset_id}
+      assetName={item.assetName || item.asset_id}
+      contentType={item.assetContentType || "text/plain"}
+      onClose={onClose}
+    />
   );
 }
