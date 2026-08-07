@@ -1,0 +1,9 @@
+bench run: arm=a3 model=claude-opus-5 (anthropic) k=8
+  platform dev @ http://localhost:8098 | commit aa586450f459 | seed 930 | tasks db286dcd9e3b
+  2026-08-07T05:01:37Z .. 2026-08-07T05:05:43Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1       8    100.0%  100.0%        8.0        8.0        27965          0        2592              0
+
+task                            graded  correct  pass^k
+s3-fiscal-2025-count                8        8  true

@@ -1,10 +1,12 @@
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import {
   ConfigField,
   ConfigToggle,
-  KeyValueEditor,
   update,
   type ConfigFormProps,
 } from "./fields";
+import { KeyValueEditor } from "./keyvalue";
 
 // Editor form for kind=trino connections. Field shape matches the mcp-trino
 // toolkit config plus the platform's DataHub integration keys
@@ -72,8 +74,9 @@ export function TrinoConfigForm({ config, onChange }: ConfigFormProps) {
         onChange={(v) => onChange(update(config, "ssl", v))}
         help="Connect using HTTPS. Required for production deployments."
       />
-      <div className="border-t pt-4 mt-2">
-        <p className="text-xs font-medium mb-3">DataHub Integration</p>
+      <Separator className="mt-2" />
+      <div className="space-y-4">
+        <p className="text-xs font-medium">DataHub Integration</p>
         <ConfigField
           label="DataHub Source Name"
           value={String(config.datahub_source_name ?? "")}
@@ -82,10 +85,10 @@ export function TrinoConfigForm({ config, onChange }: ConfigFormProps) {
           mono
           help="The platform identifier in DataHub URNs for datasets accessible through this connection (e.g. trino, postgres, hive). Defaults to trino if not set."
         />
-        <div className="mt-4">
-          <label className="mb-1 block text-xs font-medium">Catalog Mapping</label>
-          <p className="mb-2 text-xs text-muted-foreground">
-            Maps this connection's catalog names to DataHub catalog names. For example, if this connection uses catalog "rdbms" but DataHub knows it as "postgres", add rdbms → postgres.
+        <div className="space-y-1.5">
+          <Label className="text-xs">Catalog Mapping</Label>
+          <p className="text-xs text-muted-foreground">
+            Maps this connection's catalog names to DataHub catalog names. For example, if this connection uses catalog "rdbms" but DataHub knows it as "postgres", add rdbms &rarr; postgres.
           </p>
           <KeyValueEditor
             entries={config.catalog_mapping as Record<string, string> ?? {}}

@@ -1,0 +1,84 @@
+{
+  "read_at": "2026-08-04T06:17:20.735006Z",
+  "insights": [
+    {
+      "id": "1922c91922cda9dc251a2851df5a4b22",
+      "status": "pending",
+      "captured_by": "bench-agent-024@apikey.local"
+    },
+    {
+      "id": "2384933fbf46cac4b2abb71118fc58fa",
+      "status": "applied",
+      "captured_by": "bench-agent-200@apikey.local"
+    },
+    {
+      "id": "4ee26117d0e5fbd6c3706bc691332be5",
+      "status": "pending",
+      "captured_by": "bench-agent-017@apikey.local"
+    },
+    {
+      "id": "55f2c970ac8b8b9108714368b0201dc4",
+      "status": "pending",
+      "captured_by": "bench-agent-020@apikey.local"
+    },
+    {
+      "id": "63e069bc0483bcb25c01e03f3e660e8b",
+      "status": "pending",
+      "captured_by": "bench-agent-010@apikey.local"
+    },
+    {
+      "id": "8a6dcfb937f8ed719982945e1b7ee7bc",
+      "status": "pending",
+      "captured_by": "bench-agent-012@apikey.local"
+    },
+    {
+      "id": "91921e9cf68b8d48cf33570adc6d6412",
+      "status": "pending",
+      "captured_by": "bench-agent-016@apikey.local"
+    },
+    {
+      "id": "bb3b93e16a8cdf3d52b14184a1b073c4",
+      "status": "pending",
+      "captured_by": "bench-agent-004@apikey.local"
+    },
+    {
+      "id": "ca19f9d6a2f0a94ea2211b4ca269cd90",
+      "status": "pending",
+      "captured_by": "bench-agent-009@apikey.local"
+    },
+    {
+      "id": "e1553dbdac4ad385855d654e76300da8",
+      "status": "pending",
+      "captured_by": "bench-agent-008@apikey.local"
+    }
+  ],
+  "changesets": [
+    {
+      "id": "bb5843daff34bef589459fec4f70e823",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    }
+  ],
+  "pages": [
+    {
+      "slug": "bench-warehouse-guide",
+      "title": "Bench Warehouse Guide",
+      "summary": "Which bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30."
+    },
+    {
+      "slug": "customer-tier-definitions",
+      "title": "Customer Tier Definitions",
+      "summary": "A 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone."
+    },
+    {
+      "slug": "fiscal-calendar-policy",
+      "title": "Fiscal Calendar Policy",
+      "summary": "The fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year."
+    },
+    {
+      "slug": "revenue-reporting-policy",
+      "title": "Revenue Reporting Policy",
+      "summary": "Revenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting."
+    }
+  ]
+}

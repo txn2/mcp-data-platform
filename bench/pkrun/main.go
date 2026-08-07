@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/pkcell"
 	"github.com/txn2/mcp-data-platform/bench/internal/pkplant"
 	"github.com/txn2/mcp-data-platform/bench/internal/pkrun"
+	"github.com/txn2/mcp-data-platform/bench/internal/pkseed"
 	"github.com/txn2/mcp-data-platform/bench/internal/pollutionplant"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
 )
@@ -30,7 +31,7 @@ func main() {
 		fixtureKey  = flag.String("fixture-key", "", "fixture X-API-Key")
 		model       = flag.String("model", "sonnet", "model alias or id (claude-cli alias, or full id with -llm anthropic)")
 		llmKind     = flag.String("llm", "claude-cli", "episode driver: claude-cli (subscription, default) or anthropic (raw API, metered)")
-		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep, answersweep, bridge, bridge-directive, pollution-coverage, staleanswer")
+		cellSet     = flag.String("cells", "prerun", "cell set: prerun, costsweep, answersweep, bridge, bridge-directive, pollution-coverage, pollution-monitor-count, staleanswer")
 		scaffold    = flag.String("scaffold", "default", "episode system prompt: default, or no-discovery (gate probe: drops the harness's own search bullet)")
 		k           = flag.Int("k", 8, "replicates per cell")
 		identityKey = flag.Int("identity-keys", 150, "configured identity pool size")
@@ -180,12 +181,40 @@ func selectCells(name string) ([]pkcell.Cell, bool, error) {
 		cells, err := pkcell.StoreDeliveredCells(
 			pollutionplant.QuestionCoverageDays, pollutionplant.CoverageWorld())
 		return cells, false, err
+	case "pollution-monitor-count":
+		cells, err := monitorCountCells()
+		return cells, false, err
 	case "staleanswer":
 		cells, err := pkcell.StaleAnswerCells()
 		return cells, true, err
 	default:
 		return nil, false, fmt.Errorf("unknown cell set %q", name)
 	}
+}
+
+// monitorCountCells builds the knowledge-pollution study's cross-fixture
+// CHECKABLE unit (protocol 6.5).
+//
+// Unlike the coverage cell it needs no delivered belief: the question is
+// answerable from the world by one listing call, which is what makes it the
+// checkable class and the analog of the warehouse order count. A plain
+// no-seed cell is therefore the right construction and Derive already yields
+// it; the behavior is asserted rather than assumed, because a cell that
+// derived anything but "answer" would grade every episode against a refusal
+// the fixture does not warrant.
+func monitorCountCells() ([]pkcell.Cell, error) {
+	q, err := pkcell.QuestionByID(pollutionplant.QuestionMonitorCount)
+	if err != nil {
+		return nil, err
+	}
+	c, err := pkcell.Derive(q, nil, pkseed.Metadata{}, pollutionplant.CoverageWorldName)
+	if err != nil {
+		return nil, err
+	}
+	if c.Behavior != pkcell.BehaviorAnswer {
+		return nil, fmt.Errorf("the monitor-count cell derives %s; the checkable cross-fixture unit must be answerable from the world", c.Behavior)
+	}
+	return []pkcell.Cell{c}, nil
 }
 
 // tally counts one cell's outcomes.

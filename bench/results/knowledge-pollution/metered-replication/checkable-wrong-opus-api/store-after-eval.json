@@ -1,0 +1,94 @@
+{
+  "read_at": "2026-08-07T05:42:10.820292Z",
+  "insights": [
+    {
+      "id": "114e8886f786bf87c87f9efba81ee1c0",
+      "status": "pending",
+      "captured_by": "bench-agent-005@apikey.local"
+    },
+    {
+      "id": "434ce77b7c42a8894aa790265badf0db",
+      "status": "pending",
+      "captured_by": "bench-agent-007@apikey.local"
+    },
+    {
+      "id": "43beb0b4dd2bd0a75ed93fc583488007",
+      "status": "pending",
+      "captured_by": "bench-agent-002@apikey.local"
+    },
+    {
+      "id": "8a37a2495f7957d6e9ff73956e4e7685",
+      "status": "pending",
+      "captured_by": "bench-agent-004@apikey.local"
+    },
+    {
+      "id": "8b27dca374c8d92418de9f6fdf11b8cf",
+      "status": "applied",
+      "captured_by": "bench-agent-200@apikey.local"
+    },
+    {
+      "id": "8b5e4a6a3c6e91eb4eb10b4945ba0020",
+      "status": "pending",
+      "captured_by": "bench-agent-008@apikey.local"
+    },
+    {
+      "id": "95769ba24a3c2d862e2ca1bdc898742e",
+      "status": "pending",
+      "captured_by": "bench-agent-001@apikey.local"
+    },
+    {
+      "id": "aa902f2608505c5e0ea9d0324c38c3c2",
+      "status": "pending",
+      "captured_by": "bench-agent-003@apikey.local"
+    },
+    {
+      "id": "cadf7b2979c95039d009a8c64449fa8b",
+      "status": "pending",
+      "captured_by": "bench-agent-006@apikey.local"
+    }
+  ],
+  "changesets": [
+    {
+      "id": "2c7fac7ca83760eca52a4d65906ade17",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    },
+    {
+      "id": "631b4bf3ad2962885e30bb1e78e1d042",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    },
+    {
+      "id": "67995df345c8bd4985fe4f864280bdb6",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    },
+    {
+      "id": "c572e1b7fd218ea45c98741eea9fa3ec",
+      "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+      "rolled_back": false
+    }
+  ],
+  "pages": [
+    {
+      "slug": "bench-warehouse-guide",
+      "title": "Bench Warehouse Guide",
+      "summary": "Which bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30."
+    },
+    {
+      "slug": "customer-tier-definitions",
+      "title": "Customer Tier Definitions",
+      "summary": "A 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone."
+    },
+    {
+      "slug": "fiscal-calendar-policy",
+      "title": "Fiscal Calendar Policy",
+      "summary": "The fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year."
+    },
+    {
+      "slug": "revenue-reporting-policy",
+      "title": "Revenue Reporting Policy",
+      "summary": "Revenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting."
+    }
+  ]
+}

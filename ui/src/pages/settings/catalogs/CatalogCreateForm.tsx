@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, BookOpen } from "lucide-react";
 
 import { useCreateAPICatalog } from "@/api/admin/hooks";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { LabeledInput, LabeledTextarea } from "./forms";
 
 // ---------------------------------------------------------------------------
@@ -146,28 +148,24 @@ export function CatalogCreateForm({
       />
 
       {error && (
-        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
-        >
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          size="sm"
           onClick={submit}
           disabled={create.isPending || idConflict || !id || !name || !displayName}
-          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
         >
           {create.isPending ? "Creating…" : "Create"}
-        </button>
+        </Button>
       </div>
     </div>
   );

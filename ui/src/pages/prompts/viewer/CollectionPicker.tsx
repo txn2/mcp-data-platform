@@ -2,6 +2,18 @@ import { useState } from "react";
 import { FolderOpen } from "lucide-react";
 import type { Prompt } from "@/api/admin/types";
 import { usePromptCollections, useAssignPromptCollection } from "@/api/portal/hooks";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+// NO_COLLECTION is "not in any collection". The API takes the empty string for
+// it, which a Select item cannot carry, so it travels under a sentinel.
+const NO_COLLECTION = "__none__";
 
 // CollectionPicker assigns a prompt to a collection (#1010). Rendered only
 // for callers who may organize the prompt (its owner, or an admin for shared
@@ -13,8 +25,9 @@ export function CollectionPicker({ prompt }: { prompt: Prompt }) {
 
   const collections = data?.data ?? [];
 
-  function handleChange(collectionId: string) {
+  function handleChange(value: string) {
     setError(null);
+    const collectionId = value === NO_COLLECTION ? "" : value;
     assign.mutate(
       { id: prompt.id, collectionId },
       { onError: (err) => setError(err instanceof Error ? err.message : "Assignment failed") },
@@ -23,21 +36,26 @@ export function CollectionPicker({ prompt }: { prompt: Prompt }) {
 
   return (
     <div className="inline-flex items-center gap-2">
-      <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
-      <label className="text-xs text-muted-foreground" htmlFor="prompt-collection">Collection</label>
-      <select
-        id="prompt-collection"
-        value={prompt.collection_id ?? ""}
-        onChange={(e) => handleChange(e.target.value)}
+      <FolderOpen className="size-3.5 text-muted-foreground" />
+      <Label htmlFor="prompt-collection" className="text-xs text-muted-foreground">
+        Collection
+      </Label>
+      <Select
+        value={prompt.collection_id || NO_COLLECTION}
+        onValueChange={handleChange}
         disabled={assign.isPending}
-        className="rounded-md border bg-background px-2 py-1 text-xs outline-none disabled:opacity-50"
       >
-        <option value="">None</option>
-        {collections.map((c) => (
-          <option key={c.id} value={c.id}>{c.name}</option>
-        ))}
-      </select>
-      {error && <span className="text-xs text-red-400">{error}</span>}
+        <SelectTrigger id="prompt-collection" size="sm" className="text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_COLLECTION} className="text-xs">None</SelectItem>
+          {collections.map((c) => (
+            <SelectItem key={c.id} value={c.id} className="text-xs">{c.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {error && <span className="text-xs text-destructive">{error}</span>}
     </div>
   );
 }

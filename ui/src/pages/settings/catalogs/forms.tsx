@@ -1,9 +1,17 @@
+import { useId } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // Small form helpers (shared across the catalog create/edit/spec surfaces)
 // ---------------------------------------------------------------------------
 
+// LabeledInput is one labelled text control: an ui/input tied to its ui/label
+// by a generated id, with optional help text and an error line. Callers pass a
+// label rather than an id so no catalog form has to mint one.
 export function LabeledInput({
   label,
   help,
@@ -25,27 +33,36 @@ export function LabeledInput({
   invalid?: boolean;
   error?: string;
 }) {
+  const id = useId();
+  const helpID = `${id}-help`;
   return (
-    <div>
-      <label className="mb-1 block text-xs font-medium">{label}</label>
-      <input
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      <Input
+        id={id}
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
-        className={cn(
-          "w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2 disabled:opacity-60",
-          mono && "font-mono",
-          invalid && "border-destructive",
-        )}
+        aria-invalid={invalid || undefined}
+        aria-describedby={help || error ? helpID : undefined}
+        className={cn(mono && "font-mono")}
       />
-      {help && <p className="mt-1 text-xs text-muted-foreground">{help}</p>}
-      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+      {(help || error) && (
+        <div id={helpID} className="space-y-1">
+          {help && <p className="text-xs text-muted-foreground">{help}</p>}
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+      )}
     </div>
   );
 }
 
+// LabeledTextarea is LabeledInput's multi-line counterpart, used for the
+// description fields and the pasted OpenAPI document.
 export function LabeledTextarea({
   label,
   help,
@@ -63,20 +80,30 @@ export function LabeledTextarea({
   rows?: number;
   mono?: boolean;
 }) {
+  const id = useId();
+  const helpID = `${id}-help`;
   return (
-    <div>
-      <label className="mb-1 block text-xs font-medium">{label}</label>
-      <textarea
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      <Textarea
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         rows={rows ?? 3}
-        className={cn(
-          "w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2",
-          mono && "font-mono",
-        )}
+        aria-describedby={help ? helpID : undefined}
+        // ui/textarea sizes to its content, which would shrink the paste box
+        // to the height of its placeholder. `rows` is the caller stating how
+        // much room the field needs up front, so honour it.
+        className={cn("field-sizing-fixed", mono && "font-mono")}
       />
-      {help && <p className="mt-1 text-xs text-muted-foreground">{help}</p>}
+      {help && (
+        <p id={helpID} className="text-xs text-muted-foreground">
+          {help}
+        </p>
+      )}
     </div>
   );
 }

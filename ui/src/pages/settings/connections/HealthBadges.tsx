@@ -3,17 +3,26 @@ import type {
   ConnectionHealth,
   ConnectionOAuthHealthSummary,
 } from "@/api/admin/types";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 // Per-connection health indicators surfaced on the list and detail panes.
 // Extracted from ConnectionsPanel.tsx (#766) so the OAuth and gateway
 // reachability badges live together, apart from the panel wiring.
 
+// Dot is the leading indicator inside a health badge. It restates the badge's
+// variant as a shape, so the state survives a monochrome render.
+function Dot({ className }: { className?: string }) {
+  return <span aria-hidden className={cn("size-1.5 rounded-full", className)} />;
+}
+
 // ConnectionOAuthHealthBadge renders the per-row health indicator
 // on the connection list. Visible only when the bulk health hook
 // has data AND the connection has OAuth configured. Three states:
 //
-//   - needs_reauth=true       → red dot, "needs reauth" tooltip
-//   - last refresh failed but not yet terminal → amber dot, code in tooltip
+//   - needs_reauth=true       → danger badge, "needs reauth" tooltip
+//   - last refresh failed but not yet terminal → warning badge, code in tooltip
 //   - token_acquired && no recent failure → no badge (default)
 //
 // The operator sees the red dot from the connection list without
@@ -31,14 +40,10 @@ export function ConnectionOAuthHealthBadge({
       ? `Reauth required (${code}). Click in to view details.`
       : "Reauth required. Click in to view details.";
     return (
-      <span
-        className="shrink-0 inline-flex items-center gap-1 rounded px-1 py-0 text-xs font-medium bg-destructive/10 text-destructive"
-        title={tooltip}
-        aria-label={tooltip}
-      >
-        <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+      <Badge variant="danger" title={tooltip} aria-label={tooltip}>
+        <Dot className="bg-destructive" />
         reauth
-      </span>
+      </Badge>
     );
   }
   if (health.idp_error_code) {
@@ -47,14 +52,10 @@ export function ConnectionOAuthHealthBadge({
     // the access token actually expires.
     const tooltip = `Last refresh failed (${health.idp_error_code}). Retrying.`;
     return (
-      <span
-        className="shrink-0 inline-flex items-center gap-1 rounded px-1 py-0 text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400"
-        title={tooltip}
-        aria-label={tooltip}
-      >
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+      <Badge variant="warning" title={tooltip} aria-label={tooltip}>
+        <Dot className="bg-amber-500" />
         refresh failing
-      </span>
+      </Badge>
     );
   }
   return null;
@@ -76,28 +77,20 @@ export function GatewayHealthBadge({
       ? `Reachable. Last successful call ${new Date(health.last_success).toLocaleString()}.`
       : "Reachable.";
     return (
-      <span
-        className="shrink-0 inline-flex items-center gap-1 rounded px-1 py-0 text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-        title={tooltip}
-        aria-label={tooltip}
-      >
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      <Badge variant="success" title={tooltip} aria-label={tooltip}>
+        <Dot className="bg-emerald-500" />
         reachable
-      </span>
+      </Badge>
     );
   }
   const tooltip = health.last_error
     ? `Unreachable: ${health.last_error}`
     : "Unreachable.";
   return (
-    <span
-      className="shrink-0 inline-flex items-center gap-1 rounded px-1 py-0 text-xs font-medium bg-destructive/10 text-destructive"
-      title={tooltip}
-      aria-label={tooltip}
-    >
-      <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+    <Badge variant="danger" title={tooltip} aria-label={tooltip}>
+      <Dot className="bg-destructive" />
       unreachable
-    </span>
+    </Badge>
   );
 }
 
@@ -107,18 +100,19 @@ export function GatewayHealthBadge({
 // failing upstream sees the reason without leaving the connection editor.
 export function GatewayHealthDetail({ health }: { health: ConnectionHealth }) {
   return (
-    <div className="rounded-md border p-4">
-      <div className="mb-3 flex items-center gap-2">
-        {health.reachable ? (
-          <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-        ) : (
-          <AlertCircle className="h-4 w-4 text-destructive" />
-        )}
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <SectionCard
+      title={
+        <span className="flex items-center gap-2">
+          {health.reachable ? (
+            <Check className="size-4 text-emerald-600 dark:text-emerald-400" />
+          ) : (
+            <AlertCircle className="size-4 text-destructive" />
+          )}
           Reachability
-        </h3>
-        <GatewayHealthBadge health={health} />
-      </div>
+        </span>
+      }
+      action={<GatewayHealthBadge health={health} />}
+    >
       <dl className="space-y-2 text-xs">
         <div className="flex justify-between gap-4">
           <dt className="text-muted-foreground">Last successful call</dt>
@@ -137,6 +131,6 @@ export function GatewayHealthDetail({ health }: { health: ConnectionHealth }) {
           </div>
         )}
       </dl>
-    </div>
+    </SectionCard>
   );
 }

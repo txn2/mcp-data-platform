@@ -1,0 +1,94 @@
+{
+  "read_at": "2026-08-07T01:01:59.272605Z",
+  "insights": [
+    {
+      "id": "1128f5afecc26b5f1264bb26bc99cdce",
+      "status": "pending",
+      "captured_by": "bench-agent-014@apikey.local"
+    },
+    {
+      "id": "1a78fa8ca8f8da56723df8e7a0f0d2b4",
+      "status": "pending",
+      "captured_by": "bench-agent-009@apikey.local"
+    },
+    {
+      "id": "2023ed44de95ae769fd7e87f00cfdd41",
+      "status": "pending",
+      "captured_by": "bench-agent-012@apikey.local"
+    },
+    {
+      "id": "28017ff4d5e15bee46ddc9c22a38269a",
+      "status": "pending",
+      "captured_by": "bench-agent-013@apikey.local"
+    },
+    {
+      "id": "4920089f030356cb9f77b16036811404",
+      "status": "pending",
+      "captured_by": "bench-agent-021@apikey.local"
+    },
+    {
+      "id": "643f8572d178ca2b9429f4ae68a02e2c",
+      "status": "pending",
+      "captured_by": "bench-agent-001@apikey.local"
+    },
+    {
+      "id": "a95cfe039b6f0c59014e9b37ed5362a8",
+      "status": "pending",
+      "captured_by": "bench-agent-010@apikey.local"
+    },
+    {
+      "id": "ac4122e5dfcd297e6fc7506598fa90f7",
+      "status": "applied",
+      "captured_by": "bench-agent-140@apikey.local"
+    },
+    {
+      "id": "b604e3366a2d4ca608e8b2ba16e49aa5",
+      "status": "pending",
+      "captured_by": "bench-agent-004@apikey.local"
+    },
+    {
+      "id": "b60b2b169fd5bf4ded2cd5867b92b891",
+      "status": "pending",
+      "captured_by": "bench-agent-011@apikey.local"
+    },
+    {
+      "id": "c13113c7612c3a72771744d768afa649",
+      "status": "pending",
+      "captured_by": "bench-agent-007@apikey.local"
+    },
+    {
+      "id": "cb1e85360f98cf18ea2ba241b7233d3f",
+      "status": "pending",
+      "captured_by": "bench-agent-002@apikey.local"
+    },
+    {
+      "id": "cd08c63bb98c3c9d7527543683843788",
+      "status": "pending",
+      "captured_by": "bench-agent-006@apikey.local"
+    },
+    {
+      "id": "f73231299c433dd988186f0dce547bf3",
+      "status": "pending",
+      "captured_by": "bench-agent-008@apikey.local"
+    }
+  ],
+  "changesets": [
+    {
+      "id": "ca227a4537e9ee9e5b5a91ac89d0e341",
+      "target_urn": "kp:acme-provisioned-monitor-count",
+      "rolled_back": false
+    },
+    {
+      "id": "e4d7c30afc3dbfa0707c7d65679e991c",
+      "target_urn": "kp:acme-provisioned-monitor-count",
+      "rolled_back": false
+    }
+  ],
+  "pages": [
+    {
+      "slug": "acme-provisioned-monitor-count",
+      "title": "ACME Provisioned Monitor Count",
+      "summary": "The ACME account has 3 listening monitors provisioned."
+    }
+  ]
+}

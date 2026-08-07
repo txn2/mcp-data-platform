@@ -314,3 +314,59 @@ func TestRunnerDisallowedToolsIsACopy(t *testing.T) {
 		t.Error("the package default was mutated through a caller's copy")
 	}
 }
+
+// A headless benchmark child must not notify the operator. The notification is
+// not bound to the controlling terminal, so detaching the run from its TTY does
+// not stop it; the only thing that does is the per-child settings overlay.
+// Hundreds of episodes each making several tool calls means a notification
+// every few seconds for hours otherwise.
+func TestRunSilencesChildNotifications(t *testing.T) {
+	cr := &captureRunner{stdout: sampleStream}
+	r, err := New(Options{Model: "sonnet", Exec: cr.run})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := r.Run(context.Background(), Request{Endpoint: "http://h", Credential: "k"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	assertSilenced(t, cr.last.Args)
+}
+
+func TestCodeModeSilencesChildNotifications(t *testing.T) {
+	cr := &captureRunner{stdout: sampleStream}
+	r, err := New(Options{Model: "sonnet", CodeMode: true, Exec: cr.run})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := r.Run(context.Background(), Request{Endpoint: "http://h", Credential: "k"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	assertSilenced(t, cr.last.Args)
+}
+
+// assertSilenced requires --settings to be passed with the notification
+// channel disabled, and requires the value to be the JSON the CLI accepts.
+func assertSilenced(t *testing.T, args []string) {
+	t.Helper()
+	i := slices.Index(args, "--settings")
+	if i < 0 || i == len(args)-1 {
+		t.Fatalf("no --settings in child args: %v", args)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(args[i+1]), &got); err != nil {
+		t.Fatalf("--settings value is not JSON the CLI could load: %v", err)
+	}
+	if got["preferredNotifChannel"] != "notifications_disabled" {
+		t.Errorf("child notifications not disabled: %v", got)
+	}
+	// The operator's settings files must not load at all. A completion hook
+	// configured there fires on every child, which no notification setting
+	// suppresses, and an inherited setting makes the run unreproducible.
+	j := slices.Index(args, "--setting-sources")
+	if j < 0 || j == len(args)-1 {
+		t.Fatalf("no --setting-sources in child args: %v", args)
+	}
+	if args[j+1] != "" {
+		t.Errorf("child loads setting sources %q; want none", args[j+1])
+	}
+}

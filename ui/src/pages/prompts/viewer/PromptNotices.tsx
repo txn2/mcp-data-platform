@@ -1,8 +1,10 @@
 import { X } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { FormError } from "../primitives";
 
 // PromptNotices renders the inline error banner and the "saved as asset"
-// success banner shown above the prompt body. Extracted verbatim from
-// PromptViewerPage.tsx (#819).
+// success banner shown above the prompt body.
 export function PromptNotices({
   error,
   saveAsAssetNotice,
@@ -16,28 +18,32 @@ export function PromptNotices({
 }) {
   return (
     <>
-      {error && (
-        <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">{error}</div>
-      )}
+      <FormError message={error} />
       {saveAsAssetNotice && (
-        <div className="flex items-center justify-between rounded-md bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-xs text-emerald-400">
-          <span>Saved as asset “{saveAsAssetNotice.name}”.</span>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => onOpenAsset(saveAsAssetNotice.assetId)}
-              className="underline hover:text-emerald-300"
-            >
-              Open asset
-            </button>
-            <button
-              onClick={onDismissNotice}
-              className="text-emerald-400/70 hover:text-emerald-300"
-              aria-label="Dismiss"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
+        <Alert variant="success">
+          <AlertDescription className="flex w-full flex-row items-center justify-between gap-3 text-xs">
+            <span>Saved as asset “{saveAsAssetNotice.name}”.</span>
+            <span className="flex items-center gap-1">
+              <Button
+                variant="link"
+                size="xs"
+                className="text-current"
+                onClick={() => onOpenAsset(saveAsAssetNotice.assetId)}
+              >
+                Open asset
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="text-current"
+                onClick={onDismissNotice}
+                aria-label="Dismiss"
+              >
+                <X />
+              </Button>
+            </span>
+          </AlertDescription>
+        </Alert>
       )}
     </>
   );
