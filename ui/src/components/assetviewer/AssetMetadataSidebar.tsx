@@ -4,7 +4,11 @@ import type { Asset, AssetVersion } from "@/api/portal/types";
 import { ProvenancePanel } from "@/components/ProvenancePanel";
 import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { VersionHistoryPanel } from "@/components/VersionHistoryPanel";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { formatBytes } from "@/lib/format";
+import { AssetMetadataForm } from "./AssetMetadataForm";
 import type { MutationLike } from "./types";
 
 interface AssetMetadataSidebarProps {
@@ -27,6 +31,7 @@ interface AssetMetadataSidebarProps {
   versionsLoading?: boolean;
 }
 
+/** Everything about an asset that is not its content, in a column beside it. */
 export function AssetMetadataSidebar({
   asset,
   editing,
@@ -47,68 +52,28 @@ export function AssetMetadataSidebar({
   versionsLoading,
 }: AssetMetadataSidebarProps) {
   return (
-    <div className="w-80 shrink-0 space-y-4 rounded-lg border bg-card p-4 overflow-auto">
+    <Card className="w-80 shrink-0 gap-4 overflow-auto p-4">
       {editing ? (
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">Name</label>
-            <input
-              type="text"
-              value={editName}
-              onChange={(e) => onEditNameChange(e.target.value)}
-              className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">Description</label>
-            <textarea
-              value={editDesc}
-              onChange={(e) => onEditDescChange(e.target.value)}
-              rows={3}
-              className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2 resize-none"
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">Tags (comma-separated)</label>
-            <input
-              type="text"
-              value={editTags}
-              onChange={(e) => onEditTagsChange(e.target.value)}
-              className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
-            />
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onSaveEdit}
-              disabled={updateMutation.isPending}
-              className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              Save
-            </button>
-            <button
-              type="button"
-              onClick={onCancelEdit}
-              className="rounded-md bg-secondary px-3 py-1.5 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+        <AssetMetadataForm
+          name={editName}
+          description={editDesc}
+          tags={editTags}
+          onNameChange={onEditNameChange}
+          onDescriptionChange={onEditDescChange}
+          onTagsChange={onEditTagsChange}
+          onSave={onSaveEdit}
+          onCancel={onCancelEdit}
+          saving={updateMutation.isPending}
+        />
       ) : (
         <>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">Details</h3>
               {(isOwner || isSharedEditor) && (
-                <button
-                  type="button"
-                  onClick={onStartEdit}
-                  className="rounded p-1 hover:bg-accent"
-                  title="Edit"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
+                <Button variant="ghost" size="icon-xs" onClick={onStartEdit} title="Edit">
+                  <Pencil />
+                </Button>
               )}
             </div>
             {asset.description && (
@@ -116,29 +81,18 @@ export function AssetMetadataSidebar({
                 <CollapsibleMarkdown content={asset.description} maxHeightPx={120} />
               </div>
             )}
-            <dl className="text-sm space-y-1.5">
+            <dl className="space-y-1.5 text-sm">
               {detailRows?.map((row) => (
-                <div key={row.label} className="flex justify-between">
-                  <dt className="text-muted-foreground">{row.label}</dt>
-                  <dd className="text-xs truncate max-w-[160px]">{row.value}</dd>
-                </div>
+                <DetailRow key={row.label} label={row.label}>
+                  <span className="max-w-[160px] truncate text-xs">{row.value}</span>
+                </DetailRow>
               ))}
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Type</dt>
-                <dd className="font-mono text-xs">{asset.content_type}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Size</dt>
-                <dd>{formatBytes(asset.size_bytes)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Created</dt>
-                <dd>{new Date(asset.created_at).toLocaleString()}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Updated</dt>
-                <dd>{new Date(asset.updated_at).toLocaleString()}</dd>
-              </div>
+              <DetailRow label="Type">
+                <span className="font-mono text-xs">{asset.content_type}</span>
+              </DetailRow>
+              <DetailRow label="Size">{formatBytes(asset.size_bytes)}</DetailRow>
+              <DetailRow label="Created">{new Date(asset.created_at).toLocaleString()}</DetailRow>
+              <DetailRow label="Updated">{new Date(asset.updated_at).toLocaleString()}</DetailRow>
             </dl>
           </div>
 
@@ -147,12 +101,9 @@ export function AssetMetadataSidebar({
               <h3 className="text-sm font-medium">Tags</h3>
               <div className="flex flex-wrap gap-1.5">
                 {asset.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground"
-                  >
+                  <Badge key={tag} variant="muted">
                     {tag}
-                  </span>
+                  </Badge>
                 ))}
               </div>
             </div>
@@ -173,6 +124,15 @@ export function AssetMetadataSidebar({
           )}
         </>
       )}
+    </Card>
+  );
+}
+
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex justify-between gap-2">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0">{children}</dd>
     </div>
   );
 }

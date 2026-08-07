@@ -1,11 +1,10 @@
 import { lazy, Suspense } from "react";
-import { Download, Save, Eye, Code, RotateCcw, FileWarning } from "lucide-react";
 import type { Asset, AssetVersion, SharePermission } from "@/api/portal/types";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
-import { formatBytes } from "@/lib/format";
 import { exceedsInlineLimit, rendersFromURL } from "@/components/renderers/registry";
 import { useContentUrl } from "@/lib/useContentUrl";
+import { SaveControls, TooLarge, VersionControls, ViewModeToggle } from "./contentControls";
 import type { MutationLike, ViewMode } from "./types";
 
 const SourceEditor = lazy(() =>
@@ -116,37 +115,6 @@ export function AssetContentView({
         />
       )}
     </>
-  );
-}
-
-/**
- * The size guard, per family.
- *
- * A family whose renderer streams from a URL (images, audio, video, PDF) has no
- * inline cutoff at all, and one whose renderer virtualizes (JSON, tabular) has
- * a far higher one than a block of text. The registry owns those limits. This
- * replaces the single 2 MB threshold that used to refuse every large asset
- * regardless of how its viewer works.
- */
-function TooLarge({ asset, sizeBytes, contentUrl }: { asset: Asset; sizeBytes: number; contentUrl: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-      <FileWarning className="h-12 w-12 text-muted-foreground" />
-      <div>
-        <p className="text-lg font-medium">Too large to preview</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          This file is {formatBytes(sizeBytes)}, past the inline preview limit for {asset.content_type}.
-        </p>
-      </div>
-      <a
-        href={contentUrl}
-        download={asset.name}
-        className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-      >
-        <Download className="h-4 w-4" />
-        Download
-      </a>
-    </div>
   );
 }
 
@@ -271,122 +239,4 @@ function pendingState({
 /** Content the renderers can take as text; an ArrayBuffer body is not one. */
 function asText(content: string | ArrayBuffer | undefined): string | undefined {
   return typeof content === "string" ? content : undefined;
-}
-
-/** Preview/Source switch, shown only for families the editor supports. */
-function ViewModeToggle({
-  show,
-  viewMode,
-  onSetViewMode,
-}: {
-  show: boolean;
-  viewMode: ViewMode;
-  onSetViewMode: (mode: ViewMode) => void;
-}) {
-  if (!show) return null;
-
-  const tab = (mode: ViewMode, label: string, Icon: typeof Eye, rounding: string) => (
-    <button
-      type="button"
-      onClick={() => onSetViewMode(mode)}
-      className={`flex items-center gap-1.5 px-3 py-1.5 ${rounding} transition-colors ${
-        viewMode === mode ? "bg-accent font-medium" : "hover:bg-accent/50"
-      }`}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-    </button>
-  );
-
-  return (
-    <div className="inline-flex rounded-md border text-sm">
-      {tab("preview", "Preview", Eye, "rounded-l-md")}
-      {tab("source", "Source", Code, "rounded-r-md border-l")}
-    </div>
-  );
-}
-
-/** Version picker plus the revert action for an older version. */
-function VersionControls({
-  asset,
-  versions,
-  selectedVersion,
-  onSelectVersion,
-  viewingOldVersion,
-  canRevert,
-  onRevert,
-}: {
-  asset: Asset;
-  versions?: AssetVersion[];
-  selectedVersion?: number | null;
-  onSelectVersion?: (v: number | null) => void;
-  viewingOldVersion: boolean;
-  canRevert: boolean;
-  onRevert: () => void;
-}) {
-  if (!versions || versions.length === 0 || !onSelectVersion) return null;
-
-  return (
-    <>
-      <select
-        aria-label="Asset version"
-        value={selectedVersion ?? asset.current_version}
-        onChange={(e) => {
-          const v = Number(e.target.value);
-          onSelectVersion(v === asset.current_version ? null : v);
-        }}
-        className="rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
-      >
-        {versions.map((v) => (
-          <option key={v.version} value={v.version}>
-            v{v.version}
-            {v.version === asset.current_version ? " (current)" : ""}
-          </option>
-        ))}
-      </select>
-      {viewingOldVersion && canRevert && (
-        <button
-          type="button"
-          onClick={onRevert}
-          className="flex items-center gap-1.5 rounded-md border border-amber-500/30 px-3 py-1.5 text-sm font-medium text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-          Revert
-        </button>
-      )}
-    </>
-  );
-}
-
-/** Save button and its result indicator, shown while editing source. */
-function SaveControls({
-  show,
-  hasChanges,
-  saveStatus,
-  onSaveContent,
-  pending,
-}: {
-  show: boolean;
-  hasChanges: boolean;
-  saveStatus: "idle" | "saved" | "error";
-  onSaveContent: () => void;
-  pending: boolean;
-}) {
-  if (!show) return null;
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={onSaveContent}
-        disabled={!hasChanges || pending}
-        className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-      >
-        <Save className="h-3.5 w-3.5" />
-        {pending ? "Saving..." : "Save"}
-      </button>
-      {saveStatus === "saved" && <span className="text-xs text-green-600 dark:text-green-400">Saved</span>}
-      {saveStatus === "error" && <span className="text-xs text-destructive">Save failed</span>}
-    </>
-  );
 }

@@ -37,6 +37,11 @@ App-level composition patterns live in `src/components/patterns/`:
 | `SectionCard` | The one way a page section is boxed; the section's action lives in its header |
 | `EmptyState` | The only permitted use of a dashed border: "there is nothing here", with an optional action |
 | `InfoHint` | A view's explainer prose behind an info toggle instead of an always-on paragraph |
+| `FilterSelect` | One facet of a filter bar: a compact listbox named for assistive tech, whose "no filter" choice travels under a sentinel |
+| `Pager` | The one page-through control: "Showing 1&ndash;20 of 500" on the left, Prev / page position / Next on the right |
+| `SortableHead` | A `ui/table` header that sorts on click, with the direction shown on the sorted column |
+| `SearchInput` | A list's free-text filter: a `ui/input` with the magnifier inside its leading edge |
+| `SegmentedControl` | A small "which way do I want this shown" switch: adjacent faces in a bordered trough, the chosen one filled |
 
 Conventions the exemplar (Knowledge > Catalog) established: buttons, inputs,
 labels, textareas, selects, tables, tabs, badges, and alerts come from
@@ -49,10 +54,38 @@ badge variants; dashed boxes are reserved for `EmptyState`. Modal geometry still
 goes through `components/ModalShell.tsx` (`ui/dialog.tsx` is vendored but
 existing modals keep the ModalShell contract).
 
+The saved-things surfaces (Assets, Collections, the collection viewer) share
+three more app-level pieces alongside those patterns: `cards/ThumbCard` is the
+clickable gallery tile (thumbnail or stand-in icon, then whatever the list says
+about the item), `ContentTypeBadge` names what an asset is and carries
+`contentTypeIcon` for the matching glyph, and `ShareIndicators` is the
+users/public-link pair. `components/listView.ts` holds the grid-or-table
+preference the two lists share — the layout half of what `ScopeFilter` does for
+ownership — plus the Load-more derivation both browse hooks use.
+
+`SegmentedControl` is a group of toggle buttons (`role="group"`, `aria-pressed`),
+not a tablist: nothing under it is a tab panel, the same content is redrawn. So
+its faces stay `getByRole("button", ...)`, unlike `ui/tabs` and unlike
+`ScopeFilter`, whose Mine/Shared/All faces really are `role="tab"`.
+
 A shadcn `Select` is a Radix listbox, not a native `<select>`: an item cannot
 carry an empty value, so a facet's "no filter" choice travels under a sentinel
 that the component translates back at its own boundary, and Playwright chooses
 an option by clicking the trigger then the option rather than `selectOption()`.
+In jsdom there is no `PointerEvent` at all, so the trigger's pointerdown
+handler never runs and `fireEvent.pointerDown` cannot open it: a unit test
+opens the listbox with `fireEvent.keyDown(trigger, { key: "Enter" })` and then
+clicks the option (see `pages/audit/tabs/NotificationsTab.test.tsx`). The setup
+file stubs the pointer-capture and `scrollIntoView` calls Radix makes while a
+menu is open.
+
+`ui/tabs` triggers are tabs, not buttons: a bar converted from hand-rolled
+buttons breaks every `getByRole("button", { name: "<tab>" })` in the specs that
+drive it. The dashboard's primary bar uses the `line` variant, which needs
+`group-data-[orientation=horizontal]/tabs:h-auto` on the list (plain `h-auto`
+loses to the variant's compound selector) and, when the list carries the
+bar's own `border-b`, `after:bottom-[-1px]` on the trigger so the active
+underline lands on that border instead of below it.
 
 `MarkdownEditor` sizes itself to its parent (`h-full`), so it must not be a
 stretched grid item: in a grid cell it renders as tall as the cell *plus* its

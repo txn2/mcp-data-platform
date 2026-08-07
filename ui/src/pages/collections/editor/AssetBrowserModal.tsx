@@ -1,8 +1,16 @@
 import { useState, useMemo } from "react";
-import { FileText, Eye, Search, X, ArrowUpDown } from "lucide-react";
+import { Eye, FileText, X } from "lucide-react";
 import type { Asset } from "@/api/portal/types";
-import { AuthImg } from "@/components/AuthImg";
 import { AssetPreviewModal } from "@/components/AssetPreviewModal";
+import { AuthImg } from "@/components/AuthImg";
+import { ModalShell } from "@/components/ModalShell";
+import { SearchInput } from "@/components/patterns/SearchInput";
+import { SortableHead } from "@/components/patterns/SortableHead";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+type SortKey = "name" | "created_at";
 
 /** Asset browser modal for adding assets to a section. */
 export function AssetBrowserModal({
@@ -15,135 +23,137 @@ export function AssetBrowserModal({
   onClose: () => void;
 }) {
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<"name" | "created_at">("name");
+  const [sortBy, setSortBy] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [previewing, setPreviewing] = useState<Asset | null>(null);
 
-  function toggleSort(col: "name" | "created_at") {
+  function toggleSort(col: SortKey) {
     if (sortBy === col) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortBy(col);
+      // Names read best from A; timestamps read best from the newest.
       setSortDir(col === "name" ? "asc" : "desc");
     }
   }
 
-  const filtered = useMemo(() => {
-    let list = assets;
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (a) =>
-          (a.name ?? "").toLowerCase().includes(q) ||
-          (a.description ?? "").toLowerCase().includes(q) ||
-          (a.tags ?? []).some((t) => t.toLowerCase().includes(q)),
-      );
-    }
-    list = [...list].sort((a, b) => {
-      const cmp = sortBy === "name"
-        ? a.name.localeCompare(b.name)
-        : new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-    return list;
-  }, [assets, search, sortBy, sortDir]);
+  const filtered = useMemo(() => sortAssets(filterAssets(assets, search), sortBy, sortDir), [
+    assets,
+    search,
+    sortBy,
+    sortDir,
+  ]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} role="button" tabIndex={-1} aria-label="Close" onKeyDown={(e) => { if (e.key === "Escape") onClose(); }} />
-      <div className="relative rounded-lg border bg-card shadow-lg w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
-        <div className="flex items-center gap-3 p-4 border-b">
-          <h3 className="text-sm font-semibold flex-1">Add Assets</h3>
-          <button onClick={onClose} className="rounded-md p-1 hover:bg-accent text-muted-foreground hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="p-4 pb-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
+    <>
+      <ModalShell
+        onClose={onClose}
+        width="max-w-2xl"
+        label="Add Assets"
+        bodyClass="px-4 pt-2 pb-4"
+        header={
+          // The search box stays with the title rather than scrolling away
+          // with the rows it filters.
+          <div className="space-y-3 border-b p-4">
+            <div className="flex items-center gap-3">
+              <h3 className="flex-1 text-sm font-semibold">Add Assets</h3>
+              <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+                <X />
+              </Button>
+            </div>
+            <SearchInput
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name, description, or tag..."
               autoFocus
-              className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
             />
           </div>
-        </div>
-        <div className="flex-1 overflow-auto px-4 pb-4">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-card">
-              <tr className="border-b">
-                <th className="w-10" />
-                <th className="py-2 text-left font-medium text-muted-foreground">
-                  <button onClick={() => toggleSort("name")} className="flex items-center gap-1 hover:text-foreground">
-                    Name <ArrowUpDown className="h-3 w-3" />
-                  </button>
-                </th>
-                <th className="py-2 text-left font-medium text-muted-foreground w-[20%]">Type</th>
-                <th className="py-2 text-left font-medium text-muted-foreground w-[25%]">
-                  <button onClick={() => toggleSort("created_at")} className="flex items-center gap-1 hover:text-foreground">
-                    Created <ArrowUpDown className="h-3 w-3" />
-                  </button>
-                </th>
-                <th className="w-20" />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((a) => (
-                <tr key={a.id} className="border-b last:border-0 hover:bg-accent/50">
-                  <td className="py-2 pr-2">
-                    {a.thumbnail_s3_key ? (
-                      <AuthImg src={`/api/v1/portal/assets/${a.id}/thumbnail`} alt="" className="w-8 h-6 rounded object-cover" />
-                    ) : (
-                      <div className="w-8 h-6 rounded bg-muted flex items-center justify-center">
-                        <FileText className="h-3 w-3 text-muted-foreground/50" />
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-2 max-w-0">
-                    <span className="font-medium truncate block">{a.name}</span>
-                    {(a.tags ?? []).length > 0 && (
-                      <div className="flex gap-1 mt-0.5">
-                        {(a.tags ?? []).slice(0, 3).map((t) => (
-                          <span key={t} className="text-xs px-1 py-0.5 rounded bg-muted text-muted-foreground">{t}</span>
-                        ))}
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-2 text-muted-foreground text-xs">{a.content_type}</td>
-                  <td className="py-2 text-muted-foreground text-xs">{new Date(a.created_at).toLocaleDateString()}</td>
-                  <td className="py-2">
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setPreviewing(a)}
-                        className="rounded bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium hover:bg-muted/80 hover:text-foreground"
-                        title="Preview asset"
-                      >
-                        <Eye className="h-3 w-3" />
-                      </button>
-                      <button
-                        onClick={() => onAdd(a)}
-                        className="rounded bg-primary/10 text-primary px-2 py-0.5 text-xs font-medium hover:bg-primary/20"
-                      >
-                        Add
-                      </button>
+        }
+      >
+        <Table>
+          <TableHeader className="sticky top-0 bg-card">
+            <TableRow>
+              <TableHead className="w-10" />
+              <SortableHead
+                label="Name"
+                sortKey="name"
+                sortBy={sortBy}
+                sortDir={sortDir}
+                onSort={toggleSort}
+              />
+              <TableHead className="w-[20%] text-muted-foreground">Type</TableHead>
+              <SortableHead
+                label="Created"
+                sortKey="created_at"
+                sortBy={sortBy}
+                sortDir={sortDir}
+                onSort={toggleSort}
+                className="w-[25%]"
+              />
+              <TableHead className="w-24" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.map((a) => (
+              <TableRow key={a.id}>
+                <TableCell>
+                  {a.thumbnail_s3_key ? (
+                    <AuthImg
+                      src={`/api/v1/portal/assets/${a.id}/thumbnail`}
+                      alt=""
+                      className="h-6 w-8 rounded object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-6 w-8 items-center justify-center rounded bg-muted">
+                      <FileText className="size-3 text-muted-foreground/50" />
                     </div>
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="py-8 text-center text-muted-foreground text-sm">
-                    No assets found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  )}
+                </TableCell>
+                <TableCell className="max-w-0 whitespace-normal">
+                  <span className="block truncate font-medium">{a.name}</span>
+                  {(a.tags ?? []).length > 0 && (
+                    <div className="mt-0.5 flex gap-1">
+                      {(a.tags ?? []).slice(0, 3).map((t) => (
+                        <Badge key={t} variant="muted" className="px-1">
+                          {t}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">{a.content_type}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {new Date(a.created_at).toLocaleDateString()}
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="secondary"
+                      size="icon-xs"
+                      onClick={() => setPreviewing(a)}
+                      title="Preview asset"
+                      aria-label={`Preview ${a.name}`}
+                    >
+                      <Eye />
+                    </Button>
+                    <Button variant="outline" size="xs" onClick={() => onAdd(a)}>
+                      Add
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+            {filtered.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                  No assets found
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </ModalShell>
+
       {previewing && (
         <AssetPreviewModal
           assetId={previewing.id}
@@ -153,6 +163,27 @@ export function AssetBrowserModal({
           onClose={() => setPreviewing(null)}
         />
       )}
-    </div>
+    </>
   );
+}
+
+function filterAssets(assets: Asset[], search: string): Asset[] {
+  const q = search.toLowerCase();
+  if (!q) return assets;
+  return assets.filter(
+    (a) =>
+      (a.name ?? "").toLowerCase().includes(q) ||
+      (a.description ?? "").toLowerCase().includes(q) ||
+      (a.tags ?? []).some((t) => t.toLowerCase().includes(q)),
+  );
+}
+
+function sortAssets(assets: Asset[], sortBy: SortKey, sortDir: "asc" | "desc"): Asset[] {
+  return [...assets].sort((a, b) => {
+    const cmp =
+      sortBy === "name"
+        ? a.name.localeCompare(b.name)
+        : new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    return sortDir === "asc" ? cmp : -cmp;
+  });
 }

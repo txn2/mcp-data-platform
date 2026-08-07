@@ -1,5 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import { type IndexKindSummary, type IndexCoverage } from "@/api/admin/indexjobs";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { STATUS_COLORS, relTime } from "./helpers";
 import { VerdictBadge } from "./badges";
 
@@ -117,21 +119,23 @@ export function KindCard({
   const showStates =
     summary.running > 0 || summary.pending > 0 || summary.unresolved_failures > 0;
   return (
-    <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
+    <Card className="gap-3 p-4">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex min-w-0 flex-col items-start gap-1">
           <span className="truncate font-mono text-sm font-medium">{summary.kind}</span>
           <VerdictBadge verdict={summary.verdict} />
         </div>
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="xs"
           onClick={() => onReindex(summary.kind)}
           disabled={reindexing}
-          className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
           title="Re-index every out-of-sync unit of this kind"
+          className="text-muted-foreground"
         >
-          <RefreshCw className={`h-3 w-3 ${reindexing ? "animate-spin" : ""}`} /> Re-index
-        </button>
+          <RefreshCw className={reindexing ? "animate-spin" : undefined} /> Re-index
+        </Button>
       </div>
 
       <CoverageLine summary={summary} />
@@ -162,13 +166,13 @@ export function KindCard({
             ))}
           </div>
           {summary.unresolved_failures > 0 && (
-            <div className="mt-1 text-[10px] text-red-500">
+            <div className="mt-1 text-[10px] text-destructive">
               {summary.unresolved_failures} unit{summary.unresolved_failures === 1 ? "" : "s"} need
               attention
             </div>
           )}
         </div>
       )}
-    </div>
+    </Card>
   );
 }

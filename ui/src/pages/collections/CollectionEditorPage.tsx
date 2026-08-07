@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, Plus, Trash2, Save } from "lucide-react";
+import { Plus, Save, Trash2 } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -24,7 +24,21 @@ import {
   useAssets,
 } from "@/api/portal/hooks";
 import type { Asset, CollectionConfig } from "@/api/portal/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { PageHeader } from "@/components/patterns/PageHeader";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SortableSection } from "./editor/SortableSection";
 import { type SectionDraft, draftId } from "./editor/types";
 
@@ -33,6 +47,13 @@ interface Props {
   onBack: () => void;
   onNavigate: (path: string) => void;
 }
+
+const THUMBNAIL_SIZES = [
+  { value: "large", label: "Large" },
+  { value: "medium", label: "Medium" },
+  { value: "small", label: "Small" },
+  { value: "none", label: "No thumbnails" },
+];
 
 export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props) {
   const { data: coll, isLoading } = useCollection(collectionId);
@@ -47,7 +68,7 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
   const [config, setConfig] = useState<CollectionConfig>({});
   const [sections, setSections] = useState<SectionDraft[]>([]);
   const [initialized, setInitialized] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const sectionSensors = useSensors(
     useSensor(PointerSensor),
@@ -79,38 +100,40 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
   const assets: Asset[] = assetsData?.data ?? [];
 
   const addSection = useCallback(() => {
-    setSections((prev) => [
-      ...prev,
-      { id: draftId(), title: "", description: "", items: [] },
-    ]);
+    setSections((prev) => [...prev, { id: draftId(), title: "", description: "", items: [] }]);
   }, []);
 
   const removeSection = useCallback((index: number) => {
     setSections((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const updateSection = useCallback((index: number, field: "title" | "description", value: string) => {
-    setSections((prev) =>
-      prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)),
-    );
-  }, []);
+  const updateSection = useCallback(
+    (index: number, field: "title" | "description", value: string) => {
+      setSections((prev) => prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)));
+    },
+    [],
+  );
 
-  const addItem = useCallback((sectionIndex: number, assetId: string, assetName: string, assetContentType: string) => {
-    setSections((prev) =>
-      prev.map((s, i) =>
-        i === sectionIndex
-          ? { ...s, items: [...s.items, { id: draftId(), asset_id: assetId, assetName, assetContentType }] }
-          : s,
-      ),
-    );
-  }, []);
+  const addItem = useCallback(
+    (sectionIndex: number, assetId: string, assetName: string, assetContentType: string) => {
+      setSections((prev) =>
+        prev.map((s, i) =>
+          i === sectionIndex
+            ? {
+                ...s,
+                items: [...s.items, { id: draftId(), asset_id: assetId, assetName, assetContentType }],
+              }
+            : s,
+        ),
+      );
+    },
+    [],
+  );
 
   const removeItem = useCallback((sectionIndex: number, itemIndex: number) => {
     setSections((prev) =>
       prev.map((s, i) =>
-        i === sectionIndex
-          ? { ...s, items: s.items.filter((_, j) => j !== itemIndex) }
-          : s,
+        i === sectionIndex ? { ...s, items: s.items.filter((_, j) => j !== itemIndex) } : s,
       ),
     );
   }, []);
@@ -118,9 +141,7 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
   const reorderItems = useCallback((sectionIndex: number, oldIndex: number, newIndex: number) => {
     setSections((prev) =>
       prev.map((s, i) =>
-        i === sectionIndex
-          ? { ...s, items: arrayMove(s.items, oldIndex, newIndex) }
-          : s,
+        i === sectionIndex ? { ...s, items: arrayMove(s.items, oldIndex, newIndex) } : s,
       ),
     );
   }, []);
@@ -153,82 +174,57 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
     onBack();
   }
 
-  const isSaving = updateMutation.isPending || sectionsMutation.isPending || configMutation.isPending;
+  async function handleDelete() {
+    await deleteMutation.mutateAsync(collectionId);
+    onNavigate("/collections");
+  }
+
+  // Saving is three writes; the page is busy while any of them is in flight.
+  const isSaving = [updateMutation, sectionsMutation, configMutation].some((m) => m.isPending);
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        Loading...
-      </div>
-    );
+    return <p className="py-12 text-center text-sm text-muted-foreground">Loading...</p>;
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      {/* Toolbar */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </button>
-        <div className="flex-1" />
-        {deleteConfirm ? (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-destructive">Delete this collection?</span>
-            <button
-              onClick={async () => {
-                await deleteMutation.mutateAsync(collectionId);
-                onNavigate("/collections");
-              }}
-              disabled={deleteMutation.isPending}
-              className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+    <div className="max-w-3xl space-y-6">
+      <PageHeader
+        onBack={onBack}
+        title={headerTitle(coll)}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteOpen(true)}
+              title="Delete collection"
+              className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
             >
-              {deleteMutation.isPending ? "Deleting..." : "Yes, Delete"}
-            </button>
-            <button
-              onClick={() => setDeleteConfirm(false)}
-              className="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setDeleteConfirm(true)}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive"
-            title="Delete collection"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        )}
-        <button
-          onClick={() => void handleSave()}
-          disabled={isSaving || !name}
-          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          <Save className="h-3.5 w-3.5" />
-          {isSaving ? "Saving..." : "Save"}
-        </button>
-      </div>
+              <Trash2 />
+              Delete
+            </Button>
+            <Button size="sm" onClick={() => void handleSave()} disabled={isSaving || !name}>
+              <Save />
+              {isSaving ? "Saving..." : "Save"}
+            </Button>
+          </>
+        }
+      />
 
-      {/* Name */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Name</label>
-        <input
+      <div className="space-y-1.5">
+        <Label htmlFor="collection-name">Name</Label>
+        <Input
+          id="collection-name"
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Collection name"
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
         />
       </div>
 
-      {/* Description with markdown editor */}
-      <div>
-        <label className="block text-sm font-medium mb-1">Description</label>
+      {/* MarkdownEditor sizes itself to its parent, so it gets a plain block. */}
+      <div className="space-y-1.5">
+        <Label>Description</Label>
         <MarkdownEditor
           value={description}
           onChange={setDescription}
@@ -237,40 +233,41 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
         />
       </div>
 
-      {/* Settings */}
-      <div>
-        <label className="block text-sm font-medium mb-2">Settings</label>
-        <div className="rounded-lg border bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="text-sm font-medium">Thumbnail Size</span>
-              <p className="text-xs text-muted-foreground">Controls how asset thumbnails display in the collection viewer</p>
-            </div>
-            <select
-              value={config.thumbnail_size || "large"}
-              onChange={(e) => setConfig({ ...config, thumbnail_size: e.target.value as CollectionConfig["thumbnail_size"] })}
-              className="rounded-md border bg-background px-3 py-1.5 text-sm"
-            >
-              <option value="large">Large</option>
-              <option value="medium">Medium</option>
-              <option value="small">Small</option>
-              <option value="none">No thumbnails</option>
-            </select>
+      <SectionCard title="Settings">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <span className="text-sm font-medium">Thumbnail Size</span>
+            <p className="text-xs text-muted-foreground">
+              Controls how asset thumbnails display in the collection viewer
+            </p>
           </div>
-        </div>
-      </div>
-
-      {/* Sections */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <label className="text-sm font-medium">Sections</label>
-          <button
-            onClick={addSection}
-            className="flex items-center gap-1 text-xs text-primary hover:underline"
+          <Select
+            value={config.thumbnail_size || "large"}
+            onValueChange={(v) =>
+              setConfig({ ...config, thumbnail_size: v as CollectionConfig["thumbnail_size"] })
+            }
           >
-            <Plus className="h-3 w-3" />
+            <SelectTrigger size="sm" aria-label="Thumbnail size" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {THUMBNAIL_SIZES.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </SectionCard>
+
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <span className="text-sm font-medium">Sections</span>
+          <Button variant="ghost" size="xs" onClick={addSection}>
+            <Plus />
             Add Section
-          </button>
+          </Button>
         </div>
 
         <DndContext
@@ -278,7 +275,10 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
           collisionDetection={closestCenter}
           onDragEnd={handleSectionDragEnd}
         >
-          <SortableContext items={sections.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+          <SortableContext
+            items={sections.map((s) => s.id)}
+            strategy={verticalListSortingStrategy}
+          >
             <div className="space-y-3">
               {sections.map((section, index) => (
                 <SortableSection
@@ -298,11 +298,39 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
         </DndContext>
 
         {sections.length === 0 && (
-          <div className="text-center py-8 text-muted-foreground text-sm border rounded-lg border-dashed">
-            No sections yet. Click "Add Section" to get started.
-          </div>
+          <EmptyState
+            action={
+              <Button variant="outline" size="sm" onClick={addSection}>
+                <Plus />
+                Add Section
+              </Button>
+            }
+          >
+            No sections yet.
+          </EmptyState>
         )}
       </div>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete collection"
+        description="This cannot be undone. The assets inside are not deleted."
+        confirmLabel="Delete"
+        destructive
+        loading={deleteMutation.isPending}
+        onConfirm={handleDelete}
+      />
     </div>
   );
+}
+
+/**
+ * The collection this editor belongs to, as it was loaded. The name field
+ * below edits the name, so the header deliberately does not track it — a
+ * header that renamed itself keystroke by keystroke would leave the reader
+ * with no record of what they opened.
+ */
+function headerTitle(coll: { name: string } | undefined): string {
+  return coll?.name || "Untitled Collection";
 }

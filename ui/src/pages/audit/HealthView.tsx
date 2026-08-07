@@ -13,6 +13,9 @@ import {
   type TrendPoint,
 } from "./health";
 import { TrendArea } from "@/components/charts/TrendArea";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { Server } from "lucide-react";
 
 const CPU_COLOR = "hsl(199, 89%, 48%)";
@@ -106,8 +109,8 @@ function NodeRow({
   const { prefix, suffix } = splitNodeName(node.label);
 
   return (
-    <div
-      className="relative overflow-hidden rounded-xl border bg-card transition-colors"
+    <Card
+      className="relative gap-0 overflow-hidden py-0 transition-colors"
       style={{ borderLeft: `3px solid ${accent}` }}
     >
       {/* Subtle status-tinted wash for depth. */}
@@ -126,13 +129,10 @@ function NodeRow({
               <span className="font-semibold text-foreground">{suffix}</span>
             </span>
           </div>
-          <span
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
-            style={{ backgroundColor: `${accent}1f`, color: accent }}
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: accent }} />
+          <Badge variant={restarted ? "warning" : "success"} className="gap-1.5 px-2.5 py-1">
+            <span className="size-1.5 rounded-full bg-current" />
             {restarted ? "Restarted recently" : "Healthy"}
-          </span>
+          </Badge>
         </div>
 
         {/* Metrics spread across the full width below the name. */}
@@ -161,7 +161,7 @@ function NodeRow({
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -184,12 +184,12 @@ export function HealthView() {
 
   if (isBackendUnconfigured(uptime.error)) {
     return (
-      <div className="rounded-xl border border-dashed bg-card p-10 text-center">
-        <h3 className="text-sm font-medium">Node metrics unavailable</h3>
-        <p className="mt-2 text-sm text-muted-foreground">
+      <EmptyState className="p-10">
+        <p className="text-sm font-medium text-foreground">Node metrics unavailable</p>
+        <p className="mt-2 text-sm">
           Per-node health metrics are not available for this platform right now.
         </p>
-      </div>
+      </EmptyState>
     );
   }
 
@@ -206,11 +206,7 @@ export function HealthView() {
   ]);
 
   if (!isLoading && nodes.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed bg-card p-10 text-center text-sm text-muted-foreground">
-        No nodes are currently reporting metrics.
-      </div>
-    );
+    return <EmptyState className="p-10">No nodes are currently reporting metrics.</EmptyState>;
   }
 
   const cpuByNode = seriesByNode(cpuRange.data);

@@ -26,7 +26,8 @@ vi.mock("@/api/observability/hooks", async () => {
 });
 
 import { useObservabilityQuery } from "@/api/observability/hooks";
-import { APIGatewayView, RATE_SERIES } from "./APIGatewayView";
+import { APIGatewayView } from "./APIGatewayView";
+import { RATE_SERIES } from "./apigateway/panels";
 import { promMatrixToTimeseries } from "./promql";
 import { promRangeFor as promRange } from "@/mocks/data/observability";
 

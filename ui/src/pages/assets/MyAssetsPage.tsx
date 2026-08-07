@@ -1,91 +1,38 @@
-import { useEffect, useRef, useState } from "react";
-import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
-import { Search, FileText, Image, Code, File, Users, Globe, Table2, LayoutGrid, List, FolderOpen, Eye } from "lucide-react";
-import { useInfiniteAssets, useSearchAssets, useInfiniteSharedWithMe, useThreadCounts } from "@/api/portal/hooks";
-import type { Asset, SharePermission } from "@/api/portal/types";
-import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
-import { AssetsTabs } from "@/components/AssetsTabs";
-import { ScopeFilter, getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
-import { SharePermissionBadge } from "@/components/SharePermissionBadge";
-import { formatBytes } from "@/lib/format";
-import { markdownToPlainText } from "@/lib/markdownText";
-import { ThumbnailQueue } from "@/components/ThumbnailQueue";
-import { AuthImg } from "@/components/AuthImg";
+import { useState } from "react";
+import type { Asset } from "@/api/portal/types";
 import { AssetPreviewModal } from "@/components/AssetPreviewModal";
+import { AssetsTabs } from "@/components/AssetsTabs";
+import { InfiniteFooter } from "@/components/InfiniteFooter";
+import { getStoredViewMode, storeViewMode, type ViewMode } from "@/components/listView";
+import { getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
+import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { useResolvedDark } from "@/stores/theme";
-
-const VIEW_STORAGE_KEY = "asset-view-mode";
-type ViewMode = "grid" | "table";
-
-function getStoredViewMode(): ViewMode {
-  // Defensive: jsdom-based test environments and SSR contexts can
-  // either omit localStorage entirely or stub a partial object. The
-  // try/catch survives both. Default is "grid" — the safer fallback
-  // when persistence is unavailable.
-  try {
-    const stored = globalThis.localStorage?.getItem(VIEW_STORAGE_KEY);
-    return stored === "table" ? "table" : "grid";
-  } catch {
-    return "grid";
-  }
-}
+import { AssetFilterBar } from "./browse/AssetFilterBar";
+import { AssetGrid } from "./browse/AssetGrid";
+import { AssetsEmpty } from "./browse/AssetsEmpty";
+import { AssetTable } from "./browse/AssetTable";
+import { useAssetBrowse } from "./browse/useAssetBrowse";
 
 interface Props {
   onNavigate: (path: string) => void;
 }
 
-/** The subset of an infinite-query result the Load-more control needs. */
-interface LoadMoreControls {
-  hasNextPage: boolean;
-  isFetchingNextPage: boolean;
-  fetchNextPage: () => void;
-}
-
-/** Share metadata attached to an asset that was shared with the current user. */
-interface ShareMeta {
-  shared_by: string;
-  permission: SharePermission;
-  shared_at: string;
-}
-
-/** An asset for display, optionally carrying share-with-me metadata. */
-interface DisplayAsset {
-  asset: Asset;
-  share?: ShareMeta;
-}
-
-function contentTypeIcon(ct: string) {
-  const lower = ct.toLowerCase();
-  if (lower.includes("csv")) return Table2;
-  if (lower.includes("html") || lower.includes("jsx")) return Code;
-  if (lower.includes("svg") || lower.includes("image")) return Image;
-  if (lower.includes("markdown") || lower.includes("text")) return FileText;
-  return File;
-}
-
-function contentTypeBadgeColor(ct: string) {
-  const lower = ct.toLowerCase();
-  if (lower.includes("csv")) return "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300";
-  if (lower.includes("jsx") || lower.includes("react")) return "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300";
-  if (lower.includes("html")) return "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300";
-  if (lower.includes("svg")) return "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300";
-  if (lower.includes("markdown")) return "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300";
-  return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
-}
+type Previewing = { id: string; name: string; contentType: string; sizeBytes: number };
 
 export function MyAssetsPage({ onNavigate }: Props) {
   const isDark = useResolvedDark();
   const [scope, setScope] = useState<Scope>(getStoredScope);
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [contentType, setContentType] = useState("");
   const [tag, setTag] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
-  const [previewing, setPreviewing] = useState<{ id: string; name: string; contentType: string; sizeBytes: number } | null>(null);
+  const [previewing, setPreviewing] = useState<Previewing | null>(null);
 
-  function toggleViewMode(mode: ViewMode) {
+  const browse = useAssetBrowse({ scope, search, contentType, tag });
+
+  function changeViewMode(mode: ViewMode) {
     setViewMode(mode);
-    localStorage.setItem(VIEW_STORAGE_KEY, mode);
+    storeViewMode(mode);
   }
 
   function changeScope(next: Scope) {
@@ -93,421 +40,48 @@ export function MyAssetsPage({ onNavigate }: Props) {
     storeScope(next);
   }
 
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(t);
-  }, [search]);
-  const searching = debouncedSearch.trim().length > 0;
-  // Semantic ranking only covers the caller's own assets; in shared/all scopes
-  // the search box falls back to client-side name/description matching.
-  const semanticSearch = searching && scope === "mine";
-
-  // Mine: server-side content_type/tag filters apply (browse) plus a relevance
-  // endpoint when searching. Shared/all filter client-side over the merged set.
-  // The browse and shared lists paginate: each accumulates pages so callers
-  // with more than one page of assets can load them all via "Load more".
-  const mineQuery = useInfiniteAssets({
-    content_type: scope === "mine" ? contentType || undefined : undefined,
-    tag: scope === "mine" ? tag || undefined : undefined,
-  });
-  const { data, isLoading } = mineQuery;
-  const searchResults = useSearchAssets(semanticSearch ? debouncedSearch : "");
-  const sharedQuery = useInfiniteSharedWithMe();
-  const { data: sharedData, isLoading: sharedLoading } = sharedQuery;
-
-  const mineAssets: Asset[] = semanticSearch
-    ? (searchResults.data?.data ?? []).map((s) => s.asset)
-    : (data?.data ?? []);
-  const sharedItems: DisplayAsset[] = (sharedData?.data ?? []).map((s) => ({
-    asset: s.asset,
-    share: { shared_by: s.shared_by, permission: s.permission, shared_at: s.shared_at },
-  }));
-
-  let items: DisplayAsset[];
-  if (scope === "mine") {
-    items = mineAssets.map((asset) => ({ asset }));
-  } else if (scope === "shared") {
-    items = sharedItems;
-  } else {
-    const mineIds = new Set(mineAssets.map((a) => a.id));
-    items = [
-      ...mineAssets.map((asset) => ({ asset })),
-      ...sharedItems.filter((s) => !mineIds.has(s.asset.id)),
-    ];
-  }
-
-  // Client-side filtering for shared/all scopes (the mine scope is already
-  // filtered/ranked server-side).
-  function matchesClientFilters(a: Asset): boolean {
-    const q = debouncedSearch.trim().toLowerCase();
-    if (q && !(a.name?.toLowerCase().includes(q) || a.description?.toLowerCase().includes(q))) return false;
-    if (contentType && a.content_type !== contentType) return false;
-    if (tag && !(a.tags ?? []).some((t) => t.toLowerCase().includes(tag.toLowerCase()))) return false;
-    return true;
-  }
-  const displayItems = scope === "mine" ? items : items.filter((it) => matchesClientFilters(it.asset));
-
-  const isLoadingList =
-    scope === "mine"
-      ? semanticSearch
-        ? searchResults.isLoading
-        : isLoading
-      : scope === "shared"
-        ? sharedLoading
-        : isLoading || sharedLoading;
-
-  const assets = displayItems.map((it) => it.asset);
-  const { data: threadCounts } = useThreadCounts(
-    "asset",
-    assets.map((a) => a.id),
-  );
-
-  // Load-more spans whichever paginated lists the active scope draws from: the
-  // browse list (mine/all) and/or the shared list (shared/all). Semantic search
-  // returns a ranked top-K, so it has no additional pages to fetch. Deriving
-  // canLoadMore/loadingMore/loadMore from one activeQueries list keeps the
-  // button state and the fetch action from drifting apart.
-  const activeQueries: LoadMoreControls[] = [];
-  if (!semanticSearch) {
-    if (scope !== "shared") activeQueries.push(mineQuery);
-    if (scope !== "mine") activeQueries.push(sharedQuery);
-  }
-  const canLoadMore = activeQueries.some((q) => q.hasNextPage);
-  const loadingMore = activeQueries.some((q) => q.isFetchingNextPage);
-  function loadMore() {
-    for (const q of activeQueries) {
-      if (q.hasNextPage && !q.isFetchingNextPage) q.fetchNextPage();
-    }
-  }
-
-  // Infinite scroll: auto-load the next page as the sentinel below the list
-  // scrolls into view (issue #970 asked for "more assets load as I scroll
-  // down"). The Load-more button below stays as a manual fallback / indicator.
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  useInfiniteScroll(sentinelRef, {
-    hasMore: canLoadMore,
-    isLoading: loadingMore,
-    onLoadMore: loadMore,
-  });
-
   return (
     <div className="space-y-4">
       <AssetsTabs active="assets" onNavigate={onNavigate} />
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <ScopeFilter value={scope} onChange={changeScope} />
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={scope === "mine" ? "Search assets by meaning..." : "Search assets..."}
-            className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-          />
-        </div>
-        <select
-          value={contentType}
-          onChange={(e) => setContentType(e.target.value)}
-          className="rounded-md border bg-background px-3 py-2 text-sm"
-        >
-          <option value="">All types</option>
-          <option value="text/html">HTML</option>
-          <option value="text/jsx">JSX</option>
-          <option value="image/svg+xml">SVG</option>
-          <option value="text/markdown">Markdown</option>
-          <option value="text/csv">CSV</option>
-        </select>
-        <input
-          type="text"
-          value={tag}
-          onChange={(e) => setTag(e.target.value)}
-          placeholder="Filter by tag..."
-          className="rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-        />
-        <div className="flex gap-0.5 rounded-md border p-0.5">
-          <button
-            onClick={() => toggleViewMode("grid")}
-            title="Grid view"
-            className={`rounded-sm p-1.5 transition-colors ${viewMode === "grid" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => toggleViewMode("table")}
-            title="Table view"
-            className={`rounded-sm p-1.5 transition-colors ${viewMode === "table" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            <List className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
+      <AssetFilterBar
+        scope={scope}
+        onScopeChange={changeScope}
+        search={search}
+        onSearchChange={setSearch}
+        contentType={contentType}
+        onContentTypeChange={setContentType}
+        tag={tag}
+        onTagChange={setTag}
+        viewMode={viewMode}
+        onViewModeChange={changeViewMode}
+      />
 
-      {/* Results */}
-      {isLoadingList ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
-          {semanticSearch ? "Searching..." : "Loading..."}
-        </div>
-      ) : displayItems.length === 0 ? (
-        // With more pages available (shared/all client-side filters only see the
-        // loaded rows), steer to "Load more" instead of a contradictory "no
-        // assets" empty state next to a Load-more button.
-        canLoadMore ? (
-          <div className="flex items-center justify-center py-12 text-center text-sm text-muted-foreground">
-            No matching assets in the loaded set yet &mdash; load more to keep looking.
-          </div>
-        ) : (
-          <EmptyState scope={scope} searching={searching} query={debouncedSearch.trim()} />
-        )
-      ) : viewMode === "grid" ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {displayItems.map(({ asset, share }) => {
-            const Icon = contentTypeIcon(asset.content_type);
-            const summary = data?.share_summaries?.[asset.id];
-            return (
-              <button
-                key={asset.id}
-                type="button"
-                onClick={() => onNavigate(`/assets/${asset.id}`)}
-                className="relative flex flex-col items-start rounded-lg border bg-card text-left transition-colors hover:bg-accent/50 hover:border-primary/30 overflow-hidden"
-              >
-                <div className="w-full aspect-[4/3] bg-muted">
-                  {asset.thumbnail_s3_key ? (
-                    <AuthImg
-                      src={`/api/v1/portal/assets/${asset.id}/thumbnail${
-                        isDark && asset.thumbnail_dark_s3_key ? "?variant=dark" : ""
-                      }`}
-                      alt=""
-                      className="w-full h-full object-cover object-top"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Icon className="h-8 w-8 text-muted-foreground/30" />
-                    </div>
-                  )}
-                </div>
-                <div className="p-4 w-full">
-                  {!share && summary && (summary.has_user_share || summary.has_public_link) && (
-                    <div className="absolute top-2 right-2 flex gap-1 bg-background/80 rounded-full px-1.5 py-0.5">
-                      {summary.has_user_share && (
-                        <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                      )}
-                      {summary.has_public_link && (
-                        <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                      )}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 mb-2 w-full">
-                    <Icon className="h-5 w-5 text-muted-foreground shrink-0" />
-                    <span className="text-sm font-medium truncate flex-1">
-                      {asset.name}
-                    </span>
-                    <FeedbackCountBadge count={threadCounts?.[asset.id]} />
-                  </div>
-                  {asset.description && (
-                    <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
-                      {markdownToPlainText(asset.description)}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    <span
-                      className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${contentTypeBadgeColor(asset.content_type)}`}
-                    >
-                      {asset.content_type}
-                    </span>
-                    {(asset.tags ?? []).slice(0, 3).map((t) => (
-                      <span
-                        key={t}
-                        className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
-                      >
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                  {(asset.collections ?? []).length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-2">
-                      {(asset.collections ?? []).slice(0, 2).map((c) => (
-                        <span key={c.id} className="text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary inline-flex items-center gap-0.5">
-                          <FolderOpen className="h-2.5 w-2.5 shrink-0" />
-                          {c.name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {share && (
-                    <div className="flex items-center gap-1.5 mb-2 text-xs text-muted-foreground">
-                      <span className="truncate">Shared by {share.shared_by}</span>
-                      <SharePermissionBadge permission={share.permission} />
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
-                    <span>{formatBytes(asset.size_bytes)}</span>
-                    <span>{new Date(share ? share.shared_at : asset.created_at).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-        ) : (
-        <div className="rounded-lg border bg-card overflow-hidden">
-          <table className="w-full text-sm table-fixed">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[28%]">Name</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[10%]">Type</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[15%]">Tags</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[15%]">Collections</th>
-                <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-[8%]">Size</th>
-                <th className="px-4 py-2.5 text-center font-medium text-muted-foreground w-[8%]">Shared</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[10%]">Created</th>
-                <th className="px-4 py-2.5 w-[4%]" />
-              </tr>
-            </thead>
-            <tbody>
-              {displayItems.map(({ asset, share }) => {
-                const Icon = contentTypeIcon(asset.content_type);
-                const summary = data?.share_summaries?.[asset.id];
-                return (
-                  <tr
-                    key={asset.id}
-                    onClick={() => onNavigate(`/assets/${asset.id}`)}
-                    className="border-b last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
-                  >
-                    <td className="px-4 py-2.5 max-w-0">
-                      <div className="flex items-center gap-2">
-                        <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <span className="font-medium truncate block">{asset.name}</span>
-                          {share ? (
-                            <span className="text-xs text-muted-foreground truncate block">Shared by {share.shared_by}</span>
-                          ) : asset.description ? (
-                            <span className="text-xs text-muted-foreground truncate block">
-                              {markdownToPlainText(asset.description)}
-                            </span>
-                          ) : null}
-                        </div>
-                        <FeedbackCountBadge count={threadCounts?.[asset.id]} />
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${contentTypeBadgeColor(asset.content_type)}`}>
-                        {asset.content_type}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 max-w-0">
-                      <div className="flex flex-wrap gap-1">
-                        {(asset.tags ?? []).slice(0, 3).map((t) => (
-                          <span
-                            key={t}
-                            className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground truncate max-w-[100px]"
-                          >
-                            {t}
-                          </span>
-                        ))}
-                        {(asset.tags ?? []).length > 3 && (
-                          <span className="text-xs text-muted-foreground">+{(asset.tags ?? []).length - 3}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 max-w-0">
-                      <div className="flex flex-wrap gap-1">
-                        {(asset.collections ?? []).slice(0, 2).map((c) => (
-                          <span
-                            key={c.id}
-                            className="text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary truncate max-w-[100px] inline-flex items-center gap-0.5"
-                            onClick={(e) => { e.stopPropagation(); onNavigate(`/collections/${c.id}`); }}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onNavigate(`/collections/${c.id}`); } }}
-                          >
-                            <FolderOpen className="h-2.5 w-2.5 shrink-0" />
-                            {c.name}
-                          </span>
-                        ))}
-                        {(asset.collections ?? []).length > 2 && (
-                          <span className="text-xs text-muted-foreground">+{(asset.collections ?? []).length - 2}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-muted-foreground">
-                      {formatBytes(asset.size_bytes)}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex justify-center gap-1.5">
-                        {share ? (
-                          <SharePermissionBadge permission={share.permission} />
-                        ) : (
-                          <>
-                            {summary?.has_user_share && (
-                              <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                            )}
-                            {summary?.has_public_link && (
-                              <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-muted-foreground">
-                      {new Date(share ? share.shared_at : asset.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-2 py-2.5">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setPreviewing({ id: asset.id, name: asset.name, contentType: asset.content_type, sizeBytes: asset.size_bytes }); }}
-                        className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent"
-                        title="Quick preview"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <Results
+        browse={browse}
+        scope={scope}
+        viewMode={viewMode}
+        isDark={isDark}
+        onNavigate={onNavigate}
+        onPreview={(asset: Asset) =>
+          setPreviewing({
+            id: asset.id,
+            name: asset.name,
+            contentType: asset.content_type,
+            sizeBytes: asset.size_bytes,
+          })
+        }
+      />
 
-      {canLoadMore && (
-        <>
-          {/* Sentinel: observed to auto-load the next page on scroll. */}
-          <div ref={sentinelRef} aria-hidden="true" className="h-px" />
-          <div className="flex justify-center pt-1">
-            <button
-              type="button"
-              onClick={loadMore}
-              disabled={loadingMore}
-              className="rounded-md border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-60"
-            >
-              {loadingMore ? "Loading more…" : "Load more"}
-            </button>
-          </div>
-        </>
-      )}
+      <InfiniteFooter
+        hasMore={browse.canLoadMore}
+        isLoadingMore={browse.loadingMore}
+        onLoadMore={browse.loadMore}
+      />
 
-      {scope === "mine" && semanticSearch ? (
-        assets.length > 0 && (
-          <p className="text-xs text-muted-foreground text-center">
-            Ranked by relevance to &ldquo;{debouncedSearch.trim()}&rdquo; across your assets.
-          </p>
-        )
-      ) : scope === "mine" ? (
-        data && assets.length < data.total && (
-          <p className="text-sm text-muted-foreground text-center">
-            Showing {assets.length} of {data.total} assets
-          </p>
-        )
-      ) : (
-        displayItems.length > 0 && (
-          <p className="text-sm text-muted-foreground text-center">
-            Showing {displayItems.length} {scope === "shared" ? "shared " : ""}asset{displayItems.length === 1 ? "" : "s"}
-          </p>
-        )
-      )}
+      <ResultCount browse={browse} scope={scope} />
 
-      <ThumbnailQueue assets={assets} />
+      <ThumbnailQueue assets={browse.assets} />
 
       {previewing && (
         <AssetPreviewModal
@@ -522,49 +96,87 @@ export function MyAssetsPage({ onNavigate }: Props) {
   );
 }
 
-function EmptyState({ scope, searching, query }: { scope: Scope; searching: boolean; query: string }) {
-  if (searching) {
+type BrowseResult = ReturnType<typeof useAssetBrowse>;
+
+/** The list itself: loading, empty for one of several reasons, or the rows. */
+function Results({
+  browse,
+  scope,
+  viewMode,
+  isDark,
+  onNavigate,
+  onPreview,
+}: {
+  browse: BrowseResult;
+  scope: Scope;
+  viewMode: ViewMode;
+  isDark: boolean;
+  onNavigate: (path: string) => void;
+  onPreview: (asset: Asset) => void;
+}) {
+  if (browse.isLoadingList) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <Search className="h-12 w-12 mb-2 opacity-30" />
-        <p className="text-sm font-medium">No assets match &ldquo;{query}&rdquo;</p>
-      </div>
+      <p className="py-12 text-center text-sm text-muted-foreground">
+        {browse.semanticSearch ? "Searching..." : "Loading..."}
+      </p>
     );
   }
-  if (scope === "shared") {
-    return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <Users className="h-12 w-12 mb-2 opacity-30" />
-        <p className="text-sm font-medium">No shared assets</p>
-        <p className="text-xs mt-1">Assets others share with you will appear here.</p>
-      </div>
+
+  if (browse.displayItems.length === 0) {
+    // With more pages available (shared/all client-side filters only see the
+    // loaded rows), steer to "Load more" instead of a contradictory "no
+    // assets" empty state next to a Load-more button.
+    return browse.canLoadMore ? (
+      <p className="py-12 text-center text-sm text-muted-foreground">
+        No matching assets in the loaded set yet &mdash; load more to keep looking.
+      </p>
+    ) : (
+      <AssetsEmpty scope={scope} searching={browse.searching} query={browse.query} />
     );
   }
-  if (scope === "all") {
+
+  return viewMode === "grid" ? (
+    <AssetGrid
+      items={browse.displayItems}
+      shareSummaries={browse.shareSummaries}
+      threadCounts={browse.threadCounts}
+      isDark={isDark}
+      onNavigate={onNavigate}
+    />
+  ) : (
+    <AssetTable
+      items={browse.displayItems}
+      shareSummaries={browse.shareSummaries}
+      threadCounts={browse.threadCounts}
+      onNavigate={onNavigate}
+      onPreview={onPreview}
+    />
+  );
+}
+
+/** How much of the list is on screen, phrased for the scope that produced it. */
+function ResultCount({ browse, scope }: { browse: BrowseResult; scope: Scope }) {
+  if (scope !== "mine") {
+    if (browse.displayItems.length === 0) return null;
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <File className="h-12 w-12 mb-2 opacity-30" />
-        <p className="text-sm font-medium">No assets</p>
-      </div>
+      <p className="text-center text-sm text-muted-foreground">
+        Showing {browse.displayItems.length} {scope === "shared" ? "shared " : ""}asset
+        {browse.displayItems.length === 1 ? "" : "s"}
+      </p>
     );
   }
+  if (browse.semanticSearch) {
+    if (browse.assets.length === 0) return null;
+    return (
+      <p className="text-center text-xs text-muted-foreground">
+        Ranked by relevance to &ldquo;{browse.query}&rdquo; across your assets.
+      </p>
+    );
+  }
+  if (browse.total === undefined || browse.assets.length >= browse.total) return null;
   return (
-    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-      <File className="h-12 w-12 mb-2 opacity-30" />
-      <p className="text-sm font-medium">No assets yet</p>
-      <div className="mt-3 max-w-md text-center space-y-2">
-        <p className="text-xs">
-          Assets are interactive dashboards, visualizations, and documents
-          created during your conversations.
-        </p>
-        <p className="text-xs">
-          Try asking your assistant to <em>"create an interactive dashboard"</em> or{" "}
-          <em>"save this as an asset"</em> to get started.
-        </p>
-        <p className="text-xs">
-          A file you wrote yourself and want used as-is belongs in Resources, not here.
-        </p>
-      </div>
-    </div>
+    <p className="text-center text-sm text-muted-foreground">
+      Showing {browse.assets.length} of {browse.total} assets
+    </p>
   );
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Loader2, Database, Activity } from "lucide-react";
+import { Loader2, Database } from "lucide-react";
 import {
   useIndexJobsSummary,
   useIndexJobs,
@@ -9,11 +9,13 @@ import {
 } from "@/api/admin/indexjobs";
 import { IndexThroughputTimeline } from "@/components/charts/IndexThroughputTimeline";
 import { IndexLatencyTrack, type KindLatency } from "@/components/charts/IndexLatencyTrack";
+import { EmptyState } from "@/components/patterns/EmptyState";
 import { percentile, failureKey } from "./components/helpers";
-import { ProviderBanner } from "./components/badges";
+import { IndexingBanners } from "./components/banners";
 import { KindCard } from "./components/kindcard";
-import { InFlightPanel, RetryBackoffPanel, FailureTriage, Section } from "./components/panels";
-import { JobTable } from "./components/jobtable";
+import { InFlightPanel, RetryBackoffPanel, Section } from "./components/panels";
+import { FailureTriage } from "./components/triage";
+import { JobsSection } from "./components/JobsSection";
 
 // IndexingPage is the admin-only cross-kind Indexing dashboard. It leads
 // with a plain health verdict per kind (Healthy / Indexing… / Degraded /
@@ -30,8 +32,6 @@ export function IndexingPage() {
   const failuresQ = useIndexJobFailures();
   const reindex = useReindex();
   const dismiss = useDismissFailure();
-  const [kindFilter, setKindFilter] = useState<string>("");
-  const [statusFilter, setStatusFilter] = useState<string>("");
   // Which unit each shared mutation is acting on (null = none), so a
   // single in-flight Retry/Dismiss does not disable every button at once.
   const [retryingKey, setRetryingKey] = useState<string | null>(null);
@@ -92,16 +92,6 @@ export function IndexingPage() {
     [jobs],
   );
 
-  const filteredJobs = useMemo(
-    () =>
-      jobs.filter(
-        (j) =>
-          (kindFilter === "" || j.source_kind === kindFilter) &&
-          (statusFilter === "" || j.status === statusFilter),
-      ),
-    [jobs, kindFilter, statusFilter],
-  );
-
   if (summaryQ.isLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
@@ -115,42 +105,20 @@ export function IndexingPage() {
 
   return (
     <div className="space-y-4">
-      {provider && (
-        <ProviderBanner
-          status={provider.status}
-          kind={provider.kind}
-          model={provider.model}
-          dimension={provider.dimension}
-        />
-      )}
-
-      {(reindex.isError || dismiss.isError) && (
-        <div className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-700 dark:text-red-300">
-          <AlertTriangle className="h-4 w-4 shrink-0" /> Action failed
-          {reindex.error instanceof Error
-            ? `: ${reindex.error.message}`
-            : dismiss.error instanceof Error
-              ? `: ${dismiss.error.message}`
-              : ""}
-          .
-        </div>
-      )}
-      {jobsQ.isError && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-400">
-          <AlertTriangle className="h-4 w-4 shrink-0" /> Could not load job details; the
-          throughput, latency, in-flight, and retry panels below may be incomplete.
-        </div>
-      )}
+      <IndexingBanners
+        provider={provider}
+        actionErrors={[reindex.error, dismiss.error].filter(Boolean)}
+        jobsFailed={jobsQ.isError ?? false}
+      />
 
       {kinds.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-16 text-center text-muted-foreground">
-          <Database className="h-8 w-8 opacity-50" />
-          <p className="text-sm font-medium">No indexing consumers</p>
-          <p className="max-w-md text-xs">
+        <EmptyState icon={Database} className="py-16">
+          <p className="text-sm font-medium text-foreground">No indexing consumers</p>
+          <p className="mx-auto mt-1 max-w-md text-xs">
             Indexing runs when the platform has both a database and a configured embedding provider.
             Once a consumer (api-catalog, tools) registers, its health appears here.
           </p>
-        </div>
+        </EmptyState>
       ) : (
         <>
           {/* Summary-first: lead with a health verdict per kind. */}
@@ -202,44 +170,7 @@ export function IndexingPage() {
           </Section>
 
           {/* Drill-down. */}
-          <Section
-            title="Jobs"
-            hint={jobs.length >= 500 ? `${jobs.length} most recent` : `${jobs.length} jobs`}
-          >
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <Activity className="h-4 w-4 text-muted-foreground" />
-              <select
-                value={kindFilter}
-                onChange={(e) => setKindFilter(e.target.value)}
-                className="rounded-md border bg-background px-2 py-1 text-xs"
-                aria-label="Filter by kind"
-              >
-                <option value="">All kinds</option>
-                {kinds.map((k) => (
-                  <option key={k.kind} value={k.kind}>
-                    {k.kind}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="rounded-md border bg-background px-2 py-1 text-xs"
-                aria-label="Filter by status"
-              >
-                <option value="">All statuses</option>
-                {["pending", "running", "succeeded", "failed"].map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-              <span className="text-[11px] text-muted-foreground">
-                routine reconciler syncs are collapsed
-              </span>
-            </div>
-            <JobTable jobs={filteredJobs} resetKey={`${kindFilter}::${statusFilter}`} />
-          </Section>
+          <JobsSection jobs={jobs} kinds={kinds} />
         </>
       )}
     </div>

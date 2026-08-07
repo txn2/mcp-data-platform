@@ -74,11 +74,6 @@
       "count": 1
     }
   },
-  "src/components/assetviewer/AssetViewerModals.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
   "src/components/charts/MetricTile.tsx": {
     "complexity": {
       "count": 1
@@ -136,57 +131,6 @@
     }
   },
   "src/lib/entityRefs.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/assets/MyAssetsPage.tsx": {
-    "complexity": {
-      "count": 4
-    },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/audit/APIGatewayView.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/audit/tabs/EventsTab.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/audit/tabs/OverviewTab.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/collections/CollectionEditorPage.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/collections/CollectionViewerPage.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/collections/CollectionsPage.tsx": {
-    "complexity": {
-      "count": 3
-    },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/collections/editor/SortableSection.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/indexing/IndexingPage.tsx": {
     "complexity": {
       "count": 1
     }

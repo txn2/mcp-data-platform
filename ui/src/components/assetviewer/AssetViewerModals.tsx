@@ -1,7 +1,7 @@
-import { AlertTriangle, RotateCcw } from "lucide-react";
 import type { Asset } from "@/api/portal/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ChangeSummaryDialog } from "./ChangeSummaryDialog";
 import type { MutationLike } from "./types";
-import { ModalScroll } from "@/components/ModalShell";
 
 interface AssetViewerModalsProps {
   asset: Asset;
@@ -29,6 +29,7 @@ interface AssetViewerModalsProps {
   revertMutation?: MutationLike<{ assetId: string; version: number }>;
 }
 
+/** The four questions the asset viewer stops to ask before it acts. */
 export function AssetViewerModals({
   asset,
   deleteModalOpen,
@@ -50,164 +51,63 @@ export function AssetViewerModals({
   onConfirmRevert,
   revertMutation,
 }: AssetViewerModalsProps) {
+  const nextVersion = (asset.current_version ?? 0) + 1;
   return (
     <>
-      {/* Delete confirmation modal */}
-      {deleteModalOpen && (
-        <ModalScroll onClose={onDeleteClose} width="max-w-sm">
-          <div className="rounded-lg border bg-card p-6 shadow-lg space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
-                <AlertTriangle className="h-5 w-5 text-destructive" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold">Delete asset</h3>
-                <p className="text-sm text-muted-foreground">
-                  This action cannot be undone.
-                </p>
-              </div>
-            </div>
-            <p className="text-sm">
-              Are you sure you want to delete{" "}
-              <span className="font-medium">{asset.name}</span>?
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onDeleteClose}
-                className="rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onConfirmDelete}
-                disabled={deleteMutation.isPending}
-                className="rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
-              >
-                {deleteMutation.isPending ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-        </ModalScroll>
-      )}
+      <ConfirmDialog
+        open={deleteModalOpen}
+        onOpenChange={(open) => {
+          if (!open) onDeleteClose();
+        }}
+        title="Delete asset"
+        description={
+          <>
+            Deleting <span className="font-medium">{asset.name}</span> cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        loading={deleteMutation.isPending}
+        onConfirm={onConfirmDelete}
+      />
 
-      {/* Shared asset save warning modal */}
-      {sharedSaveWarningOpen && (
-        <ModalScroll onClose={onSharedSaveWarningClose} width="max-w-sm">
-          <div className="rounded-lg border bg-card p-6 shadow-lg space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950">
-                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold">
-                  Editing a shared asset
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  You are editing a shared asset owned by{" "}
-                  {asset.owner_email || "another user"}. Changes will be visible
-                  to the owner and all other recipients.
-                </p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onSharedSaveWarningClose}
-                className="rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onSharedSaveWarningContinue}
-                disabled={contentUpdateMutation?.isPending}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </ModalScroll>
-      )}
+      <ConfirmDialog
+        open={sharedSaveWarningOpen}
+        onOpenChange={(open) => {
+          if (!open) onSharedSaveWarningClose();
+        }}
+        title="Editing a shared asset"
+        description={`You are editing a shared asset owned by ${
+          asset.owner_email || "another user"
+        }. Changes will be visible to the owner and all other recipients.`}
+        confirmLabel="Continue"
+        loading={contentUpdateMutation?.isPending}
+        onConfirm={onSharedSaveWarningContinue}
+      />
 
-      {/* Change summary dialog */}
-      {changeSummaryOpen && (
-        <ModalScroll onClose={onChangeSummaryClose} width="max-w-sm">
-          <div className="rounded-lg border bg-card p-6 shadow-lg space-y-4">
-            <h3 className="text-sm font-semibold">What changed?</h3>
-            <p className="text-xs text-muted-foreground">
-              Saving will create a new version v
-              {(asset.current_version ?? 0) + 1}.
-            </p>
-            <textarea
-              value={changeSummary}
-              onChange={(e) => onChangeSummaryChange(e.target.value)}
-              placeholder="Describe your changes (optional)"
-              rows={3}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2 resize-none"
-              autoFocus
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onChangeSummaryClose}
-                className="rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onChangeSummarySave}
-                disabled={contentUpdateMutation?.isPending}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                {contentUpdateMutation?.isPending ? "Saving..." : "Save"}
-              </button>
-            </div>
-          </div>
-        </ModalScroll>
-      )}
+      <ChangeSummaryDialog
+        open={changeSummaryOpen}
+        onOpenChange={(open) => {
+          if (!open) onChangeSummaryClose();
+        }}
+        nextVersion={nextVersion}
+        value={changeSummary}
+        onChange={onChangeSummaryChange}
+        onSave={onChangeSummarySave}
+        saving={!!contentUpdateMutation?.isPending}
+      />
 
-      {/* Revert confirmation modal */}
-      {revertModalOpen && selectedVersion != null && (
-        <ModalScroll onClose={onRevertClose} width="max-w-sm">
-          <div className="rounded-lg border bg-card p-6 shadow-lg space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950">
-                <RotateCcw className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold">
-                  Revert to v{selectedVersion}?
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  A new version (v{(asset.current_version ?? 0) + 1}) will be
-                  created from the content of v{selectedVersion}.
-                </p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onRevertClose}
-                className="rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onConfirmRevert}
-                disabled={revertMutation?.isPending}
-                className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
-              >
-                {revertMutation?.isPending ? "Reverting..." : "Revert"}
-              </button>
-            </div>
-          </div>
-        </ModalScroll>
-      )}
+      <ConfirmDialog
+        open={revertModalOpen && selectedVersion != null}
+        onOpenChange={(open) => {
+          if (!open) onRevertClose();
+        }}
+        title={`Revert to v${selectedVersion}?`}
+        description={`A new version (v${nextVersion}) will be created from the content of v${selectedVersion}.`}
+        confirmLabel="Revert"
+        loading={revertMutation?.isPending}
+        onConfirm={onConfirmRevert}
+      />
     </>
   );
 }
