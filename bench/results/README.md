@@ -54,6 +54,20 @@ and the confirmatory matrix ran in full; every table recomputes offline via
 All families are under [`knowledge-pollution/`](knowledge-pollution/), indexed
 by [`knowledge-pollution/README.md`](knowledge-pollution/README.md).
 
+## Context economics (in progress)
+
+Epic: issue #1164. No protocol and no report yet, so nothing under this slug is
+pre-registered. Its one family is an archival re-analysis of another study's
+archives, kept here under the cross-study re-analysis convention in
+[`../README.md`](../README.md).
+
+Families are indexed by
+[`context-economics/README.md`](context-economics/README.md).
+
+| Directory | What it is |
+| --- | --- |
+| [`context-economics/probe/`](context-economics/probe/) | The premise probe, archival: a re-analysis of the knowledge-layer study's `phase2-anthropic-k3/` archives that decomposes per-attempt cost into cache creation, cache read per tool call, and result payload by tool and federated group. Motivating evidence only, and its own attribution question is open. |
+
 ## Search-first gate probe (closed)
 
 Summary: [`pk-gateprobe/pk-gateprobe-SUMMARY.md`](pk-gateprobe/pk-gateprobe-SUMMARY.md).

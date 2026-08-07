@@ -26,6 +26,12 @@ Every artifact belongs to exactly one study. Run-family directories under
 | **Run data** | top-level families under [`results/`](results/) | [`results/knowledge-use/`](results/knowledge-use/) | [`results/knowledge-pollution/`](results/knowledge-pollution/) | [`results/api-study-pilot/`](results/api-study-pilot/) |
 | **Status** | published, report version 2.0 | published, report version 1.0, pinned to v1.116.0 | published, report version 1.0, commit-pinned builds | closed not planned; postmortem on #1027 |
 
+A study earns a column once it has a protocol or a report. Context economics
+(epic #1164) has neither yet and so is absent above, while its premise probe is
+already archived under
+[`results/context-economics/`](results/context-economics/); its column lands
+with its protocol.
+
 Negative results and evidence-backed platform decisions are indexed in
 [`docs/findings-register.md`](docs/findings-register.md) — a retired study
 candidate gets a register row, not silence, so concluded research is never
@@ -90,6 +96,35 @@ The knowledge-layer study predates the convention in two respects, both
 permanent and both recorded here rather than fixed: its published page is
 `benchmark-report.md` with no slug, and its `results/` families sit at the top
 level instead of under a slug directory. The deposited PDF cites those paths.
+
+### Re-analyzing another study's published archives
+
+One-artifact-one-study is a rule about ownership, not about who may read the
+data. A published archive is evidence that outlived the run that produced it,
+and a later study is often the first place a question about it can be asked at
+all. The rule below lets that happen without a deposited archive acquiring a
+second owner.
+
+1. Published run archives are immutable and belong to exactly one study. That
+   never changes, and no re-analysis moves, copies, edits, or relabels them.
+2. A later study MAY re-analyze a published study's committed archives. It owes
+   two things: an explicit citation of the source study, by page and DOI, and a
+   provenance table in the consuming study's own toolchain or results directory
+   naming the source study, its DOI, and the exact archive paths consumed.
+3. Re-analysis motivates; it never confirms. It may open a study and appear in
+   the report as motivating evidence, always labeled as such. Every claim that
+   depends on current code requires the consuming study's own runs, because a
+   published archive was produced by the build that ran it and cannot speak for
+   any later one.
+4. The consuming study's recompute scripts read the source archives in place.
+   No copies, so single ownership holds on disk and not only in prose.
+
+First application: the context-economics study's platform-tax probe, an
+archival re-analysis of the knowledge-layer study's
+[`results/phase2-anthropic-k3/`](results/phase2-anthropic-k3/)
+(DOI [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044)),
+archived with its provenance table at
+[`results/context-economics/probe/`](results/context-economics/probe/).
 
 ## Running
 
