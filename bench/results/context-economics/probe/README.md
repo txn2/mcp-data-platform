@@ -59,18 +59,60 @@ gives roughly 2,939 for a0 against the archived 3,359.67.
 
 ## Regenerability
 
-`decomposition.json` is a frozen snapshot. The script that produced it ran
-inline in the session that produced the file and was not committed, so nothing
-in this directory regenerates today. `SUMMARY.md` calls the numbers
-"regenerable from the archived results.json + transcripts" and names no
-committed script; read that as a statement about the inputs, not as a claim
-that the repository contains the procedure. It does not.
+`decomposition.json` is a frozen snapshot, and it is now reproducible.
+[`bench/reports/context-economics/decompose.py`](../../../reports/context-economics/decompose.py)
+recomputes it from the four archives above and compares every key and every
+value against this file; `make bench-report-check` runs that comparison in
+`make verify` and in CI, so a drift between the archives and this snapshot
+fails the build. It also recomputes the numbers `SUMMARY.md` states only in
+prose.
 
-The rerunnable recompute lands with the protocol and decomposition toolchain
-(#1170), whose acceptance condition is that it reproduces this file byte for
-byte from the same four archives, under the metric definitions above. Until
-then, treat the numbers here as a record of what was computed, not as a result a
-reader can independently reproduce from this repository.
+Two details of that reproduction are worth recording, because both were
+rediscovered rather than documented. `median_result_chars_by_tool` truncates
+the median rather than rounding it, which is what reproduces five of its
+entries. And the key *order* in this file is the directory-iteration order of
+the original uncommitted script, which varies by filesystem and which no
+portable recompute reproduces; the comparison therefore normalizes key sequence
+on both sides and is byte-for-byte on canonical JSON.
+
+When the original ran, `SUMMARY.md` called the numbers "regenerable from the
+archived results.json + transcripts" while naming no committed script. That was
+a statement about the inputs rather than about the repository. It is now true of
+the repository as well.
+
+## Corrections from the recompute
+
+Two readings in `SUMMARY.md` do not survive the fuller decomposition. The
+frozen file keeps them; the protocol
+([`bench/docs/context-economics-study-design.md`](../../../docs/context-economics-study-design.md),
+section 2.1) carries these corrections forward, and both are recomputed and
+pinned by the toolchain.
+
+**Cache creation is not a measurement of static surface size.** Finding 2 reads
+the modest growth in `cache_creation` (1,683 to 5,906) as evidence that the
+static tool surface is not the multiplier. Cache creation counts tokens
+*written* to cache, and a prefix shared by hundreds of attempts in one run is
+written once and read thereafter, so a large static surface appears as a large
+`cache_read` and a small `cache_creation`. The static prefix, bounded from
+above by the smallest per-request average context in each arm, is 2,585 /
+2,508 / 5,127 / 9,809 tokens across a0 to a3 — it nearly quadruples, and it is
+re-read on every turn. The epic (#1164) already recorded that this finding does
+not retire a tool-surface arm; the bound is why.
+
+**Population is not the leading explanation of the a2-to-a3 gap.** Finding 3
+attributes the federation-breadth difference to what was populated in the
+shared platform at run time. The archives do not support that ranking. a3's
+config declares a `memory.embedding` block that a2's does not, and the platform
+hands that provider to the search router
+(`knowledge.NewRouter(cfg.Embedding, ...)`, `internal/platform/searchfed/searchfed.go:157`),
+so it is a search-*ranking* lever. The transcripts show the split directly: a2
+ranked `lexical` on 1,027 of its 1,028 federated searches and a3 ranked
+`hybrid` on 979 of 982. Under lexical ranking the `endpoints` group matched
+zero candidates across the entire a2 run, against 12,700 across a3, and
+`knowledge_pages` matched 853 against 7,716. Whether the stores also differed
+cannot be recovered from these archives — which is the point: the gap is
+unattributable, and an RQ1 that varied population while letting ranking mode
+vary with it would reproduce the confound rather than close it.
 
 ## What it establishes
 
