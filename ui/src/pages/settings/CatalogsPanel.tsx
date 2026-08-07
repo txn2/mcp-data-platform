@@ -7,6 +7,10 @@ import {
   useEmbeddingProviderStatus,
   useSystemInfo,
 } from "@/api/admin/hooks";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { PageHeader } from "@/components/patterns/PageHeader";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { CatalogCreateForm } from "./catalogs/CatalogCreateForm";
 import { CatalogEditor } from "./catalogs/CatalogEditor";
 import { CatalogListItem } from "./catalogs/CatalogListItem";
@@ -81,59 +85,68 @@ export function CatalogsPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold">API Catalogs</h1>
-          <p className="text-sm text-muted-foreground">
+      <PageHeader
+        title="API Catalogs"
+        // PageHeader wraps its action below a full-width subtitle (flex-wrap
+        // wraps before it shrinks), so the prose declares its own measure and
+        // the New-catalog button stays on the title's row.
+        subtitle={
+          <span className="block max-w-2xl">
             Versioned bundles of OpenAPI 3.x specs that api-kind connections share.
-            One catalog can back many connections; one Salesforce catalog serves
-            both the sandbox and production connections in a deployment.
-          </p>
-        </div>
-        {!isReadOnly && (
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedID(null);
-              setMode("create");
-            }}
-            className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
-          >
-            <Plus className="h-4 w-4" /> New catalog
-          </button>
-        )}
-      </header>
+            One catalog can back many connections; one Salesforce catalog serves both
+            the sandbox and production connections in a deployment.
+          </span>
+        }
+        actions={
+          !isReadOnly && (
+            <Button
+              type="button"
+              onClick={() => {
+                setSelectedID(null);
+                setMode("create");
+              }}
+            >
+              <Plus /> New catalog
+            </Button>
+          )
+        }
+      />
 
       {isReadOnly && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
-          The platform is running in file config mode. Catalog edits are disabled.
-        </div>
+        <Alert variant="warning">
+          <AlertDescription>
+            The platform is running in file config mode. Catalog edits are disabled.
+          </AlertDescription>
+        </Alert>
       )}
 
       {embedderUnconfigured && (
-        <div
-          role="status"
-          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
-        >
-          <strong>Embedding provider not configured.</strong> Semantic ranking is
-          disabled; spec saves will not produce per-operation embeddings and
-          api_list_endpoints falls back to lexical scoring. Set{" "}
-          <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs dark:bg-amber-900/40">
-            memory.embedding.provider
-          </code>{" "}
-          (e.g., to <code className="font-mono">ollama</code>) and restart to
-          enable.
-        </div>
+        // Alert hard-codes role="alert" (assertive); this banner is derived
+        // from a polled status query, so it announces politely instead.
+        <Alert variant="warning" role="status">
+          <AlertDescription>
+            <span>
+              <strong>Embedding provider not configured.</strong> Semantic ranking is
+              disabled; spec saves will not produce per-operation embeddings and
+              api_list_endpoints falls back to lexical scoring. Set{" "}
+              <code className="rounded bg-current/10 px-1 py-0.5 font-mono text-xs">
+                memory.embedding.provider
+              </code>{" "}
+              (e.g., to <code className="font-mono">ollama</code>) and restart to
+              enable.
+            </span>
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)] gap-4">
         <aside className="overflow-y-auto rounded-md border bg-card">
           {isLoading ? (
-            <div className="p-3 text-sm text-muted-foreground">Loading…</div>
+            <p className="p-3 text-sm text-muted-foreground">Loading…</p>
           ) : catalogs && catalogs.length === 0 ? (
-            <div className="p-3 text-sm text-muted-foreground">
+            <p className="p-3 text-sm text-muted-foreground">
               No catalogs yet. Click <strong>New catalog</strong> to add one.
-            </div>
+            </p>
           ) : (
             <ul className="divide-y">
               {Object.keys(groupedByName)
@@ -205,9 +218,10 @@ export function CatalogsPanel() {
               }}
             />
           ) : (
-            <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-              Select a catalog from the left or click <strong className="mx-1">New catalog</strong> to create one.
-            </div>
+            <EmptyState className="my-8">
+              Select a catalog from the left or click{" "}
+              <strong className="mx-1">New catalog</strong> to create one.
+            </EmptyState>
           )}
         </section>
       </div>

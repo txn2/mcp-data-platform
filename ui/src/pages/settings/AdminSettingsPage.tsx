@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import {
   useSMTPSettings,
   useSetSMTPSettings,
@@ -7,8 +7,13 @@ import {
   useSystemInfo,
   type SMTPSettings,
 } from "@/api/admin/hooks";
-import { ConfigField, ConfigToggle } from "./connections/fields";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ConfigField, ConfigSelect, ConfigToggle } from "./connections/fields";
 import { ReviewQueueAlertCard } from "./ReviewQueueAlertCard";
+import { SettingsCard } from "./panels";
 import {
   ErrorBanner,
   ReadOnlyBanner,
@@ -17,7 +22,6 @@ import {
   UpdatedByMeta,
   WarningBanner,
 } from "./settingsChrome";
-import { cn } from "@/lib/utils";
 import { AlertCircle, Check, XCircle, Send, Mail } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -30,6 +34,11 @@ const TLS_MODES = [
   { value: "implicit", label: "Implicit TLS" },
   { value: "none", label: "None" },
 ];
+
+// TLS_MODE_VALUES is the set of modes the picker offers.
+// A Radix Select renders nothing for a value with no matching item, so an
+// unrecognised mode from the server would otherwise show an empty control.
+const TLS_MODE_VALUES = new Set(TLS_MODES.map((m) => m.value));
 
 // FormState mirrors the PUT body with text inputs kept as strings; port is
 // parsed on save. The password field is write-only: it is never populated
@@ -102,20 +111,14 @@ function SMTPFields({
           placeholder="mailer@example.com"
           mono
         />
-        <div>
-          <label className="mb-1 block text-xs font-medium">Password</label>
-          <input
-            type="password"
-            value={form.password}
-            onChange={(e) => onChange({ password: e.target.value })}
-            placeholder={passwordSet ? "(unchanged)" : undefined}
-            autoComplete="off"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-          />
-          <p className="mt-1 text-xs text-muted-foreground">
-            Leave empty to keep the stored password
-          </p>
-        </div>
+        <ConfigField
+          label="Password"
+          help="Leave empty to keep the stored password"
+          value={form.password}
+          onChange={(v) => onChange({ password: v })}
+          placeholder={passwordSet ? "(unchanged)" : undefined}
+          sensitive
+        />
         <ConfigField
           label="From address"
           value={form.from}
@@ -129,20 +132,16 @@ function SMTPFields({
           onChange={(v) => onChange({ from_name: v })}
           placeholder="Data Platform"
         />
-        <div>
-          <label className="mb-1 block text-xs font-medium">TLS mode</label>
-          <select
-            value={form.tls_mode}
-            onChange={(e) => onChange({ tls_mode: e.target.value })}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-          >
-            {TLS_MODES.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <ConfigSelect
+          label="TLS mode"
+          value={form.tls_mode}
+          onChange={(v) => onChange({ tls_mode: v })}
+          options={
+            TLS_MODE_VALUES.has(form.tls_mode)
+              ? TLS_MODES
+              : [...TLS_MODES, { value: form.tls_mode, label: form.tls_mode }]
+          }
+        />
       </div>
     </>
   );
@@ -152,6 +151,7 @@ function SMTPFields({
 // sits behind its own hook + local state: sending is independent of the form.
 function TestEmailSection() {
   const sendTest = useSendTestEmail();
+  const testFieldID = useId();
   const [testTo, setTestTo] = useState("");
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -184,50 +184,49 @@ function TestEmailSection() {
 
   return (
     <div className="border-t pt-4">
-      <label className="mb-1 block text-xs font-medium">Send test email</label>
-      <p className="mb-2 text-xs text-muted-foreground">
+      <Label htmlFor={testFieldID} className="text-xs">
+        Send test email
+      </Label>
+      <p className="mb-2 mt-1 text-xs text-muted-foreground">
         Verifies the saved configuration end to end. Save your changes first.
       </p>
       <div className="flex gap-2">
-        <input
+        <Input
+          id={testFieldID}
           type="email"
           value={testTo}
           onChange={(e) => setTestTo(e.target.value)}
           placeholder="recipient@example.com"
-          className="w-72 max-w-full rounded-md border bg-background px-3 py-1.5 text-xs outline-none ring-ring focus:ring-2"
+          className="h-8 w-72 max-w-full text-xs"
         />
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={handleSend}
           disabled={!testTo.trim() || sendTest.isPending}
-          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
         >
-          <Send className="h-3 w-3" />
+          <Send />
           {sendTest.isPending ? "Sending..." : "Send test"}
-        </button>
+        </Button>
       </div>
       {showOptOutNotice && (
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-          This address has opted out of notification emails; the test will still send.
-        </p>
+        <Alert variant="warning" className="mt-2 px-3 py-2">
+          <AlertCircle />
+          <AlertDescription className="text-xs">
+            This address has opted out of notification emails; the test will still
+            send.
+          </AlertDescription>
+        </Alert>
       )}
       {result && (
-        <p
-          className={cn(
-            "mt-2 flex items-center gap-1.5 text-xs",
-            result.ok
-              ? "text-green-600 dark:text-green-500"
-              : "text-red-700 dark:text-red-400",
-          )}
+        <Alert
+          variant={result.ok ? "success" : "destructive"}
+          className="mt-2 px-3 py-2"
         >
-          {result.ok ? (
-            <Check className="h-3.5 w-3.5 shrink-0" />
-          ) : (
-            <XCircle className="h-3.5 w-3.5 shrink-0" />
-          )}
-          {result.message}
-        </p>
+          {result.ok ? <Check /> : <XCircle />}
+          <AlertDescription className="text-xs">{result.message}</AlertDescription>
+        </Alert>
       )}
     </div>
   );
@@ -382,28 +381,22 @@ function SMTPCard({ isReadOnly }: { isReadOnly: boolean }) {
   }, [form, setSettings]);
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
-      <StatusBanners
-        isReadOnly={isReadOnly}
-        loadFailed={!!loadError}
-        warnings={settings?.warnings ?? []}
-        noDelivery={hasNoDeliveryPath(settings)}
-        onRetry={() => void refetch()}
-      />
-
-      {/* Header bar */}
-      <div className="flex items-center justify-between border-b px-5 py-3">
-        <div className="flex items-center gap-3">
-          <Mail className="h-4 w-4 text-muted-foreground" />
-          <div>
-            <h3 className="text-sm font-semibold leading-none">Email (SMTP)</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Outbound mail server used for email notifications
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
+    <SettingsCard
+      icon={Mail}
+      title="Email (SMTP)"
+      description="Outbound mail server used for email notifications"
+      notices={
+        <StatusBanners
+          isReadOnly={isReadOnly}
+          loadFailed={!!loadError}
+          warnings={settings?.warnings ?? []}
+          noDelivery={hasNoDeliveryPath(settings)}
+          onRetry={() => void refetch()}
+        />
+      }
+      feedback={<SaveFeedbackBanners saveError={saveError} dirty={dirty} />}
+      action={
+        <>
           <UpdatedByMeta
             updatedBy={settings?.updated_by}
             updatedAt={settings?.updated_at}
@@ -416,15 +409,13 @@ function SMTPCard({ isReadOnly }: { isReadOnly: boolean }) {
               onSave={handleSave}
             />
           )}
-        </div>
-      </div>
-
-      <SaveFeedbackBanners saveError={saveError} dirty={dirty} />
-
+        </>
+      }
+    >
       {isLoading ? (
-        <div className="p-5 text-sm text-muted-foreground">Loading...</div>
+        <p className="text-sm text-muted-foreground">Loading...</p>
       ) : (
-        <div className="space-y-4 p-5">
+        <div className="space-y-4">
           <SMTPFields
             form={form}
             passwordSet={settings?.password_set ?? false}
@@ -435,6 +426,6 @@ function SMTPCard({ isReadOnly }: { isReadOnly: boolean }) {
           {!isReadOnly && <TestEmailSection />}
         </div>
       )}
-    </div>
+    </SettingsCard>
   );
 }

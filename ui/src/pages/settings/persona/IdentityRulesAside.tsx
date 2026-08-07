@@ -1,6 +1,11 @@
-import { Info } from "lucide-react";
-import { Section, Field, ChipInput } from "./primitives";
-import { RuleList, AddPatternButton } from "./RuleList";
+import { useId } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { ChipInput } from "../ChipInput";
+import { Section, Field } from "./primitives";
+import { RuleList } from "./RuleList";
+import { AddPatternButton } from "./AddPatternButton";
 import type { PersonaDraft, Scope, Item } from "./types";
 
 // IdentityRulesAside is the persona editor's left rail: identity fields (name,
@@ -48,38 +53,44 @@ export function IdentityRulesAside({
   removeAllow: (pattern: string) => void;
   removeDeny: (pattern: string) => void;
 }) {
+  const ids = useId();
   return (
     <aside className="border-b lg:overflow-y-auto lg:border-b-0 lg:border-r">
       <fieldset disabled={isReadOnly} className="contents">
         <Section title="Identity">
-          <Field label="Name" required>
-            <input
+          <Field label="Name" htmlFor={`${ids}-name`} required>
+            <Input
+              id={`${ids}-name`}
               type="text"
               value={draft.name}
               onChange={(e) => onUpdate({ name: e.target.value })}
               disabled={!isCreate}
               required
               placeholder="analyst"
-              className="w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-xs outline-none ring-ring focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-8 font-mono text-xs"
             />
           </Field>
-          <Field label="Display Name" required>
-            <input
+          <Field label="Display Name" htmlFor={`${ids}-display`} required>
+            <Input
+              id={`${ids}-display`}
               type="text"
               value={draft.displayName}
               onChange={(e) => onUpdate({ displayName: e.target.value })}
               required
               placeholder="Data Analyst"
-              className="w-full rounded-md border bg-background px-2.5 py-1.5 text-xs outline-none ring-ring focus:ring-2"
+              className="h-8 text-xs"
             />
           </Field>
-          <Field label="Description">
-            <textarea
+          <Field label="Description" htmlFor={`${ids}-description`}>
+            {/* Content-sized rather than a fixed row count: a two-row box
+                clipped the third line of every real description, and the rail
+                scrolls anyway. */}
+            <Textarea
+              id={`${ids}-description`}
               value={draft.description}
               onChange={(e) => onUpdate({ description: e.target.value })}
-              rows={2}
               placeholder="What this persona is for…"
-              className="w-full resize-none rounded-md border bg-background px-2.5 py-1.5 text-xs outline-none ring-ring focus:ring-2"
+              className="min-h-14 resize-none px-2.5 py-1.5 text-xs"
             />
           </Field>
           <Field label="Roles">
@@ -90,16 +101,18 @@ export function IdentityRulesAside({
               draft={rolesDraft}
               onDraftChange={setRolesDraft}
               placeholder="add role + Enter"
+              label="Add role"
             />
           </Field>
-          <Field label="Priority">
-            <input
+          <Field label="Priority" htmlFor={`${ids}-priority`}>
+            <Input
+              id={`${ids}-priority`}
               type="number"
               value={draft.priority}
               onChange={(e) =>
                 onUpdate({ priority: parseInt(e.target.value, 10) || 0 })
               }
-              className="w-24 rounded-md border bg-background px-2.5 py-1.5 text-xs outline-none ring-ring focus:ring-2"
+              className="h-8 w-24 text-xs"
             />
             <p className="mt-1 text-[10px] text-muted-foreground">
               Higher wins when a user matches multiple personas.
@@ -138,10 +151,11 @@ export function IdentityRulesAside({
             scope={scope}
           />
           {allowList.length === 0 && scope === "tools" && (
-            <p className="mt-2 flex items-start gap-1 text-[10px] text-amber-700 dark:text-amber-400">
-              <Info className="mt-0.5 h-3 w-3 shrink-0" />
-              <span>No allow patterns means no tools are reachable (default deny).</span>
-            </p>
+            <Alert variant="warning" className="mt-2 px-2 py-1.5">
+              <AlertDescription className="text-[10px]">
+                No allow patterns means no tools are reachable (default deny).
+              </AlertDescription>
+            </Alert>
           )}
         </Section>
 

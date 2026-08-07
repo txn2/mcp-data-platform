@@ -1,7 +1,9 @@
 import { Check, Ban } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import type { Resolution, TraceStep } from "./resolve";
 import { renderPattern } from "./renderPattern";
+import { BUCKET_TINT } from "./tints";
 
 // Trace renders the step-by-step allow/deny resolution for the focused item in
 // the explorer's right rail: deny bucket first, then allow, then the final
@@ -20,6 +22,7 @@ export function Trace({
   hasDeny: boolean;
 }) {
   const result = resolution.decision;
+  const allowed = result === "allow";
   return (
     <div>
       <div className="mb-3">
@@ -47,27 +50,21 @@ export function Trace({
         />
       </div>
 
-      <div
-        className={cn(
-          "mt-3 flex items-center gap-2 rounded-md border px-3 py-2 font-mono text-[11px]",
-          result === "allow"
-            ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
-            : "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300",
-        )}
+      {/* The verdict is the trace's conclusion, so it is an Alert rather than
+          another tinted step: it states an outcome, not a comparison. */}
+      <Alert
+        variant={allowed ? "success" : "destructive"}
+        className="mt-3 px-3 py-2 font-mono text-[11px]"
       >
-        {result === "allow" ? (
-          <Check className="h-4 w-4" />
-        ) : (
-          <Ban className="h-4 w-4" />
-        )}
-        <span>
-          {result === "allow"
+        {allowed ? <Check /> : <Ban />}
+        <AlertDescription className="text-[11px]">
+          {allowed
             ? `ALLOWED via ${resolution.matchedPattern}`
             : result === "deny"
               ? `DENIED via ${resolution.matchedPattern}`
               : "DENIED: no allow pattern matched"}
-        </span>
-      </div>
+        </AlertDescription>
+      </Alert>
     </div>
   );
 }
@@ -91,9 +88,7 @@ function TraceBucket({
         {label}
       </div>
       {!present || steps.length === 0 ? (
-        <div className="pl-2 text-[10px] italic text-muted-foreground">
-          {empty}
-        </div>
+        <div className="pl-2 text-[10px] italic text-muted-foreground">{empty}</div>
       ) : (
         <ul className="space-y-0.5">
           {steps.map((s, idx) => (
@@ -102,22 +97,16 @@ function TraceBucket({
               className={cn(
                 "flex items-center gap-1.5 rounded py-0.5 pl-2 pr-1.5 font-mono text-[10px]",
                 s.decisive
-                  ? s.bucket === "allow"
-                    ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
-                    : "bg-rose-100 text-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
+                  ? BUCKET_TINT[s.bucket].step
                   : s.matched
                     ? "text-foreground"
                     : "text-muted-foreground",
               )}
             >
-              <span className="text-muted-foreground">
-                {s.matched ? "▸" : "·"}
-              </span>
+              <span className="text-muted-foreground">{s.matched ? "▸" : "·"}</span>
               <span className="flex-1">{renderPattern(s.pattern)}</span>
               {s.decisive && (
-                <span className="text-[8px] uppercase tracking-wider">
-                  final
-                </span>
+                <span className="text-[8px] uppercase tracking-wider">final</span>
               )}
             </li>
           ))}

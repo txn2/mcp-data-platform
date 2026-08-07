@@ -107,7 +107,10 @@ describe("AdminSettingsPage: loading and loaded states", () => {
     expect(screen.getByDisplayValue("platform@example.com")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Data Platform")).toBeInTheDocument();
     expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("combobox")).toHaveValue("starttls");
+    // TLS mode rides the shared ConfigSelect, a Radix listbox: its trigger is
+    // a button showing the option's label, not a native select carrying the
+    // stored value.
+    expect(screen.getByRole("combobox")).toHaveTextContent("STARTTLS");
     expect(screen.getByText(/Updated by admin@example.com/)).toBeInTheDocument();
   });
 

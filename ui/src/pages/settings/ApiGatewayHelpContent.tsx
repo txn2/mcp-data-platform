@@ -1,4 +1,12 @@
 import { type ReactNode } from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 // ApiGatewayHelpContent owns the long-form prose for the API gateway
 // connection editor's help modals. Kept separate from
@@ -15,14 +23,14 @@ export function ApiGatewayAuthHelp() {
         the upstream API expects. mTLS is independent and can be
         configured alongside any other mode.
       </p>
-      <table className="w-full border-collapse">
-        <thead>
-          <tr className="border-b text-left text-xs uppercase tracking-wider text-muted-foreground">
-            <th className="w-1/3 py-2 pr-4 font-medium">Mode</th>
-            <th className="py-2 font-medium">What gets sent</th>
-          </tr>
-        </thead>
-        <tbody className="text-sm">
+      <Table>
+        <TableHeader>
+          <TableRow className="text-xs uppercase tracking-wider text-muted-foreground hover:bg-transparent">
+            <TableHead className="w-1/3 px-0 pr-4">Mode</TableHead>
+            <TableHead className="px-0">What gets sent</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody className="text-sm">
           <Row label="None" mode="none" sends="No outbound auth header.">
             Public APIs or upstreams where the platform sits behind a
             trusted-network boundary that authenticates separately.
@@ -63,8 +71,8 @@ export function ApiGatewayAuthHelp() {
             integration engines, FedRAMP services, Vault cert auth,
             Kubernetes API server, etc.
           </Row>
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
       <p className="text-xs text-muted-foreground">
         Need both a bearer token AND a per-vendor header (Google's
         <code className="mx-1">x-goog-user-project</code>, a vendor
@@ -88,18 +96,18 @@ function Row({
   children: ReactNode;
 }) {
   return (
-    <tr className="border-b align-top last:border-0">
-      <td className="py-3 pr-4">
+    <TableRow className="align-top hover:bg-transparent">
+      <TableCell className="whitespace-normal px-0 py-3 pr-4">
         <div className="font-medium">{label}</div>
         <code className="mt-0.5 block break-all text-[11px] text-muted-foreground">
           {mode}
         </code>
-      </td>
-      <td className="py-3">
+      </TableCell>
+      <TableCell className="whitespace-normal px-0 py-3">
         <div className="font-mono text-xs text-muted-foreground">{sends}</div>
         <div className="mt-1">{children}</div>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 

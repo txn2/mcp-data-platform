@@ -2,7 +2,10 @@ import { useMemo, useState } from "react";
 import { useMyNotifications } from "@/api/portal/hooks";
 import type { NotificationItem, NotificationStatus } from "@/api/portal/hooks";
 import { StatusBadge } from "@/components/cards/StatusBadge";
+import { Button } from "@/components/ui/button";
 import { History } from "lucide-react";
+import { SettingsCard } from "./panels";
+import { ErrorBanner } from "./settingsChrome";
 
 const PER_PAGE = 20;
 
@@ -28,6 +31,16 @@ const CATEGORY_LABEL: Record<string, string> = {
   mention: "Mention",
 };
 
+// describeRetention states the window this list covers. The server reports the
+// retention period only when it has one, so a deployment that has not set it
+// gets the honest vaguer sentence rather than "removed after 0 days".
+function describeRetention(retentionDays: number): string {
+  if (retentionDays) {
+    return `What the platform has sent you. Notifications are removed after ${retentionDays} days, so this is recent activity rather than a full record.`;
+  }
+  return "What the platform has sent you. Older notifications are removed on a retention schedule.";
+}
+
 /**
  * MyNotifications shows the notifications the platform has addressed to the
  * signed-in user: what was sent, what is still queued, and what never went
@@ -43,17 +56,20 @@ export function MyNotifications() {
   const query = useMemo(() => ({ page, per_page: PER_PAGE }), [page]);
   const { data, isLoading, error } = useMyNotifications(query);
   const totalPages = data ? Math.ceil(data.total / PER_PAGE) : 0;
+  const retentionDays = data?.retention_days ?? 0;
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
-      <Header retentionDays={data?.retention_days ?? 0} />
-
-      {error && (
-        <div className="border-b bg-red-50 px-5 py-2.5 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-400">
-          Failed to load your notifications. The server may be unavailable.
-        </div>
-      )}
-
+    <SettingsCard
+      icon={History}
+      title="Recent notifications"
+      description={describeRetention(retentionDays)}
+      feedback={
+        error && (
+          <ErrorBanner message="Failed to load your notifications. The server may be unavailable." />
+        )
+      }
+      contentClassName="p-0"
+    >
       <Body isLoading={isLoading} items={data?.data ?? []} />
 
       {totalPages > 1 && (
@@ -64,25 +80,7 @@ export function MyNotifications() {
           onPage={setPage}
         />
       )}
-    </div>
-  );
-}
-
-// Header states what the list is and, when the server reports one, the
-// retention window it covers.
-function Header({ retentionDays }: { retentionDays: number }) {
-  return (
-    <div className="flex items-center gap-3 border-b px-5 py-3">
-      <History className="h-4 w-4 text-muted-foreground" />
-      <div>
-        <h3 className="text-sm font-semibold leading-none">Recent notifications</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {retentionDays
-            ? `What the platform has sent you. Notifications are removed after ${retentionDays} days, so this is recent activity rather than a full record.`
-            : "What the platform has sent you. Older notifications are removed on a retention schedule."}
-        </p>
-      </div>
-    </div>
+    </SettingsCard>
   );
 }
 
@@ -90,14 +88,14 @@ function Header({ retentionDays }: { retentionDays: number }) {
 // it is empty rather than leaving a blank panel.
 function Body({ isLoading, items }: { isLoading: boolean; items: NotificationItem[] }) {
   if (isLoading) {
-    return <div className="p-5 text-sm text-muted-foreground">Loading...</div>;
+    return <p className="p-5 text-sm text-muted-foreground">Loading...</p>;
   }
   if (items.length === 0) {
     return (
-      <div className="p-5 text-sm text-muted-foreground">
+      <p className="p-5 text-sm text-muted-foreground">
         No notifications yet. When someone shares something with you or replies to
         your feedback, it will appear here.
-      </div>
+      </p>
     );
   }
   return (
@@ -121,27 +119,29 @@ function Pager({
   onPage: (fn: (p: number) => number) => void;
 }) {
   return (
-    <div className="flex items-center justify-between border-t px-5 py-3 text-sm">
+    <div className="flex items-center justify-between border-t px-5 py-3">
       <span className="text-xs text-muted-foreground">
         Showing {(page - 1) * PER_PAGE + 1}-{Math.min(page * PER_PAGE, total)} of {total}
       </span>
       <div className="flex gap-2">
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => onPage((p) => Math.max(1, p - 1))}
           disabled={page <= 1}
-          className="rounded-md border px-3 py-1 text-xs disabled:opacity-50"
         >
           Previous
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => onPage((p) => Math.min(totalPages, p + 1))}
           disabled={page >= totalPages}
-          className="rounded-md border px-3 py-1 text-xs disabled:opacity-50"
         >
           Next
-        </button>
+        </Button>
       </div>
     </div>
   );

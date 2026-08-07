@@ -7,33 +7,15 @@ import {
   type NotificationPrefsUpdate,
 } from "@/api/portal/hooks";
 import { useAuthStore } from "@/stores/auth";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { ConfigToggle } from "./connections/fields";
 import { MyNotifications } from "./MyNotifications";
+import { SettingsCard } from "./panels";
+import { ErrorBanner, WarningBanner } from "./settingsChrome";
 import { cn } from "@/lib/utils";
-import { AlertCircle, Bell, Check, RefreshCw, Settings, XCircle } from "lucide-react";
-
-// ---------------------------------------------------------------------------
-// Shared error banner
-// ---------------------------------------------------------------------------
-
-function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
-  return (
-    <div className="flex items-center gap-2 border-b bg-red-50 px-5 py-2.5 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-400">
-      <XCircle className="h-3.5 w-3.5 shrink-0" />
-      <span className="flex-1">{message}</span>
-      {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium hover:bg-red-100 dark:hover:bg-red-900/30"
-        >
-          <RefreshCw className="h-3 w-3" />
-          Retry
-        </button>
-      )}
-    </div>
-  );
-}
+import { Bell, Check, Settings } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Delivery-mode options
@@ -66,30 +48,31 @@ function DeliveryModes({
   onSelect: (mode: NotificationMode) => void;
 }) {
   return (
-    <div>
-      <label className="mb-1 block text-xs font-medium">Delivery</label>
+    <div className="space-y-1.5">
+      <Label className="text-xs">Delivery</Label>
       <div role="radiogroup" aria-label="Delivery mode" className="flex flex-wrap gap-2">
         {MODES.map((m) => (
-          <button
+          <Button
             key={m.value}
             type="button"
             role="radio"
+            variant="ghost"
+            size="sm"
             aria-checked={mode === m.value}
             disabled={disabled}
             onClick={() => onSelect(m.value)}
             className={cn(
-              "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+              "border",
               mode === m.value
-                ? "border-primary/30 bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              disabled && "cursor-not-allowed opacity-60 hover:bg-transparent",
+                ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary"
+                : "text-muted-foreground",
             )}
           >
             {m.label}
-          </button>
+          </Button>
         ))}
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {MODES.find((m) => m.value === mode)?.help}
       </p>
     </div>
@@ -152,29 +135,25 @@ function CategoryToggles({
 function NoDeliveryNotice({ onNavigate }: Props) {
   const isAdmin = useAuthStore((s) => s.isAdmin());
   return (
-    <div
-      data-testid="no-delivery-notice"
-      className="flex items-start gap-2 border-b bg-amber-50/50 px-5 py-2.5 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-400"
-    >
-      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-      <div className="flex-1">
-        <p>
-          Email delivery is not configured for this platform, so no notification emails
-          will be sent. Your preferences are kept and take effect once delivery is
-          configured.
-        </p>
-        {isAdmin && (
-          <button
-            type="button"
-            onClick={() => onNavigate?.("/admin/settings")}
-            className="mt-1.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium underline underline-offset-2 hover:bg-amber-100 dark:hover:bg-amber-900/30"
-          >
-            <Settings className="h-3 w-3" />
-            Configure SMTP in Admin &gt; Settings
-          </button>
-        )}
-      </div>
-    </div>
+    <WarningBanner data-testid="no-delivery-notice">
+      <p>
+        Email delivery is not configured for this platform, so no notification emails
+        will be sent. Your preferences are kept and take effect once delivery is
+        configured.
+      </p>
+      {isAdmin && (
+        <Button
+          type="button"
+          variant="link"
+          size="xs"
+          onClick={() => onNavigate?.("/admin/settings")}
+          className="mt-1 h-auto px-0 text-current underline underline-offset-2"
+        >
+          <Settings />
+          Configure SMTP in Admin &gt; Settings
+        </Button>
+      )}
+    </WarningBanner>
   );
 }
 
@@ -237,47 +216,45 @@ function NotificationPrefsCard({ onNavigate }: Props) {
   const off = prefs?.mode === "off" || noDelivery;
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
-      {loadError && (
-        <ErrorBanner
-          message="Failed to load notification preferences. The server may be unavailable."
-          onRetry={() => void refetch()}
-        />
-      )}
-
-      {/* Header bar */}
-      <div className="flex items-center justify-between border-b px-5 py-3">
-        <div className="flex items-center gap-3">
-          <Bell className="h-4 w-4 text-muted-foreground" />
-          <div>
-            <h3 className="text-sm font-semibold leading-none">Notifications</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Email notifications for sharing and feedback activity
-            </p>
-          </div>
-        </div>
-        {saveSuccess && (
-          <span className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white">
-            <Check className="h-3 w-3" />
+    <SettingsCard
+      icon={Bell}
+      title="Notifications"
+      description="Email notifications for sharing and feedback activity"
+      notices={
+        loadError && (
+          <ErrorBanner
+            message="Failed to load notification preferences. The server may be unavailable."
+            onRetry={() => void refetch()}
+          />
+        )
+      }
+      feedback={
+        <>
+          {saveError && <ErrorBanner message={saveError} />}
+          {noDelivery && <NoDeliveryNotice onNavigate={onNavigate} />}
+        </>
+      }
+      action={
+        saveSuccess && (
+          <Badge variant="success">
+            <Check />
             Saved
-          </span>
-        )}
-      </div>
-
-      {/* Error banner */}
-      {saveError && <ErrorBanner message={saveError} />}
-
-      {noDelivery && <NoDeliveryNotice onNavigate={onNavigate} />}
-
+          </Badge>
+        )
+      }
+    >
       {isLoading || !prefs ? (
-        <div className="p-5 text-sm text-muted-foreground">Loading...</div>
+        <p className="text-sm text-muted-foreground">Loading...</p>
       ) : (
-        <div className="space-y-5 p-5">
-          <DeliveryModes mode={prefs.mode} disabled={noDelivery} onSelect={(mode) => save({ mode })} />
-
+        <div className="space-y-5">
+          <DeliveryModes
+            mode={prefs.mode}
+            disabled={noDelivery}
+            onSelect={(mode) => save({ mode })}
+          />
           <CategoryToggles prefs={prefs} disabled={off} onChange={save} />
         </div>
       )}
-    </div>
+    </SettingsCard>
   );
 }

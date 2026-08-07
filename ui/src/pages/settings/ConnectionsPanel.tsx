@@ -7,14 +7,22 @@ import {
 import type { ConnectionOAuthHealthSummary } from "@/api/admin/types";
 import type { EffectiveConnection } from "@/api/admin/types";
 import { markdownToPlainText } from "@/lib/markdownText";
-import { cn } from "@/lib/utils";
-import { Plus, Cable } from "lucide-react";
+import { Cable } from "lucide-react";
+import { EmptyState } from "@/components/patterns/EmptyState";
 import {
   ConnectionOAuthHealthBadge,
   GatewayHealthBadge,
 } from "./connections/HealthBadges";
 import { ConnectionViewer } from "./connections/ConnectionViewer";
 import { ConnectionEditor } from "./connections/ConnectionEditor";
+import {
+  DetailList,
+  DetailListAddButton,
+  DetailListEmpty,
+  DetailListGroupLabel,
+  DetailListItem,
+  MasterDetail,
+} from "./MasterDetail";
 
 // ConnectionsPanel is the master/detail shell for connection instances: a
 // kind-grouped sidebar list on the left and, on the right, the read-only
@@ -160,19 +168,24 @@ export function ConnectionsPanel() {
   }
 
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* Left: Connection list */}
-      <div className="w-56 shrink-0 border-r bg-muted/10 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto">
+    <MasterDetail
+      list={
+        <DetailList
+          footer={
+            !isReadOnly && (
+              <DetailListAddButton
+                active={mode === "create"}
+                label="Add Connection"
+                onClick={handleCreate}
+              />
+            )
+          }
+        >
           {Object.entries(grouped)
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([kind, items]) => (
               <div key={kind}>
-                <div className="bg-muted/30 px-4 py-1.5 border-b">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {kind}
-                  </span>
-                </div>
+                <DetailListGroupLabel>{kind}</DetailListGroupLabel>
                 {items.map((c) => {
                   const key = `${c.kind}/${c.name}`;
                   const health = oauthHealthByKey.get(key);
@@ -181,27 +194,21 @@ export function ConnectionsPanel() {
                       (health.needs_reauth || health.idp_error_code),
                   );
                   return (
-                    <button
+                    <DetailListItem
                       key={key}
-                      type="button"
+                      selected={selectedKey === key && mode !== "create"}
                       onClick={() => handleSelect(c)}
-                      className={cn(
-                        "flex w-full flex-col px-4 py-3 text-left border-b transition-colors",
-                        selectedKey === key && mode !== "create"
-                          ? "bg-primary/5 border-l-2 border-l-primary"
-                          : "border-l-2 border-l-transparent hover:bg-muted/50",
-                      )}
                     >
                       <span className="block truncate font-mono text-sm font-medium">
                         {c.name}
                       </span>
                       {(showHealth || c.health) && (
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <span className="mt-1 flex flex-wrap items-center gap-1">
                           {showHealth && (
                             <ConnectionOAuthHealthBadge health={health} />
                           )}
                           <GatewayHealthBadge health={c.health} />
-                        </div>
+                        </span>
                       )}
                       {c.description && (
                         <span className="mt-1 block truncate text-xs text-muted-foreground">
@@ -213,41 +220,32 @@ export function ConnectionsPanel() {
                           {c.tools.length} tools
                         </span>
                       )}
-                    </button>
+                    </DetailListItem>
                   );
                 })}
               </div>
             ))}
           {connections.length === 0 && (
-            <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-              No connection instances configured
-            </div>
+            <DetailListEmpty>No connection instances configured</DetailListEmpty>
           )}
-        </div>
-        {!isReadOnly && (
-          <div className="border-t p-2">
-            <button
-              type="button"
-              onClick={handleCreate}
-              className={cn(
-                "flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors",
-                mode === "create"
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add Connection
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Right: Detail / Edit panel */}
-      <div className="flex-1 overflow-auto">
-        {mode === "create" ? (
+        </DetailList>
+      }
+    >
+      {mode === "create" ? (
+        <ConnectionEditor
+          connection={null}
+          onSave={(savedKind, savedName) => {
+            setSelectedKey(`${savedKind}/${savedName}`);
+            setMode("view");
+            setDirty(false);
+          }}
+          onCancel={handleCancel}
+          onDirtyChange={setDirty}
+        />
+      ) : selected ? (
+        mode === "edit" ? (
           <ConnectionEditor
-            connection={null}
+            connection={selected}
             onSave={(savedKind, savedName) => {
               setSelectedKey(`${savedKind}/${savedName}`);
               setMode("view");
@@ -256,42 +254,28 @@ export function ConnectionsPanel() {
             onCancel={handleCancel}
             onDirtyChange={setDirty}
           />
-        ) : selected ? (
-          mode === "edit" ? (
-            <ConnectionEditor
-              connection={selected}
-              onSave={(savedKind, savedName) => {
-                setSelectedKey(`${savedKind}/${savedName}`);
-                setMode("view");
-                setDirty(false);
-              }}
-              onCancel={handleCancel}
-              onDirtyChange={setDirty}
-            />
-          ) : (
-            <ConnectionViewer
-              connection={selected}
-              isReadOnly={isReadOnly}
-              onEdit={handleEdit}
-              onDeleted={() => {
-                setSelectedKey(null);
-                setMode("view");
-              }}
-            />
-          )
-        ) : !selectedKey ? (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            <div className="text-center">
-              <Cable className="mx-auto mb-2 h-8 w-8 opacity-30" />
-              <p>Select a connection or add a new one</p>
-            </div>
-          </div>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Loading...
-          </div>
-        )}
-      </div>
-    </div>
+          <ConnectionViewer
+            connection={selected}
+            isReadOnly={isReadOnly}
+            onEdit={handleEdit}
+            onDeleted={() => {
+              setSelectedKey(null);
+              setMode("view");
+            }}
+          />
+        )
+      ) : !selectedKey ? (
+        <div className="flex h-full items-center justify-center p-6">
+          <EmptyState icon={Cable} className="w-full max-w-sm">
+            Select a connection or add a new one
+          </EmptyState>
+        </div>
+      ) : (
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          Loading...
+        </div>
+      )}
+    </MasterDetail>
   );
 }

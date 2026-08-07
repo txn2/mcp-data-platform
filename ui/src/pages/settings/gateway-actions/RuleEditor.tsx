@@ -1,6 +1,10 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useId } from "react";
 import { useCreateEnrichmentRule, useUpdateEnrichmentRule } from "@/api/admin/hooks";
 import type { EnrichmentRule, EnrichmentRuleBody } from "@/api/admin/types";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { AlertCircle, Save } from "lucide-react";
 import { Field, JSONField } from "./Field";
 import { DryRunPanel } from "./DryRunPanel";
@@ -44,6 +48,7 @@ export function RuleEditor({
     };
   }, [rule]);
 
+  const ids = useId();
   const [body, setBody] = useState<EnrichmentRuleBody>(initialBody);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,46 +71,48 @@ export function RuleEditor({
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">{rule ? "Edit rule" : "New rule"}</h3>
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
-          >
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
             onClick={handleSave}
             disabled={create.isPending || update.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
-            <Save className="h-3 w-3" />
+            <Save />
             {rule ? "Update" : "Create"}
-          </button>
+          </Button>
         </div>
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-          <span>{error}</span>
-        </div>
+        <Alert variant="destructive" className="px-3 py-2">
+          <AlertCircle />
+          <AlertDescription className="text-xs">{error}</AlertDescription>
+        </Alert>
       )}
 
-      <Field label="Tool name" hint="The proxied tool this rule applies to (e.g. crm__get_contact).">
-        <input
+      <Field
+        label="Tool name"
+        hint="The proxied tool this rule applies to (e.g. crm__get_contact)."
+        htmlFor={`${ids}-tool`}
+      >
+        <Input
+          id={`${ids}-tool`}
           type="text"
-          className="w-full rounded-md border bg-background px-2 py-1 text-xs font-mono"
+          className="h-8 px-2 font-mono text-xs"
           value={body.tool_name}
           onChange={(e) => setBody({ ...body, tool_name: e.target.value })}
           placeholder={`${connectionName}__some_tool`}
         />
       </Field>
 
-      <Field label="Description">
-        <input
+      <Field label="Description" htmlFor={`${ids}-description`}>
+        <Input
+          id={`${ids}-description`}
           type="text"
-          className="w-full rounded-md border bg-background px-2 py-1 text-xs"
+          className="h-8 px-2 text-xs"
           value={body.description ?? ""}
           onChange={(e) => setBody({ ...body, description: e.target.value })}
           placeholder="What this rule does"
@@ -113,14 +120,16 @@ export function RuleEditor({
       </Field>
 
       <Field label="Enabled">
-        <label className="inline-flex items-center gap-2 text-xs">
+        {/* A native checkbox: no checkbox primitive is vendored, and the one
+            binary control in this editor does not justify the dependency. */}
+        <Label className="text-xs font-normal">
           <input
             type="checkbox"
             checked={body.enabled}
             onChange={(e) => setBody({ ...body, enabled: e.target.checked })}
           />
           Rule fires on matching tool calls
-        </label>
+        </Label>
       </Field>
 
       <JSONField
