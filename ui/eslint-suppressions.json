@@ -148,21 +148,6 @@
       "count": 1
     }
   },
-  "src/pages/audit/APIGatewayView.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/audit/tabs/EventsTab.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/audit/tabs/OverviewTab.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
   "src/pages/collections/CollectionEditorPage.tsx": {
     "complexity": {
       "count": 1
@@ -182,11 +167,6 @@
     }
   },
   "src/pages/collections/editor/SortableSection.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/indexing/IndexingPage.tsx": {
     "complexity": {
       "count": 1
     }

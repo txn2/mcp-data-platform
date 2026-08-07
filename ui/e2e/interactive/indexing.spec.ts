@@ -13,8 +13,8 @@ async function gotoIndexing(page: Page): Promise<void> {
   await page.goto("/portal/admin");
   // Indexing is a tab in the admin Dashboard tab bar (alongside MCP /
   // API Gateway / Health / Events).
-  await expect(page.getByRole("button", { name: "MCP", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Indexing", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "MCP", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Indexing", exact: true }).click();
   await expect(page.getByText(/Embedding provider active/i)).toBeVisible();
 }
 
@@ -88,9 +88,10 @@ test.describe("Admin Indexing Dashboard", () => {
   });
 
   test("drill-down filters the job table by status", async ({ page }) => {
-    // Scope to the Jobs section's status select (the second select).
-    const statusSelect = page.getByLabel("Filter by status");
-    await statusSelect.selectOption("failed");
+    // The facet is a Radix listbox (#1207): selectOption() does not drive it,
+    // so the trigger is opened and the option clicked.
+    await page.getByRole("combobox", { name: "Filter by status" }).click();
+    await page.getByRole("option", { name: "failed" }).click();
     // The two failed units remain in the table; the running tools unit is
     // filtered out of the table body.
     await expect(page.getByRole("cell", { name: "globex|v2" })).toBeVisible();

@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { type IndexJob } from "@/api/admin/indexjobs";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Pager } from "@/components/patterns/Pager";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { relTime, failureKey } from "./helpers";
 import { JobStatusChip } from "./badges";
 
@@ -102,73 +111,55 @@ export function JobTable({ jobs, resetKey }: { jobs: IndexJob[]; resetKey: strin
   const visible = rows.slice(start, start + JOB_TABLE_PAGE_SIZE);
 
   if (rows.length === 0) {
-    return <p className="py-6 text-center text-sm text-muted-foreground">No jobs match this filter.</p>;
+    return <EmptyState>No jobs match this filter.</EmptyState>;
   }
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead className="text-muted-foreground">
-            <tr className="border-b">
-              <th className="py-1.5 pr-3 font-medium">Kind</th>
-              <th className="py-1.5 pr-3 font-medium">Unit</th>
-              <th className="py-1.5 pr-3 font-medium">Status</th>
-              <th className="py-1.5 pr-3 font-medium">Trigger</th>
-              <th className="py-1.5 pr-3 font-medium">Attempts</th>
-              <th className="py-1.5 pr-3 font-medium">Updated</th>
-              <th className="py-1.5 font-medium">Error</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((r) => (
-              <tr key={r.key} className="border-b last:border-0">
-                <td className="py-1.5 pr-3 font-mono">{r.sourceKind}</td>
-                <td className="max-w-[200px] truncate py-1.5 pr-3 font-mono">{r.sourceID}</td>
-                <td className="py-1.5 pr-3">
-                  <JobStatusChip status={r.status} />
-                </td>
-                <td className="py-1.5 pr-3 text-muted-foreground">
-                  {r.routineCount > 0 ? `reconciler · synced ×${r.routineCount}` : r.trigger}
-                </td>
-                <td className="py-1.5 pr-3 tabular-nums">{r.routineCount > 0 ? "—" : r.attempts}</td>
-                <td className="py-1.5 pr-3 text-muted-foreground">{relTime(r.updated)}</td>
-                <td className="max-w-[260px] truncate py-1.5 text-red-600 dark:text-red-400">
-                  {r.error ?? ""}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Table className="text-xs">
+        <TableHeader>
+          <TableRow className="text-muted-foreground hover:bg-transparent">
+            <TableHead className="h-8 px-0 pr-3 text-xs">Kind</TableHead>
+            <TableHead className="h-8 px-0 pr-3 text-xs">Unit</TableHead>
+            <TableHead className="h-8 px-0 pr-3 text-xs">Status</TableHead>
+            <TableHead className="h-8 px-0 pr-3 text-xs">Trigger</TableHead>
+            <TableHead className="h-8 px-0 pr-3 text-xs">Attempts</TableHead>
+            <TableHead className="h-8 px-0 pr-3 text-xs">Updated</TableHead>
+            <TableHead className="h-8 px-0 text-xs">Error</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {visible.map((r) => (
+            <TableRow key={r.key}>
+              <TableCell className="px-0 py-1.5 pr-3 font-mono">{r.sourceKind}</TableCell>
+              <TableCell className="max-w-[200px] truncate px-0 py-1.5 pr-3 font-mono">
+                {r.sourceID}
+              </TableCell>
+              <TableCell className="px-0 py-1.5 pr-3">
+                <JobStatusChip status={r.status} />
+              </TableCell>
+              <TableCell className="px-0 py-1.5 pr-3 text-muted-foreground">
+                {r.routineCount > 0 ? `reconciler · synced ×${r.routineCount}` : r.trigger}
+              </TableCell>
+              <TableCell className="px-0 py-1.5 pr-3 tabular-nums">
+                {r.routineCount > 0 ? "—" : r.attempts}
+              </TableCell>
+              <TableCell className="px-0 py-1.5 pr-3 text-muted-foreground">
+                {relTime(r.updated)}
+              </TableCell>
+              <TableCell className="max-w-[260px] truncate px-0 py-1.5 text-destructive">
+                {r.error ?? ""}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
       {pageCount > 1 && (
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span className="tabular-nums">
-            {start + 1}–{start + visible.length} of {rows.length}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setPage(current - 1)}
-              disabled={current === 0}
-              className="flex items-center gap-1 rounded-md border px-2 py-1 transition-colors hover:bg-accent disabled:opacity-40"
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="h-3 w-3" /> Prev
-            </button>
-            <span className="tabular-nums">
-              Page {current + 1} of {pageCount}
-            </span>
-            <button
-              type="button"
-              onClick={() => setPage(current + 1)}
-              disabled={current >= pageCount - 1}
-              className="flex items-center gap-1 rounded-md border px-2 py-1 transition-colors hover:bg-accent disabled:opacity-40"
-              aria-label="Next page"
-            >
-              Next <ChevronRight className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
+        <Pager
+          page={current + 1}
+          perPage={JOB_TABLE_PAGE_SIZE}
+          total={rows.length}
+          onPage={(p) => setPage(p - 1)}
+        />
       )}
     </div>
   );
