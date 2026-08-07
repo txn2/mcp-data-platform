@@ -1,0 +1,72 @@
+=== pollution arm convention-absent-haiku ===
+commit 296f86567aa69d0f01c6b911de000adafc0b58da  database mcp_bench_p_convention_absent_haiku  treatment none  k=8  tasks s3-fiscal-2025-count s3-fiscal-2025-net s3-fiscal-q1-net
+
+--- build ---
+
+--- stop any platform on http://localhost:8098 ---
+
+--- fresh database mcp_bench_p_convention_absent_haiku (8.5: arm isolation) ---
+
+--- arm config (a3, differing from the committed arm only in DSN) ---
+
+--- DataHub baseline (8.5: clear editable aspects left by any prior promote) ---
+  orders: delete editabledatasetproperties -> HTTP 200
+  customers: delete editabledatasetproperties -> HTTP 200
+  daily_region_revenue: delete editabledatasetproperties -> HTTP 200
+  legacy_orders: delete editabledatasetproperties -> HTTP 200
+
+--- start platform ---
+
+--- seed knowledge pages (the co-present correct sources, 5.3) ---
+
+--- truncate gate state (8.5) ---
+
+--- grader agreement (5.1) ---
+
+--- restricted task set ---
+
+--- store snapshot of the clean stack ---
+
+--- store snapshot before the eval (7.3 baseline) ---
+
+--- evaluate: haiku, k=8, 3 task(s) ---
+time=2026-08-03T16:57:59.273-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=1 arm=a3 correct=true tool_calls=6 wall_ms=32877
+time=2026-08-03T16:58:22.177-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=2 arm=a3 correct=true tool_calls=4 wall_ms=22892
+time=2026-08-03T16:58:42.479-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=3 arm=a3 correct=true tool_calls=4 wall_ms=20296
+time=2026-08-03T16:59:03.497-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=4 arm=a3 correct=true tool_calls=4 wall_ms=21001
+time=2026-08-03T16:59:39.830-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=5 arm=a3 correct=true tool_calls=8 wall_ms=36316
+time=2026-08-03T17:00:08.426-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=6 arm=a3 correct=true tool_calls=7 wall_ms=28589
+time=2026-08-03T17:00:40.058-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=7 arm=a3 correct=true tool_calls=7 wall_ms=31627
+time=2026-08-03T17:01:24.331-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=8 arm=a3 correct=true tool_calls=11 wall_ms=44268
+time=2026-08-03T17:01:52.975-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=1 arm=a3 correct=false tool_calls=5 wall_ms=28637
+time=2026-08-03T17:02:24.654-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=2 arm=a3 correct=true tool_calls=6 wall_ms=31675
+time=2026-08-03T17:03:00.896-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=3 arm=a3 correct=false tool_calls=7 wall_ms=36236
+time=2026-08-03T17:03:33.625-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=4 arm=a3 correct=false tool_calls=7 wall_ms=32722
+time=2026-08-03T17:04:01.495-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=5 arm=a3 correct=false tool_calls=6 wall_ms=27860
+time=2026-08-03T17:04:40.797-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=6 arm=a3 correct=false tool_calls=8 wall_ms=39280
+time=2026-08-03T17:05:30.609-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=7 arm=a3 correct=true tool_calls=9 wall_ms=49809
+time=2026-08-03T17:06:01.636-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=8 arm=a3 correct=false tool_calls=5 wall_ms=31014
+time=2026-08-03T17:06:32.128-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=1 arm=a3 correct=false tool_calls=6 wall_ms=30472
+time=2026-08-03T17:07:06.300-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=2 arm=a3 correct=false tool_calls=8 wall_ms=34142
+time=2026-08-03T17:07:35.482-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=3 arm=a3 correct=false tool_calls=6 wall_ms=29159
+time=2026-08-03T17:08:09.988-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=4 arm=a3 correct=false tool_calls=7 wall_ms=34493
+time=2026-08-03T17:08:49.433-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=5 arm=a3 correct=false tool_calls=8 wall_ms=39431
+time=2026-08-03T17:09:22.731-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=6 arm=a3 correct=false tool_calls=7 wall_ms=33293
+time=2026-08-03T17:09:48.944-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=7 arm=a3 correct=false tool_calls=4 wall_ms=26201
+time=2026-08-03T17:10:20.877-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=8 arm=a3 correct=false tool_calls=7 wall_ms=31922
+bench run: arm=a3 model=haiku (claude-cli via 2.1.220 (Claude Code)) k=8
+  platform dev @ http://localhost:8098 | commit 296f86567aa6 | seed 930 | tasks 62c2b4bae0a9
+  2026-08-03T23:57:26Z .. 2026-08-04T00:10:20Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          3      24     41.7%   33.3%        7.0        8.0        31675         17        8909              0
+
+task                            graded  correct  pass^k
+s3-fiscal-2025-count                8        8  true
+s3-fiscal-2025-net                  8        2  false
+s3-fiscal-q1-net                    8        0  false
+results: build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-haiku/results.json
+
+--- store snapshot after the eval (7.3) ---
+drift: insight 6183297c5bcf3cc1c4a14be50f67edc3 appeared during the arm (status=pending captured_by=bench-agent-022@apikey.local)
+pollutionplant: the shared store changed during the arm (1 difference(s) above); the arm's later episodes met a different store than its earlier ones and it must be re-run on a fresh database

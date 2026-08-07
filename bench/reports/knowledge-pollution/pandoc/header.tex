@@ -1,0 +1,17 @@
+\usepackage{fvextra}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+% Plain code blocks with no language render as `verbatim`; make them wrap too
+% so long URLs (e.g. the citation permalink) do not overrun the right margin.
+\RecustomVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere}
+\usepackage{etoolbox}
+\makeatletter
+\preto{\@verbatim}{\topsep=2pt \partopsep=2pt}
+\makeatother
+
+% Long inline code — file paths like bench/reports/knowledge-pollution/ —
+% is a single unbreakable word in typewriter font, so TeX overflows the right
+% margin rather than breaking it. That shipped in a sibling report's deposited
+% PDFs. [htt] permits hyphenation inside \texttt, and the extra emergency
+% stretch lets TeX resolve the remaining tight lines instead of overrunning.
+\usepackage[htt]{hyphenat}
+\setlength{\emergencystretch}{3em}

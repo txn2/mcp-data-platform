@@ -1,0 +1,87 @@
+=== pollution arm convention-absent-opus ===
+commit dd973368783895b4c9f61ba3c8b7ef61ddb69f6a  database mcp_bench_p_convention_absent_opus  treatment none  k=8  tasks s3-fiscal-2025-count s3-fiscal-2025-net s3-fiscal-q1-net
+
+--- build ---
+
+--- stop any platform on http://localhost:8098 ---
+
+--- fresh database mcp_bench_p_convention_absent_opus (8.5: arm isolation) ---
+NOTICE:  database "mcp_bench_p_convention_absent_opus" does not exist, skipping
+
+--- arm config (a3, differing from the committed arm only in DSN) ---
+
+--- DataHub baseline (8.5: clear editable aspects left by any prior promote) ---
+  orders: delete editabledatasetproperties -> HTTP 200
+  customers: delete editabledatasetproperties -> HTTP 200
+  daily_region_revenue: delete editabledatasetproperties -> HTTP 200
+  legacy_orders: delete editabledatasetproperties -> HTTP 200
+
+--- start platform ---
+
+--- seed knowledge pages (the co-present correct sources, 5.3) ---
+
+--- truncate gate state (8.5) ---
+
+--- grader agreement (5.1) ---
+
+--- restricted task set ---
+
+--- store snapshot of the clean stack ---
+
+--- store snapshot before the eval (7.3 baseline) ---
+
+--- evaluate: opus, k=8, 3 task(s) ---
+time=2026-08-03T22:06:57.019-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=25457
+time=2026-08-03T22:07:25.298-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=2 arm=a3 correct=true tool_calls=8 wall_ms=28265
+time=2026-08-03T22:07:58.761-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=3 arm=a3 correct=true tool_calls=10 wall_ms=33450
+time=2026-08-03T22:08:25.196-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=4 arm=a3 correct=true tool_calls=7 wall_ms=26428
+time=2026-08-03T22:08:56.993-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=5 arm=a3 correct=true tool_calls=9 wall_ms=31792
+time=2026-08-03T22:09:35.868-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=6 arm=a3 correct=true tool_calls=9 wall_ms=38850
+time=2026-08-03T22:10:08.524-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=7 arm=a3 correct=true tool_calls=9 wall_ms=32647
+time=2026-08-03T22:10:36.900-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=8 arm=a3 correct=true tool_calls=9 wall_ms=28369
+time=2026-08-03T22:11:22.605-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=1 arm=a3 correct=true tool_calls=12 wall_ms=45700
+time=2026-08-03T22:12:03.717-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=2 arm=a3 correct=true tool_calls=10 wall_ms=41090
+time=2026-08-03T22:12:33.606-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=3 arm=a3 correct=true tool_calls=6 wall_ms=29878
+time=2026-08-03T22:13:00.283-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=4 arm=a3 correct=false tool_calls=7 wall_ms=26668
+time=2026-08-03T22:13:49.944-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=5 arm=a3 correct=true tool_calls=11 wall_ms=49651
+time=2026-08-03T22:14:31.620-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=6 arm=a3 correct=true tool_calls=6 wall_ms=41669
+time=2026-08-03T22:15:16.308-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=7 arm=a3 correct=true tool_calls=11 wall_ms=44673
+time=2026-08-03T22:15:48.333-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=8 arm=a3 correct=true tool_calls=8 wall_ms=32015
+time=2026-08-03T22:16:15.582-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=1 arm=a3 correct=false tool_calls=8 wall_ms=27226
+time=2026-08-03T22:16:43.277-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=2 arm=a3 correct=true tool_calls=7 wall_ms=27687
+time=2026-08-03T22:17:12.324-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=3 arm=a3 correct=true tool_calls=8 wall_ms=29042
+time=2026-08-03T22:17:39.648-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=4 arm=a3 correct=true tool_calls=6 wall_ms=27318
+time=2026-08-03T22:18:04.757-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=5 arm=a3 correct=true tool_calls=6 wall_ms=25100
+time=2026-08-03T22:18:33.405-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=6 arm=a3 correct=false tool_calls=7 wall_ms=28627
+time=2026-08-03T22:19:02.050-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=7 arm=a3 correct=true tool_calls=8 wall_ms=28637
+time=2026-08-03T22:19:41.109-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=8 arm=a3 correct=false tool_calls=9 wall_ms=39056
+bench run: arm=a3 model=opus (claude-cli via 2.1.221 (Claude Code)) k=8
+  platform dev @ http://localhost:8098 | commit dd9733687838 | seed 930 | tasks 62c2b4bae0a9
+  2026-08-04T05:06:31Z .. 2026-08-04T05:19:41Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          3      24     83.3%   33.3%        8.0       10.0        29042          0        9308              0
+
+task                            graded  correct  pass^k
+s3-fiscal-2025-count                8        8  true
+s3-fiscal-2025-net                  8        7  false
+s3-fiscal-q1-net                    8        5  false
+results: build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-opus/results.json
+
+--- store snapshot after the eval (7.3) ---
+store state constant across the eval
+
+--- summary ---
+bench run: arm=a3 model=opus (claude-cli via 2.1.221 (Claude Code)) k=8
+  platform dev @ http://localhost:8098 | commit dd9733687838 | seed 930 | tasks 62c2b4bae0a9
+  2026-08-04T05:06:31Z .. 2026-08-04T05:19:41Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          3      24     83.3%   33.3%        8.0       10.0        29042          0        9308              0
+
+task                            graded  correct  pass^k
+s3-fiscal-2025-count                8        8  true
+s3-fiscal-2025-net                  8        7  false
+s3-fiscal-q1-net                    8        5  false
+
+=== arm convention-absent-opus complete: build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-opus ===

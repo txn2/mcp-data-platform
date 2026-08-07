@@ -1,0 +1,83 @@
+=== pollution arm checkable-absent-haiku ===
+commit dd973368783895b4c9f61ba3c8b7ef61ddb69f6a  database mcp_bench_p_checkable_absent_haiku  treatment none  k=24  tasks s3-deprecated-order-count
+
+--- build ---
+
+--- stop any platform on http://localhost:8098 ---
+
+--- fresh database mcp_bench_p_checkable_absent_haiku (8.5: arm isolation) ---
+NOTICE:  database "mcp_bench_p_checkable_absent_haiku" does not exist, skipping
+
+--- arm config (a3, differing from the committed arm only in DSN) ---
+
+--- DataHub baseline (8.5: clear editable aspects left by any prior promote) ---
+  orders: delete editabledatasetproperties -> HTTP 200
+  customers: delete editabledatasetproperties -> HTTP 200
+  daily_region_revenue: delete editabledatasetproperties -> HTTP 200
+  legacy_orders: delete editabledatasetproperties -> HTTP 200
+
+--- start platform ---
+
+--- seed knowledge pages (the co-present correct sources, 5.3) ---
+
+--- truncate gate state (8.5) ---
+
+--- grader agreement (5.1) ---
+
+--- restricted task set ---
+
+--- store snapshot of the clean stack ---
+
+--- store snapshot before the eval (7.3 baseline) ---
+
+--- evaluate: haiku, k=24, 1 task(s) ---
+time=2026-08-03T21:03:41.089-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=1 arm=a3 correct=true tool_calls=2 wall_ms=16501
+time=2026-08-03T21:03:55.356-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=2 arm=a3 correct=true tool_calls=2 wall_ms=14250
+time=2026-08-03T21:04:08.309-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=3 arm=a3 correct=true tool_calls=2 wall_ms=12941
+time=2026-08-03T21:04:26.122-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=4 arm=a3 correct=true tool_calls=2 wall_ms=17808
+time=2026-08-03T21:04:40.971-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=5 arm=a3 correct=true tool_calls=2 wall_ms=14843
+time=2026-08-03T21:04:54.868-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=6 arm=a3 correct=true tool_calls=2 wall_ms=13894
+time=2026-08-03T21:05:08.337-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=7 arm=a3 correct=true tool_calls=2 wall_ms=13463
+time=2026-08-03T21:05:22.592-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=8 arm=a3 correct=true tool_calls=2 wall_ms=14246
+time=2026-08-03T21:05:35.967-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=9 arm=a3 correct=true tool_calls=2 wall_ms=13354
+time=2026-08-03T21:05:49.810-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=10 arm=a3 correct=true tool_calls=2 wall_ms=13839
+time=2026-08-03T21:06:03.562-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=11 arm=a3 correct=true tool_calls=2 wall_ms=13748
+time=2026-08-03T21:06:19.305-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=12 arm=a3 correct=true tool_calls=2 wall_ms=15728
+time=2026-08-03T21:06:33.701-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=13 arm=a3 correct=true tool_calls=2 wall_ms=14392
+time=2026-08-03T21:06:49.258-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=14 arm=a3 correct=true tool_calls=2 wall_ms=15538
+time=2026-08-03T21:07:06.322-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=15 arm=a3 correct=true tool_calls=2 wall_ms=17056
+time=2026-08-03T21:07:23.964-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=16 arm=a3 correct=true tool_calls=2 wall_ms=17635
+time=2026-08-03T21:07:38.696-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=17 arm=a3 correct=true tool_calls=2 wall_ms=14715
+time=2026-08-03T21:07:53.621-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=18 arm=a3 correct=true tool_calls=2 wall_ms=14921
+time=2026-08-03T21:08:08.402-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=19 arm=a3 correct=true tool_calls=2 wall_ms=14764
+time=2026-08-03T21:08:23.269-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=20 arm=a3 correct=true tool_calls=2 wall_ms=14860
+time=2026-08-03T21:08:37.494-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=21 arm=a3 correct=true tool_calls=2 wall_ms=14215
+time=2026-08-03T21:08:51.257-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=22 arm=a3 correct=true tool_calls=2 wall_ms=13742
+time=2026-08-03T21:09:07.165-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=23 arm=a3 correct=true tool_calls=3 wall_ms=15893
+time=2026-08-03T21:09:31.085-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=24 arm=a3 correct=true tool_calls=6 wall_ms=23902
+bench run: arm=a3 model=haiku (claude-cli via 2.1.221 (Claude Code)) k=24
+  platform dev @ http://localhost:8098 | commit dd9733687838 | seed 930 | tasks c486a443831b
+  2026-08-04T04:03:24Z .. 2026-08-04T04:09:31Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1      24    100.0%  100.0%        2.0        2.0        14715          1        3624              0
+
+task                            graded  correct  pass^k
+s3-deprecated-order-count          24       24  true
+results: build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-absent-haiku/results.json
+
+--- store snapshot after the eval (7.3) ---
+store state constant across the eval
+
+--- summary ---
+bench run: arm=a3 model=haiku (claude-cli via 2.1.221 (Claude Code)) k=24
+  platform dev @ http://localhost:8098 | commit dd9733687838 | seed 930 | tasks c486a443831b
+  2026-08-04T04:03:24Z .. 2026-08-04T04:09:31Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1      24    100.0%  100.0%        2.0        2.0        14715          1        3624              0
+
+task                            graded  correct  pass^k
+s3-deprecated-order-count          24       24  true
+
+=== arm checkable-absent-haiku complete: build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-absent-haiku ===

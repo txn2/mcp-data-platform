@@ -1,0 +1,748 @@
+{
+  "manifest": {
+    "started_at": "2026-08-03T07:22:54.181394Z",
+    "finished_at": "2026-08-03T07:36:10.970581Z",
+    "git_commit": "8558b1e600fbbd5c5042a9dad1555a1a7818a748",
+    "platform_version": "dev",
+    "target": "http://localhost:8098",
+    "arm": "a3",
+    "llm_provider": "claude-cli",
+    "client_version": "2.1.220 (Claude Code)",
+    "disallowed_tools": [
+      "Bash",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Read",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "TodoWrite",
+      "ToolSearch",
+      "ReadMcpResourceTool",
+      "ListMcpResourcesTool"
+    ],
+    "model": "sonnet",
+    "seed": 930,
+    "task_set_hash": "62c2b4bae0a9f7b542eb6391bb3bb57577fc39a9be0e227f28b6457f7487746b",
+    "k": 8,
+    "suite": "s3"
+  },
+  "attempts": [
+    {
+      "task_id": "s3-fiscal-2025-count",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 1,
+      "session_id": "dps_5793cc186f93ff359f17e1c49182ac3b",
+      "correct": true,
+      "final_answer": "873",
+      "got_value": 873,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 25580,
+      "input_tokens": 14,
+      "output_tokens": 1207,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 394,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-count-a3-k1.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-count",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 2,
+      "session_id": "dps_d9e632dadb8efd5c9ae599b4e3478e2c",
+      "correct": true,
+      "final_answer": "873",
+      "got_value": 873,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 32607,
+      "input_tokens": 14,
+      "output_tokens": 1307,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 497,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-count-a3-k2.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-count",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 3,
+      "session_id": "dps_4d768ddaa08932462b981a11cea0ad39",
+      "correct": true,
+      "final_answer": "873",
+      "got_value": 873,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 27965,
+      "input_tokens": 14,
+      "output_tokens": 1716,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 522,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 453,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-count-a3-k3.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-count",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 4,
+      "session_id": "dps_8e5bfbdee70b02dbb3e1ac2887970d02",
+      "correct": true,
+      "final_answer": "873",
+      "got_value": 873,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 36055,
+      "input_tokens": 16,
+      "output_tokens": 1755,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 415,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 453,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-count-a3-k4.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-count",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 5,
+      "session_id": "dps_508ecffe0d8a9d8840501520a700686f",
+      "correct": true,
+      "final_answer": "873",
+      "got_value": 873,
+      "tool_calls": 9,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 33304,
+      "input_tokens": 16,
+      "output_tokens": 1628,
+      "audit": {
+        "audited_calls": 9,
+        "errors": 0,
+        "total_duration_ms": 743,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-count-a3-k5.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-count",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 6,
+      "session_id": "dps_a737a16fe6b5ee066e21f8d9fb1bcd7d",
+      "correct": true,
+      "final_answer": "873",
+      "got_value": 873,
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 38749,
+      "input_tokens": 18,
+      "output_tokens": 1592,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 520,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-count-a3-k6.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-count",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 7,
+      "session_id": "dps_f8c927f7644c4bee3a4e07aac5491304",
+      "correct": true,
+      "final_answer": "873",
+      "got_value": 873,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 27756,
+      "input_tokens": 14,
+      "output_tokens": 1158,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 350,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-count-a3-k7.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-count",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 8,
+      "session_id": "dps_96c638af75b2aba2b8d2933cddfc1607",
+      "correct": true,
+      "final_answer": "873",
+      "got_value": 873,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 32164,
+      "input_tokens": 14,
+      "output_tokens": 1295,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 572,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-count-a3-k8.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 1,
+      "session_id": "dps_fe217c6a04e0c25007afc1ffd7776370",
+      "correct": true,
+      "final_answer": "1187140.04",
+      "got_value": 1187140.04,
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 36813,
+      "input_tokens": 16,
+      "output_tokens": 2031,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 408,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 453,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-net-a3-k1.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 2,
+      "session_id": "dps_0c4ac1aeaeca07a8a3d6aa16a2122855",
+      "correct": true,
+      "final_answer": "1187140.04",
+      "got_value": 1187140.04,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 33179,
+      "input_tokens": 14,
+      "output_tokens": 1742,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 268,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 453,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-net-a3-k2.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 3,
+      "session_id": "dps_6fa8e200a382e78606b206fcae87cc17",
+      "correct": true,
+      "final_answer": "1187140.04",
+      "got_value": 1187140.04,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 34872,
+      "input_tokens": 12,
+      "output_tokens": 1571,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 259,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 453,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-net-a3-k3.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 4,
+      "session_id": "dps_92990ed47ba82d8acf5da37f73590874",
+      "correct": true,
+      "final_answer": "1187140.04",
+      "got_value": 1187140.04,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 27020,
+      "input_tokens": 12,
+      "output_tokens": 1298,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 332,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 453,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-net-a3-k4.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 5,
+      "session_id": "dps_847919256b4515c8ab49e2693699c987",
+      "correct": true,
+      "final_answer": "1187140.04",
+      "got_value": 1187140.04,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 33286,
+      "input_tokens": 12,
+      "output_tokens": 1543,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 248,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 453,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-net-a3-k5.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 6,
+      "session_id": "dps_21bb9c6c16afb72f7b7d028bf3e36026",
+      "correct": true,
+      "final_answer": "1187140.04",
+      "got_value": 1187140.04,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 34639,
+      "input_tokens": 14,
+      "output_tokens": 1729,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 273,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 453,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-net-a3-k6.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 7,
+      "session_id": "dps_141b755531ec0735f1f61b2dc399b25d",
+      "correct": true,
+      "final_answer": "1187140.04",
+      "got_value": 1187140.04,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 29792,
+      "input_tokens": 12,
+      "output_tokens": 1914,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 377,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 453,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-net-a3-k7.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 8,
+      "session_id": "dps_e350ccaef4a4b09a2af85cdb392423dd",
+      "correct": true,
+      "final_answer": "1187140.04",
+      "got_value": 1187140.04,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 27614,
+      "input_tokens": 12,
+      "output_tokens": 1792,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 458,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 453,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-2025-net-a3-k8.json"
+    },
+    {
+      "task_id": "s3-fiscal-q1-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 1,
+      "session_id": "dps_187ea7c1254599a06d1e42bfdc3d1d1c",
+      "correct": true,
+      "final_answer": "317090.52",
+      "got_value": 317090.52,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 29760,
+      "input_tokens": 12,
+      "output_tokens": 1388,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 431,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-q1-net-a3-k1.json"
+    },
+    {
+      "task_id": "s3-fiscal-q1-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 2,
+      "session_id": "dps_418d8f349b2ff177da3c38b562bc9bd3",
+      "correct": true,
+      "final_answer": "317090.52",
+      "got_value": 317090.52,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 33631,
+      "input_tokens": 10,
+      "output_tokens": 1652,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 375,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-q1-net-a3-k2.json"
+    },
+    {
+      "task_id": "s3-fiscal-q1-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 3,
+      "session_id": "dps_3933451c75c78e23afa259170f56b21f",
+      "correct": true,
+      "final_answer": "317090.52",
+      "got_value": 317090.52,
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 28439,
+      "input_tokens": 12,
+      "output_tokens": 1564,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 479,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-q1-net-a3-k3.json"
+    },
+    {
+      "task_id": "s3-fiscal-q1-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 4,
+      "session_id": "dps_fe92ceead7a2c56bc66ed08d57082e0f",
+      "correct": true,
+      "final_answer": "317090.52",
+      "got_value": 317090.52,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 42601,
+      "input_tokens": 12,
+      "output_tokens": 1668,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 360,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-q1-net-a3-k4.json"
+    },
+    {
+      "task_id": "s3-fiscal-q1-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 5,
+      "session_id": "dps_43cf1383142b0a88e99c10e008ef450f",
+      "correct": false,
+      "final_answer": "317090.50",
+      "got_value": 317090.5,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 46122,
+      "input_tokens": 12,
+      "output_tokens": 2228,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 408,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-q1-net-a3-k5.json"
+    },
+    {
+      "task_id": "s3-fiscal-q1-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 6,
+      "session_id": "dps_f9948c7821998631059092a8f65d67f3",
+      "correct": true,
+      "final_answer": "317090.52",
+      "got_value": 317090.52,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 27637,
+      "input_tokens": 10,
+      "output_tokens": 1072,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 265,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 151,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-q1-net-a3-k6.json"
+    },
+    {
+      "task_id": "s3-fiscal-q1-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 7,
+      "session_id": "dps_8c521ffb567899eaa1fe37e905870dc6",
+      "correct": true,
+      "final_answer": "317090.52",
+      "got_value": 317090.52,
+      "tool_calls": 9,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 45820,
+      "input_tokens": 14,
+      "output_tokens": 2443,
+      "audit": {
+        "audited_calls": 9,
+        "errors": 0,
+        "total_duration_ms": 331,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 604,
+        "enrichment_tokens_dedup": 159
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-q1-net-a3-k7.json"
+    },
+    {
+      "task_id": "s3-fiscal-q1-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 8,
+      "session_id": "dps_c0ef930e6d6339b6cbfc14f22c143e6a",
+      "correct": true,
+      "final_answer": "317090.52",
+      "got_value": 317090.52,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 31073,
+      "input_tokens": 12,
+      "output_tokens": 1556,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 530,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 302,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-rq1-confirmatory-20260803-002238/convention-absent-sonnet/results.json.transcripts/s3-fiscal-q1-net-a3-k8.json"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "s3-fiscal-2025-count",
+      "suite": "s3",
+      "graded": 8,
+      "correct": 8,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-fiscal-2025-net",
+      "suite": "s3",
+      "graded": 8,
+      "correct": 8,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-fiscal-q1-net",
+      "suite": "s3",
+      "graded": 8,
+      "correct": 7,
+      "pass_rate": 0.875,
+      "pass_k": false
+    }
+  ],
+  "suites": [
+    {
+      "suite": "s3",
+      "tasks": 3,
+      "graded": 24,
+      "accuracy": 0.9583333333333334,
+      "pass_k_rate": 0.6666666666666666,
+      "median_tool_calls": 6,
+      "p90_tool_calls": 8,
+      "median_wall_ms": 32607,
+      "tool_errors": 0,
+      "enrichment_tokens_full": 8909,
+      "enrichment_tokens_dedup": 1855
+    }
+  ]
+}

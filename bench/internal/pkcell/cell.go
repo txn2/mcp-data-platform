@@ -527,6 +527,10 @@ func neutralSeed(beliefID string) (*pkseed.Seed, error) {
 	return nil, errors.New("pkcell: no neutral seed for belief " + beliefID)
 }
 
+// QuestionByID resolves a question from the committed set. Exported for the
+// runners that build a cell from a named question.
+func QuestionByID(id string) (Question, error) { return questionByID(id) }
+
 // questionByID resolves a question from the committed set.
 func questionByID(id string) (Question, error) {
 	for _, q := range Questions() {

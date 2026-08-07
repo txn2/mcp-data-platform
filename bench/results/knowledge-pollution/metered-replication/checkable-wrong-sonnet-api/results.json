@@ -1,0 +1,275 @@
+{
+  "manifest": {
+    "started_at": "2026-08-07T05:17:03.355524Z",
+    "finished_at": "2026-08-07T05:20:14.707421Z",
+    "git_commit": "aa586450f459b95542e6086ca5a38e4a5bdf8df0-dirty",
+    "platform_version": "dev",
+    "target": "http://localhost:8098",
+    "arm": "a3",
+    "llm_provider": "anthropic",
+    "model": "claude-sonnet-5",
+    "seed": 930,
+    "task_set_hash": "c486a443831b7d27239393a7f42c971d726de385f2e3137afe9b8650410e0677",
+    "k": 8,
+    "suite": "s3"
+  },
+  "attempts": [
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 1,
+      "session_id": "dps_0a6823969845be5ca21d4414790a7ace",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 20276,
+      "input_tokens": 10,
+      "output_tokens": 1018,
+      "cache_read_tokens": 65502,
+      "cache_creation_tokens": 17613,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 1642,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 242,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-metered-20260806-213833/checkable-wrong-sonnet-api/results.json.transcripts/s3-deprecated-order-count-a3-k1.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 2,
+      "session_id": "dps_8b4d20275fc37e13495408de4e7eb87a",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 3,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 17802,
+      "input_tokens": 8,
+      "output_tokens": 907,
+      "cache_read_tokens": 63141,
+      "cache_creation_tokens": 2977,
+      "audit": {
+        "audited_calls": 3,
+        "errors": 0,
+        "total_duration_ms": 1594,
+        "enriched_calls": 2,
+        "enrichment_tokens_full": 236,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-metered-20260806-213833/checkable-wrong-sonnet-api/results.json.transcripts/s3-deprecated-order-count-a3-k2.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 3,
+      "session_id": "dps_90c2612e2a43736063f654d030f567b8",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 9,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 45297,
+      "input_tokens": 16,
+      "output_tokens": 2714,
+      "cache_read_tokens": 138807,
+      "cache_creation_tokens": 5025,
+      "audit": {
+        "audited_calls": 9,
+        "errors": 0,
+        "total_duration_ms": 8984,
+        "enriched_calls": 7,
+        "enrichment_tokens_full": 714,
+        "enrichment_tokens_dedup": 212
+      },
+      "transcript_path": "build/bench-results/pollution-metered-20260806-213833/checkable-wrong-sonnet-api/results.json.transcripts/s3-deprecated-order-count-a3-k3.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 4,
+      "session_id": "dps_ccf0cf6bd0b06a09fbb8d62052adc9f8",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 11869,
+      "input_tokens": 6,
+      "output_tokens": 649,
+      "cache_read_tokens": 47710,
+      "cache_creation_tokens": 588,
+      "audit": {
+        "audited_calls": 2,
+        "errors": 0,
+        "total_duration_ms": 1573,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 118,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "build/bench-results/pollution-metered-20260806-213833/checkable-wrong-sonnet-api/results.json.transcripts/s3-deprecated-order-count-a3-k4.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 5,
+      "session_id": "dps_8afc6f8c8ea1f201adaaee08f116e364",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 18570,
+      "input_tokens": 8,
+      "output_tokens": 939,
+      "cache_read_tokens": 64983,
+      "cache_creation_tokens": 1673,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 3082,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 236,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-metered-20260806-213833/checkable-wrong-sonnet-api/results.json.transcripts/s3-deprecated-order-count-a3-k5.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 6,
+      "session_id": "dps_9f860f31f44e50d0bcd90bbc2a42e981",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 28717,
+      "input_tokens": 12,
+      "output_tokens": 1744,
+      "cache_read_tokens": 100008,
+      "cache_creation_tokens": 1496,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 1604,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 360,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-metered-20260806-213833/checkable-wrong-sonnet-api/results.json.transcripts/s3-deprecated-order-count-a3-k6.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 7,
+      "session_id": "dps_16d7f7cda3412d665aae004cd55de2a9",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 19497,
+      "input_tokens": 8,
+      "output_tokens": 1004,
+      "cache_read_tokens": 63207,
+      "cache_creation_tokens": 3787,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 3093,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 236,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "build/bench-results/pollution-metered-20260806-213833/checkable-wrong-sonnet-api/results.json.transcripts/s3-deprecated-order-count-a3-k7.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 8,
+      "session_id": "dps_88b9a2cebed46624bfd962c98c2545c6",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 29089,
+      "input_tokens": 12,
+      "output_tokens": 1757,
+      "cache_read_tokens": 100204,
+      "cache_creation_tokens": 4532,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 3130,
+        "enriched_calls": 5,
+        "enrichment_tokens_full": 354,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "build/bench-results/pollution-metered-20260806-213833/checkable-wrong-sonnet-api/results.json.transcripts/s3-deprecated-order-count-a3-k8.json"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "graded": 8,
+      "correct": 8,
+      "pass_rate": 1,
+      "pass_k": true
+    }
+  ],
+  "suites": [
+    {
+      "suite": "s3",
+      "tasks": 1,
+      "graded": 8,
+      "accuracy": 1,
+      "pass_k_rate": 1,
+      "median_tool_calls": 4,
+      "p90_tool_calls": 6,
+      "median_wall_ms": 19497,
+      "tool_errors": 0,
+      "enrichment_tokens_full": 2496,
+      "enrichment_tokens_dedup": 530
+    }
+  ]
+}

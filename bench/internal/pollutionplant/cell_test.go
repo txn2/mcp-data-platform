@@ -335,3 +335,70 @@ func cellByID(t *testing.T, id string) Cell {
 	t.Fatalf("no cell %s", id)
 	return Cell{}
 }
+
+// The generalization cells (6.5) must separate every reading they enumerate,
+// and must not disturb the RQ1 matrix, which has already run.
+func TestGeneralizationCellsSeparateAndLeaveTheMatrixAlone(t *testing.T) {
+	before, err := Cells()
+	if err != nil {
+		t.Fatalf("Cells: %v", err)
+	}
+	cells, err := GeneralizationCells()
+	if err != nil {
+		t.Fatalf("GeneralizationCells: %v", err)
+	}
+	if len(cells) != 4 {
+		t.Fatalf("got %d generalization cells, want the sink control plus the API arms", len(cells))
+	}
+	// checkDiscriminants already ran inside the constructor; assert the
+	// property that matters most explicitly, since a collision here would
+	// grade an episode as two classifications at once.
+	for _, c := range cells {
+		seen := map[Classification]bool{}
+		for _, d := range c.Discriminants {
+			if seen[d.Classification] {
+				t.Errorf("%s enumerates %s twice", c.ID, d.Classification)
+			}
+			seen[d.Classification] = true
+		}
+		if _, ok := c.Value(ClassificationAdopted); ok != (c.Arm == ArmWrong) {
+			t.Errorf("%s has an adopted value on the %s arm", c.ID, c.Arm)
+		}
+	}
+	// The API wrong arm must tell adoption from the pool reading, which is
+	// the only other value the world admits.
+	api, ok := pickCell(cells, "api/checkable/monitor-count/wrong")
+	if !ok {
+		t.Fatal("no API wrong cell")
+	}
+	adopted, _ := api.Value(ClassificationAdopted)
+	pool, _ := api.Value(ClassificationDeprecated)
+	correct, _ := api.Value(ClassificationCorrect)
+	if adopted == pool || adopted == correct {
+		t.Errorf("the planted count %v collides with an unaided reading (correct %v, pool %v)", adopted, correct, pool)
+	}
+	// The matrix is untouched: RQ1 has run and its cells must not move.
+	after, err := Cells()
+	if err != nil {
+		t.Fatalf("Cells after: %v", err)
+	}
+	if len(before) != len(after) {
+		t.Errorf("the matrix changed size: %d -> %d", len(before), len(after))
+	}
+	for i := range before {
+		if before[i].ID != after[i].ID {
+			t.Errorf("matrix cell %d changed id", i)
+		}
+	}
+}
+
+// pickCell resolves one cell from a supplied slice, which the matrix helper
+// above cannot do: it reads the matrix itself.
+func pickCell(cells []Cell, id string) (Cell, bool) {
+	for _, c := range cells {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return Cell{}, false
+}

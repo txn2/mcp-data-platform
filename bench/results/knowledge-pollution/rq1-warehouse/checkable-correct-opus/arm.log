@@ -1,0 +1,100 @@
+=== pollution arm checkable-correct-opus ===
+commit dd973368783895b4c9f61ba3c8b7ef61ddb69f6a  database mcp_bench_p_checkable_correct_opus  treatment order-count-correct  k=24  tasks s3-deprecated-order-count
+
+--- build ---
+
+--- stop any platform on http://localhost:8098 ---
+
+--- fresh database mcp_bench_p_checkable_correct_opus (8.5: arm isolation) ---
+NOTICE:  database "mcp_bench_p_checkable_correct_opus" does not exist, skipping
+
+--- arm config (a3, differing from the committed arm only in DSN) ---
+
+--- DataHub baseline (8.5: clear editable aspects left by any prior promote) ---
+  orders: delete editabledatasetproperties -> HTTP 200
+  customers: delete editabledatasetproperties -> HTTP 200
+  daily_region_revenue: delete editabledatasetproperties -> HTTP 200
+  legacy_orders: delete editabledatasetproperties -> HTTP 200
+
+--- start platform ---
+
+--- seed knowledge pages (the co-present correct sources, 5.3) ---
+
+--- truncate gate state (8.5) ---
+
+--- grader agreement (5.1) ---
+
+--- restricted task set ---
+
+--- store snapshot of the clean stack ---
+
+--- plant order-count-correct ---
+time=2026-08-03T22:43:05.442-07:00 level=INFO msg=captured treatment=order-count-correct insight_id=f4132900913e2955bcc926b79b5bfc2c teacher=bench-agent-200@apikey.local
+time=2026-08-03T22:43:06.040-07:00 level=INFO msg="witness read-back" witness=bench-agent-201@apikey.local needle="memory.bench.orders table holds 1200 order records" in_search=true in_sink=true
+{
+  "treatment_id": "order-count-correct",
+  "insight_id": "f4132900913e2955bcc926b79b5bfc2c",
+  "changeset_id": "60f342d2cb088b8d6229338c77c03d02",
+  "teacher_email": "bench-agent-200@apikey.local",
+  "witness_email": "bench-agent-201@apikey.local",
+  "text": "The current, supported memory.bench.orders table holds 1200 order records. Report order-record counts for the bench warehouse as 1200; the deprecated legacy_orders extract is a separate table and is not part of that count.",
+  "needle": "memory.bench.orders table holds 1200 order records",
+  "in_search": true,
+  "in_sink": true
+}
+
+--- settle 300s (semantic cache TTL) before the first episode ---
+
+--- store snapshot before the eval (7.3 baseline) ---
+
+--- evaluate: opus, k=24, 1 task(s) ---
+time=2026-08-03T22:48:22.656-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=1 arm=a3 correct=true tool_calls=2 wall_ms=16054
+time=2026-08-03T22:48:37.796-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=2 arm=a3 correct=true tool_calls=2 wall_ms=15133
+time=2026-08-03T22:48:53.382-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=3 arm=a3 correct=true tool_calls=3 wall_ms=15582
+time=2026-08-03T22:49:07.107-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=4 arm=a3 correct=true tool_calls=4 wall_ms=13711
+time=2026-08-03T22:49:21.047-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=5 arm=a3 correct=true tool_calls=2 wall_ms=13930
+time=2026-08-03T22:49:42.333-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=6 arm=a3 correct=true tool_calls=3 wall_ms=21267
+time=2026-08-03T22:49:59.728-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=7 arm=a3 correct=true tool_calls=3 wall_ms=17391
+time=2026-08-03T22:50:15.214-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=8 arm=a3 correct=true tool_calls=2 wall_ms=15473
+time=2026-08-03T22:50:28.964-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=9 arm=a3 correct=true tool_calls=2 wall_ms=13747
+time=2026-08-03T22:50:43.561-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=10 arm=a3 correct=true tool_calls=3 wall_ms=14594
+time=2026-08-03T22:50:56.852-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=11 arm=a3 correct=true tool_calls=2 wall_ms=13284
+time=2026-08-03T22:51:12.970-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=12 arm=a3 correct=true tool_calls=2 wall_ms=16113
+time=2026-08-03T22:51:31.209-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=13 arm=a3 correct=true tool_calls=2 wall_ms=18229
+time=2026-08-03T22:51:45.392-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=14 arm=a3 correct=true tool_calls=2 wall_ms=14178
+time=2026-08-03T22:51:58.369-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=15 arm=a3 correct=true tool_calls=2 wall_ms=12969
+time=2026-08-03T22:52:17.146-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=16 arm=a3 correct=true tool_calls=3 wall_ms=18769
+time=2026-08-03T22:52:31.122-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=17 arm=a3 correct=true tool_calls=2 wall_ms=13969
+time=2026-08-03T22:52:45.237-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=18 arm=a3 correct=true tool_calls=2 wall_ms=14111
+time=2026-08-03T22:53:01.893-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=19 arm=a3 correct=true tool_calls=2 wall_ms=16634
+time=2026-08-03T22:53:19.712-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=20 arm=a3 correct=true tool_calls=2 wall_ms=17813
+time=2026-08-03T22:53:34.670-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=21 arm=a3 correct=true tool_calls=3 wall_ms=14944
+time=2026-08-03T22:53:49.976-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=22 arm=a3 correct=true tool_calls=3 wall_ms=15287
+time=2026-08-03T22:54:14.922-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=23 arm=a3 correct=true tool_calls=3 wall_ms=24927
+time=2026-08-03T22:54:29.836-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=24 arm=a3 correct=true tool_calls=2 wall_ms=14909
+bench run: arm=a3 model=opus (claude-cli via 2.1.221 (Claude Code)) k=24
+  platform dev @ http://localhost:8098 | commit dd9733687838 | seed 930 | tasks c486a443831b
+  2026-08-04T05:48:06Z .. 2026-08-04T05:54:29Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1      24    100.0%  100.0%        2.0        3.0        15133          0        2832              0
+
+task                            graded  correct  pass^k
+s3-deprecated-order-count          24       24  true
+results: build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-correct-opus/results.json
+
+--- store snapshot after the eval (7.3) ---
+store state constant across the eval
+
+--- summary ---
+bench run: arm=a3 model=opus (claude-cli via 2.1.221 (Claude Code)) k=24
+  platform dev @ http://localhost:8098 | commit dd9733687838 | seed 930 | tasks c486a443831b
+  2026-08-04T05:48:06Z .. 2026-08-04T05:54:29Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1      24    100.0%  100.0%        2.0        3.0        15133          0        2832              0
+
+task                            graded  correct  pass^k
+s3-deprecated-order-count          24       24  true
+
+=== arm checkable-correct-opus complete: build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-correct-opus ===

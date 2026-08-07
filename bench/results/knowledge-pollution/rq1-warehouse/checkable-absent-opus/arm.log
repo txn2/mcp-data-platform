@@ -1,0 +1,83 @@
+=== pollution arm checkable-absent-opus ===
+commit dd973368783895b4c9f61ba3c8b7ef61ddb69f6a  database mcp_bench_p_checkable_absent_opus  treatment none  k=24  tasks s3-deprecated-order-count
+
+--- build ---
+
+--- stop any platform on http://localhost:8098 ---
+
+--- fresh database mcp_bench_p_checkable_absent_opus (8.5: arm isolation) ---
+NOTICE:  database "mcp_bench_p_checkable_absent_opus" does not exist, skipping
+
+--- arm config (a3, differing from the committed arm only in DSN) ---
+
+--- DataHub baseline (8.5: clear editable aspects left by any prior promote) ---
+  orders: delete editabledatasetproperties -> HTTP 200
+  customers: delete editabledatasetproperties -> HTTP 200
+  daily_region_revenue: delete editabledatasetproperties -> HTTP 200
+  legacy_orders: delete editabledatasetproperties -> HTTP 200
+
+--- start platform ---
+
+--- seed knowledge pages (the co-present correct sources, 5.3) ---
+
+--- truncate gate state (8.5) ---
+
+--- grader agreement (5.1) ---
+
+--- restricted task set ---
+
+--- store snapshot of the clean stack ---
+
+--- store snapshot before the eval (7.3 baseline) ---
+
+--- evaluate: opus, k=24, 1 task(s) ---
+time=2026-08-03T22:20:01.108-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=1 arm=a3 correct=true tool_calls=3 wall_ms=14021
+time=2026-08-03T22:20:14.922-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=2 arm=a3 correct=true tool_calls=2 wall_ms=13791
+time=2026-08-03T22:20:29.556-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=3 arm=a3 correct=true tool_calls=2 wall_ms=14626
+time=2026-08-03T22:20:42.702-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=4 arm=a3 correct=true tool_calls=2 wall_ms=13141
+time=2026-08-03T22:20:58.532-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=5 arm=a3 correct=true tool_calls=3 wall_ms=15820
+time=2026-08-03T22:21:11.942-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=6 arm=a3 correct=true tool_calls=2 wall_ms=13396
+time=2026-08-03T22:21:25.399-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=7 arm=a3 correct=true tool_calls=2 wall_ms=13450
+time=2026-08-03T22:21:39.354-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=8 arm=a3 correct=true tool_calls=3 wall_ms=13948
+time=2026-08-03T22:21:51.423-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=9 arm=a3 correct=true tool_calls=2 wall_ms=12052
+time=2026-08-03T22:22:05.867-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=10 arm=a3 correct=true tool_calls=2 wall_ms=14433
+time=2026-08-03T22:22:17.704-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=11 arm=a3 correct=true tool_calls=2 wall_ms=11832
+time=2026-08-03T22:22:34.020-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=12 arm=a3 correct=true tool_calls=2 wall_ms=16304
+time=2026-08-03T22:22:48.924-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=13 arm=a3 correct=true tool_calls=2 wall_ms=14885
+time=2026-08-03T22:23:03.465-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=14 arm=a3 correct=true tool_calls=3 wall_ms=14535
+time=2026-08-03T22:23:16.144-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=15 arm=a3 correct=true tool_calls=2 wall_ms=12672
+time=2026-08-03T22:23:29.627-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=16 arm=a3 correct=true tool_calls=2 wall_ms=13476
+time=2026-08-03T22:23:45.427-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=17 arm=a3 correct=true tool_calls=3 wall_ms=15794
+time=2026-08-03T22:23:58.165-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=18 arm=a3 correct=true tool_calls=2 wall_ms=12729
+time=2026-08-03T22:24:11.998-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=19 arm=a3 correct=true tool_calls=2 wall_ms=13828
+time=2026-08-03T22:24:25.457-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=20 arm=a3 correct=true tool_calls=2 wall_ms=13449
+time=2026-08-03T22:24:40.297-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=21 arm=a3 correct=true tool_calls=2 wall_ms=14820
+time=2026-08-03T22:24:58.688-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=22 arm=a3 correct=true tool_calls=3 wall_ms=18385
+time=2026-08-03T22:25:12.632-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=23 arm=a3 correct=true tool_calls=3 wall_ms=13937
+time=2026-08-03T22:25:26.037-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=24 arm=a3 correct=true tool_calls=3 wall_ms=13399
+bench run: arm=a3 model=opus (claude-cli via 2.1.221 (Claude Code)) k=24
+  platform dev @ http://localhost:8098 | commit dd9733687838 | seed 930 | tasks c486a443831b
+  2026-08-04T05:19:47Z .. 2026-08-04T05:25:26Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1      24    100.0%  100.0%        2.0        3.0        13828          0        3624              0
+
+task                            graded  correct  pass^k
+s3-deprecated-order-count          24       24  true
+results: build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-absent-opus/results.json
+
+--- store snapshot after the eval (7.3) ---
+store state constant across the eval
+
+--- summary ---
+bench run: arm=a3 model=opus (claude-cli via 2.1.221 (Claude Code)) k=24
+  platform dev @ http://localhost:8098 | commit dd9733687838 | seed 930 | tasks c486a443831b
+  2026-08-04T05:19:47Z .. 2026-08-04T05:25:26Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s3          1      24    100.0%  100.0%        2.0        3.0        13828          0        3624              0
+
+task                            graded  correct  pass^k
+s3-deprecated-order-count          24       24  true
+
+=== arm checkable-absent-opus complete: build/bench-results/pollution-rq1-confirmatory-20260803-002238/checkable-absent-opus ===
