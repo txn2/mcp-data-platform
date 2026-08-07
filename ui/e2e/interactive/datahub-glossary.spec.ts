@@ -136,7 +136,7 @@ test.describe("DataHub Glossary", () => {
     await page.getByRole("button", { name: "Create term" }).click();
     await expect(page.getByRole("button", { name: /^Churn Rate/ })).toBeVisible();
 
-    await page.getByRole("button", { name: "Tables", exact: true }).click();
+    await page.getByRole("tab", { name: "Tables", exact: true }).click();
     await page.getByText("analytics.public.customers").click();
     await expect(page.getByRole("heading", { name: /customers/ })).toBeVisible();
     await page.getByPlaceholder("Search glossary terms by name…").fill("Churn");

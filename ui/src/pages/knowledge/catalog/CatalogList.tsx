@@ -5,6 +5,9 @@ import {
   useCatalogSearch,
   type TableSearchResult,
 } from "@/api/portal/datahub";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
 import { markdownToPlainText } from "@/lib/markdownText";
 import { useDebounced } from "@/lib/useDebounced";
 import { MIN_SEARCH, shortUrn } from "./utils";
@@ -22,25 +25,25 @@ export function CatalogList({ conn, onOpen }: { conn: string; onOpen: (urn: stri
   return (
     <div className="space-y-4">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <input
+        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search tables by name, description, or tag…"
-          className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm outline-none ring-ring focus:ring-2"
+          className="pl-9"
         />
       </div>
 
       {active.isError ? (
-        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Failed to load the catalog.
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>Failed to load the catalog.</AlertDescription>
+        </Alert>
       ) : active.isLoading ? (
         <ListSkeleton />
       ) : results.length === 0 ? (
-        <p className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+        <EmptyState>
           {searching ? "No tables match your search." : "No tables found in this connection."}
-        </p>
+        </EmptyState>
       ) : (
         <ul className="grid gap-2 sm:grid-cols-2">
           {results.map((r) => (

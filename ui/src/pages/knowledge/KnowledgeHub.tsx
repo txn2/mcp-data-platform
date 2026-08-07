@@ -14,6 +14,8 @@ import {
   KnowledgeCaptureTab,
   ChangesetsTab,
 } from "@/pages/knowledge/KnowledgePage";
+import { InfoHint } from "@/components/patterns/InfoHint";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LifecycleHeader } from "@/pages/knowledge/hub/LifecycleHeader";
 import { SubTabBar } from "@/pages/knowledge/hub/SubTabBar";
 import { UnifiedSearch } from "@/pages/knowledge/hub/UnifiedSearch";
@@ -287,41 +289,35 @@ export function KnowledgeHub({
     <div className="space-y-6">
       <LifecycleHeader />
 
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => selectTab(t.key)}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
-              tab === t.key
-                ? "border-b-2 border-primary text-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t.label}
-            {t.key === "insights" && pendingReviews > 0 && (
-              <span
-                className="rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold text-primary"
-                aria-label={`${pendingReviews} insights awaiting review`}
-              >
-                {pendingReviews}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* The primary tab bar is the page's only underline bar: the levels below
+          it are pill bars (SubTabBar), so the three tiers of navigation read as
+          a hierarchy rather than three identical rows. */}
+      <Tabs value={tab} onValueChange={(v) => selectTab(v as Tab)} className="gap-6">
+        <TabsList variant="line" className="w-full justify-start border-b">
+          {TABS.map((t) => (
+            <TabsTrigger key={t.key} value={t.key} className="flex-none px-4 py-2">
+              {t.label}
+              {t.key === "insights" && pendingReviews > 0 && (
+                <span
+                  className="rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold text-primary"
+                  aria-label={`${pendingReviews} insights awaiting review`}
+                >
+                  {pendingReviews}
+                </span>
+              )}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      {tab === "knowledge" && (
-        <div className="space-y-4">
-          <SubTabBar
-            tabs={knowledgeSubTabs}
-            active={activeSub}
-            onSelect={selectKnowledgeSub}
-          />
-          <p className="text-sm text-muted-foreground">
-            {activeSubMeta.description}
-          </p>
+        <TabsContent value="knowledge" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <SubTabBar
+              tabs={knowledgeSubTabs}
+              active={activeSub}
+              onSelect={selectKnowledgeSub}
+            />
+            <InfoHint>{activeSubMeta.description}</InfoHint>
+          </div>
 
           {activeSub === "search" && <UnifiedSearch onOpen={openHit} />}
           {activeSub === "pages" && (
@@ -338,33 +334,29 @@ export function KnowledgeHub({
               a changeset is created only at apply time and records what was
               written, so it belongs with the knowledge it produced. */}
           {activeSub === "changesets" && <ChangesetsTab />}
-        </div>
-      )}
+        </TabsContent>
 
-      {tab === "insights" && (
-        <div className="space-y-4">
-          <SubTabBar
-            tabs={insightSubTabs}
-            active={activeInsightSub}
-            onSelect={selectInsightSub}
-          />
-          <p className="text-sm text-muted-foreground">
-            {insightSubMeta.description}
-          </p>
+        <TabsContent value="insights" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <SubTabBar
+              tabs={insightSubTabs}
+              active={activeInsightSub}
+              onSelect={selectInsightSub}
+            />
+            <InfoHint>{insightSubMeta.description}</InfoHint>
+          </div>
 
           {activeInsightSub === "mine" && <MyKnowledgeSection />}
           {activeInsightSub === "review" && <KnowledgeCaptureTab />}
-        </div>
-      )}
+        </TabsContent>
 
-      {tab === "memory" && (
-        <div className="space-y-6">
+        <TabsContent value="memory" className="space-y-6">
           {/* Memory is personal. The only memory that crosses to other users is
               an insight (reviewed in the Insights tab), so this tab is scoped to
               the caller's own records. */}
           <MyMemorySection />
-        </div>
-      )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { DataHubConnectionSelect } from "@/components/knowledge/DataHubConnectionSelect";
+import { InfoHint } from "@/components/patterns/InfoHint";
 import { CatalogTab } from "./CatalogTab";
 import { ContextDocsTab } from "./ContextDocsTab";
 import { TagsTab } from "./TagsTab";
@@ -104,19 +105,25 @@ export function CatalogSection({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    // The Catalog surface is one bordered panel: its inner tab bar and
+    // connection picker sit in the panel's header strip, so the third level of
+    // navigation visibly belongs to this surface instead of stacking as another
+    // free-floating bar.
+    <div className="rounded-xl border bg-card shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
         <SubTabBar tabs={SUB_TABS} active={sub} onSelect={selectSub} dense />
-        <DataHubConnectionSelect value={conn} onChange={setConn} />
+        <InfoHint label="About this catalog tab">{SUB_TAB_META[sub].description}</InfoHint>
+        <div className="ml-auto">
+          <DataHubConnectionSelect value={conn} onChange={setConn} />
+        </div>
       </div>
-      <p className="text-sm text-muted-foreground">{SUB_TAB_META[sub].description}</p>
 
       {/* Keying on the connection resets each inner tab's own navigation when
           the connection changes: an open table, document, tag, domain, or
           glossary entity belongs to one connection, and leaving it on screen
           would read its detail from the new one. */}
       {conn && (
-        <div key={conn}>
+        <div key={conn} className="p-4">
           {sub === "tables" && <CatalogTab conn={conn} />}
           {sub === "context_docs" && <ContextDocsTab conn={conn} />}
           {sub === "tags" && <TagsTab conn={conn} onNavigate={onNavigate} />}

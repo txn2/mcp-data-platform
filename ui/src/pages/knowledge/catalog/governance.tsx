@@ -3,8 +3,14 @@ import { ArrowLeft, Trash2, type LucideIcon } from "lucide-react";
 import { useUpdateDescription, type EntityRef, type TableSearchResult } from "@/api/portal/datahub";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { catalogHref } from "@/lib/entityRefs";
-import { ListSkeleton, MutationError } from "./primitives";
+import { markdownToPlainText } from "@/lib/markdownText";
+import { CancelButton, ListSkeleton, MutationError, SaveButton } from "./primitives";
 import { shortUrn } from "./utils";
 
 // Shared surfaces for the DataHub governance vocabularies under Catalog: Tags
@@ -29,7 +35,7 @@ export function PageCapNotice({
 }) {
   if (shown < limit) return null;
   return (
-    <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+    <p className="text-xs text-muted-foreground">
       Showing the first {limit} {what}; there may be more. {hint}
     </p>
   );
@@ -38,7 +44,9 @@ export function PageCapNotice({
 // VocabCard is one entry in a vocabulary list: its name, its description, and
 // the click that opens it. An entry with no description says so rather than
 // rendering an empty line, so an undocumented tag or domain is visible as a gap
-// to fill rather than as whitespace.
+// to fill rather than as whitespace. Descriptions are stored as markdown for
+// the kinds DataHub renders as markdown (#1200), so the two-line preview is
+// flattened to plain text rather than showing raw source.
 export function VocabCard({
   entry,
   icon: Icon,
@@ -51,14 +59,16 @@ export function VocabCard({
   return (
     <button
       onClick={onOpen}
-      className="flex h-full w-full flex-col gap-1 rounded-lg border p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/50"
+      className="flex h-full w-full flex-col gap-1 rounded-xl border bg-card p-3 text-left shadow-sm transition-colors hover:border-primary/50 hover:bg-muted/50"
     >
       <span className="flex items-center gap-2 text-sm font-medium">
-        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <Icon className="size-4 shrink-0 text-muted-foreground" />
         {entry.name || shortUrn(entry.urn)}
       </span>
       {entry.description ? (
-        <span className="line-clamp-2 text-xs text-muted-foreground">{entry.description}</span>
+        <span className="line-clamp-2 text-xs text-muted-foreground">
+          {markdownToPlainText(entry.description)}
+        </span>
       ) : (
         <span className="text-xs italic text-muted-foreground">No description</span>
       )}
@@ -85,7 +95,9 @@ export function TableLink({
     <>
       <span className="text-sm font-medium">{table.name || shortUrn(table.urn)}</span>
       {table.description && (
-        <span className="line-clamp-2 text-xs text-muted-foreground">{table.description}</span>
+        <span className="line-clamp-2 text-xs text-muted-foreground">
+          {markdownToPlainText(table.description)}
+        </span>
       )}
     </>
   );
@@ -150,69 +162,66 @@ export function EntityDescription({
 
   if (editing) {
     return (
-      <section className="space-y-2">
-        <h3 className="text-sm font-medium">Description</h3>
-        {format === "markdown" ? (
-          <MarkdownEditor
-            value={draft}
-            onChange={setDraft}
-            label={label}
-            minHeight="240px"
-            placeholder="Describe this in markdown…"
-          />
-        ) : (
-          <textarea
-            aria-label={label}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={3}
-            className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
-          />
-        )}
-        <div className="flex gap-2">
-          <button
-            onClick={() =>
-              update.mutate(
-                { urn: entity.urn, description: draft.trim() },
-                { onSuccess: () => setEditing(false) },
-              )
-            }
-            disabled={update.isPending}
-            className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            Save
-          </button>
-          <button
-            onClick={() => {
-              setDraft(current);
-              setEditing(false);
-            }}
-            className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
-          >
-            Cancel
-          </button>
+      <SectionCard title="Description">
+        <div className="space-y-2">
+          {format === "markdown" ? (
+            <MarkdownEditor
+              value={draft}
+              onChange={setDraft}
+              label={label}
+              minHeight="240px"
+              placeholder="Describe this in markdown…"
+            />
+          ) : (
+            <Textarea
+              aria-label={label}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={3}
+            />
+          )}
+          <div className="flex gap-2">
+            <SaveButton
+              disabled={update.isPending}
+              onClick={() =>
+                update.mutate(
+                  { urn: entity.urn, description: draft.trim() },
+                  { onSuccess: () => setEditing(false) },
+                )
+              }
+            />
+            <CancelButton
+              onClick={() => {
+                setDraft(current);
+                setEditing(false);
+              }}
+            />
+          </div>
+          <MutationError mut={update} />
         </div>
-        <MutationError mut={update} />
-      </section>
+      </SectionCard>
     );
   }
 
   return (
-    <section className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-medium">Description</h3>
-        {canEdit && (
-          <button
+    <SectionCard
+      title="Description"
+      action={
+        canEdit && (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground"
             onClick={() => {
               setDraft(current);
               setEditing(true);
             }}
-            className="text-xs text-muted-foreground hover:text-foreground"
           >
             Edit description
-          </button>
-        )}
-      </div>
+          </Button>
+        )
+      }
+    >
       {!current ? (
         <p className="text-sm italic text-muted-foreground">No description</p>
       ) : format === "markdown" ? (
@@ -220,7 +229,7 @@ export function EntityDescription({
       ) : (
         <p className="text-sm">{current}</p>
       )}
-    </section>
+    </SectionCard>
   );
 }
 
@@ -246,33 +255,31 @@ export function DeleteControl({
       <div className="flex justify-end gap-2">
         {confirming ? (
           <>
-            <button
+            <Button
+              variant="destructive"
+              size="sm"
               onClick={onConfirm}
               disabled={mut.isPending}
-              className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
             >
               Confirm delete
-            </button>
-            <button
-              onClick={() => setConfirming(false)}
-              className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
-            >
-              Cancel
-            </button>
+            </Button>
+            <CancelButton onClick={() => setConfirming(false)} />
           </>
         ) : (
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setConfirming(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
           >
-            <Trash2 className="h-3.5 w-3.5" /> {label}
-          </button>
+            <Trash2 /> {label}
+          </Button>
         )}
       </div>
       {confirming && (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
-          {impact}
-        </p>
+        <Alert variant="destructive" className="border-destructive/40 bg-destructive/10">
+          <AlertDescription className="text-foreground">{impact}</AlertDescription>
+        </Alert>
       )}
       <MutationError mut={mut} />
     </div>
@@ -355,11 +362,11 @@ export function DeepLinkedEntry({
     return (
       <div className="space-y-4">
         <BackToList label={backLabel} onBack={onBack} />
-        <p className="rounded-md border border-dashed px-4 py-6 text-sm text-muted-foreground">
+        <EmptyState>
           This connection lists no {what} with the URN{" "}
           <span className="break-all font-mono text-xs">{urn}</span>. It may belong to another
           connection, or have been retired since it was linked.
-        </p>
+        </EmptyState>
       </div>
     );
   }

@@ -19,6 +19,34 @@ All five of `typecheck`, `lint`, `test`, `build`, and the E2E suite run in the
 `frontend` / `frontend-e2e` CI jobs (`.github/workflows/ci.yml`) and must pass
 before merge.
 
+## Component library (shadcn/ui)
+
+The UI uses [shadcn/ui](https://ui.shadcn.com) primitives, vendored as source
+into `src/components/ui/` via `npx shadcn@latest add <name>` (config:
+`components.json`). The design tokens in `src/index.css` are the shadcn HSL
+variable set exposed through Tailwind v4's `@theme inline`; keep them HSL — do
+not let `shadcn init`/`add` rewrite the file to oklch (diff `src/index.css`
+after any `add` and revert token churn). Vendored components import the scoped
+`@radix-ui/react-*` packages, not the unified `radix-ui` meta-package.
+
+App-level composition patterns live in `src/components/patterns/`:
+
+| Component | Contract |
+| --- | --- |
+| `PageHeader` | The one shape a detail view opens with: back link, breadcrumb, icon + title, mono `urn` line, right-aligned page actions |
+| `SectionCard` | The one way a page section is boxed; the section's action lives in its header |
+| `EmptyState` | The only permitted use of a dashed border: "there is nothing here", with an optional action |
+| `InfoHint` | A view's explainer prose behind an info toggle instead of an always-on paragraph |
+
+Conventions the exemplar (Knowledge > Catalog) established: buttons, inputs,
+labels, textareas, selects, tables, tabs, badges, and alerts come from
+`src/components/ui/` — no inline Tailwind button/input recipes in new code.
+Status pills wrap `ui/badge` semantic variants (`success`/`warning`/`danger`/
+`info`/`muted`, e.g. `components/cards/StatusBadge.tsx`) rather than restating
+tint classes. Warnings and error notices are `Alert`; dashed boxes are reserved
+for `EmptyState`. Modal geometry still goes through `components/ModalShell.tsx`
+(`ui/dialog.tsx` is vendored but existing modals keep the ModalShell contract).
+
 ## Frontend lint gates (#816)
 
 The frontend enforces the same kind of per-function complexity budgets the Go

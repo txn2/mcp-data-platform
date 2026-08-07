@@ -7,8 +7,14 @@ import {
   type EntityRef,
 } from "@/api/portal/datahub";
 import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuthStore } from "@/stores/auth";
-import { ListSkeleton, MutationError } from "./catalog/primitives";
+import { CancelButton, ListSkeleton, MutationError } from "./catalog/primitives";
 import { clearURNFromLocation, deepLinkedURN, filterDomains } from "./catalog/utils";
 import { DeepLinkedEntry, PageCapNotice, VocabCard } from "./catalog/governance";
 import { DomainDetail } from "./DomainDetail";
@@ -139,36 +145,31 @@ function DomainList({
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter domains by name…"
-            className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm outline-none ring-ring focus:ring-2"
+            className="pl-9"
           />
         </div>
         {canCreate && (
-          <button
-            onClick={onCreate}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="h-4 w-4" /> New domain
-          </button>
+          <Button onClick={onCreate}>
+            <Plus /> New domain
+          </Button>
         )}
       </div>
 
       {isError ? (
-        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Failed to load domains.
-        </p>
+        <Alert variant="destructive">
+          <AlertDescription>Failed to load domains.</AlertDescription>
+        </Alert>
       ) : isLoading ? (
         <ListSkeleton />
       ) : domains.length === 0 ? (
-        <p className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-          {query.trim()
-            ? "No domains match that name."
-            : "This connection has no domains yet."}
-        </p>
+        <EmptyState>
+          {query.trim() ? "No domains match that name." : "This connection has no domains yet."}
+        </EmptyState>
       ) : (
         <>
           {/* The cap is upstream's, not this surface's: DataHub's listDomains
@@ -202,32 +203,32 @@ function DomainForm({ conn, onDone }: { conn: string; onDone: () => void }) {
     <div className="space-y-4">
       <button
         onClick={onDone}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        <ArrowLeft className="h-4 w-4" /> Cancel
+        <ArrowLeft className="size-4" /> Cancel
       </button>
       <h2 className="text-lg font-semibold">New domain</h2>
 
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">Name</span>
-        <input
+      <div className="space-y-1.5">
+        <Label htmlFor="domain-name">Name</Label>
+        <Input
+          id="domain-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Finance"
-          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
         />
-      </label>
+      </div>
 
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">Description</span>
-        <textarea
+      <div className="space-y-1.5">
+        <Label htmlFor="domain-description">Description</Label>
+        <Textarea
+          id="domain-description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={3}
           placeholder="What this domain covers, and which teams own it."
-          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2"
         />
-      </label>
+      </div>
 
       <p className="text-xs text-muted-foreground">
         DataHub indexes new domains asynchronously, so a domain you create may take a moment to
@@ -237,7 +238,7 @@ function DomainForm({ conn, onDone }: { conn: string; onDone: () => void }) {
       <MutationError mut={create} />
 
       <div className="flex gap-2">
-        <button
+        <Button
           onClick={() =>
             create.mutate(
               { name: name.trim(), description: description.trim() || undefined },
@@ -245,13 +246,10 @@ function DomainForm({ conn, onDone }: { conn: string; onDone: () => void }) {
             )
           }
           disabled={name.trim() === "" || create.isPending}
-          className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           Create domain
-        </button>
-        <button onClick={onDone} className="rounded-md border px-4 py-1.5 text-sm hover:bg-muted">
-          Cancel
-        </button>
+        </Button>
+        <CancelButton onClick={onDone} />
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { ArrowLeft, BookMarked, ChevronRight, FileText, Library } from "lucide-react";
+import { BookMarked, ChevronRight, FileText, Library } from "lucide-react";
 import {
   useGlossaryParents,
   useGlossaryTermUsage,
@@ -11,7 +11,11 @@ import {
   type TableSearchResult,
 } from "@/api/portal/datahub";
 import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
-import { ListSkeleton, Badge } from "./catalog/primitives";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { PageHeader } from "@/components/patterns/PageHeader";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Badge } from "@/components/ui/badge";
+import { ListSkeleton } from "./catalog/primitives";
 import { shortUrn } from "./catalog/utils";
 import {
   DeleteControl,
@@ -113,28 +117,22 @@ export function GlossaryTermDetail({
 
   return (
     <div className="space-y-4">
-      <button
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" /> Back to the glossary
-      </button>
-
-      <GlossaryBreadcrumb
-        conn={conn}
+      <PageHeader
+        backLabel="Back to the glossary"
+        onBack={onBack}
+        breadcrumb={
+          <GlossaryBreadcrumb
+            conn={conn}
+            urn={term.urn}
+            self={term.name || shortUrn(term.urn)}
+            onOpenNode={onOpenNode}
+            onOpenRoot={onOpenRoot}
+          />
+        }
+        icon={BookMarked}
+        title={term.name || shortUrn(term.urn)}
         urn={term.urn}
-        self={term.name || shortUrn(term.urn)}
-        onOpenNode={onOpenNode}
-        onOpenRoot={onOpenRoot}
       />
-
-      <div>
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <BookMarked className="h-4 w-4 text-muted-foreground" />
-          {term.name || shortUrn(term.urn)}
-        </h2>
-        <p className="break-all text-xs text-muted-foreground">{term.urn}</p>
-      </div>
 
       {canDelete && <TermDeleteControl conn={conn} term={term} usage={usage} onDeleted={onBack} />}
 
@@ -166,24 +164,21 @@ export function EntityDocuments({ conn, urn }: { conn: string; urn: string }) {
   const docs = data ?? [];
 
   return (
-    <section className="space-y-2">
-      <h3 className="text-sm font-medium">Context documents</h3>
+    <SectionCard title="Context documents">
       {isError ? (
         <p className="text-sm text-destructive">Failed to load the attached context documents.</p>
       ) : isLoading ? (
         <p className="text-xs text-muted-foreground">Loading…</p>
       ) : docs.length === 0 ? (
-        <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-          Nothing is attached. Attach a note on the Context Docs tab.
-        </p>
+        <EmptyState>Nothing is attached. Attach a note on the Context Docs tab.</EmptyState>
       ) : (
         <ul className="space-y-2">
           {docs.map((d) => (
             <li key={d.urn} className="flex flex-col gap-0.5 rounded-lg border p-3">
               <span className="flex items-center gap-2 text-sm font-medium">
-                <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <FileText className="size-3.5 shrink-0 text-muted-foreground" />
                 {d.title}
-                {d.sub_type && <Badge tone="primary">{d.sub_type}</Badge>}
+                {d.sub_type && <Badge variant="info">{d.sub_type}</Badge>}
               </span>
               {d.snippet && (
                 <span className="line-clamp-2 text-xs text-muted-foreground">{d.snippet}</span>
@@ -192,7 +187,7 @@ export function EntityDocuments({ conn, urn }: { conn: string; urn: string }) {
           ))}
         </ul>
       )}
-    </section>
+    </SectionCard>
   );
 }
 
@@ -223,16 +218,13 @@ function TermUsage({
   const onColumn = new Set((columnCarriers.data ?? []).map((t) => t.urn));
 
   return (
-    <section className="space-y-2">
-      <h3 className="text-sm font-medium">Tables annotated with this term</h3>
+    <SectionCard title="Tables annotated with this term">
       {state.isError ? (
         <p className="text-sm text-destructive">Failed to load the tables using this term.</p>
       ) : state.isLoading ? (
         <ListSkeleton />
       ) : tables.length === 0 ? (
-        <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-          {NO_CARRIERS}
-        </p>
+        <EmptyState>{NO_CARRIERS}</EmptyState>
       ) : (
         <>
           {/* The Tables tab searches name, description, and tag text, not
@@ -250,14 +242,14 @@ function TermUsage({
                 <TableLink
                   table={t}
                   onNavigate={onNavigate}
-                  trailing={onColumn.has(t.urn) ? <Badge tone="primary">on a column</Badge> : undefined}
+                  trailing={onColumn.has(t.urn) ? <Badge variant="info">on a column</Badge> : undefined}
                 />
               </li>
             ))}
           </ul>
         </>
       )}
-    </section>
+    </SectionCard>
   );
 }
 

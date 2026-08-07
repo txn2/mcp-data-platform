@@ -15,16 +15,27 @@ import {
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useDebounced } from "@/lib/useDebounced";
 import { shortUrn, filterDomains, withRawUrn } from "./utils";
-import {
-  Badge,
-  EditButton,
-  SaveButton,
-  CancelButton,
-  AddButton,
-  MutationError,
-} from "./primitives";
+import { EditButton, SaveButton, CancelButton, AddButton, MutationError } from "./primitives";
 import { MetadataPicker } from "./MetadataPicker";
 
 export function EntityBody({
@@ -73,22 +84,25 @@ export function EntityBody({
       <DomainSection conn={conn} urn={entity.urn} domain={ctx.domain ?? null} canEdit={canEdit} />
 
       {columns.length > 0 && (
-        <section>
-          <h3 className="mb-2 text-sm font-semibold">Columns</h3>
+        <SectionCard title="Columns">
           <div className="overflow-hidden rounded-lg border">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2 font-medium">Name</th>
-                  <th className="px-3 py-2 font-medium">Description</th>
-                  <th className="px-3 py-2 font-medium">Classification</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="px-3 text-xs text-muted-foreground">Name</TableHead>
+                  <TableHead className="px-3 text-xs text-muted-foreground">Description</TableHead>
+                  <TableHead className="px-3 text-xs text-muted-foreground">
+                    Classification
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {columns.map((c) => (
-                  <tr key={c.name} className="border-t align-top">
-                    <td className="px-3 py-2 font-mono text-xs">{c.name}</td>
-                    <td className="px-3 py-2 text-muted-foreground">
+                  <TableRow key={c.name} className="align-top">
+                    <TableCell className="px-3 py-2 align-top font-mono text-xs">
+                      {c.name}
+                    </TableCell>
+                    <TableCell className="px-3 py-2 align-top whitespace-normal text-muted-foreground">
                       {c.description ? (
                         // max-width on a <td> is ignored in auto table layout, so
                         // the description column is bounded on an inner block.
@@ -98,24 +112,24 @@ export function EntityBody({
                       ) : (
                         "—"
                       )}
-                    </td>
-                    <td className="px-3 py-2">
+                    </TableCell>
+                    <TableCell className="px-3 py-2 align-top">
                       <span className="flex flex-wrap gap-1">
-                        {c.is_pii && <Badge tone="amber">PII</Badge>}
-                        {c.is_sensitive && <Badge tone="amber">Sensitive</Badge>}
+                        {c.is_pii && <Badge variant="warning">PII</Badge>}
+                        {c.is_sensitive && <Badge variant="warning">Sensitive</Badge>}
                         {(c.tags ?? []).map((t) => (
-                          <Badge key={t} tone="primary">
+                          <Badge key={t} variant="info">
                             {shortUrn(t)}
                           </Badge>
                         ))}
                       </span>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
-        </section>
+        </SectionCard>
       )}
     </div>
   );
@@ -137,18 +151,20 @@ function DescriptionEditor({
   const mut = useUpdateDescription(conn);
 
   return (
-    <section>
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Description</h3>
-        {canEdit && !editing && (
+    <SectionCard
+      title="Description"
+      action={
+        canEdit &&
+        !editing && (
           <EditButton
             onClick={() => {
               setDraft(value);
               setEditing(true);
             }}
           />
-        )}
-      </div>
+        )
+      }
+    >
       {editing ? (
         <div className="space-y-2">
           <MarkdownEditor
@@ -173,7 +189,7 @@ function DescriptionEditor({
       ) : (
         <p className="text-sm text-muted-foreground">No description.</p>
       )}
-    </section>
+    </SectionCard>
   );
 }
 
@@ -222,10 +238,13 @@ function ChipSetSection({
   };
 
   return (
-    <section>
-      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-        {icon} {title}
-      </h3>
+    <SectionCard
+      title={
+        <span className="flex items-center gap-1.5">
+          {icon} {title}
+        </span>
+      }
+    >
       <div className="flex flex-wrap items-center gap-1.5">
         {values.length === 0 && <span className="text-sm text-muted-foreground">None.</span>}
         {values.map((v) => (
@@ -260,7 +279,7 @@ function ChipSetSection({
         />
       )}
       <MutationError mut={mut} />
-    </section>
+    </SectionCard>
   );
 }
 
@@ -280,10 +299,13 @@ function OwnersSection({
   const mut = useUpdateOwners(conn);
 
   return (
-    <section>
-      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-        <Users className="h-4 w-4" /> Owners
-      </h3>
+    <SectionCard
+      title={
+        <span className="flex items-center gap-1.5">
+          <Users className="size-4" /> Owners
+        </span>
+      }
+    >
       <div className="space-y-1">
         {owners.length === 0 && <span className="text-sm text-muted-foreground">None.</span>}
         {owners.map((o) => (
@@ -305,21 +327,22 @@ function OwnersSection({
       {canEdit && (
         <div className="mt-2 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <input
+            <Input
               value={ownerUrn}
               onChange={(e) => setOwnerUrn(e.target.value)}
               placeholder="urn:li:corpuser:alice"
-              className="w-64 rounded-md border bg-background px-2 py-1 font-mono text-xs outline-none ring-ring focus:ring-2"
+              className="h-8 w-64 font-mono text-xs"
             />
-            <select
-              value={ownerType}
-              onChange={(e) => setOwnerType(e.target.value)}
-              className="rounded-md border bg-background px-2 py-1 text-xs outline-none ring-ring focus:ring-2"
-            >
-              <option>TECHNICAL_OWNER</option>
-              <option>BUSINESS_OWNER</option>
-              <option>DATA_STEWARD</option>
-            </select>
+            <Select value={ownerType} onValueChange={setOwnerType}>
+              <SelectTrigger size="sm" aria-label="Owner type" className="text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="TECHNICAL_OWNER">TECHNICAL_OWNER</SelectItem>
+                <SelectItem value="BUSINESS_OWNER">BUSINESS_OWNER</SelectItem>
+                <SelectItem value="DATA_STEWARD">DATA_STEWARD</SelectItem>
+              </SelectContent>
+            </Select>
             <AddButton
               disabled={mut.isPending || !ownerUrn.trim()}
               onClick={() =>
@@ -337,7 +360,7 @@ function OwnersSection({
         </div>
       )}
       <MutationError mut={mut} />
-    </section>
+    </SectionCard>
   );
 }
 
@@ -367,10 +390,13 @@ function DomainSection({
   };
 
   return (
-    <section>
-      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-        <Building2 className="h-4 w-4" /> Domain
-      </h3>
+    <SectionCard
+      title={
+        <span className="flex items-center gap-1.5">
+          <Building2 className="size-4" /> Domain
+        </span>
+      }
+    >
       <div className="flex items-center gap-2 text-sm">
         {domain ? (
           <>
@@ -403,6 +429,6 @@ function DomainSection({
         />
       )}
       <MutationError mut={mut} />
-    </section>
+    </SectionCard>
   );
 }

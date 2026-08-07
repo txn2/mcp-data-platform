@@ -83,8 +83,13 @@ internal/ui/dist/*
 internal/contentviewer/dist/*
 !internal/contentviewer/dist/.gitkeep
 
-# Claude Code session files
-.claude/
+# Claude Code session files (installed agent skills are shared, so they are
+# tracked; everything else under .claude/ stays local). The root rules are
+# anchored so the skills negation can apply; ui/.claude/ is listed separately
+# because the anchored root rules do not cover it.
+/.claude/*
+!/.claude/skills/
+ui/.claude/
 
 # Resolved dev ports written by dev/start.sh (auto-relocation)
 dev/.dev-ports.env
