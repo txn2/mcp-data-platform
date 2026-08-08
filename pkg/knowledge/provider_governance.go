@@ -118,9 +118,9 @@ type GovernanceEntity struct {
 	// Datasets are the catalog datasets carrying this entity, bounded by
 	// carrierLimit and filtered to the caller's connection boundary.
 	Datasets []GovernanceDataset `json:"datasets,omitempty"`
-	// MoreDatasets reports that the carrier list filled its cap, so the entity is
-	// carried by at least this many and possibly more. Filter the catalog search
-	// by the entity to page the full membership.
+	// MoreDatasets reports that the list is not known to hold every carrier:
+	// either the catalog counted more, or it could not count at all. Filter the
+	// catalog search by the entity to page the full membership.
 	MoreDatasets bool `json:"more_datasets,omitempty"`
 	// DatasetsWithheld counts the carrying datasets the caller's connection
 	// boundary removed, and Notice explains it. A short list with no explanation is
@@ -519,6 +519,33 @@ func (p *GovernanceProvider) Fetch(ctx context.Context, ref string, caller Calle
 	}, true, nil
 }
 
+// searchCarriers runs a carrier search and reports the catalog's total match
+// count alongside the page, so the caller can tell a bounded membership from an
+// exhausted one — a page length equal to the limit is evidence of neither, since
+// the catalog is free to return fewer rows than asked for (#1238). A reader that
+// cannot count reports semantic.TotalUnknown.
+//
+// The capability is probed directly rather than through semantic.SearchTablesCounted
+// because the reader is a governanceReader, not a semantic.Provider: it arrives
+// already resolved to the innermost implementation (semantic.GovernanceReaderFrom),
+// so there is no decorator chain left to walk.
+func (p *GovernanceProvider) searchCarriers(
+	ctx context.Context, filter semantic.SearchFilter,
+) (results []semantic.TableSearchResult, total int, err error) {
+	if mc, ok := p.reader.(semantic.TableMatchCounter); ok {
+		results, total, err = mc.SearchTablesCounted(ctx, filter)
+		if err != nil {
+			return nil, semantic.TotalUnknown, fmt.Errorf("counted carrier search: %w", err)
+		}
+		return results, total, nil
+	}
+	results, err = p.reader.SearchTables(ctx, filter)
+	if err != nil {
+		return nil, semantic.TotalUnknown, fmt.Errorf("carrier search: %w", err)
+	}
+	return results, semantic.TotalUnknown, nil
+}
+
 // attachCarriers lists the datasets carrying a governance entity, applies the
 // caller's connection boundary, and records what it removed on the entity;
 // it returns the visible dataset URNs for the Document.
@@ -531,12 +558,16 @@ func (p *GovernanceProvider) Fetch(ctx context.Context, ref string, caller Calle
 func (p *GovernanceProvider) attachCarriers(
 	ctx context.Context, kind governanceKind, urn string, caller Caller, entity *GovernanceEntity,
 ) []string {
-	results, err := p.reader.SearchTables(ctx, kind.carriers(urn, carrierLimit))
+	results, total, err := p.searchCarriers(ctx, kind.carriers(urn, carrierLimit))
 	if err != nil {
 		slog.Debug("governance carrier search skipped", "urn", urn, "error", err)
 		return nil
 	}
-	entity.MoreDatasets = len(results) >= carrierLimit
+	// An uncounted catalog leaves the membership unverified, which is reported as
+	// "there are more" rather than as a complete list: the reader's next move is
+	// the same either way (page the catalog by the entity), and the alternative
+	// presents a bounded list as the entity's whole membership.
+	entity.MoreDatasets = total == semantic.TotalUnknown || total > len(results)
 	urns := make([]string, 0, len(results))
 	for i := range results {
 		if results[i].URN == "" {

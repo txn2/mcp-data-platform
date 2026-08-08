@@ -1242,6 +1242,8 @@ Completions are served for:
 
 Completions are persona-filtered exactly like `tools/list` and `search`: a caller only receives values it could already discover through the corresponding tool (dataset/topic/glossary require `search`; catalog/schema/table require `trino_browse`; connection names require `list_connections` and are further filtered by the persona's connection rules). Unauthenticated sessions receive no completions, and each lookup runs under a short latency budget so an unavailable upstream degrades to an empty list rather than an error.
 
+A response carries at most 100 values, and the two optional fields beside them are reported only when they are provable. `hasMore` is set when the catalog counted more matches than the response holds — read from the catalog's own match count, not inferred from how many rows a page happened to return, since a catalog is free to return fewer rows than were asked for. `total` is set only when the returned set is the complete one; when the catalog cannot report a count, both fields are omitted rather than asserting a completeness the platform cannot verify.
+
 ## Custom Resources Configuration
 
 Custom resources let you expose arbitrary static content as named MCP resources — brand assets, operational limits, environment docs, or any structured blob that agents can read by URI. They are registered whenever `resources.custom` is non-empty, independent of `resources.enabled`.

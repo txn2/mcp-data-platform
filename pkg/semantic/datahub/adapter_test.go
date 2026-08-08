@@ -1933,3 +1933,109 @@ func TestSearchGlossaryTerms_EmptyQueryLists(t *testing.T) {
 		}
 	}
 }
+
+// TestSearchTablesCounted covers the counted searches that make a clamped page
+// distinguishable from an exhausted one (#1238): DataHub reports the total
+// alongside the page it returned, and a response that counts fewer matches than
+// it returned rows is not a count at all.
+func TestSearchTablesCounted(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name      string
+		result    *types.SearchResult
+		searchErr error
+		wantRows  int
+		wantTotal int
+	}{
+		{
+			name: "total exceeds the page the client clamped",
+			result: &types.SearchResult{
+				Entities: make([]types.SearchEntity, maxRefLimit),
+				Total:    500,
+			},
+			wantRows:  maxRefLimit,
+			wantTotal: 500,
+		},
+		{
+			name: "total equal to the page is a complete set",
+			result: &types.SearchResult{
+				Entities: make([]types.SearchEntity, 3),
+				Total:    3,
+			},
+			wantRows:  3,
+			wantTotal: 3,
+		},
+		{
+			name: "a total below the page cannot be the match count",
+			result: &types.SearchResult{
+				Entities: make([]types.SearchEntity, 5),
+				Total:    0,
+			},
+			wantRows:  5,
+			wantTotal: semantic.TotalUnknown,
+		},
+		{
+			name:      "search failure reports no count",
+			searchErr: errors.New("datahub down"),
+			wantTotal: semantic.TotalUnknown,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mock := &mockDataHubClient{
+				searchAcrossEntitiesFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+					return tc.result, tc.searchErr
+				},
+			}
+			adapter, _ := NewWithClient(Config{}, mock)
+
+			results, total, err := adapter.SearchTablesCounted(ctx, semantic.SearchFilter{Query: "*", Limit: 101})
+			if tc.searchErr != nil {
+				if err == nil {
+					t.Fatal("expected the search error to propagate")
+				}
+			} else if err != nil {
+				t.Fatalf(dhAdapterTestUnexpectedErr, err)
+			}
+			if len(results) != tc.wantRows {
+				t.Errorf("rows = %d, want %d", len(results), tc.wantRows)
+			}
+			if total != tc.wantTotal {
+				t.Errorf("total = %d, want %d", total, tc.wantTotal)
+			}
+
+			// The glossary arm reads the same response through the same rule.
+			refs, termTotal, err := adapter.SearchGlossaryTermsCounted(ctx, "rev", 101)
+			if tc.searchErr == nil && err != nil {
+				t.Fatalf(dhAdapterTestUnexpectedErr, err)
+			}
+			if len(refs) != tc.wantRows {
+				t.Errorf("glossary rows = %d, want %d", len(refs), tc.wantRows)
+			}
+			if termTotal != tc.wantTotal {
+				t.Errorf("glossary total = %d, want %d", termTotal, tc.wantTotal)
+			}
+		})
+	}
+}
+
+// TestSearchTablesCountedSemanticMode pins the counted read to the semantic-search
+// path too, so a mode switch cannot lose the count.
+func TestSearchTablesCountedSemanticMode(t *testing.T) {
+	mock := &mockDataHubClient{
+		semanticSearchFunc: func(_ context.Context, _ string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+			return &types.SearchResult{Entities: make([]types.SearchEntity, 2), Total: 77}, nil
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+
+	results, total, err := adapter.SearchTablesCounted(context.Background(), semantic.SearchFilter{Query: "orders", Mode: "semantic"})
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	if len(results) != 2 || total != 77 {
+		t.Fatalf("got %d rows / total %d, want 2 / 77", len(results), total)
+	}
+}

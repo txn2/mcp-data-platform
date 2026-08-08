@@ -24,6 +24,9 @@ var errUnauthenticated = errors.New("unauthenticated")
 
 // --- test doubles ---------------------------------------------------------
 
+// fakeSemantic is an uncounted provider: it answers searches but cannot report a
+// total, standing in for any catalog backend that does not implement
+// semantic.TableMatchCounter.
 type fakeSemantic struct {
 	semantic.Provider
 	tables    []semantic.TableSearchResult
@@ -49,6 +52,73 @@ func (f *fakeSemantic) ListDomains(context.Context) ([]semantic.EntityRef, error
 
 func (f *fakeSemantic) SearchGlossaryTerms(context.Context, string, int) ([]semantic.EntityRef, error) {
 	return f.terms, f.searchErr
+}
+
+// clampedSemantic mirrors the real DataHub client: it never returns more than
+// clampAt rows however many were requested, and it reports the true match count
+// separately. It is the shape that makes a "fetch one extra row" probe useless —
+// the extra row is exactly what the clamp removes.
+type clampedSemantic struct {
+	semantic.Provider
+	clampAt int
+	// tableMatches/termMatches are how many entities match upstream; the page is
+	// the clamped prefix of them.
+	tableMatches int
+	termMatches  int
+	// domains is how many domains the listing returns, and domainsErr fails it.
+	domains    int
+	domainsErr error
+	// queries records the query each table search was sent, so a test can assert
+	// what an empty typed prefix becomes.
+	queries []string
+}
+
+func (c *clampedSemantic) page(matches, requested int) int {
+	return min(matches, min(requested, c.clampAt))
+}
+
+func (c *clampedSemantic) SearchTablesCounted(
+	_ context.Context, filter semantic.SearchFilter,
+) ([]semantic.TableSearchResult, int, error) {
+	c.queries = append(c.queries, filter.Query)
+	n := c.page(c.tableMatches, filter.Limit)
+	out := make([]semantic.TableSearchResult, 0, n)
+	for i := range n {
+		out = append(out, semantic.TableSearchResult{Name: "d" + strconv.Itoa(i)})
+	}
+	return out, c.tableMatches, nil
+}
+
+func (c *clampedSemantic) SearchTables(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	results, _, err := c.SearchTablesCounted(ctx, filter)
+	return results, err
+}
+
+func (c *clampedSemantic) SearchGlossaryTermsCounted(
+	_ context.Context, _ string, limit int,
+) ([]semantic.EntityRef, int, error) {
+	n := c.page(c.termMatches, limit)
+	out := make([]semantic.EntityRef, 0, n)
+	for i := range n {
+		out = append(out, semantic.EntityRef{Name: "t" + strconv.Itoa(i)})
+	}
+	return out, c.termMatches, nil
+}
+
+func (c *clampedSemantic) SearchGlossaryTerms(ctx context.Context, term string, limit int) ([]semantic.EntityRef, error) {
+	refs, _, err := c.SearchGlossaryTermsCounted(ctx, term, limit)
+	return refs, err
+}
+
+func (c *clampedSemantic) ListDomains(context.Context) ([]semantic.EntityRef, error) {
+	if c.domainsErr != nil {
+		return nil, c.domainsErr
+	}
+	out := make([]semantic.EntityRef, 0, c.domains)
+	for i := range c.domains {
+		out = append(out, semantic.EntityRef{Name: "dom" + strconv.Itoa(i)})
+	}
+	return out, nil
 }
 
 type fakeQuery struct {
@@ -163,9 +233,9 @@ func viewerPC() *middleware.PlatformContext {
 
 func TestPromptDatasetCompletions(t *testing.T) {
 	h := New(testDeps(t))
-	got, more := h.promptArgument(context.Background(), analystPC(), "dataset", "ord")
+	got, cov := h.promptArgument(context.Background(), analystPC(), "dataset", "ord")
 	assert.ElementsMatch(t, []string{"orders", "order_items"}, got)
-	assert.False(t, more)
+	assert.Equal(t, coverageUnknown, cov, "an uncounted provider proves nothing about the rest of the matches")
 }
 
 func TestPromptTopicCompletions(t *testing.T) {
@@ -176,9 +246,9 @@ func TestPromptTopicCompletions(t *testing.T) {
 
 func TestPromptConnectionCompletionsGated(t *testing.T) {
 	h := New(testDeps(t))
-	got, more := h.promptArgument(context.Background(), analystPC(), "connection", "")
+	got, cov := h.promptArgument(context.Background(), analystPC(), "connection", "")
 	assert.Equal(t, []string{"prod-trino"}, got)
-	assert.False(t, more)
+	assert.Equal(t, coverageComplete, cov, "the registry is fully enumerated")
 
 	// The viewer is denied list_connections, so it completes no connections.
 	denied, _ := h.promptArgument(context.Background(), viewerPC(), "connection", "")
@@ -235,9 +305,9 @@ func TestValuesRouting(t *testing.T) {
 	pc := analystPC()
 
 	assertEmpty := func(ref *mcp.CompleteReference, arg mcp.CompleteParamsArgument, caller *middleware.PlatformContext) {
-		vals, more := h.values(ctx, caller, ref, arg, nil)
+		vals, cov := h.values(ctx, caller, ref, arg, nil)
 		assert.Nil(t, vals)
-		assert.False(t, more)
+		assert.Equal(t, coverageComplete, cov)
 	}
 	assertEmpty(&mcp.CompleteReference{Type: "ref/unknown"}, mcp.CompleteParamsArgument{}, pc)
 	assertEmpty(nil, mcp.CompleteParamsArgument{}, pc)
@@ -258,9 +328,9 @@ func TestNilProvidersAndErrorsDegrade(t *testing.T) {
 	// Nil providers.
 	h := New(Deps{})
 	ctx := context.Background()
-	names, more := h.datasetNames(ctx, "x")
+	names, cov := h.datasetNames(ctx, "x")
 	assert.Nil(t, names)
-	assert.False(t, more)
+	assert.Equal(t, coverageComplete, cov)
 	topics, _ := h.topics(ctx, "x")
 	assert.Nil(t, topics)
 	terms, _ := h.glossaryTerms(ctx, "x")
@@ -335,7 +405,8 @@ func TestHandlerAuthenticatedRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"orders", "order_items"}, res.Completion.Values)
 	assert.False(t, res.Completion.HasMore)
-	assert.Equal(t, 2, res.Completion.Total)
+	assert.Equal(t, 0, res.Completion.Total,
+		"the fake cannot count its matches, so completeness is unprovable and Total is omitted")
 }
 
 func TestHandlerResolvedArgumentsThreaded(t *testing.T) {
@@ -379,13 +450,178 @@ func TestHandlerCapAndTotalOmittedWhenTruncated(t *testing.T) {
 	assert.Equal(t, 0, res.Completion.Total, "Total omitted when truncated")
 }
 
-func TestHandlerProviderSignalsHasMore(t *testing.T) {
-	// A page-bounded search that returns exactly fetchLimit rows but dedups to
-	// fewer than the cap still reports HasMore.
-	sem := &fakeSemantic{}
-	for range fetchLimit {
-		sem.tables = append(sem.tables, semantic.TableSearchResult{Name: "dup"}) // all identical → dedups to 1
+// clampedHandler builds a handler over a provider that clamps every page to
+// clampAt rows, whatever was requested, and counts its matches honestly.
+func clampedHandler(clampAt, tableMatches, termMatches int) *Handle {
+	sem := &clampedSemantic{clampAt: clampAt, tableMatches: tableMatches, termMatches: termMatches}
+	sem.Provider = semantic.NewNoopProvider()
+	return New(Deps{
+		Authenticator: stubAuth{info: &middleware.UserInfo{UserID: "u1"}},
+		Semantic:      sem,
+		// No authorizer → no persona gating.
+	})
+}
+
+func glossaryReq(value string) *mcp.CompleteRequest {
+	return &mcp.CompleteRequest{Params: &mcp.CompleteParams{
+		Ref:      &mcp.CompleteReference{Type: "ref/resource", URI: glossaryTemplateURI},
+		Argument: mcp.CompleteParamsArgument{Name: "term", Value: value},
+	}}
+}
+
+// TestHandlerClampedPageReportsHasMore is the #1238 regression: the provider
+// returns a page far shorter than the value cap because it clamped the request,
+// while 50 datasets match. Nothing about the page's length reveals that — it is
+// short, which is exactly what an exhausted search looks like — so a layer that
+// reads "more exist" off a row count it requested reports the 10 names as the
+// whole catalog with Total: 10.
+func TestHandlerClampedPageReportsHasMore(t *testing.T) {
+	h := clampedHandler(10, 50, 0)
+	res, err := h.Handler()(context.Background(), promptReq(""))
+	require.NoError(t, err)
+	assert.Len(t, res.Completion.Values, 10)
+	assert.True(t, res.Completion.HasMore, "50 datasets match; the clamped page holds 10")
+	assert.Equal(t, 0, res.Completion.Total, "Total omitted: the returned set is not the whole set")
+}
+
+// TestHandlerCountedCompleteSetReportsTotal is the other side of the same signal:
+// when the count says the page holds every match, the set is complete and Total
+// is the number a client can trust.
+func TestHandlerCountedCompleteSetReportsTotal(t *testing.T) {
+	h := clampedHandler(10, 3, 0)
+	res, err := h.Handler()(context.Background(), promptReq(""))
+	require.NoError(t, err)
+	assert.Len(t, res.Completion.Values, 3)
+	assert.False(t, res.Completion.HasMore)
+	assert.Equal(t, 3, res.Completion.Total)
+}
+
+// TestHandlerTopicArmReportsHasMore covers the merged topic completion, whose
+// glossary and data-product arms are both clamped searches.
+func TestHandlerTopicArmReportsHasMore(t *testing.T) {
+	h := clampedHandler(5, 0, 40)
+	req := promptReq("")
+	req.Params.Argument.Name = "topic"
+	res, err := h.Handler()(context.Background(), req)
+	require.NoError(t, err)
+	assert.Len(t, res.Completion.Values, 5)
+	assert.True(t, res.Completion.HasMore, "40 glossary terms match; the clamped page holds 5")
+	assert.Equal(t, 0, res.Completion.Total)
+}
+
+// TestHandlerGlossaryTemplateReportsHasMore covers the glossary:// resource
+// template, whose only source is the doubly-clamped glossary search.
+func TestHandlerGlossaryTemplateReportsHasMore(t *testing.T) {
+	h := clampedHandler(5, 0, 40)
+	res, err := h.Handler()(context.Background(), glossaryReq(""))
+	require.NoError(t, err)
+	assert.Len(t, res.Completion.Values, 5)
+	assert.True(t, res.Completion.HasMore)
+	assert.Equal(t, 0, res.Completion.Total)
+}
+
+// TestHandlerUncountedProviderClaimsNothing pins the fallback: a provider that
+// cannot count leaves both fields off rather than declaring the page complete.
+func TestHandlerUncountedProviderClaimsNothing(t *testing.T) {
+	sem := &fakeSemantic{tables: []semantic.TableSearchResult{{Name: "orders"}}}
+	sem.Provider = semantic.NewNoopProvider()
+	h := New(Deps{
+		Authenticator: stubAuth{info: &middleware.UserInfo{UserID: "u1"}},
+		Semantic:      sem,
+	})
+	res, err := h.Handler()(context.Background(), promptReq(""))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"orders"}, res.Completion.Values)
+	assert.False(t, res.Completion.HasMore)
+	assert.Equal(t, 0, res.Completion.Total)
+}
+
+// TestHandlerSearchFailureIsNotACompleteSet keeps a degraded lookup from reading
+// as "no matches": an empty set from a failed search proves nothing.
+func TestHandlerSearchFailureIsNotACompleteSet(t *testing.T) {
+	sem := &fakeSemantic{searchErr: errors.New("boom")}
+	sem.Provider = semantic.NewNoopProvider()
+	h := New(Deps{
+		Authenticator: stubAuth{info: &middleware.UserInfo{UserID: "u1"}},
+		Semantic:      sem,
+	})
+	names, cov := h.datasetNames(context.Background(), "x")
+	assert.Empty(t, names)
+	assert.Equal(t, coverageUnknown, cov)
+
+	terms, cov := h.glossaryTerms(context.Background(), "x")
+	assert.Empty(t, terms)
+	assert.Equal(t, coverageUnknown, cov)
+}
+
+// TestTopicArmWithoutPickerCapability covers a catalog that can search datasets
+// but has no domain/glossary picker: the two picker arms contribute nothing and
+// claim nothing, so the merged coverage is the data-product arm's.
+func TestTopicArmWithoutPickerCapability(t *testing.T) {
+	sem := &noPickerSemantic{}
+	sem.Provider = semantic.NewNoopProvider()
+	h := New(Deps{Semantic: sem})
+
+	values, cov := h.topics(context.Background(), "")
+	assert.Equal(t, []string{"Revenue Product"}, values)
+	assert.Equal(t, coverageUnknown, cov, "an uncounted product search proves nothing")
+
+	terms, cov := h.glossaryTerms(context.Background(), "")
+	assert.Empty(t, terms)
+	assert.Equal(t, coverageComplete, cov, "no glossary source means no glossary matches")
+}
+
+// TestTopicArmDomainListingIsNeverProvable pins the domain arm: the picker
+// returns rows and no count, and the listing behind it is bounded upstream, so
+// neither a successful nor a failed listing can prove the topic set is whole.
+func TestTopicArmDomainListingIsNeverProvable(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		domainsErr error
+		wantValues int
+	}{
+		{name: "listing succeeds", wantValues: 3},
+		{name: "listing fails", domainsErr: errors.New("datahub down"), wantValues: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sem := &clampedSemantic{clampAt: 10, termMatches: 2, domains: 1, domainsErr: tc.domainsErr}
+			sem.Provider = semantic.NewNoopProvider()
+			h := New(Deps{Semantic: sem})
+
+			values, cov := h.topics(context.Background(), "")
+			assert.Len(t, values, tc.wantValues)
+			assert.Equal(t, coverageUnknown, cov)
+		})
 	}
+}
+
+// TestArmsSubstituteTheListAllQuery pins the query a keystroke-free completion
+// sends: the empty string reaches a relevance catalog as a query that matches
+// nothing, so the first request of every session would return no values.
+func TestArmsSubstituteTheListAllQuery(t *testing.T) {
+	sem := &clampedSemantic{clampAt: 10, tableMatches: 4, termMatches: 1}
+	sem.Provider = semantic.NewNoopProvider()
+	h := New(Deps{Semantic: sem})
+	ctx := context.Background()
+
+	values, _ := h.datasetNames(ctx, "")
+	assert.Len(t, values, 4)
+	assert.Equal(t, []string{listAll}, sem.queries, "an empty prefix lists rather than matching nothing")
+
+	sem.queries = nil
+	_, _ = h.datasetNames(ctx, "  ord  ")
+	assert.Equal(t, []string{"ord"}, sem.queries, "a typed prefix is sent as the query")
+
+	sem.queries = nil
+	_, _ = h.dataProductCandidates(ctx, "")
+	assert.Equal(t, []string{listAll}, sem.queries)
+}
+
+// TestOverCapPageProvesMoreWithoutACount covers the fallback signal: a page
+// holding more rows than a response may carry proves matches were left behind,
+// whatever the backend reported, even after dedup shrinks the values below the cap.
+func TestOverCapPageProvesMoreWithoutACount(t *testing.T) {
+	sem := &uncountedPage{rows: fetchLimit, name: "dup"} // all identical → dedups to 1
 	sem.Provider = semantic.NewNoopProvider()
 	h := New(Deps{
 		Authenticator: stubAuth{info: &middleware.UserInfo{UserID: "u1"}},
@@ -394,8 +630,72 @@ func TestHandlerProviderSignalsHasMore(t *testing.T) {
 	res, err := h.Handler()(context.Background(), promptReq(""))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"dup"}, res.Completion.Values)
-	assert.True(t, res.Completion.HasMore, "provider signals more even though dedup shrank the set")
+	assert.True(t, res.Completion.HasMore, "101 rows in hand outlive a missing count")
 	assert.Equal(t, 0, res.Completion.Total)
+}
+
+// TestProvenTotalSurvivesTruncation covers the spec's reading of total: it is the
+// number of options available, not the number sent, so a proven count is reported
+// beside a truncated page.
+func TestProvenTotalSurvivesTruncation(t *testing.T) {
+	// Exactly fetchLimit datasets match, so the page holds every one of them: the
+	// set is provably complete AND larger than a response may carry.
+	const matches = fetchLimit
+	sem := &clampedSemantic{clampAt: matches, tableMatches: matches}
+	sem.Provider = semantic.NewNoopProvider()
+	h := New(Deps{
+		Authenticator: stubAuth{info: &middleware.UserInfo{UserID: "u1"}},
+		Semantic:      sem,
+	})
+	res, err := h.Handler()(context.Background(), promptReq(""))
+	require.NoError(t, err)
+	assert.Len(t, res.Completion.Values, MaxValues)
+	assert.True(t, res.Completion.HasMore)
+	assert.Equal(t, matches, res.Completion.Total,
+		"total is the number of options available, not the number sent")
+}
+
+// uncountedPage returns a fixed number of identical rows and cannot count.
+type uncountedPage struct {
+	semantic.Provider
+	rows int
+	name string
+}
+
+func (u *uncountedPage) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	out := make([]semantic.TableSearchResult, 0, u.rows)
+	for range u.rows {
+		out = append(out, semantic.TableSearchResult{Name: u.name})
+	}
+	return out, nil
+}
+
+// noPickerSemantic answers the dataset search but implements no CatalogPicker.
+type noPickerSemantic struct{ semantic.Provider }
+
+func (noPickerSemantic) SearchTables(_ context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	if slices.Contains(filter.EntityTypes, dataProductEntityType) {
+		return []semantic.TableSearchResult{{Name: "Revenue Product"}}, nil
+	}
+	return nil, nil
+}
+
+func TestCoverageMerge(t *testing.T) {
+	// The weaker claim wins, in either argument order.
+	assert.Equal(t, coverageComplete, coverageComplete.merge(coverageComplete))
+	assert.Equal(t, coverageUnknown, coverageComplete.merge(coverageUnknown))
+	assert.Equal(t, coverageUnknown, coverageUnknown.merge(coverageComplete))
+	assert.Equal(t, coverageMore, coverageUnknown.merge(coverageMore))
+	assert.Equal(t, coverageMore, coverageMore.merge(coverageComplete))
+}
+
+func TestCoverageOf(t *testing.T) {
+	assert.Equal(t, coverageMore, coverageOf(10, 50))
+	assert.Equal(t, coverageComplete, coverageOf(10, 10))
+	// A total that cannot be the match count (unknown, or below the page the
+	// caller is holding) proves nothing.
+	assert.Equal(t, coverageUnknown, coverageOf(10, semantic.TotalUnknown))
+	assert.Equal(t, coverageUnknown, coverageOf(10, 9))
 }
 
 func TestHandlerTimeoutDegradesToEmpty(t *testing.T) {
