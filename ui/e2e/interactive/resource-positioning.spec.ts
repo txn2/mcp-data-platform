@@ -23,7 +23,7 @@ async function openAdminResources(page: Page): Promise<void> {
 test.describe("Resources positioning copy", () => {
   test("the empty scope states what a resource is for", async ({ page }) => {
     await openAdminResources(page);
-    await page.getByRole("button", { name: "admin", exact: true }).click();
+    await page.getByRole("tab", { name: "admin", exact: true }).click();
 
     const empty = page.getByTestId("resources-empty");
     await expect(empty).toContainText("No resources yet");
@@ -54,14 +54,21 @@ test.describe("Resources positioning copy", () => {
     const hint = page.getByTestId("category-hint");
     await expect(hint).toHaveText("Example payloads and extracts the agent can pattern-match against.");
 
-    await dialog.getByRole("combobox").filter({ hasText: "templates" }).selectOption("templates");
+    // The category chooser is a Radix listbox, not a native <select>: an option
+    // is picked by opening the trigger and clicking it, and the open list is
+    // portalled out of the dialog, so the option query is page-scoped.
+    const category = dialog.getByRole("combobox", { name: "Category" });
+    await category.click();
+    await page.getByRole("option", { name: "templates" }).click();
     await expect(hint).toHaveText("Layouts a deliverable must be produced in, used verbatim.");
 
-    await dialog.getByRole("combobox").filter({ hasText: "playbooks" }).selectOption("references");
+    await category.click();
+    await page.getByRole("option", { name: "references" }).click();
     await expect(hint).toHaveText("Data dictionaries, standards, and background documents to consult.");
 
     // A custom category has no built-in meaning to state.
-    await dialog.getByRole("combobox").filter({ hasText: "references" }).selectOption("custom");
+    await category.click();
+    await page.getByRole("option", { name: "Custom..." }).click();
     await expect(page.getByTestId("category-hint")).toHaveCount(0);
   });
 });

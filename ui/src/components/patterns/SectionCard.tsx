@@ -10,15 +10,16 @@ export function SectionCard({
   action,
   className,
   children,
-}: {
+  ...props
+  // `title` is the section's heading, not the div's tooltip, so the DOM
+  // attribute of that name is dropped from the forwarded props.
+}: Omit<React.ComponentProps<typeof Card>, "title"> & {
   title: React.ReactNode;
   // The section-scoped action, rendered in the header's action slot.
   action?: React.ReactNode;
-  className?: string;
-  children: React.ReactNode;
 }) {
   return (
-    <Card className={cn("gap-3 py-4", className)}>
+    <Card className={cn("gap-3 py-4", className)} {...props}>
       <CardHeader className="px-4">
         {/* A real heading, not CardTitle's div: section titles are landmarks
             assistive tech (and the tests) navigate by. */}

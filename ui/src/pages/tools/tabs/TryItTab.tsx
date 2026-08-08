@@ -5,6 +5,16 @@ import {
   useToolSchemas,
 } from "@/api/admin/hooks";
 import { StatusBadge } from "@/components/cards/StatusBadge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { formatDuration } from "@/lib/formatDuration";
 import { ToolForm } from "../ToolForm";
 import { ToolResult } from "../ToolResult";
@@ -113,10 +123,6 @@ export function TryItTab({
     );
   }
 
-  function handleReplay(entry: HistoryEntry) {
-    applyReplay({ params: entry.parameters, source: null });
-  }
-
   if (!schema) {
     return (
       <div className="text-sm text-muted-foreground">
@@ -129,23 +135,27 @@ export function TryItTab({
   return (
     <div className="space-y-4">
       {replaySource && (
-        <div className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm">
-          <span className="flex-1 text-muted-foreground">
-            Replaying audit event{" "}
-            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
-              {replaySource.event_id.slice(0, 8)}
-            </code>{" "}
-            from {new Date(replaySource.event_timestamp).toLocaleString()}
-          </span>
-          <button
-            type="button"
-            onClick={dismissReplay}
-            className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            title="Dismiss"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <Alert>
+          <AlertDescription className="flex w-full items-center gap-3 text-sm">
+            <span className="flex-1">
+              Replaying audit event{" "}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+                {replaySource.event_id.slice(0, 8)}
+              </code>{" "}
+              from {new Date(replaySource.event_timestamp).toLocaleString()}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={dismissReplay}
+              title="Dismiss"
+              aria-label="Dismiss replay"
+            >
+              <X />
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
       <ToolForm
@@ -167,89 +177,109 @@ export function TryItTab({
         />
       )}
 
-      <div className="rounded-lg border bg-card">
-        <button
-          onClick={toggleHistory}
-          className="flex w-full items-center justify-between border-b p-3 text-sm font-medium"
-        >
-          <span>
-            History{" "}
-            <span className="text-muted-foreground">({history.length})</span>
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {historyOpen ? "Collapse" : "Expand"}
-          </span>
-        </button>
-        {historyOpen && (
-          <div className="overflow-auto">
-            {history.length === 0 ? (
-              <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                No test calls yet.
-              </p>
-            ) : (
-              <>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50">
-                      <th className="px-3 py-2 text-left font-medium">Time</th>
-                      <th className="px-3 py-2 text-right font-medium">
-                        Duration
-                      </th>
-                      <th className="px-3 py-2 text-center font-medium">
-                        Status
-                      </th>
-                      <th className="px-3 py-2 text-center font-medium">
-                        Action
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map((entry) => (
-                      <tr key={entry.id} className="border-b">
-                        <td className="px-3 py-2 text-xs">
-                          {new Date(entry.timestamp).toLocaleTimeString()}
-                        </td>
-                        <td className="px-3 py-2 text-right text-xs">
-                          {entry.is_loading
-                            ? "…"
-                            : entry.response
-                              ? formatDuration(entry.response.duration_ms)
-                              : "-"}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          {entry.is_loading ? (
-                            <StatusBadge variant="warning">Running</StatusBadge>
-                          ) : entry.response?.is_error ? (
-                            <StatusBadge variant="error">Error</StatusBadge>
-                          ) : (
-                            <StatusBadge variant="success">Success</StatusBadge>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <button
-                            onClick={() => handleReplay(entry)}
-                            className="rounded px-2 py-0.5 text-xs text-primary hover:bg-primary/10"
-                          >
-                            Replay
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="flex justify-end border-t p-2">
-                  <button
-                    onClick={clearHistory}
-                    className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                  >
-                    Clear
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+      <CallHistory
+        history={history}
+        open={historyOpen}
+        onToggle={toggleHistory}
+        onClear={clearHistory}
+        onReplay={(entry) => applyReplay({ params: entry.parameters, source: null })}
+      />
+    </div>
+  );
+}
+
+// CallHistory is the session's record of what has been invoked from the portal,
+// with a replay per entry so a call can be re-run with the same parameters.
+function CallHistory({
+  history,
+  open,
+  onToggle,
+  onClear,
+  onReplay,
+}: {
+  history: HistoryEntry[];
+  open: boolean;
+  onToggle: () => void;
+  onClear: () => void;
+  onReplay: (entry: HistoryEntry) => void;
+}) {
+  return (
+    <div className="rounded-lg border bg-card">
+      <Button
+        variant="ghost"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="w-full justify-between rounded-b-none border-b p-3 text-sm font-medium"
+      >
+        <span>
+          History <span className="text-muted-foreground">({history.length})</span>
+        </span>
+        <span className="text-xs font-normal text-muted-foreground">
+          {open ? "Collapse" : "Expand"}
+        </span>
+      </Button>
+      {open && (
+        <div className="overflow-auto">
+          {history.length === 0 ? (
+            <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+              No test calls yet.
+            </p>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableHead className="px-3">Time</TableHead>
+                    <TableHead className="px-3 text-right">Duration</TableHead>
+                    <TableHead className="px-3 text-center">Status</TableHead>
+                    <TableHead className="px-3 text-center">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {history.map((entry) => (
+                    <TableRow key={entry.id}>
+                      <TableCell className="px-3 text-xs">
+                        {new Date(entry.timestamp).toLocaleTimeString()}
+                      </TableCell>
+                      <TableCell className="px-3 text-right text-xs">
+                        {entry.is_loading
+                          ? "…"
+                          : entry.response
+                            ? formatDuration(entry.response.duration_ms)
+                            : "-"}
+                      </TableCell>
+                      <TableCell className="px-3 text-center">
+                        {entry.is_loading ? (
+                          <StatusBadge variant="warning">Running</StatusBadge>
+                        ) : entry.response?.is_error ? (
+                          <StatusBadge variant="error">Error</StatusBadge>
+                        ) : (
+                          <StatusBadge variant="success">Success</StatusBadge>
+                        )}
+                      </TableCell>
+                      <TableCell className="px-3 text-center">
+                        <Button variant="link" size="xs" onClick={() => onReplay(entry)}>
+                          Replay
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <div className="flex justify-end border-t p-2">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={onClear}
+                  className="text-muted-foreground"
+                >
+                  Clear
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

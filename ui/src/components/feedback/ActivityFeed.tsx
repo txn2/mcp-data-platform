@@ -1,9 +1,11 @@
 import { AlertCircle, MessageSquare } from "lucide-react";
 import { useInfiniteFeedbackActivity } from "@/api/portal/hooks";
 import type { ThreadActivityItem } from "@/api/portal/types";
-import { cn } from "@/lib/utils";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
-import { KIND_CHIP, KIND_LABEL, STATUS_CHIP, STATUS_LABEL, formatRelative } from "./meta";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Button } from "@/components/ui/button";
+import { ThreadKindBadge, ThreadStatusBadge } from "./ThreadBadges";
+import { formatRelative } from "./meta";
 import { targetMeta } from "./targetRoute";
 
 interface Props {
@@ -26,7 +28,7 @@ export function ActivityFeed({ onOpenThread, onNavigate }: Props) {
     return <p className="p-6 text-sm text-destructive">Failed to load feedback activity.</p>;
   }
   if (items.length === 0) {
-    return <EmptyState />;
+    return <NoActivity />;
   }
 
   return (
@@ -86,17 +88,19 @@ function ActivityRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             {meta.route ? (
-              <button
+              <Button
                 type="button"
+                variant="link"
+                size="xs"
                 onClick={(e) => {
                   e.stopPropagation();
                   onNavigate(meta.route!);
                 }}
-                className="truncate text-sm font-medium hover:underline"
+                className="h-auto max-w-full truncate p-0 text-sm font-medium text-foreground no-underline"
                 title={`Go to ${meta.label.toLowerCase()}: ${item.target_label}`}
               >
                 {item.target_label}
-              </button>
+              </Button>
             ) : (
               <span className="truncate text-sm font-medium">{item.target_label}</span>
             )}
@@ -114,12 +118,8 @@ function ActivityRow({
             {item.title || "(untitled feedback)"}
           </p>
           <div className="mt-1 flex items-center gap-1.5">
-            <span className={cn("rounded-full px-1.5 py-0.5 text-[11px] font-medium", KIND_CHIP[item.kind])}>
-              {KIND_LABEL[item.kind]}
-            </span>
-            <span className={cn("rounded-full px-1.5 py-0.5 text-[11px] font-medium", STATUS_CHIP[item.status])}>
-              {STATUS_LABEL[item.status]}
-            </span>
+            <ThreadKindBadge kind={item.kind} />
+            <ThreadStatusBadge status={item.status} />
             <span className="min-w-0 truncate text-[11px] text-muted-foreground">
               {item.author_email}
               {replies > 0 ? ` · ${replies} ${replies === 1 ? "reply" : "replies"}` : ""}
@@ -131,14 +131,13 @@ function ActivityRow({
   );
 }
 
-function EmptyState() {
+function NoActivity() {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-      <MessageSquare className="h-8 w-8 text-muted-foreground/40" />
-      <p className="text-sm font-medium">No feedback yet</p>
-      <p className="max-w-sm text-xs text-muted-foreground">
+    <EmptyState icon={MessageSquare} className="m-4">
+      <p className="font-medium text-foreground">No feedback yet</p>
+      <p className="mt-1 max-w-sm text-xs">
         Feedback on assets, collections, and prompts you own or can access shows up here, newest first.
       </p>
-    </div>
+    </EmptyState>
   );
 }

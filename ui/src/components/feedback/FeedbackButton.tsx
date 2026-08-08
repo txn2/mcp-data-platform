@@ -2,6 +2,8 @@ import { useState } from "react";
 import { MessageSquare } from "lucide-react";
 import { useThreads } from "@/api/portal/hooks";
 import type { FeedbackTarget } from "@/api/portal/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { FeedbackPanel } from "./FeedbackPanel";
 import { filterForTarget } from "./targetFilter";
 
@@ -24,20 +26,17 @@ export function FeedbackButton({ target, canModerate = false }: Props) {
 
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="sm"
         onClick={() => setOpen(true)}
-        className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
         title="Feedback"
       >
-        <MessageSquare className="h-3.5 w-3.5" />
+        <MessageSquare />
         Feedback
-        {openCount > 0 && (
-          <span className="rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">
-            {openCount}
-          </span>
-        )}
-      </button>
+        {openCount > 0 && <Badge className="px-1.5 text-[11px]">{openCount}</Badge>}
+      </Button>
 
       {open && (
         <>

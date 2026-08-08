@@ -60,12 +60,15 @@ test.describe("Feedback panel", () => {
     ]);
     await expect(page.getByText("Fixed in section 2 as well.")).toBeVisible();
 
-    // Moderator status control (mock user is admin).
+    // Moderator status control (mock user is admin). It is a Radix listbox,
+    // not a native <select>: the option is chosen by opening the trigger and
+    // clicking it, so selectOption() has nothing to drive.
+    await page.getByRole("combobox", { name: "Set status" }).click();
     await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes("/threads/") && r.request().method() === "PATCH",
       ),
-      page.getByRole("combobox", { name: "Set status" }).selectOption("resolved"),
+      page.getByRole("option", { name: "Resolved" }).click(),
     ]);
   });
 
@@ -102,16 +105,16 @@ test.describe("Feedback hub page", () => {
   test("General tab shows the standalone channel", async ({ page }) => {
     await authenticate(page);
     await page.goto("/portal/feedback");
-    await page.getByRole("button", { name: /General/ }).click();
+    await page.getByRole("tab", { name: /General/ }).click();
     await expect(page.getByText("Quarterly data refresh is one day late")).toBeVisible();
   });
 
   test("Worklist tab shows the needs-resolution and validation sub-tabs", async ({ page }) => {
     await authenticate(page);
     await page.goto("/portal/feedback");
-    await page.getByRole("button", { name: /Worklist/ }).click();
-    await expect(page.getByRole("button", { name: /Needs resolution/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Awaiting my validation/ })).toBeVisible();
+    await page.getByRole("tab", { name: /Worklist/ }).click();
+    await expect(page.getByRole("tab", { name: /Needs resolution/ })).toBeVisible();
+    await expect(page.getByRole("tab", { name: /Awaiting my validation/ })).toBeVisible();
   });
 
   test("New feedback button posts to the General channel", async ({ page }) => {
@@ -166,8 +169,8 @@ test.describe("Mentions", () => {
   test("the mentions inbox lists threads that named me", async ({ page }) => {
     await authenticate(page);
     await page.goto("/portal/feedback");
-    await page.getByRole("button", { name: /Worklist/ }).click();
-    await page.getByRole("button", { name: /Mentions of me/ }).click();
+    await page.getByRole("tab", { name: /Worklist/ }).click();
+    await page.getByRole("tab", { name: /Mentions of me/ }).click();
     await expect(page.getByText("We don't use that term")).toBeVisible();
   });
 });

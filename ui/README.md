@@ -128,6 +128,31 @@ flex wraps *before* it shrinks: a subtitle long enough to fill the row pushes
 the page action onto its own line. Give long header prose its own measure
 (`<span className="block max-w-2xl">`) so the action stays on the title's row.
 
+A wide table whose columns are stated as percentages needs `table-fixed` on the
+`ui/table` as well, because the `whitespace-nowrap` above means auto layout
+gives every column its full intrinsic width and starves the one column meant to
+truncate (`pages/resources/parts/ResourcesTable.tsx` is the worked example).
+Fixed layout then makes the percentages binding, so a set that sums past 100
+spills each column's content into the next: state the widths as one list per
+table shape and keep each list at 100.
+
+A shadcn `Select` is a Radix listbox, not a form control, so it contributes
+nothing to `FormData`. A dynamic form that reads its values back out of the DOM
+— `pages/tools/ToolForm.tsx`, which renders whatever a tool's input schema
+declares — pairs each listbox with a hidden input carrying the chosen value.
+`required` then has to be enforced in the submit handler rather than by the
+browser, since a hidden field cannot raise the native validation bubble.
+
+The feedback surfaces share `components/feedback/ThreadBadges`, which owns both
+feedback vocabularies — the seven kinds a thread can be opened as, and the five
+states it can be in — so a thread is the same colour in the activity feed, the
+per-item drawer, the worklist, and its own header. Answered is `secondary`, not
+`success`: an answered thread has had a reply, not a resolution, and only
+`resolved` is the finished state. The resource library states its two
+vocabularies the same way in `pages/resources/parts/badges.tsx`, where a
+deployment's own category falls back to `muted` rather than borrowing a
+built-in category's meaning.
+
 ## Frontend lint gates (#816)
 
 The frontend enforces the same kind of per-function complexity budgets the Go

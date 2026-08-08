@@ -2,6 +2,9 @@ import { useRef, useState } from "react";
 import { History, RotateCcw, Download, Upload, Loader2 } from "lucide-react";
 import { useResourceVersions, useReplaceContent, useRestoreVersion } from "@/api/resources/hooks";
 import { resourceFetchRaw } from "@/api/resources/client";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 import type { Resource, ResourceVersion } from "@/api/resources/types";
 
@@ -45,70 +48,59 @@ function VersionRow({
     >
       <span className="w-8 shrink-0 font-medium text-foreground">v{v.version}</span>
       {isCurrent && (
-        <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+        <Badge variant="success" className="px-1.5">
           current
-        </span>
+        </Badge>
       )}
       {v.restored_from !== undefined && (
-        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5">restored v{v.restored_from}</span>
+        <Badge variant="muted" className="rounded px-1.5">
+          restored v{v.restored_from}
+        </Badge>
       )}
       <span className="truncate">{v.uploader_email || v.uploader_sub}</span>
       <span className="shrink-0">{new Date(v.created_at).toLocaleString()}</span>
       <span className="shrink-0 tabular-nums">{formatBytes(v.size_bytes)}</span>
-      <button
+      <Button
+        variant="ghost"
+        size="icon-xs"
         onClick={() => void downloadVersion(resource, v.version)}
         title={`Download v${v.version}`}
+        aria-label={`Download v${v.version}`}
         data-testid={`download-version-${v.version}`}
-        className="ml-auto shrink-0 rounded p-1 hover:bg-muted hover:text-foreground"
+        className="ml-auto"
       >
-        <Download className="h-3 w-3" />
-      </button>
+        <Download />
+      </Button>
       {canModify && !isCurrent && (
-        <button
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={() => onRestore(v.version)}
           disabled={busy}
           title={`Restore v${v.version}`}
+          aria-label={`Restore v${v.version}`}
           data-testid={`restore-version-${v.version}`}
-          className="shrink-0 rounded p-1 hover:bg-muted hover:text-foreground disabled:opacity-50"
         >
-          <RotateCcw className="h-3 w-3" />
-        </button>
+          <RotateCcw />
+        </Button>
       )}
     </li>
   );
 }
 
-// VersionsHeader titles the panel with how much of the retention budget the
-// trail occupies, and carries the replacement upload for a caller who may
-// revise.
-function VersionsHeader({
-  kept,
-  maxVersions,
-  canModify,
-  busy,
-  replacing,
-  onPick,
-}: {
-  kept: number;
-  maxVersions: number | undefined;
-  canModify: boolean;
-  busy: boolean;
-  replacing: boolean;
-  onPick: (file: File | undefined) => void;
-}) {
+// VersionsTitle names the panel and states how much of the retention budget
+// the trail occupies, so a reader knows what has already aged out.
+function VersionsTitle({ kept, maxVersions }: { kept: number; maxVersions: number | undefined }) {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <p className="flex items-center gap-1.5 text-xs font-medium">
-        <History className="h-3 w-3 text-muted-foreground" />
-        Version history
-        {kept > 0 && (
-          <span className="text-muted-foreground">
-            ({kept} of {maxVersions} kept)
-          </span>
-        )}
-      </p>
-      {canModify && <ReplaceContentButton busy={busy} replacing={replacing} onPick={onPick} />}
-    </div>
+    <span className="flex items-center gap-1.5">
+      <History className="h-3 w-3 text-muted-foreground" />
+      Version history
+      {kept > 0 && (
+        <span className="font-normal text-muted-foreground">
+          ({kept} of {maxVersions} kept)
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -132,13 +124,13 @@ function VersionList({
   onRestore: (version: number) => void;
 }) {
   if (isLoading) {
-    return <p className="mt-2 text-xs text-muted-foreground">Loading versions...</p>;
+    return <p className="text-xs text-muted-foreground">Loading versions...</p>;
   }
   if (versions.length === 0) {
-    return <p className="mt-2 text-xs text-muted-foreground">No revisions recorded yet.</p>;
+    return <p className="text-xs text-muted-foreground">No revisions recorded yet.</p>;
   }
   return (
-    <ul className="mt-2 space-y-1">
+    <ul className="space-y-1">
       {versions.map((v) => (
         <VersionRow
           key={v.version}
@@ -211,15 +203,16 @@ function ReplaceContentButton({
         data-testid="replace-content-input"
         onChange={(e) => onPick(e.target.files?.[0])}
       />
-      <button
+      <Button
+        variant="outline"
+        size="xs"
         onClick={() => fileInput.current?.click()}
         disabled={busy}
         data-testid="replace-content-button"
-        className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50 transition-colors"
       >
-        {replacing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+        {replacing ? <Loader2 className="animate-spin" /> : <Upload />}
         Replace content
-      </button>
+      </Button>
     </>
   );
 }
@@ -247,16 +240,19 @@ export function VersionsPanel({ resource, canModify }: { resource: Resource; can
   const current = data?.current ?? 0;
 
   return (
-    <div className="rounded-md border bg-muted/30 p-3" data-testid="resource-versions">
-      <VersionsHeader
-        kept={versions.length}
-        maxVersions={data?.max_versions}
-        canModify={canModify}
-        busy={busy}
-        replacing={replacing}
-        onPick={(file) => void replaceContent(file)}
-      />
-
+    <SectionCard
+      data-testid="resource-versions"
+      title={<VersionsTitle kept={versions.length} maxVersions={data?.max_versions} />}
+      action={
+        canModify && (
+          <ReplaceContentButton
+            busy={busy}
+            replacing={replacing}
+            onPick={(file) => void replaceContent(file)}
+          />
+        )
+      }
+    >
       <VersionList
         resource={resource}
         versions={versions}
@@ -268,7 +264,7 @@ export function VersionsPanel({ resource, canModify }: { resource: Resource; can
       />
 
       <VersionsFooter canModify={canModify} error={error} />
-    </div>
+    </SectionCard>
   );
 }
 

@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react";
-import { Eye, EyeOff, Search } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import type { ToolInfo } from "@/api/admin/types";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { SearchInput } from "@/components/patterns/SearchInput";
+import { SegmentedControl } from "@/components/patterns/SegmentedControl";
 import { formatToolName } from "@/lib/formatToolName";
 import { cn } from "@/lib/utils";
 
@@ -52,40 +55,31 @@ export function ToolsList({
   return (
     <div className="flex h-full flex-col">
       <div className="space-y-2 border-b p-3">
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tools…"
-            className="w-full rounded border bg-background py-1.5 pl-8 pr-2 text-sm"
+        <SearchInput
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search tools…"
+          aria-label="Search tools"
+        />
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Group by</span>
+          <SegmentedControl
+            label="Group tools by"
+            value={groupBy}
+            onChange={setGroupBy}
+            options={[
+              { value: "connection", label: "Group by connection", text: "connection" },
+              { value: "kind", label: "Group by kind", text: "kind" },
+            ]}
           />
-        </div>
-        <div className="flex gap-1 text-xs">
-          <span className="self-center text-muted-foreground">Group by</span>
-          {(["connection", "kind"] as GroupBy[]).map((g) => (
-            <button
-              key={g}
-              onClick={() => setGroupBy(g)}
-              className={cn(
-                "rounded px-2 py-0.5 transition-colors",
-                groupBy === g
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted",
-              )}
-            >
-              {g}
-            </button>
-          ))}
         </div>
       </div>
 
       <div className="flex-1 overflow-auto">
         {groups.length === 0 ? (
-          <div className="p-6 text-center text-sm text-muted-foreground">
+          <EmptyState className="m-3">
             {search ? "No tools match." : "No tools available."}
-          </div>
+          </EmptyState>
         ) : (
           groups.map(([groupName, items]) => (
             <div key={groupName}>

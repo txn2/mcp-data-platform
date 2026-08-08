@@ -3,6 +3,7 @@ import { FileWarning } from "lucide-react";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
 import { resolveRenderer, exceedsInlineLimit } from "@/components/renderers/registry";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { resourceFetchRaw, BASE_URL } from "@/api/resources/client";
 import { formatBytes } from "@/lib/format";
 import type { Resource } from "@/api/resources/types";
@@ -71,7 +72,7 @@ export function ResourcePreview({ resource }: { resource: Resource }) {
     return (
       <PreviewFrame>
         <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-muted-foreground">
-          <FileWarning className="h-8 w-8" />
+          <FileWarning aria-hidden className="size-8" />
           <p>
             This resource is {formatBytes(resource.size_bytes)}, past the inline preview limit. Download it to view.
           </p>
@@ -91,7 +92,9 @@ export function ResourcePreview({ resource }: { resource: Resource }) {
   if (error) {
     return (
       <PreviewFrame>
-        <p className="py-6 text-center text-sm text-muted-foreground">{error}</p>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       </PreviewFrame>
     );
   }

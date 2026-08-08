@@ -87,26 +87,6 @@
       "count": 1
     }
   },
-  "src/components/feedback/InboxPanel.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/components/feedback/NewThreadForm.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/components/feedback/ThreadDetail.tsx": {
-    "complexity": {
-      "count": 2
-    }
-  },
-  "src/components/feedback/useTextQuoteAnchor.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
   "src/components/layout/AppShell.tsx": {
     "complexity": {
       "count": 1
@@ -147,22 +127,6 @@
   },
   "src/pages/prompts/PromptViewerPage.tsx": {
     "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/resources/ResourcesPage.tsx": {
-    "complexity": {
-      "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/resources/modals/UploadModal.tsx": {
-    "complexity": {
-      "count": 2
-    },
-    "sonarjs/cognitive-complexity": {
       "count": 1
     }
   },
@@ -242,36 +206,6 @@
     }
   },
   "src/pages/settings/persona/resolve.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/tools/ToolDetail.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/tools/ToolForm.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/tools/ToolResult.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/tools/tabs/OverviewTab.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/tools/tabs/TryItTab.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/tools/tabs/VisibilityTab.tsx": {
     "complexity": {
       "count": 1
     }

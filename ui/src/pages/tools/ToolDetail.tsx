@@ -1,8 +1,9 @@
 import { EyeOff, Loader2 } from "lucide-react";
 import { useToolDetail } from "@/api/admin/hooks";
 import { StatusBadge } from "@/components/cards/StatusBadge";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatToolName } from "@/lib/formatToolName";
-import { cn } from "@/lib/utils";
 import type { ToolDetail as ToolDetailDTO } from "@/api/admin/types";
 import { OverviewTab } from "./tabs/OverviewTab";
 import { TryItTab } from "./tabs/TryItTab";
@@ -69,50 +70,60 @@ export function ToolDetail({ toolName, tab, onTabChange }: ToolDetailProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-base font-semibold">
-            {formatToolName(data.name, data.title)}
-          </h2>
-          <StatusBadge variant="neutral">{data.toolkit_kind}</StatusBadge>
-          {data.connection && (
-            <StatusBadge variant="neutral">{data.connection}</StatusBadge>
-          )}
-          {data.hidden_by_global_deny && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
-              <EyeOff className="h-3 w-3" />
-              hidden globally
-              {data.global_deny_pattern && (
-                <span className="opacity-70">({data.global_deny_pattern})</span>
-              )}
-            </span>
-          )}
-        </div>
-      </div>
+      <ToolHeader detail={data} />
 
-      <div className="flex border-b">
+      <Tabs
+        value={effectiveTab}
+        onValueChange={(v) => onTabChange(v as ToolDetailTab)}
+        className="min-h-0 flex-1 gap-0"
+      >
+        <TabsList
+          variant="line"
+          className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-1 border-b p-0"
+        >
+          {tabs.map((t) => (
+            <TabsTrigger
+              key={t}
+              value={t}
+              className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
+            >
+              {TAB_LABELS[t]}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
         {tabs.map((t) => (
-          <button
-            key={t}
-            onClick={() => onTabChange(t)}
-            className={cn(
-              "px-4 py-2 text-sm font-medium transition-colors",
-              effectiveTab === t
-                ? "border-b-2 border-primary text-primary"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {TAB_LABELS[t]}
-          </button>
+          <TabsContent key={t} value={t} className="min-h-0 overflow-auto p-4">
+            <ToolDetailTabBody detail={data} tab={t} tryItSession={tryItSession} />
+          </TabsContent>
         ))}
-      </div>
+      </Tabs>
+    </div>
+  );
+}
 
-      <div className="flex-1 overflow-auto p-4">
-        <ToolDetailTabBody
-          detail={data}
-          tab={effectiveTab}
-          tryItSession={tryItSession}
-        />
+// ToolHeader names the tool and states, in badges, where it comes from and
+// whether the platform is serving it at all.
+function ToolHeader({ detail }: { detail: ToolDetailDTO }) {
+  return (
+    <div className="border-b p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-base font-semibold">
+          {formatToolName(detail.name, detail.title)}
+        </h2>
+        <StatusBadge variant="neutral">{detail.toolkit_kind}</StatusBadge>
+        {detail.connection && (
+          <StatusBadge variant="neutral">{detail.connection}</StatusBadge>
+        )}
+        {detail.hidden_by_global_deny && (
+          <Badge variant="warning">
+            <EyeOff />
+            hidden globally
+            {detail.global_deny_pattern && (
+              <span className="opacity-70">({detail.global_deny_pattern})</span>
+            )}
+          </Badge>
+        )}
       </div>
     </div>
   );

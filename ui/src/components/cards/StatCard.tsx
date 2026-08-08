@@ -2,7 +2,9 @@ import { cn } from "@/lib/utils";
 
 interface StatCardProps {
   label: string;
-  value: string | number;
+  // Usually a formatted figure, but a stat that carries a verdict rather than a
+  // magnitude (a success rate, a health state) renders its own badge here.
+  value: React.ReactNode;
   detail?: string;
   className?: string;
 }

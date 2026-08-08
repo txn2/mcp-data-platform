@@ -1,6 +1,8 @@
 import { Quote, MessageCircle, AlertCircle } from "lucide-react";
 import type { ThreadWithMeta } from "@/api/portal/types";
-import { KIND_CHIP, KIND_LABEL, STATUS_CHIP, STATUS_LABEL, formatRelative } from "./meta";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { ThreadKindBadge, ThreadStatusBadge } from "./ThreadBadges";
+import { formatRelative } from "./meta";
 
 interface Props {
   threads: ThreadWithMeta[];
@@ -14,10 +16,9 @@ export function ThreadList({ threads, isLoading, onSelect }: Props) {
   }
   if (threads.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-1 p-8 text-center text-sm text-muted-foreground">
-        <MessageCircle className="h-6 w-6 opacity-40" />
+      <EmptyState icon={MessageCircle} className="m-3">
         No feedback yet.
-      </div>
+      </EmptyState>
     );
   }
   return (
@@ -32,12 +33,8 @@ export function ThreadList({ threads, isLoading, onSelect }: Props) {
               className="flex w-full flex-col items-start gap-1 px-3 py-2.5 text-left hover:bg-accent/50"
             >
               <div className="flex w-full items-center gap-1.5">
-                <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-medium ${KIND_CHIP[t.kind]}`}>
-                  {KIND_LABEL[t.kind]}
-                </span>
-                <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-medium ${STATUS_CHIP[t.status]}`}>
-                  {STATUS_LABEL[t.status]}
-                </span>
+                <ThreadKindBadge kind={t.kind} />
+                <ThreadStatusBadge status={t.status} />
                 {t.requires_resolution && t.status !== "resolved" && t.status !== "wont_fix" && (
                   <AlertCircle className="h-3.5 w-3.5 text-amber-500" aria-label="Needs resolution" />
                 )}

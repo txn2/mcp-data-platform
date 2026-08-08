@@ -72,7 +72,7 @@ describe("InboxPanel", () => {
     mockSME.mockReturnValue(result([], 0));
 
     render(<InboxPanel />);
-    fireEvent.click(screen.getByRole("button", { name: /awaiting my validation/i }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /awaiting my validation/i }));
     expect(screen.getByText(/all caught up/i)).toBeInTheDocument();
   });
 
@@ -87,7 +87,7 @@ describe("InboxPanel", () => {
     render(<InboxPanel onOpenThread={onOpen} />);
     expect(screen.queryByText("Confirm the wording")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /mentions of me/i }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /mentions of me/i }));
     fireEvent.click(screen.getByText("Confirm the wording"));
     expect(onOpen).toHaveBeenCalledWith("t9");
   });

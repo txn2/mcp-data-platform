@@ -1,4 +1,5 @@
 import { Activity } from "lucide-react";
+import { SectionCard } from "@/components/patterns/SectionCard";
 import type { ResourceUsage } from "@/api/resources/types";
 
 // SURFACE_LABELS names the doors a resource's content is served through. The
@@ -44,13 +45,16 @@ export function UsagePanel({
   const stale = !lastRead && daysSince(createdAt) >= NEVER_READ_DAYS;
 
   return (
-    <div className="rounded-md border bg-muted/30 p-3" data-testid="resource-usage">
-      <p className="flex items-center gap-1.5 text-xs font-medium">
-        <Activity className="h-3 w-3 text-muted-foreground" />
-        Usage
-      </p>
-
-      <div className="mt-2 grid grid-cols-3 gap-3">
+    <SectionCard
+      data-testid="resource-usage"
+      title={
+        <span className="flex items-center gap-1.5">
+          <Activity className="h-3 w-3 text-muted-foreground" />
+          Usage
+        </span>
+      }
+    >
+      <div className="grid grid-cols-3 gap-3">
         <div>
           <p className="text-lg font-semibold leading-none" data-testid="usage-reads-30d">
             {usage.reads_30d}
@@ -83,10 +87,16 @@ export function UsagePanel({
       )}
 
       {stale && (
-        <p className="mt-3 text-xs text-amber-600 dark:text-amber-400" data-testid="usage-never-read">
+        // A readout about the resource in view, not an alert: it is re-read
+        // every time a different resource is opened, and Alert's role="alert"
+        // would announce each one.
+        <p
+          className="mt-3 text-xs text-amber-600 dark:text-amber-400"
+          data-testid="usage-never-read"
+        >
           Never read since it was uploaded over {NEVER_READ_DAYS} days ago.
         </p>
       )}
-    </div>
+    </SectionCard>
   );
 }

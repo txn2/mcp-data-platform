@@ -1,6 +1,17 @@
 import { ExternalLink } from "lucide-react";
 import { useEnrichmentRules } from "@/api/admin/hooks";
 import { StatusBadge } from "@/components/cards/StatusBadge";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { ToolDetail } from "@/api/admin/types";
 import { markdownToPlainText } from "@/lib/markdownText";
 import { errorMessage } from "@/lib/utils";
@@ -25,9 +36,9 @@ export function EnrichmentTab({ detail }: { detail: ToolDetail }) {
   }
   if (error) {
     return (
-      <p className="text-sm text-destructive">
-        Failed to load rules: {errorMessage(error)}
-      </p>
+      <Alert variant="destructive">
+        <AlertDescription>Failed to load rules: {errorMessage(error)}</AlertDescription>
+      </Alert>
     );
   }
 
@@ -46,48 +57,42 @@ export function EnrichmentTab({ detail }: { detail: ToolDetail }) {
       </p>
 
       {rulesForTool.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No enrichment rules attached to this tool.
-        </p>
+        <EmptyState>No enrichment rules attached to this tool.</EmptyState>
       ) : (
         <div className="overflow-hidden rounded border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40 text-xs">
-              <tr>
-                <th className="px-3 py-1.5 text-left font-medium">Rule</th>
-                <th className="px-3 py-1.5 text-left font-medium">Strategy</th>
-                <th className="px-3 py-1.5 text-left font-medium">Status</th>
-                <th className="px-3 py-1.5 text-left font-medium">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="h-8 px-3 text-xs">Rule</TableHead>
+                <TableHead className="h-8 px-3 text-xs">Strategy</TableHead>
+                <TableHead className="h-8 px-3 text-xs">Status</TableHead>
+                <TableHead className="h-8 px-3 text-xs">Updated</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rulesForTool.map((r) => (
-                <tr key={r.id} className="border-t">
-                  <td className="px-3 py-1.5">
-                    <div className="font-medium">
-                      {markdownToPlainText(r.description) || (
-                        <span className="text-muted-foreground">
-                          Rule {r.id.slice(0, 8)}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-1.5 text-xs">
+                <TableRow key={r.id}>
+                  <TableCell className="px-3 py-1.5 font-medium whitespace-normal">
+                    {markdownToPlainText(r.description) || (
+                      <span className="text-muted-foreground">Rule {r.id.slice(0, 8)}</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="px-3 py-1.5 text-xs">
                     {r.merge_strategy.kind || "default"}
                     {r.merge_strategy.path ? ` · ${r.merge_strategy.path}` : ""}
-                  </td>
-                  <td className="px-3 py-1.5">
+                  </TableCell>
+                  <TableCell className="px-3 py-1.5">
                     <StatusBadge variant={r.enabled ? "success" : "neutral"}>
                       {r.enabled ? "enabled" : "disabled"}
                     </StatusBadge>
-                  </td>
-                  <td className="px-3 py-1.5 text-xs text-muted-foreground">
+                  </TableCell>
+                  <TableCell className="px-3 py-1.5 text-xs text-muted-foreground">
                     {new Date(r.updated_at).toLocaleString()}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
 
@@ -97,12 +102,11 @@ export function EnrichmentTab({ detail }: { detail: ToolDetail }) {
         </p>
       )}
 
-      <a
-        href={drawerHref}
-        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-      >
-        Manage rules for this connection <ExternalLink className="h-3 w-3" />
-      </a>
+      <Button asChild variant="link" size="xs" className="px-0">
+        <a href={drawerHref}>
+          Manage rules for this connection <ExternalLink />
+        </a>
+      </Button>
     </div>
   );
 }
