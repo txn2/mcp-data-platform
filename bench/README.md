@@ -15,20 +15,18 @@ answers "how much" (throughput, latency, memory). This one answers "how well".
 Every artifact belongs to exactly one study. Run-family directories under
 [`results/`](results/) are never shared between them.
 
-| | Knowledge-layer effectiveness | Knowledge use | Knowledge pollution | Context economics | API-connection architecture |
-| --- | --- | --- | --- | --- | --- |
-| **Question** | Does a semantic knowledge layer make an agent measurably more correct? | When an agent is handed stored knowledge, does it use it? | When a stored insight is wrong, do other identities adopt it over a co-present correct source? | What does the platform's context surface cost per turn, and which existing levers move it? | Does connection architecture change an agent's accuracy over a large API? |
-| **Published report** | [`benchmark-report.md`](../docs/reference/benchmark-report.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report/)) | [`benchmark-report-knowledge-use.md`](../docs/reference/benchmark-report-knowledge-use.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-use/)) | [`benchmark-report-knowledge-pollution.md`](../docs/reference/benchmark-report-knowledge-pollution.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-pollution/)) | none yet (#1172) | none |
-| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept) | [10.5281/zenodo.21614059](https://doi.org/10.5281/zenodo.21614059) | [10.5281/zenodo.21834813](https://doi.org/10.5281/zenodo.21834813) | none yet (#1172) | none |
-| **Protocol** | [`docs/knowledge-layer-protocol.md`](docs/knowledge-layer-protocol.md) | [`docs/knowledge-use-protocol.md`](docs/knowledge-use-protocol.md) | [`docs/knowledge-pollution-study-design.md`](docs/knowledge-pollution-study-design.md) | [`docs/context-economics-study-design.md`](docs/context-economics-study-design.md) | [`docs/api-connection-study-design.md`](docs/api-connection-study-design.md) |
-| **Pre-registration** | issues #930, #942-#945 | [`docs/perishable-knowledge-study-design.md`](docs/perishable-knowledge-study-design.md), [fixture](docs/perishable-knowledge-fixture.md), [estimator audit](docs/perishable-knowledge-estimator-audit.md) | issue #1163 (filed after its premise probe held), then [`docs/knowledge-pollution-study-design.md`](docs/knowledge-pollution-study-design.md) (the confirmatory matrix, its estimator audit in section 6) | issue #1164 (filed after its archival premise probe held), then the protocol above (separation analysis in section 4, measurement spec in section 6) | the protocol above |
-| **Toolchain** | [`reports/knowledge-layer/`](reports/knowledge-layer/) — `make bench-report-knowledge-layer-pdf` | [`reports/knowledge-use/`](reports/knowledge-use/) — `make bench-report-knowledge-use-pdf` | [`reports/knowledge-pollution/`](reports/knowledge-pollution/) — `make bench-report-knowledge-pollution-pdf` | [`reports/context-economics/`](reports/context-economics/) — `make bench-report-check` | none |
-| **Run data** | top-level families under [`results/`](results/) | [`results/knowledge-use/`](results/knowledge-use/) | [`results/knowledge-pollution/`](results/knowledge-pollution/) | [`results/context-economics/`](results/context-economics/) | [`results/api-study-pilot/`](results/api-study-pilot/) |
-| **Status** | published, report version 2.0 | published, report version 1.0, pinned to v1.116.0 | published, report version 1.0, commit-pinned builds | pre-registered; controlled runs pending (#1171) | closed not planned; postmortem on #1027 |
+| | Knowledge-layer effectiveness | Knowledge use | Knowledge pollution | API-connection architecture |
+| --- | --- | --- | --- | --- |
+| **Question** | Does a semantic knowledge layer make an agent measurably more correct? | When an agent is handed stored knowledge, does it use it? | When a stored insight is wrong, do other identities adopt it over a co-present correct source? | Does connection architecture change an agent's accuracy over a large API? |
+| **Published report** | [`benchmark-report.md`](../docs/reference/benchmark-report.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report/)) | [`benchmark-report-knowledge-use.md`](../docs/reference/benchmark-report-knowledge-use.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-use/)) | [`benchmark-report-knowledge-pollution.md`](../docs/reference/benchmark-report-knowledge-pollution.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-pollution/)) | none |
+| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept) | [10.5281/zenodo.21614059](https://doi.org/10.5281/zenodo.21614059) | [10.5281/zenodo.21834813](https://doi.org/10.5281/zenodo.21834813) | none |
+| **Protocol** | [`docs/knowledge-layer-protocol.md`](docs/knowledge-layer-protocol.md) | [`docs/knowledge-use-protocol.md`](docs/knowledge-use-protocol.md) | [`docs/knowledge-pollution-study-design.md`](docs/knowledge-pollution-study-design.md) | [`docs/api-connection-study-design.md`](docs/api-connection-study-design.md) |
+| **Pre-registration** | issues #930, #942-#945 | [`docs/perishable-knowledge-study-design.md`](docs/perishable-knowledge-study-design.md), [fixture](docs/perishable-knowledge-fixture.md), [estimator audit](docs/perishable-knowledge-estimator-audit.md) | issue #1163 (filed after its premise probe held), then [`docs/knowledge-pollution-study-design.md`](docs/knowledge-pollution-study-design.md) (the confirmatory matrix, its estimator audit in section 6) | the protocol above |
+| **Toolchain** | [`reports/knowledge-layer/`](reports/knowledge-layer/) — `make bench-report-knowledge-layer-pdf` | [`reports/knowledge-use/`](reports/knowledge-use/) — `make bench-report-knowledge-use-pdf` | [`reports/knowledge-pollution/`](reports/knowledge-pollution/) — `make bench-report-knowledge-pollution-pdf` | none |
+| **Run data** | top-level families under [`results/`](results/) | [`results/knowledge-use/`](results/knowledge-use/) | [`results/knowledge-pollution/`](results/knowledge-pollution/) | [`results/api-study-pilot/`](results/api-study-pilot/) |
+| **Status** | published, report version 2.0 | published, report version 1.0, pinned to v1.116.0 | published, report version 1.0, commit-pinned builds | closed not planned; postmortem on #1027 |
 
-A study earns a column once it has a protocol or a report. Context economics
-earned its column with the protocol above; the only run data under its slug so
-far is the archival premise probe, and its own arms land with #1171.
+A study earns a column once it has a protocol or a report.
 
 Negative results and evidence-backed platform decisions are indexed in
 [`docs/findings-register.md`](docs/findings-register.md) — a retired study
@@ -117,13 +115,6 @@ second owner.
 4. The consuming study's recompute scripts read the source archives in place.
    No copies, so single ownership holds on disk and not only in prose.
 
-First application: the context-economics study's platform-tax probe, an
-archival re-analysis of the knowledge-layer study's
-[`results/phase2-anthropic-k3/`](results/phase2-anthropic-k3/)
-(DOI [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044)),
-archived with its provenance table at
-[`results/context-economics/probe/`](results/context-economics/probe/).
-
 ## Running
 
 Each study has its own stack and its own protocol document; the recipes below
@@ -186,18 +177,6 @@ reachability have been read back; both refuse rather than report a state they
 could not verify. Planting writes to the stack, so run it against a database a
 measured run will not reuse without a reset.
 
-**Context economics** ([protocol](docs/context-economics-study-design.md)) — the
-same stack as the knowledge-layer study, on its own `ce-*` arm configs. Those
-configs and the run recipes land with #1171; until then the study's only
-artifacts are its protocol, its decomposition toolchain, and the archival
-premise probe. The toolchain runs today against the archives it re-analyzes and
-needs no stack at all:
-
-```bash
-python3 bench/reports/context-economics/decompose.py    # tables, then the pins
-make bench-report-check                                 # the same run, as a gate
-```
-
 Every run writes into its own timestamped directory under
 `build/bench-results/`, and the runners refuse an output path that already
 exists, so a re-run can never overwrite paid-for results.
@@ -230,10 +209,9 @@ real runs) a model API. Do not add the stack-dependent `bench-*` run targets
 runs, the `bench-pk-*` targets) to the `verify` target; `bench-test`,
 `bench-lint`, and `bench-report-check` are the only exceptions because they
 touch nothing outside the repository — the last one recomputes the published
-reports' headline numbers, and the context-economics protocol's cited figures,
-from the committed archives (stdlib python3, offline) so a drift between the
-archives, a report toolchain, and a committed page fails the build instead of
-reaching a reader.
+reports' headline numbers from the committed archives (stdlib python3, offline)
+so a drift between the archives, a report toolchain, and a committed page fails
+the build instead of reaching a reader.
 
 ## Layout
 
@@ -245,7 +223,6 @@ bench/
 │   ├── perishable-knowledge-study-design.md    pre-registration (#1054)
 │   ├── perishable-knowledge-fixture.md         fixture reference
 │   ├── perishable-knowledge-estimator-audit.md treatment-string audit
-│   ├── context-economics-study-design.md       pre-registration (#1170)
 │   ├── api-connection-study-design.md          closed study (#1027)
 │   └── findings-register.md
 ├── reports/             per-study recompute + render toolchains
