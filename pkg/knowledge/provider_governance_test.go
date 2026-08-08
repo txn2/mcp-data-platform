@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -93,9 +94,27 @@ func (f *fakeGovernanceReader) ListDomains(context.Context) ([]semantic.EntityRe
 	return f.domains, f.domainsErr
 }
 
-func (f *fakeGovernanceReader) SearchTables(_ context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+func (f *fakeGovernanceReader) SearchTables(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	results, _, err := f.SearchTablesCounted(ctx, filter)
+	return results, err
+}
+
+// SearchTablesCounted models the catalog contract the provider relies on: the
+// page is bounded by the requested limit, and the total is the number of matches
+// behind it. A caller cannot recover the total from the page, which is the whole
+// reason the count is returned separately (#1238).
+func (f *fakeGovernanceReader) SearchTablesCounted(
+	_ context.Context, filter semantic.SearchFilter,
+) ([]semantic.TableSearchResult, int, error) {
 	f.gotFilters = append(f.gotFilters, filter)
-	return f.carriers, f.carriersErr
+	if f.carriersErr != nil {
+		return nil, semantic.TotalUnknown, f.carriersErr
+	}
+	page := f.carriers
+	if filter.Limit > 0 && filter.Limit < len(page) {
+		page = page[:filter.Limit]
+	}
+	return page, len(f.carriers), nil
 }
 
 // populatedReader is a reader with one entry in each vocabulary, all matching
@@ -359,21 +378,67 @@ func TestGovernanceProvider_CarrierSearchFailureStillReturnsTheDefinition(t *tes
 	assert.Equal(t, "revenue-critical", entity.Name)
 }
 
-func TestGovernanceProvider_CarrierListReportsItsCap(t *testing.T) {
-	f := populatedReader()
-	f.carriers = make([]semantic.TableSearchResult, carrierLimit)
-	for i := range f.carriers {
-		f.carriers[i] = semantic.TableSearchResult{URN: "urn:li:dataset:(urn:li:dataPlatform:trino,a.b.t" + string(rune('a'+i)) + ",PROD)"}
+// TestGovernanceProvider_CarrierListReportsWhatItDoesNotShow pins MoreDatasets to
+// the catalog's match count rather than to the size of the page the provider
+// asked for. A page that came back exactly full is not evidence of anything: the
+// catalog is free to return fewer rows than requested, so the count is the only
+// signal that distinguishes a bounded membership from an exhausted one (#1238).
+func TestGovernanceProvider_CarrierListReportsWhatItDoesNotShow(t *testing.T) {
+	carriers := func(n int) []semantic.TableSearchResult {
+		out := make([]semantic.TableSearchResult, n)
+		for i := range out {
+			out[i] = semantic.TableSearchResult{
+				URN: fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,a.b.t%d,PROD)", i),
+			}
+		}
+		return out
 	}
-	p := NewGovernanceProvider(f)
+	tests := []struct {
+		name     string
+		matches  int
+		wantMore bool
+		wantLen  int
+	}{
+		{name: "more carriers than the list holds", matches: carrierLimit + 15, wantMore: true, wantLen: carrierLimit},
+		{name: "exactly as many carriers as the limit", matches: carrierLimit, wantMore: false, wantLen: carrierLimit},
+		{name: "fewer carriers than the limit", matches: 2, wantMore: false, wantLen: 2},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := populatedReader()
+			f.carriers = carriers(tc.matches)
+			p := NewGovernanceProvider(f)
+
+			doc, _, err := p.Fetch(context.Background(), "urn:li:domain:finance", Caller{})
+			require.NoError(t, err)
+			entity, ok := doc.Content.(GovernanceEntity)
+			require.True(t, ok)
+			assert.Equal(t, carrierLimit, f.gotFilters[0].Limit)
+			assert.Len(t, entity.Datasets, tc.wantLen)
+			assert.Equal(t, tc.wantMore, entity.MoreDatasets)
+		})
+	}
+}
+
+// TestGovernanceProvider_UncountedReaderDoesNotClaimTheWholeMembership covers the
+// fallback: a reader with no match count cannot show that the list holds every
+// carrier, so the fetch points the reader at the catalog instead of presenting a
+// bounded list as the entity's whole membership.
+func TestGovernanceProvider_UncountedReaderDoesNotClaimTheWholeMembership(t *testing.T) {
+	f := populatedReader()
+	p := NewGovernanceProvider(uncountedGovernanceReader{f})
 
 	doc, _, err := p.Fetch(context.Background(), "urn:li:domain:finance", Caller{})
 	require.NoError(t, err)
 	entity, ok := doc.Content.(GovernanceEntity)
 	require.True(t, ok)
-	assert.Equal(t, carrierLimit, f.gotFilters[0].Limit)
-	assert.True(t, entity.MoreDatasets, "a full page must not read as the whole membership")
+	assert.Len(t, entity.Datasets, 2)
+	assert.True(t, entity.MoreDatasets)
 }
+
+// uncountedGovernanceReader hides the fake's counting capability, standing in for
+// a catalog backend that implements only the plain search.
+type uncountedGovernanceReader struct{ governanceReader }
 
 // governanceScope denies every connection and attributes any DATASET URN to one,
 // which is the shape that separates the two visibility rules under test: a

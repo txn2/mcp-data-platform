@@ -13,8 +13,10 @@ import (
 )
 
 // bulkUntagMaxEntities bounds how many entities one bulk_untag call processes, so
-// a very common tag does not fan out unbounded. When more entities than this carry
-// the tag the response flags the result as truncated so the caller re-runs.
+// a very common tag does not fan out unbounded. It is the size requested; the
+// catalog may return fewer under its own page limit, and either way the response
+// flags the result as truncated unless the catalog's match count proves the run
+// reached every entity carrying the tag, so the caller re-runs.
 const bulkUntagMaxEntities = 500
 
 // bulkUntagConcurrency bounds how many tag removals run in parallel: the per-entity
@@ -50,7 +52,7 @@ func (t *Toolkit) handleBulkUntag(ctx context.Context, input applyKnowledgeInput
 		return toolkit.ErrorResult("bulk_untag requires a semantic search provider to enumerate entities; none is configured"), nil, nil
 	}
 
-	urns, truncated, err := t.enumerateTaggedEntities(ctx, tagURN)
+	urns, unfinished, err := t.enumerateTaggedEntities(ctx, tagURN)
 	if err != nil {
 		return toolkit.ErrorResult("bulk_untag: enumerating entities for tag failed: " + err.Error()), nil, nil
 	}
@@ -65,7 +67,7 @@ func (t *Toolkit) handleBulkUntag(ctx context.Context, input applyKnowledgeInput
 	// Destructive across many entities: require explicit confirmation, showing the
 	// count and a bounded sample first.
 	if t.requireConfirmation && !input.Confirm {
-		return bulkUntagConfirmation(tagURN, urns, truncated)
+		return bulkUntagConfirmation(tagURN, urns, unfinished)
 	}
 
 	affected, failed := t.removeTagFromEntities(ctx, urns, tagURN)
@@ -86,25 +88,34 @@ func (t *Toolkit) handleBulkUntag(ctx context.Context, input applyKnowledgeInput
 	}
 
 	return bulkUntagSuccess(bulkUntagOutcome{
-		csID:      csID,
-		tagURN:    tagURN,
-		affected:  affected,
-		failed:    failed,
-		attempted: len(urns),
-		truncated: truncated,
+		csID:       csID,
+		tagURN:     tagURN,
+		affected:   affected,
+		failed:     failed,
+		attempted:  len(urns),
+		unfinished: unfinished,
 	})
 }
 
-// enumerateTaggedEntities searches for entities carrying tagURN. It fetches one more
-// than the cap so it can distinguish "exactly cap entities" from "more than cap"
-// (the +1 avoids a false truncation signal at exactly the cap), then trims to the
-// cap and reports whether the set was truncated.
-func (t *Toolkit) enumerateTaggedEntities(ctx context.Context, tagURN string) (urns []string, truncated bool, err error) {
-	results, err := t.semanticProvider.SearchTables(ctx, semantic.SearchFilter{
+// enumerateTaggedEntities searches for entities carrying tagURN and reports
+// whether this run is known to reach every one of them.
+//
+// The signal is the catalog's own match count, not the size of the page it
+// returned. Asking for one row over the cap and treating a full page as "more
+// exist" does not work here: the catalog client clamps every search to its own
+// maximum (100, well under the cap), so the extra row never arrives and every
+// oversubscribed tag reported itself as fully cleared (#1238).
+//
+// A catalog that cannot count leaves the run unverified, and unverified counts as
+// unfinished: this removes a tag from entities, and sending the caller back for a
+// second run that finds nothing costs one search, while calling an unverified
+// sweep complete leaves entities tagged and no one looking for them.
+func (t *Toolkit) enumerateTaggedEntities(ctx context.Context, tagURN string) (urns []string, unfinished bool, err error) {
+	results, total, err := semantic.SearchTablesCounted(ctx, t.semanticProvider, semantic.SearchFilter{
 		Query:       "*", // match-all; the tag filter does the selection (mirrors browseCatalog)
 		Tags:        []string{tagURN},
 		EntityTypes: bulkUntagEntityTypes,
-		Limit:       bulkUntagMaxEntities + 1,
+		Limit:       bulkUntagMaxEntities,
 	})
 	if err != nil {
 		return nil, false, err //nolint:wrapcheck // caller prefixes the message
@@ -113,10 +124,13 @@ func (t *Toolkit) enumerateTaggedEntities(ctx context.Context, tagURN string) (u
 	for _, r := range results {
 		urns = append(urns, r.URN)
 	}
+	// The cap bounds a fan-out of writes, so it is enforced here rather than
+	// trusted to the requested limit: this whole path exists because a catalog
+	// does not have to return the page size it was asked for.
 	if len(urns) > bulkUntagMaxEntities {
-		return urns[:bulkUntagMaxEntities], true, nil
+		urns = urns[:bulkUntagMaxEntities]
 	}
-	return urns, false, nil
+	return urns, total == semantic.TotalUnknown || total > len(urns), nil
 }
 
 // removeTagFromEntities removes tagURN from each entity concurrently (bounded), and
@@ -175,13 +189,13 @@ func (t *Toolkit) recordBulkUntagChangeset(ctx context.Context, tagURN, appliedB
 }
 
 // bulkUntagConfirmation builds the confirmation-required preview (nothing has been
-// removed yet), showing the count, a bounded sample, and, when the search was
-// capped, a note that a follow-up run will be needed.
-func bulkUntagConfirmation(tagURN string, urns []string, truncated bool) (*mcp.CallToolResult, any, error) {
+// removed yet), showing the count, a bounded sample, and, when the run is not
+// known to reach every carrier, a note that a follow-up run will be needed.
+func bulkUntagConfirmation(tagURN string, urns []string, unfinished bool) (*mcp.CallToolResult, any, error) {
 	msg := fmt.Sprintf("bulk_untag will remove %s from %d entities. Set confirm: true to proceed.", tagURN, len(urns))
-	if truncated {
-		msg += fmt.Sprintf(" The search is capped at %d entities and more carry this tag, so a follow-up run will be needed after this one.",
-			bulkUntagMaxEntities)
+	if unfinished {
+		msg += fmt.Sprintf(" The %d entities this run would process are not known to be every entity carrying the tag, so a follow-up run will be needed after this one.",
+			len(urns))
 	}
 	resp := map[string]any{
 		"confirmation_required": true,
@@ -190,7 +204,7 @@ func bulkUntagConfirmation(tagURN string, urns []string, truncated bool) (*mcp.C
 		"affected_urns_sample":  sampleURNs(urns),
 		fieldMessage:            msg,
 	}
-	if truncated {
+	if unfinished {
 		resp["truncated"] = true
 	}
 	return toolkit.JSONResultTyped(resp)
@@ -203,12 +217,14 @@ type bulkUntagOutcome struct {
 	affected  []string
 	failed    int
 	attempted int
-	truncated bool
+	// unfinished reports that the run is not known to have reached every entity
+	// carrying the tag; it becomes the response's "truncated" field.
+	unfinished bool
 }
 
 // bulkUntagSuccess builds the success response, reporting how many entities were
-// untagged, how many failed (and still carry the tag), and whether the search was
-// truncated (so the caller re-runs to clear the remainder).
+// untagged, how many failed (and still carry the tag), and whether the run is
+// known to have reached every carrier (so the caller re-runs for the remainder).
 func bulkUntagSuccess(o bulkUntagOutcome) (*mcp.CallToolResult, any, error) {
 	msg := fmt.Sprintf("Removed %s from %d entities. Recorded for audit but not auto-revertible; "+
 		"re-apply add_tag to restore. Coverage is the searchable catalog (datasets and other indexed types).",
@@ -228,9 +244,9 @@ func bulkUntagSuccess(o bulkUntagOutcome) (*mcp.CallToolResult, any, error) {
 		resp["failed"] = o.failed
 		msg += fmt.Sprintf(" %d entities could not be updated and still carry the tag; re-run bulk_untag to retry them.", o.failed)
 	}
-	if o.truncated {
+	if o.unfinished {
 		resp["truncated"] = true
-		msg += fmt.Sprintf(" Only the first %d entities were processed (the catalog holds more); re-run bulk_untag to clear the remainder.", o.attempted)
+		msg += fmt.Sprintf(" Only the %d entities this run processed are accounted for; re-run bulk_untag to clear any remainder.", o.attempted)
 	}
 	resp[fieldMessage] = msg
 	return toolkit.JSONResultTyped(resp)

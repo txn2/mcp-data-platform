@@ -64,6 +64,13 @@ const (
 // list method).
 const dataProductEntityType = "DATA_PRODUCT"
 
+// listAll is the catalog's match-everything query. A completion fires before the
+// user has typed anything, and a relevance backend reads the empty string as a
+// query that matches nothing rather than everything (the DataHub adapter makes the
+// same substitution for its glossary picker), so the first keystroke-free request
+// would otherwise answer "no datasets" instead of listing the catalog.
+const listAll = "*"
+
 // MaxValues is the spec-mandated ceiling on the number of completion values
 // returned in a single completion/complete response. A provider may find more;
 // the handler truncates to this many and sets HasMore.
@@ -74,9 +81,63 @@ const MaxValues = 100
 // an empty result rather than blocking the client.
 const defaultTimeout = time.Second
 
-// fetchLimit bounds each upstream lookup. It is one over the value cap so a full
-// page signals — honestly — that more matches exist.
+// fetchLimit bounds each upstream lookup. It is one over the value cap so that a
+// row arriving beyond what a response may carry is itself proof that more matches
+// exist — evidence in hand, not an inference about a limit the backend may have
+// ignored. That evidence is the fallback, not the signal: a page-bounded backend
+// reduces the requested limit silently (the DataHub client caps every search at
+// 100), so the extra row is exactly what a clamp removes and every clamped page
+// read as a complete set (#1238). The primary signal is the backend's own match
+// count, which survives the clamp — see semantic.SearchTablesCounted.
 const fetchLimit = MaxValues + 1
+
+// coverage is what a value provider proved about the matches it did not return.
+// It is a tri-state rather than a bool because "I could not tell" is a distinct
+// answer from "there are no more", and reporting the first as the second is what
+// made a truncated completion look complete.
+type coverage int
+
+const (
+	// coverageComplete: every match is among the returned values.
+	coverageComplete coverage = iota
+	// coverageUnknown: the lookup was page-bounded and the provider could not
+	// report how many matches exist, so neither completeness nor more can be
+	// claimed.
+	coverageUnknown
+	// coverageMore: the provider reported more matches than it returned.
+	coverageMore
+)
+
+// merge combines what two sources of one value set proved. The constants are
+// ordered from the strongest completeness claim to the weakest and merge keeps
+// the later one: one unknown source makes the merged set unprovable even when its
+// siblings were complete, and a source that proved more matches exist dominates
+// outright, since those matches are missing from the merged set however complete
+// the other sources were.
+func (c coverage) merge(other coverage) coverage {
+	return max(c, other)
+}
+
+// coverageOf reports what a search proved, given the rows it returned and the
+// backend's total match count.
+//
+// The count decides when there is one: equal to the page, every match is in hand;
+// above it, matches were left behind. Without a usable count (semantic.TotalUnknown,
+// or a total below the page, which cannot be a match count) one fact still stands
+// on its own — a page holding more rows than a response may carry proves matches
+// were left behind, since those rows exist regardless of what the backend reports.
+// Anything else is unprovable rather than complete: a clamped page and an
+// exhaustive one are indistinguishable by length alone.
+func coverageOf(fetched, total int) coverage {
+	switch {
+	case total == fetched:
+		return coverageComplete
+	case total > fetched, fetched > MaxValues:
+		return coverageMore
+	default:
+		return coverageUnknown
+	}
+}
 
 // Deps carries the platform primitives the completion handler needs, kept as
 // plain values so this package never imports the platform package (which would
@@ -136,12 +197,12 @@ func (h *Handle) Handler() func(context.Context, *mcp.CompleteRequest) (*mcp.Com
 		// provider that ignores ctx cancellation cannot stall the response.
 		resCh := make(chan outcome, 1)
 		go func() {
-			values, more := h.values(cctx, pc, req.Params.Ref, req.Params.Argument, resolved)
-			resCh <- outcome{values: values, hasMore: more}
+			values, cov := h.values(cctx, pc, req.Params.Ref, req.Params.Argument, resolved)
+			resCh <- outcome{values: values, coverage: cov}
 		}()
 		select {
 		case out := <-resCh:
-			return shape(out.values, out.hasMore), nil
+			return shape(out.values, out.coverage), nil
 		case <-cctx.Done():
 			return emptyResult(), nil
 		}
@@ -150,8 +211,8 @@ func (h *Handle) Handler() func(context.Context, *mcp.CompleteRequest) (*mcp.Com
 
 // outcome carries a value provider's result across the deadline race.
 type outcome struct {
-	values  []string
-	hasMore bool
+	values   []string
+	coverage coverage
 }
 
 // resolvedArguments returns the previously-resolved sibling arguments carried on
@@ -170,13 +231,17 @@ func emptyResult() *mcp.CompleteResult {
 }
 
 // shape truncates values to MaxValues and reports HasMore and Total honestly.
-// HasMore is true when the provider signaled more matches upstream OR the set was
-// truncated at the cap. Total is reported only when the set is complete; a
-// page-bounded provider cannot know the true total without an expensive count, so
-// Total is omitted rather than under-reported as if the set were complete.
-func shape(values []string, providerHasMore bool) *mcp.CompleteResult {
+// HasMore is true when the provider proved more matches exist upstream OR the set
+// was truncated at the cap. Total is reported whenever the match set is provably
+// complete, including when the response itself was truncated — the spec's Total is
+// the number of options available, not the number sent, so a proven 240 is
+// reportable beside a 100-value page. A page-bounded provider knows neither that
+// it returned everything nor that it did not, and both fields are omitempty, so an
+// unprovable set answers with values alone rather than with a count that claims a
+// completeness nothing established.
+func shape(values []string, cov coverage) *mcp.CompleteResult {
 	count := len(values)
-	hasMore := providerHasMore
+	hasMore := cov == coverageMore
 	if count > MaxValues {
 		values = values[:MaxValues]
 		hasMore = true
@@ -185,23 +250,25 @@ func shape(values []string, providerHasMore bool) *mcp.CompleteResult {
 		values = []string{}
 	}
 	details := mcp.CompletionResultDetails{Values: values, HasMore: hasMore}
-	if !hasMore {
+	if cov == coverageComplete {
 		details.Total = count
 	}
 	return &mcp.CompleteResult{Completion: details}
 }
 
-// values routes a completion request to the provider for its reference type. The
-// bool reports whether the upstream lookup was page-bounded (more matches exist).
+// values routes a completion request to the provider for its reference type,
+// reporting what that provider proved about the matches it did not return. A
+// request with no completion source is complete by construction: it has no
+// matches, rather than an unknown number of them.
 func (h *Handle) values(
 	ctx context.Context,
 	pc *middleware.PlatformContext,
 	ref *mcp.CompleteReference,
 	arg mcp.CompleteParamsArgument,
 	resolved map[string]string,
-) (found []string, hasMore bool) {
+) (found []string, cov coverage) {
 	if ref == nil || pc == nil {
-		return nil, false
+		return nil, coverageComplete
 	}
 	switch ref.Type {
 	case "ref/prompt":
@@ -209,68 +276,73 @@ func (h *Handle) values(
 	case "ref/resource":
 		return h.resourceTemplate(ctx, pc, ref.URI, arg, resolved)
 	default:
-		return nil, false
+		return nil, coverageComplete
 	}
 }
 
 // promptArgument completes a prompt argument by its well-known name. Each
 // provider applies its own persona gate; an unrecognized argument name has no
 // completion source and returns nil.
-func (h *Handle) promptArgument(ctx context.Context, pc *middleware.PlatformContext, argName, value string) (found []string, hasMore bool) {
+func (h *Handle) promptArgument(ctx context.Context, pc *middleware.PlatformContext, argName, value string) (found []string, cov coverage) {
 	switch argName {
 	case argDataset:
 		if !h.toolAllowed(ctx, pc, discoveryTool) {
-			return nil, false
+			return nil, coverageComplete
 		}
 		return h.datasetNames(ctx, value)
 	case argTopic:
 		if !h.toolAllowed(ctx, pc, discoveryTool) {
-			return nil, false
+			return nil, coverageComplete
 		}
 		return h.topics(ctx, value)
 	case argConnection:
 		if !h.toolAllowed(ctx, pc, connectionsTool) {
-			return nil, false
+			return nil, coverageComplete
 		}
-		return h.connectionNames(pc, value), false
+		return h.connectionNames(pc, value), coverageComplete
 	default:
-		return nil, false
+		return nil, coverageComplete
 	}
 }
 
 // resourceTemplate completes a resource-template variable. schema:// and
 // availability:// share the catalog/schema/table namespace; glossary:// completes
 // business terms.
-func (h *Handle) resourceTemplate(ctx context.Context, pc *middleware.PlatformContext, uri string, arg mcp.CompleteParamsArgument, resolved map[string]string) (found []string, hasMore bool) {
+func (h *Handle) resourceTemplate(ctx context.Context, pc *middleware.PlatformContext, uri string, arg mcp.CompleteParamsArgument, resolved map[string]string) (found []string, cov coverage) {
 	switch uri {
 	case schemaTemplateURI, availabilityTemplateURI:
 		if !h.toolAllowed(ctx, pc, browseTool) {
-			return nil, false
+			return nil, coverageComplete
 		}
-		return h.schemaVars(ctx, arg.Name, arg.Value, resolved), false
+		return h.schemaVars(ctx, arg.Name, arg.Value, resolved), coverageComplete
 	case glossaryTemplateURI:
 		if arg.Name != argTerm {
-			return nil, false
+			return nil, coverageComplete
 		}
 		if !h.toolAllowed(ctx, pc, discoveryTool) {
-			return nil, false
+			return nil, coverageComplete
 		}
 		return h.glossaryTerms(ctx, arg.Value)
 	default:
-		return nil, false
+		return nil, coverageComplete
 	}
 }
 
 // datasetNames returns dataset display names (falling back to the URN) matching
-// the partial value via the semantic search index. hasMore is true when the
-// search filled its page.
-func (h *Handle) datasetNames(ctx context.Context, value string) (found []string, hasMore bool) {
+// the partial value via the semantic search index. Coverage comes from the
+// backend's match count: this is a single provider whose values can never exceed
+// the cap on their own, so without that count nothing else in the pipeline would
+// ever report that a 100-name page had 500 matches behind it (#1238).
+func (h *Handle) datasetNames(ctx context.Context, value string) (found []string, cov coverage) {
 	if h.deps.Semantic == nil {
-		return nil, false
+		return nil, coverageComplete
 	}
-	results, err := h.deps.Semantic.SearchTables(ctx, semantic.SearchFilter{Query: value, Limit: fetchLimit})
+	results, total, err := semantic.SearchTablesCounted(ctx, h.deps.Semantic,
+		semantic.SearchFilter{Query: searchQuery(value), Limit: fetchLimit})
 	if err != nil {
-		return nil, false
+		// The search failed, so the empty set is a degradation, not an answer:
+		// reporting it complete would tell the client there are no matches.
+		return nil, coverageUnknown
 	}
 	names := make([]string, 0, len(results))
 	for _, r := range results {
@@ -280,47 +352,58 @@ func (h *Handle) datasetNames(ctx context.Context, value string) (found []string
 		}
 		names = append(names, name)
 	}
-	return dedup(names), pageWasBounded(len(results))
+	return dedup(names), coverageOf(len(results), total)
 }
 
 // topics aggregates domains, data products, and glossary terms into a single
 // deduplicated topic candidate list. The three sources are independent DataHub
-// lookups, so they run concurrently to fit the interactive latency budget.
-// hasMore is true when any page-bounded source filled its page.
-func (h *Handle) topics(ctx context.Context, value string) (found []string, hasMore bool) {
+// lookups, so they run concurrently to fit the interactive latency budget. The
+// merged coverage is the weakest of the three: domains are enumerated whole,
+// while the other two are page-bounded searches that report their own match
+// counts, and one unprovable source makes the merged set unprovable.
+func (h *Handle) topics(ctx context.Context, value string) (found []string, cov coverage) {
 	if h.deps.Semantic == nil {
-		return nil, false
+		return nil, coverageComplete
 	}
 	var (
-		domains         []string
-		glossary        []string
-		products        []string
-		glossaryHasMore bool
-		productsHasMore bool
+		domains          []string
+		glossary         []string
+		products         []string
+		domainsCoverage  coverage
+		glossaryCoverage coverage
+		productsCoverage coverage
 	)
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error { domains = h.domainCandidates(gctx, value); return nil })
-	g.Go(func() error { glossary, glossaryHasMore = h.glossaryCandidates(gctx, value); return nil })
-	g.Go(func() error { products, productsHasMore = h.dataProductCandidates(gctx, value); return nil })
+	g.Go(func() error { domains, domainsCoverage = h.domainCandidates(gctx, value); return nil })
+	g.Go(func() error { glossary, glossaryCoverage = h.glossaryCandidates(gctx, value); return nil })
+	g.Go(func() error { products, productsCoverage = h.dataProductCandidates(gctx, value); return nil })
 	_ = g.Wait() // sub-tasks never return an error; they degrade to empty candidates.
 
 	cands := make([]string, 0, len(domains)+len(glossary)+len(products))
 	cands = append(cands, domains...)
 	cands = append(cands, glossary...)
 	cands = append(cands, products...)
-	return dedupFoldSorted(cands), glossaryHasMore || productsHasMore
+	return dedupFoldSorted(cands), domainsCoverage.merge(glossaryCoverage).merge(productsCoverage)
 }
 
-// domainCandidates lists DataHub domains filtered by the partial value (domains
-// list in full, so they are filtered client-side).
-func (h *Handle) domainCandidates(ctx context.Context, value string) []string {
+// domainCandidates lists domains filtered by the partial value (the listing takes
+// no query, so it is filtered client-side).
+//
+// It can never prove completeness. CatalogPicker.ListDomains returns rows and no
+// count, and the DataHub listing behind it is bounded upstream at its own fixed
+// page, so a short list is as consistent with a bounded page as with an exhausted
+// vocabulary — the same trap the counted searches exist to avoid, in a listing
+// with no count to escape it. Its coverage is therefore unknown whether it
+// succeeds or fails, which makes every topic completion unprovable; that is the
+// honest reading until the picker can report a domain total.
+func (h *Handle) domainCandidates(ctx context.Context, value string) (found []string, cov coverage) {
 	picker, ok := semantic.CatalogPickerFrom(h.deps.Semantic)
 	if !ok {
-		return nil
+		return nil, coverageComplete
 	}
 	domains, err := picker.ListDomains(ctx)
 	if err != nil {
-		return nil
+		return nil, coverageUnknown
 	}
 	out := make([]string, 0, len(domains))
 	for _, d := range domains {
@@ -328,38 +411,38 @@ func (h *Handle) domainCandidates(ctx context.Context, value string) []string {
 			out = append(out, d.Name)
 		}
 	}
-	return out
+	return out, coverageUnknown
 }
 
 // glossaryCandidates ranks glossary terms by the partial value server-side.
-func (h *Handle) glossaryCandidates(ctx context.Context, value string) (found []string, hasMore bool) {
+func (h *Handle) glossaryCandidates(ctx context.Context, value string) (found []string, cov coverage) {
 	picker, ok := semantic.CatalogPickerFrom(h.deps.Semantic)
 	if !ok {
-		return nil, false
+		return nil, coverageComplete
 	}
-	terms, err := picker.SearchGlossaryTerms(ctx, value, fetchLimit)
+	terms, total, err := semantic.SearchGlossaryTermsCounted(ctx, picker, value, fetchLimit)
 	if err != nil {
-		return nil, false
+		return nil, coverageUnknown
 	}
-	return entityRefNames(terms), pageWasBounded(len(terms))
+	return entityRefNames(terms), coverageOf(len(terms), total)
 }
 
 // dataProductCandidates ranks data products by the partial value via the
 // entity-type-scoped search.
-func (h *Handle) dataProductCandidates(ctx context.Context, value string) (found []string, hasMore bool) {
-	products, err := h.deps.Semantic.SearchTables(ctx, semantic.SearchFilter{
-		Query:       value,
+func (h *Handle) dataProductCandidates(ctx context.Context, value string) (found []string, cov coverage) {
+	products, total, err := semantic.SearchTablesCounted(ctx, h.deps.Semantic, semantic.SearchFilter{
+		Query:       searchQuery(value),
 		EntityTypes: []string{dataProductEntityType},
 		Limit:       fetchLimit,
 	})
 	if err != nil {
-		return nil, false
+		return nil, coverageUnknown
 	}
 	out := make([]string, 0, len(products))
 	for _, dp := range products {
 		out = append(out, dp.Name)
 	}
-	return out, pageWasBounded(len(products))
+	return out, coverageOf(len(products), total)
 }
 
 // connectionNames returns the configured connection names the caller's persona is
@@ -428,20 +511,20 @@ func browseFiltered(list func() ([]string, error), value string) []string {
 }
 
 // glossaryTerms completes the glossary:// term variable via the semantic glossary
-// search. hasMore is true when the search filled its page.
-func (h *Handle) glossaryTerms(ctx context.Context, value string) (found []string, hasMore bool) {
+// search, taking its coverage from the backend's match count.
+func (h *Handle) glossaryTerms(ctx context.Context, value string) (found []string, cov coverage) {
 	if h.deps.Semantic == nil {
-		return nil, false
+		return nil, coverageComplete
 	}
 	picker, ok := semantic.CatalogPickerFrom(h.deps.Semantic)
 	if !ok {
-		return nil, false
+		return nil, coverageComplete
 	}
-	terms, err := picker.SearchGlossaryTerms(ctx, value, fetchLimit)
+	terms, total, err := semantic.SearchGlossaryTermsCounted(ctx, picker, value, fetchLimit)
 	if err != nil {
-		return nil, false
+		return nil, coverageUnknown
 	}
-	return dedup(entityRefNames(terms)), pageWasBounded(len(terms))
+	return dedup(entityRefNames(terms)), coverageOf(len(terms), total)
 }
 
 // toolAllowed reports whether the caller may receive completions gated on the
@@ -474,12 +557,15 @@ func (h *Handle) personaForContext(pc *middleware.PlatformContext) (*persona.Per
 	return h.deps.PersonaRegistry.GetForRoles(pc.Roles)
 }
 
-// pageWasBounded reports whether an upstream search returned a full page (fetched
-// count reached the fetch limit), meaning more matches likely exist. It lets the
-// handler set HasMore honestly even when deduplication shrinks the returned set
-// below the value cap.
-func pageWasBounded(fetched int) bool {
-	return fetched >= fetchLimit
+// searchQuery turns the partial value the client has typed into a catalog query,
+// substituting the match-everything query for an empty one. The glossary picker
+// makes this substitution inside the adapter; the dataset and data-product arms
+// search through SearchTables, which passes the query to the backend verbatim.
+func searchQuery(value string) string {
+	if v := strings.TrimSpace(value); v != "" {
+		return v
+	}
+	return listAll
 }
 
 // containsFold reports whether s contains sub case-insensitively. An empty sub

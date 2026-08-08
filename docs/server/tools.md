@@ -773,8 +773,9 @@ endpoints emit no reference and are not fetch targets.
 
 A fetched governance entity fills `content` with `{urn, kind, name, description,
 datasets[], more_datasets?, datasets_withheld?, notice?}`. The carrier list is
-bounded (25); `more_datasets` reports that the cap was reached, so a full page
-never reads as the whole membership — page the full set with `datahub_browse` or a
+bounded (25); `more_datasets` reports that the list is not known to hold every
+carrier -- the catalog counted more, or it could not count at all -- so a bounded
+list never reads as the whole membership — page the full set with `datahub_browse` or a
 tag/domain-filtered catalog search. `datasets_withheld` and `notice` report what
 the caller's connection boundary removed from the list, so a short list is never
 mistaken for an unused term. A tag or a domain has no by-URN read upstream, so it

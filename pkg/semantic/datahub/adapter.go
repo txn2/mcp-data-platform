@@ -261,6 +261,17 @@ func (a *Adapter) GetGlossaryTerm(ctx context.Context, urn string) (*semantic.Gl
 // SearchTables searches for tables in DataHub using searchAcrossEntities.
 // Supports advanced field-level filtering (column names, tags, etc.) via SearchFilter.Filters.
 func (a *Adapter) SearchTables(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	results, _, err := a.SearchTablesCounted(ctx, filter)
+	return results, err
+}
+
+// SearchTablesCounted is SearchTables plus DataHub's total match count, which the
+// same GraphQL response already carries (searchAcrossEntities returns total
+// alongside the page). It implements semantic.TableMatchCounter, the seam that lets a
+// caller tell "these are all the matches" from "this is one clamped page of them":
+// the upstream client caps every search at its MaxLimit, so the page length alone
+// cannot distinguish the two (#1238).
+func (a *Adapter) SearchTablesCounted(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, int, error) {
 	opts := buildSearchOptions(filter)
 
 	var (
@@ -273,7 +284,7 @@ func (a *Adapter) SearchTables(ctx context.Context, filter semantic.SearchFilter
 		result, err = a.client.SearchAcrossEntities(ctx, filter.Query, opts...)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("searching datahub: %w", err)
+		return nil, semantic.TotalUnknown, fmt.Errorf("searching datahub: %w", err)
 	}
 
 	results := make([]semantic.TableSearchResult, 0, len(result.Entities))
@@ -281,7 +292,7 @@ func (a *Adapter) SearchTables(ctx context.Context, filter semantic.SearchFilter
 		results = append(results, a.toSearchResult(entity))
 	}
 
-	return results, nil
+	return results, searchTotal(result), nil
 }
 
 // SearchTags searches DataHub tags by display name for the catalog tag picker
@@ -318,16 +329,37 @@ func (a *Adapter) SearchTags(ctx context.Context, query string, limit int) ([]se
 // substitution ListTags makes upstream for tags, and the same query BrowseDocuments
 // already uses to enumerate documents through this client.
 func (a *Adapter) SearchGlossaryTerms(ctx context.Context, query string, limit int) ([]semantic.EntityRef, error) {
+	refs, _, err := a.SearchGlossaryTermsCounted(ctx, query, limit)
+	return refs, err
+}
+
+// SearchGlossaryTermsCounted is SearchGlossaryTerms plus DataHub's total match
+// count, completing semantic.GlossaryMatchCounter. The glossary page is bounded twice —
+// by clampRefLimit here and by the client's MaxLimit upstream — so its length is
+// even less able to report whether more terms matched than the dataset page's is.
+func (a *Adapter) SearchGlossaryTermsCounted(ctx context.Context, query string, limit int) ([]semantic.EntityRef, int, error) {
 	result, err := a.client.SearchAcrossEntities(ctx, listAllQuery(query),
 		dhclient.WithTypes([]string{glossaryTermEntityType}), dhclient.WithLimit(clampRefLimit(limit)))
 	if err != nil {
-		return nil, fmt.Errorf("searching datahub glossary terms: %w", err)
+		return nil, semantic.TotalUnknown, fmt.Errorf("searching datahub glossary terms: %w", err)
 	}
 	refs := make([]semantic.EntityRef, 0, len(result.Entities))
 	for _, e := range result.Entities {
 		refs = append(refs, a.entityRef(e.URN, e.Name, e.Description))
 	}
-	return refs, nil
+	return refs, searchTotal(result), nil
+}
+
+// searchTotal reads the backend's total match count off a search response,
+// reporting semantic.TotalUnknown when the response contradicts itself by
+// counting fewer matches than the page it returned. A total below the page length
+// cannot be the number of matches, and passing it on would let a caller declare a
+// clamped page complete — the exact reading the count exists to prevent.
+func searchTotal(result *types.SearchResult) int {
+	if result.Total < len(result.Entities) {
+		return semantic.TotalUnknown
+	}
+	return result.Total
 }
 
 // ListDomains lists DataHub domains for the catalog domain picker (#785). Domains
@@ -1165,8 +1197,10 @@ func convertDataContract(dc *types.DataContract) *semantic.DataContractStatus {
 
 // Verify interface compliance.
 var (
-	_ semantic.Provider         = (*Adapter)(nil)
-	_ semantic.URNResolver      = (*Adapter)(nil)
-	_ semantic.CatalogPicker    = (*Adapter)(nil)
-	_ semantic.GovernanceReader = (*Adapter)(nil)
+	_ semantic.Provider             = (*Adapter)(nil)
+	_ semantic.URNResolver          = (*Adapter)(nil)
+	_ semantic.CatalogPicker        = (*Adapter)(nil)
+	_ semantic.GovernanceReader     = (*Adapter)(nil)
+	_ semantic.TableMatchCounter    = (*Adapter)(nil)
+	_ semantic.GlossaryMatchCounter = (*Adapter)(nil)
 )

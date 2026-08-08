@@ -13,15 +13,37 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
-// stubSemanticProvider returns canned SearchTables results for bulk_untag tests.
+// stubSemanticProvider models the catalog contract bulk_untag depends on: a page
+// bounded by the requested limit AND by the backend's own clamp, plus the total
+// match count that is the only thing able to report what the page left behind.
 type stubSemanticProvider struct {
 	*semantic.NoopProvider
 	tables []semantic.TableSearchResult
 	err    error
+	// clampAt caps the page however many rows were requested, as the real DataHub
+	// client does at its MaxLimit. Zero means no clamp.
+	clampAt int
 }
 
-func (s *stubSemanticProvider) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
-	return s.tables, s.err
+func (s *stubSemanticProvider) SearchTables(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	results, _, err := s.SearchTablesCounted(ctx, filter)
+	return results, err
+}
+
+func (s *stubSemanticProvider) SearchTablesCounted(
+	_ context.Context, filter semantic.SearchFilter,
+) ([]semantic.TableSearchResult, int, error) {
+	if s.err != nil {
+		return nil, semantic.TotalUnknown, s.err
+	}
+	page := s.tables
+	if s.clampAt > 0 && s.clampAt < len(page) {
+		page = page[:s.clampAt]
+	}
+	if filter.Limit > 0 && filter.Limit < len(page) {
+		page = page[:filter.Limit]
+	}
+	return page, len(s.tables), nil
 }
 
 // writerCallURNs returns the URNs the writer was called with for the given method.
@@ -546,10 +568,17 @@ func TestBulkUntag_RequiresConfirmation(t *testing.T) {
 	assert.Empty(t, writerCallURNs(writer, "ApplyTagChanges"))
 }
 
+// TestBulkUntag_ConfirmationTruncated is the #1238 regression on the destructive
+// path: the catalog clamps the page to 100 rows however many were requested, so
+// the run sees a short page while 250 entities carry the tag. Reading truncation
+// off the page length reports a clean sweep and leaves 150 entities tagged; the
+// match count is what makes the follow-up run visible.
 func TestBulkUntag_ConfirmationTruncated(t *testing.T) {
-	// Confirmation preview over the cap must flag truncation and must NOT claim any
-	// entity was processed yet (nothing has run).
-	tables := make([]semantic.TableSearchResult, bulkUntagMaxEntities+1)
+	const (
+		clampAt = 100
+		matches = 250
+	)
+	tables := make([]semantic.TableSearchResult, matches)
 	for i := range tables {
 		tables[i] = semantic.TableSearchResult{URN: fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c%d,PROD)", i)}
 	}
@@ -557,7 +586,7 @@ func TestBulkUntag_ConfirmationTruncated(t *testing.T) {
 	tk, err := New(testName, &fullSpyStore{})
 	require.NoError(t, err)
 	tk.SetApplyConfig(ApplyConfig{Enabled: true, RequireConfirmation: true}, &spyChangesetStore{}, writer)
-	tk.semanticProvider = &stubSemanticProvider{NoopProvider: semantic.NewNoopProvider(), tables: tables}
+	tk.semanticProvider = &stubSemanticProvider{NoopProvider: semantic.NewNoopProvider(), tables: tables, clampAt: clampAt}
 
 	res, _, _ := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{
 		Action: "bulk_untag", TagURN: "Deprecated",
@@ -565,9 +594,103 @@ func TestBulkUntag_ConfirmationTruncated(t *testing.T) {
 	m := parseJSONResult(t, res)
 	assert.Equal(t, true, m["confirmation_required"])
 	assert.Equal(t, true, m["truncated"])
-	assert.Equal(t, float64(bulkUntagMaxEntities), m["entities_found"])
+	assert.Equal(t, float64(clampAt), m["entities_found"])
 	assert.NotContains(t, m[fieldMessage], "were processed", "confirmation must not claim work already ran")
 	assert.Empty(t, writerCallURNs(writer, "ApplyTagChanges"))
+}
+
+// TestBulkUntag_CapBoundsTheFanOut pins the write cap against a catalog that
+// ignores the requested limit: the run must still process at most the cap, and
+// must still say more entities carry the tag.
+func TestBulkUntag_CapBoundsTheFanOut(t *testing.T) {
+	tables := make([]semantic.TableSearchResult, bulkUntagMaxEntities+7)
+	for i := range tables {
+		tables[i] = semantic.TableSearchResult{URN: fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c%d,PROD)", i)}
+	}
+	writer := &spyWriter{Metadata: &EntityMetadata{}}
+	tk, err := New(testName, &fullSpyStore{})
+	require.NoError(t, err)
+	tk.SetApplyConfig(ApplyConfig{Enabled: true, RequireConfirmation: true}, &spyChangesetStore{}, writer)
+	// clampAt 0 and no limit handling: the stub returns every row it holds.
+	tk.semanticProvider = &ignoresLimitProvider{tables: tables}
+
+	res, _, _ := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{
+		Action: "bulk_untag", TagURN: "Deprecated",
+	})
+	m := parseJSONResult(t, res)
+	assert.Equal(t, float64(bulkUntagMaxEntities), m["entities_found"])
+	assert.Equal(t, true, m["truncated"])
+}
+
+// TestBulkUntag_UnverifiedSweepIsUnfinished pins the fail-safe: a catalog that
+// cannot report how many entities carry the tag leaves the sweep unverified, and
+// an unverified destructive sweep is reported as unfinished so the caller re-runs
+// rather than recording a tag as cleared on the strength of a page length.
+func TestBulkUntag_UnverifiedSweepIsUnfinished(t *testing.T) {
+	writer := &spyWriter{Metadata: &EntityMetadata{}}
+	tk, err := New(testName, &fullSpyStore{})
+	require.NoError(t, err)
+	tk.SetApplyConfig(ApplyConfig{Enabled: true, RequireConfirmation: true}, &spyChangesetStore{}, writer)
+	tk.semanticProvider = &uncountedProvider{tables: []semantic.TableSearchResult{
+		{URN: "urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c,PROD)"},
+	}}
+
+	res, _, _ := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{
+		Action: "bulk_untag", TagURN: "Deprecated",
+	})
+	m := parseJSONResult(t, res)
+	assert.Equal(t, true, m["truncated"])
+	assert.Equal(t, float64(1), m["entities_found"])
+}
+
+// uncountedProvider answers the search but cannot report a match count.
+type uncountedProvider struct {
+	*semantic.NoopProvider
+	tables []semantic.TableSearchResult
+}
+
+func (p *uncountedProvider) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	return p.tables, nil
+}
+
+// ignoresLimitProvider returns every row it holds whatever page was requested,
+// which is the contract violation the cap must survive.
+type ignoresLimitProvider struct {
+	*semantic.NoopProvider
+	tables []semantic.TableSearchResult
+}
+
+func (p *ignoresLimitProvider) SearchTablesCounted(
+	_ context.Context, _ semantic.SearchFilter,
+) ([]semantic.TableSearchResult, int, error) {
+	return p.tables, len(p.tables), nil
+}
+
+func (p *ignoresLimitProvider) SearchTables(ctx context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	results, _, err := p.SearchTablesCounted(ctx, filter)
+	return results, err
+}
+
+// TestBulkUntag_CompleteSweepIsNotTruncated is the other side: when the count says
+// the page held every carrier, the response must not send the caller back for a
+// follow-up run that would find nothing.
+func TestBulkUntag_CompleteSweepIsNotTruncated(t *testing.T) {
+	tables := make([]semantic.TableSearchResult, 3)
+	for i := range tables {
+		tables[i] = semantic.TableSearchResult{URN: fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c%d,PROD)", i)}
+	}
+	writer := &spyWriter{Metadata: &EntityMetadata{}}
+	tk, err := New(testName, &fullSpyStore{})
+	require.NoError(t, err)
+	tk.SetApplyConfig(ApplyConfig{Enabled: true, RequireConfirmation: true}, &spyChangesetStore{}, writer)
+	tk.semanticProvider = &stubSemanticProvider{NoopProvider: semantic.NewNoopProvider(), tables: tables, clampAt: 100}
+
+	res, _, _ := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{
+		Action: "bulk_untag", TagURN: "Deprecated",
+	})
+	m := parseJSONResult(t, res)
+	assert.NotContains(t, m, "truncated")
+	assert.Equal(t, float64(3), m["entities_found"])
 }
 
 func TestBulkUntag_Errors(t *testing.T) {

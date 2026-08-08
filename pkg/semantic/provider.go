@@ -3,6 +3,7 @@ package semantic
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 // Provider retrieves semantic metadata from catalog systems.
@@ -162,6 +163,93 @@ type GovernanceReader interface {
 // chain can read the governance vocabulary.
 func GovernanceReaderFrom(p Provider) (GovernanceReader, bool) {
 	return innermostCapability[GovernanceReader](p)
+}
+
+// TotalUnknown is the match count reported when no provider in the chain can
+// count. It is deliberately negative rather than zero so it can never be read as
+// "no matches" or compared against a page length as if it were a total: a caller
+// must branch on it explicitly.
+const TotalUnknown = -1
+
+// TableMatchCounter is the optional total-matches capability for the dataset
+// search: it reports how many matches the backend found, not merely how many rows
+// it put in the page it returned. Only a real catalog backend implements it (the
+// DataHub adapter), because only the backend knows the total.
+//
+// It exists because a page-bounded backend silently reduces the requested limit —
+// the DataHub client caps every search at its MaxLimit (100) — so a caller cannot
+// discover "more matches exist" by asking for one row more than it needs. The
+// extra row never arrives and the short page reads as a complete set (#1238). The
+// total survives the clamp and rides back on the same response, so reading it
+// costs no extra round trip.
+type TableMatchCounter interface {
+	// SearchTablesCounted runs the same search as Provider.SearchTables and also
+	// reports the backend's total match count. The total may exceed len(results)
+	// both because the caller's limit bounded the page and because the backend
+	// bounded it further.
+	SearchTablesCounted(ctx context.Context, filter SearchFilter) (results []TableSearchResult, total int, err error)
+}
+
+// GlossaryMatchCounter is the glossary counterpart of TableMatchCounter, kept a
+// separate capability rather than a second method on it so a backend that can
+// count one search is never mistaken for one that can count both. It carries the
+// same rationale, doubly so: the glossary page is bounded by the picker's own
+// limit before the client's clamp applies.
+type GlossaryMatchCounter interface {
+	// SearchGlossaryTermsCounted runs the same search as
+	// CatalogPicker.SearchGlossaryTerms, under the same empty-query listing rule,
+	// and also reports the backend's total match count.
+	SearchGlossaryTermsCounted(ctx context.Context, query string, limit int) (refs []EntityRef, total int, err error)
+}
+
+// SearchTablesCounted searches p and reports the backend's total match count
+// alongside the page. When no provider in p's chain can count, total is
+// TotalUnknown and the caller has learned nothing about the matches beyond the
+// rows it holds — in particular it must not read a full page as proof that more
+// exist, nor a short one as proof that none do.
+//
+// The count is read from the innermost counting provider, bypassing the cache
+// decorator, which is what CachedProvider.SearchTables does with the search
+// itself: searches vary too much to cache, so the decorator only forwards.
+func SearchTablesCounted(ctx context.Context, p Provider, filter SearchFilter) (results []TableSearchResult, total int, err error) {
+	if p == nil {
+		return nil, TotalUnknown, nil
+	}
+	if mc, ok := innermostCapability[TableMatchCounter](p); ok {
+		results, total, err = mc.SearchTablesCounted(ctx, filter)
+		if err != nil {
+			return nil, TotalUnknown, fmt.Errorf("counted table search: %w", err)
+		}
+		return results, total, nil
+	}
+	results, err = p.SearchTables(ctx, filter)
+	if err != nil {
+		return nil, TotalUnknown, fmt.Errorf("table search: %w", err)
+	}
+	return results, TotalUnknown, nil
+}
+
+// SearchGlossaryTermsCounted searches picker's glossary and reports the total
+// match count, falling back to the uncounted picker search (total TotalUnknown)
+// when the picker cannot count. It takes the picker rather than the Provider
+// because CatalogPickerFrom already resolves to the innermost implementation,
+// which is the same provider that counts.
+func SearchGlossaryTermsCounted(ctx context.Context, picker CatalogPicker, query string, limit int) (refs []EntityRef, total int, err error) {
+	if picker == nil {
+		return nil, TotalUnknown, nil
+	}
+	if mc, ok := picker.(GlossaryMatchCounter); ok {
+		refs, total, err = mc.SearchGlossaryTermsCounted(ctx, query, limit)
+		if err != nil {
+			return nil, TotalUnknown, fmt.Errorf("counted glossary search: %w", err)
+		}
+		return refs, total, nil
+	}
+	refs, err = picker.SearchGlossaryTerms(ctx, query, limit)
+	if err != nil {
+		return nil, TotalUnknown, fmt.Errorf("glossary search: %w", err)
+	}
+	return refs, TotalUnknown, nil
 }
 
 // innermostCapability walks a provider's decorator chain and returns the first
