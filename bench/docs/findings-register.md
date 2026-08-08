@@ -70,6 +70,21 @@ forms a new study in the series with its own protocol.
 | Supersede invalidation / propagation repair (#980 A2/A5) | Unmeasured — deferred, not concluded | RQ4 never ran; the measurement that would settle it is deferred (see the deferred-extensions section above) |
 | Cross-identity reach of applied insights (#980 B2, #1130) | Built — applied insights are searchable across identities | The knowledge-layer report's 46.7% transfer rate against 84.4% personal recall (Section 5 of report v1.1); measured by #1139 and published in report v2.0 — transfer is 98.9% CI [96.8-100.0] on v1.118.0, an across-code comparison, not a scale effect (`results/s5-anthropic-k5/`) |
 
+## Candidate ledger (open questions, not yet studies)
+
+A candidate enters this table only in the three-line form the lifecycle
+below requires: the question in plain English, the platform mechanism it
+exercises cited to code, and who acts on the answer. A candidate that
+cannot be stated this way is not deferred — it does not exist yet.
+Newest first; a candidate leaves this table for the retired section (probe
+killed it) or for a protocol under `docs/` (probe held).
+
+| Candidate | Platform mechanism (cited) | Who acts on the answer | Probe status |
+| --- | --- | --- | --- |
+| Graph traversal: when the answer lives behind links — a fetched knowledge page referencing other pages and entities — how far does an agent follow the links before answering, and do page size and reference count change that? | Inline entity references scanned from page markdown (`pkg/portal/knowledgepage/entity_ref_scan.go`), dereferenced by `fetch` (`mcp:knowledge_page:<id>`) and discovered by `search` source `knowledge_pages`; corpus-wide graph read `pkg/portal/knowledgepage/graph.go` (#1162) | Curation guidance: page size, when to split, how densely to cross-reference; whether the graph view earns investment | Not probed. Prior signal is one-sided: 19 `fetch` attempts across 4,173 archived transcripts, all under personas that denied `fetch` (see the #1176 defect row) — so dereference appetite has never been measured with the tool allowed. Landscape: depth-conditioned success is measured externally (LLM-WikiRace, 96% → 29% as required hops grow) but voluntary stopping depth, link density as a controlled variable, and page size for reading agents are not ([`study-landscape.md`](study-landscape.md) gaps 7–10) |
+| Delivery depth: do any published search-only contrasts move when the agent can read whole documents instead of result snippets? | `fetch` now allowed in the corrected bench personas, guarded by `config/config_test.go` (#1176) | Whether either published report needs a v2 qualifier; delivery guidance for deployments | Not probed. Named a study question, not an erratum, by the #1176 defect row |
+| Capture and sink choice: when an agent learns something worth keeping, does it capture it, and does it file it into the right sink (memory vs insight vs page)? | `memory_capture` / `memory_manage` and the `apply_knowledge` promotion path; mis-filing already observed once in `results/knowledge-use/s5-supersede-probe/` (motivated #1057/#1060) | Capture-guidance wording; sink schema design | Gated on the #1136 measurement (decompose a capture miss into attempted / succeeded / budget-starved); the decomposition picks the question, not the other way around. Landscape: no external benchmark measures discretionary capture during real work or sink selection ([`study-landscape.md`](study-landscape.md) gaps 2–3) |
+
 ## The study lifecycle these entries follow
 
 Probe before protocol: no study is proposed without a cheap empirical
@@ -79,3 +94,53 @@ holds → pre-registered protocol (`docs/`), runs (`results/<slug>/`),
 report (`docs/reference/`), and a register row either way. Decision rules
 are stated before each run, and archives are kept for every
 data-producing run including the ones that killed their own hypothesis.
+
+The full lifecycle, in order. Every stage is a gate the candidate can
+fail, each stage is bounded so failing is cheap, and no stage may be
+entered before the one before it. The rows above are the receipts: #1027
+died for want of stage 3, #1054 for want of stage 2, and the
+search-first-gate candidate is what stage 2 looks like when it works —
+killed at probe cost by its own pre-stated condition.
+
+**Stage 0 — landscape check.** [`study-landscape.md`](study-landscape.md)
+is the standing survey of external benchmarks and studies adjacent to
+this program. A new candidate gets a targeted pass over it (and a search
+for anything newer), appended to that file with citations. A literature
+gap is motivation, never evidence: an unmeasured effect is equally
+consistent with "nobody looked" and "absent or at ceiling", and two
+retired rows above adopted a premise from plausibility alone.
+
+**Stage 1 — ledger entry.** Three lines in the candidate ledger above:
+(a) the question in one plain-English sentence containing no method
+vocabulary — if the plain form is self-evidently true, false, or not a
+question, the candidate dies here at zero cost; (b) the platform
+mechanism the question exercises, cited to code — a question about a
+mechanism the platform does not have is a product idea, not a study;
+(c) who acts on the answer — a platform decision, a revision to a
+published report, or a claim the field can use. Method vocabulary is
+deferred to stage 4 deliberately: dressing a thin question in estimator
+language makes it read as rigorous before anything has been measured.
+
+**Stage 2 — premise probe.** Before the probe runs, write down its kill
+condition and its timebox (a half-day; k of 2–4 hand-driven episodes of
+the primary contrast). Then run it. The probe result travels with any
+proposal; argument from the literature does not substitute. Probe killed
+→ one row in the retired section, and stop. Ambiguity is a kill, not a
+license to extend the probe. A probe result is a decision input, never a
+published finding: confirmatory claims come only from stage-4 runs.
+
+**Stage 3 — separation analysis and capability placement.** One page,
+signed off before any build: the concrete mechanism by which the arms
+diverge; the design variable that produces the divergence, with
+confirmation the design varies it (never held at its easy setting in the
+name of confound control); what result falsifies the premise; and which
+model tier the effect is expected on and why — published results here
+invert across tiers, so a design that does not place itself on the
+capability curve has left its discriminating variable at an unknown
+setting. Design choices are audited jointly, not one at a time.
+
+**Stage 4 — protocol, build, run, report.** Pre-registered protocol under
+`docs/`, decision rules stated before each run, runs under
+`results/<slug>/` with a README stating what the family does and does not
+establish, archives kept for every data-producing run including the ones
+that kill their own hypothesis, and a register row either way.
