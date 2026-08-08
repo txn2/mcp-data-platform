@@ -97,6 +97,7 @@ export function AdminPromptDialog({
       onClose={onClose}
       width="max-w-2xl"
       label={isEdit ? "Edit Prompt" : "Create Prompt"}
+      busy={pending}
       bodyClass="px-4 py-3"
       header={
         <div className="flex items-center justify-between border-b px-4 py-3">

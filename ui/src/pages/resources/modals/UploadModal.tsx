@@ -17,8 +17,8 @@ import {
 import { formatBytes } from "@/lib/format";
 import { parseTags } from "@/lib/tags";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
+import { ModalShell } from "@/components/ModalShell";
 import { CATEGORIES, CATEGORY_HINTS } from "./shared";
-import { Overlay } from "./Overlay";
 import { UploadTargets } from "./UploadTargets";
 
 const MAX_BYTES = 100 * 1024 * 1024;
@@ -157,130 +157,24 @@ export function UploadModal({ onClose, admin, personaNames }: { onClose: () => v
   }, [file, displayName, description, scope, effectiveCategory, tagsInput, upload, onClose, resolveTargets]);
 
   return (
-    <Overlay onClose={onClose}>
-      <div className="w-full space-y-4 rounded-lg border bg-card p-6 shadow-lg">
-        <div className="flex items-center justify-between">
+    <ModalShell
+      onClose={onClose}
+      label="Upload Resource"
+      busy={uploading}
+      bodyClass="space-y-4 p-4"
+      header={
+        <div className="flex items-center justify-between border-b p-4">
           <h2 className="text-lg font-semibold">Upload Resource</h2>
           <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
             <X />
           </Button>
         </div>
-
-        <p className="text-xs text-muted-foreground">{RESOURCE_POSITIONING}</p>
-
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        <div className="space-y-3">
-          {admin && (
-            <UploadTargets
-              scope={scope}
-              onScopeChange={(next) => {
-                setScope(next);
-                setSelectedPersonas([]);
-                setUserEmails("");
-              }}
-              personaNames={personaNames}
-              selectedPersonas={selectedPersonas}
-              onTogglePersona={togglePersona}
-              userEmails={userEmails}
-              onUserEmailsChange={setUserEmails}
-            />
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Category</Label>
-              <Select value={cat} onValueChange={setCat}>
-                <SelectTrigger aria-label="Category" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value="custom">Custom...</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {cat === "custom" && (
-              <div className="space-y-1">
-                <Label htmlFor="upload-custom-category" className="text-xs text-muted-foreground">
-                  Custom Category
-                </Label>
-                <Input
-                  id="upload-custom-category"
-                  value={customCat}
-                  onChange={(e) => setCustomCat(e.target.value.toLowerCase())}
-                  placeholder="e.g. guides"
-                />
-              </div>
-            )}
-          </div>
-          {CATEGORY_HINTS[cat] && (
-            <p data-testid="category-hint" className="text-xs text-muted-foreground">{CATEGORY_HINTS[cat]}</p>
-          )}
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="upload-display-name" className="text-xs text-muted-foreground">
-            Display Name
-          </Label>
-          <Input
-            id="upload-display-name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Human-readable name"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="upload-description" className="text-xs text-muted-foreground">
-            Description
-          </Label>
-          <Textarea
-            id="upload-description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What is this and what should the agent do with it?"
-            rows={2}
-            className="field-sizing-fixed min-h-0 resize-none"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label htmlFor="upload-tags" className="text-xs text-muted-foreground">
-              Tags (comma-separated)
-            </Label>
-            <Input
-              id="upload-tags"
-              value={tagsInput}
-              onChange={(e) => setTagsInput(e.target.value)}
-              placeholder="finance, q4"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">File</Label>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => fileRef.current?.click()}
-              className="w-full font-normal"
-            >
-              <span className="truncate text-xs">
-                {file ? `${file.name} (${formatBytes(file.size)})` : "Choose file (max 100 MB)"}
-              </span>
-            </Button>
-            <input ref={fileRef} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-2">
+      }
+      footer={
+        // Upload stays reachable however long the target list grows: an admin
+        // fanning out to every persona has a scope list bounded only by the
+        // deployment's persona count.
+        <div className="flex justify-end gap-2 border-t p-4">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
@@ -289,7 +183,121 @@ export function UploadModal({ onClose, admin, personaNames }: { onClose: () => v
             Upload
           </Button>
         </div>
+      }
+    >
+      <p className="text-xs text-muted-foreground">{RESOURCE_POSITIONING}</p>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="space-y-3">
+        {admin && (
+          <UploadTargets
+            scope={scope}
+            onScopeChange={(next) => {
+              setScope(next);
+              setSelectedPersonas([]);
+              setUserEmails("");
+            }}
+            personaNames={personaNames}
+            selectedPersonas={selectedPersonas}
+            onTogglePersona={togglePersona}
+            userEmails={userEmails}
+            onUserEmailsChange={setUserEmails}
+          />
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Category</Label>
+            <Select value={cat} onValueChange={setCat}>
+              <SelectTrigger aria-label="Category" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+                <SelectItem value="custom">Custom...</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {cat === "custom" && (
+            <div className="space-y-1">
+              <Label htmlFor="upload-custom-category" className="text-xs text-muted-foreground">
+                Custom Category
+              </Label>
+              <Input
+                id="upload-custom-category"
+                value={customCat}
+                onChange={(e) => setCustomCat(e.target.value.toLowerCase())}
+                placeholder="e.g. guides"
+              />
+            </div>
+          )}
+        </div>
+        {CATEGORY_HINTS[cat] && (
+          <p data-testid="category-hint" className="text-xs text-muted-foreground">{CATEGORY_HINTS[cat]}</p>
+        )}
       </div>
-    </Overlay>
+
+      <div className="space-y-1">
+        <Label htmlFor="upload-display-name" className="text-xs text-muted-foreground">
+          Display Name
+        </Label>
+        <Input
+          id="upload-display-name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder="Human-readable name"
+        />
+      </div>
+
+      <div className="space-y-1">
+        <Label htmlFor="upload-description" className="text-xs text-muted-foreground">
+          Description
+        </Label>
+        <Textarea
+          id="upload-description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="What is this and what should the agent do with it?"
+          rows={2}
+          className="field-sizing-fixed min-h-0 resize-none"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="upload-tags" className="text-xs text-muted-foreground">
+            Tags (comma-separated)
+          </Label>
+          <Input
+            id="upload-tags"
+            value={tagsInput}
+            onChange={(e) => setTagsInput(e.target.value)}
+            placeholder="finance, q4"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">File</Label>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => fileRef.current?.click()}
+            className="w-full font-normal"
+          >
+            <span className="truncate text-xs">
+              {file ? `${file.name} (${formatBytes(file.size)})` : "Choose file (max 100 MB)"}
+            </span>
+          </Button>
+          <input ref={fileRef} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        </div>
+      </div>
+    </ModalShell>
   );
 }

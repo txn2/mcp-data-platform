@@ -163,9 +163,15 @@ Administrators can open, edit, and delete any resource by id, including persona 
 
 Opening a resource shows which prompts attach it as reference material. Deleting a resource that prompts depend on does not break them: they keep serving and report the material as missing, and the prompt viewer flags the broken link so its author can repair it.
 
+The dialog opens on what the resource is — its scope, category, metadata, canonical URI, and an inline preview. Its name and its Download, Edit and Delete actions stay in place while everything between them scrolls, so neither is ever pushed off the screen by a long preview or a deep revision trail.
+
 ![Resource detail](../images/screenshots/light/admin-resource-detail-light.webp#only-light)![Resource detail](../images/screenshots/dark/admin-resource-detail-dark.webp#only-dark)
 
 ### Revising a resource's content
+
+Scrolling the dialog reaches its lifecycle surfaces: the read-activity rollup, the version history described below, and the prompts attaching the resource.
+
+![Resource lifecycle surfaces](../images/screenshots/light/admin-resource-lifecycle-light.webp#only-light)![Resource lifecycle surfaces](../images/screenshots/dark/admin-resource-lifecycle-dark.webp#only-dark)
 
 **Replace content** on the detail view uploads a new file for an existing resource. The resource keeps its id, its canonical `mcp://` URI, and its file name, so every `mcp:resource:<id>` citation and prompt attachment pointing at it keeps resolving — which delete-plus-re-upload does not, since that mints a new id and breaks them all. The uploaded file's own name is ignored for that reason; only the bytes, type, and size change. Agents connected at the time are told the resource list changed, so a client re-reads the new content rather than serving the old.
 

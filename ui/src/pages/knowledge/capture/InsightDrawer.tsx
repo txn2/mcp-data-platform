@@ -39,6 +39,7 @@ export function InsightDrawer({
     <DrawerShell
       title="Insight Detail"
       onClose={onClose}
+      busy={updateStatus.isPending}
       footer={
         <ReviewActions
           notes={reviewNotes}

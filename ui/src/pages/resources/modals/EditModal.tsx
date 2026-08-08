@@ -15,8 +15,8 @@ import {
 } from "@/components/ui/select";
 import { parseTags } from "@/lib/tags";
 import type { Resource, ResourceUpdate } from "@/api/resources/types";
+import { ModalShell } from "@/components/ModalShell";
 import { CATEGORIES } from "./shared";
-import { Overlay } from "./Overlay";
 
 export function EditModal({ resource: r, onClose }: { resource: Resource; onClose: () => void }) {
   const update = useUpdateResource();
@@ -55,73 +55,23 @@ export function EditModal({ resource: r, onClose }: { resource: Resource; onClos
   }, [displayName, description, tagsInput, cat, r, update, onClose]);
 
   return (
-    <Overlay onClose={onClose}>
-      <div className="w-full space-y-4 rounded-lg border bg-card p-6 shadow-lg">
-        <div className="flex items-center justify-between">
+    <ModalShell
+      onClose={onClose}
+      label="Edit Resource"
+      busy={update.isPending}
+      bodyClass="space-y-4 p-4"
+      header={
+        <div className="flex items-center justify-between border-b p-4">
           <h2 className="text-lg font-semibold">Edit Resource</h2>
           <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
             <X />
           </Button>
         </div>
-
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        <div className="space-y-1">
-          <Label htmlFor={`${ids}-name`} className="text-xs text-muted-foreground">
-            Display Name
-          </Label>
-          <Input
-            id={`${ids}-name`}
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor={`${ids}-description`} className="text-xs text-muted-foreground">
-            Description
-          </Label>
-          <Textarea
-            id={`${ids}-description`}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            className="field-sizing-fixed resize-none"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">Category</Label>
-          <Select value={cat} onValueChange={setCat}>
-            <SelectTrigger aria-label="Category" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {categories.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor={`${ids}-tags`} className="text-xs text-muted-foreground">
-            Tags (comma-separated)
-          </Label>
-          <Input
-            id={`${ids}-tags`}
-            value={tagsInput}
-            onChange={(e) => setTagsInput(e.target.value)}
-          />
-        </div>
-
-        <div className="flex justify-end gap-2 pt-2">
+      }
+      footer={
+        // Save stays reachable without scrolling the form to its end, which is
+        // what a short viewport otherwise demands.
+        <div className="flex justify-end gap-2 border-t p-4">
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
@@ -130,7 +80,64 @@ export function EditModal({ resource: r, onClose }: { resource: Resource; onClos
             Save
           </Button>
         </div>
+      }
+    >
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="space-y-1">
+        <Label htmlFor={`${ids}-name`} className="text-xs text-muted-foreground">
+          Display Name
+        </Label>
+        <Input
+          id={`${ids}-name`}
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+        />
       </div>
-    </Overlay>
+
+      <div className="space-y-1">
+        <Label htmlFor={`${ids}-description`} className="text-xs text-muted-foreground">
+          Description
+        </Label>
+        <Textarea
+          id={`${ids}-description`}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          className="field-sizing-fixed resize-none"
+        />
+      </div>
+
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Category</Label>
+        <Select value={cat} onValueChange={setCat}>
+          <SelectTrigger aria-label="Category" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {categories.map((c) => (
+              <SelectItem key={c} value={c}>
+                {c}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-1">
+        <Label htmlFor={`${ids}-tags`} className="text-xs text-muted-foreground">
+          Tags (comma-separated)
+        </Label>
+        <Input
+          id={`${ids}-tags`}
+          value={tagsInput}
+          onChange={(e) => setTagsInput(e.target.value)}
+        />
+      </div>
+    </ModalShell>
   );
 }

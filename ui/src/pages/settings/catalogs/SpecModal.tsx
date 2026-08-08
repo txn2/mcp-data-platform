@@ -154,6 +154,7 @@ export function SpecModal({
       onClose={onClose}
       width="max-w-3xl"
       label={isEditing ? `Edit spec ${existingSpecName}` : "Add component spec"}
+      busy={upsert.isPending || upload.isPending}
       header={
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="text-base font-medium">

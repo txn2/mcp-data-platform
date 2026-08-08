@@ -17,7 +17,7 @@ export function DeletePromptDialog({
   onConfirm: () => void;
 }) {
   return (
-    <ModalScroll onClose={onCancel} width="max-w-sm" label="Delete prompt">
+    <ModalScroll onClose={onCancel} width="max-w-sm" label="Delete prompt" busy={pending}>
       <div className="space-y-4 rounded-lg border bg-card p-6 shadow-lg">
         <div className="flex items-center gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">

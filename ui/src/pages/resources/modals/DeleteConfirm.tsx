@@ -3,9 +3,15 @@ import { Loader2 } from "lucide-react";
 import { useDeleteResource } from "@/api/resources/hooks";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { ModalScroll } from "@/components/ModalShell";
 import type { Resource } from "@/api/resources/types";
-import { Overlay } from "./Overlay";
 
+/**
+ * DeleteConfirm stays on the natural-height shape rather than the capped one
+ * the other resource modals take: it is one paragraph and two buttons, with no
+ * region that grows with the resource, so there is no header to hold in place
+ * and nothing for a cap to save.
+ */
 export function DeleteConfirm({ resource: r, onClose }: { resource: Resource; onClose: () => void }) {
   const del = useDeleteResource();
   const [error, setError] = useState("");
@@ -20,7 +26,7 @@ export function DeleteConfirm({ resource: r, onClose }: { resource: Resource; on
   }, [r.id, del, onClose]);
 
   return (
-    <Overlay onClose={onClose}>
+    <ModalScroll onClose={onClose} label="Delete Resource" busy={del.isPending}>
       <div className="w-full space-y-4 rounded-lg border bg-card p-6 shadow-lg">
         <h2 className="text-lg font-semibold">Delete Resource</h2>
         <p className="text-sm text-muted-foreground">
@@ -41,6 +47,6 @@ export function DeleteConfirm({ resource: r, onClose }: { resource: Resource; on
           </Button>
         </div>
       </div>
-    </Overlay>
+    </ModalScroll>
   );
 }

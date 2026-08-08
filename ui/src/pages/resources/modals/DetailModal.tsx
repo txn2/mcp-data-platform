@@ -7,8 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 import type { Resource } from "@/api/resources/types";
+import { ModalShell } from "@/components/ModalShell";
 import { scopeIcon, scopeLabel } from "./shared";
-import { Overlay } from "./Overlay";
 import { ResourcePreview } from "./ResourcePreview";
 import { UsedByPrompts } from "./UsedByPrompts";
 import { UsagePanel } from "./UsagePanel";
@@ -44,9 +44,15 @@ export function DetailModal({ resource, onClose, onEdit, onDelete, admin }: { re
   const canModify = admin || r.uploader_sub === currentUser?.user_id;
 
   return (
-    <Overlay onClose={onClose}>
-      <div className="w-full space-y-4 rounded-lg border bg-card p-6 shadow-lg">
-        <div className="flex items-start justify-between gap-3">
+    <ModalShell
+      onClose={onClose}
+      label={r.display_name}
+      bodyClass="space-y-4 p-4"
+      header={
+        // What the resource is and the way out stay put: the sections below
+        // are an unbounded stack, and on a short viewport the title row is
+        // the first thing a natural-height panel pushes off the screen.
+        <div className="flex items-start justify-between gap-3 border-b p-4">
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-lg font-semibold">{r.display_name}</h2>
             <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -58,57 +64,13 @@ export function DetailModal({ resource, onClose, onEdit, onDelete, admin }: { re
             <X />
           </Button>
         </div>
-
-        {r.description && (
-          <div className="text-sm text-muted-foreground">
-            <CollapsibleMarkdown content={r.description} maxHeightPx={160} />
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <span className="text-xs font-medium text-muted-foreground">MIME Type</span>
-            <p>{r.mime_type}</p>
-          </div>
-          <div>
-            <span className="text-xs font-medium text-muted-foreground">Size</span>
-            <p>{formatBytes(r.size_bytes)}</p>
-          </div>
-          <div>
-            <span className="text-xs font-medium text-muted-foreground">Uploader</span>
-            <p className="truncate">{r.uploader_email || r.uploader_sub}</p>
-          </div>
-          <div>
-            <span className="text-xs font-medium text-muted-foreground">Updated</span>
-            <p>{new Date(r.updated_at).toLocaleString()}</p>
-          </div>
-        </div>
-
-        <div>
-          <span className="text-xs font-medium text-muted-foreground">URI</span>
-          <p className="mt-0.5 rounded bg-muted px-2 py-1 font-mono text-xs break-all">{r.uri}</p>
-        </div>
-
-        <ResourcePreview resource={r} />
-
-        {r.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {r.tags.map((t) => (
-              <Badge key={t} variant="muted">
-                <Tag />
-                {t}
-              </Badge>
-            ))}
-          </div>
-        )}
-
-        <UsagePanel usage={r.usage} lastReadAt={r.last_read_at} createdAt={r.created_at} />
-
-        <VersionsPanel resource={r} canModify={canModify} />
-
-        <UsedByPrompts resourceId={r.id} />
-
-        <div className="flex items-center gap-2 border-t pt-2">
+      }
+      footer={
+        // Download, Edit and Delete stay reachable without scrolling past the
+        // preview, the usage rollup, the version trail and the prompts that
+        // attach the resource -- which is every section between them and the
+        // top on a viewport shorter than the panel.
+        <div data-testid="resource-detail-actions" className="flex items-center gap-2 border-t p-4">
           <Button variant="outline" onClick={() => void downloadResource(r)}>
             <Download />
             Download
@@ -130,7 +92,56 @@ export function DetailModal({ resource, onClose, onEdit, onDelete, admin }: { re
             </>
           )}
         </div>
+      }
+    >
+      {r.description && (
+        <div className="text-sm text-muted-foreground">
+          <CollapsibleMarkdown content={r.description} maxHeightPx={160} />
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <span className="text-xs font-medium text-muted-foreground">MIME Type</span>
+          <p>{r.mime_type}</p>
+        </div>
+        <div>
+          <span className="text-xs font-medium text-muted-foreground">Size</span>
+          <p>{formatBytes(r.size_bytes)}</p>
+        </div>
+        <div>
+          <span className="text-xs font-medium text-muted-foreground">Uploader</span>
+          <p className="truncate">{r.uploader_email || r.uploader_sub}</p>
+        </div>
+        <div>
+          <span className="text-xs font-medium text-muted-foreground">Updated</span>
+          <p>{new Date(r.updated_at).toLocaleString()}</p>
+        </div>
       </div>
-    </Overlay>
+
+      <div>
+        <span className="text-xs font-medium text-muted-foreground">URI</span>
+        <p className="mt-0.5 rounded bg-muted px-2 py-1 font-mono text-xs break-all">{r.uri}</p>
+      </div>
+
+      <ResourcePreview resource={r} />
+
+      {r.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {r.tags.map((t) => (
+            <Badge key={t} variant="muted">
+              <Tag />
+              {t}
+            </Badge>
+          ))}
+        </div>
+      )}
+
+      <UsagePanel usage={r.usage} lastReadAt={r.last_read_at} createdAt={r.created_at} />
+
+      <VersionsPanel resource={r} canModify={canModify} />
+
+      <UsedByPrompts resourceId={r.id} />
+    </ModalShell>
   );
 }
