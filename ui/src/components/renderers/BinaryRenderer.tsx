@@ -1,4 +1,5 @@
 import { Download, FileQuestion } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 import { familyLabel } from "./registry";
 
@@ -33,14 +34,12 @@ export function BinaryRenderer({ contentType, contentUrl, fileName, sizeBytes }:
         {fileName && <p className="mt-0.5 font-mono text-xs text-muted-foreground">{fileName}</p>}
       </div>
       {contentUrl && (
-        <a
-          href={contentUrl}
-          download={fileName}
-          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          <Download className="h-4 w-4" />
-          Download
-        </a>
+        <Button asChild>
+          <a href={contentUrl} download={fileName}>
+            <Download />
+            Download
+          </a>
+        </Button>
       )}
     </div>
   );

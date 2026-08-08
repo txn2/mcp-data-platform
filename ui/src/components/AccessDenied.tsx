@@ -3,6 +3,8 @@ import { useResolvedDark } from "@/stores/theme";
 import { useBranding } from "@/api/portal/hooks";
 import { resolvePortalLogo } from "@/lib/portalLogo";
 import { ShieldOff } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 
 const DEFAULT_PORTAL_TITLE = "MCP Data Platform";
 
@@ -43,13 +45,13 @@ export function AccessDenied() {
           </div>
         </div>
 
-        <div className="mb-4 flex gap-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-          <ShieldOff className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
+        <Alert variant="warning" className="mb-4">
+          <ShieldOff />
+          <AlertDescription>
             Your account is not assigned to a persona. Ask an administrator to grant your account
             access.
-          </span>
-        </div>
+          </AlertDescription>
+        </Alert>
 
         {deniedEmail && (
           <p className="mb-4 break-all rounded-md border px-3 py-2 text-sm">
@@ -57,13 +59,9 @@ export function AccessDenied() {
           </p>
         )}
 
-        <button
-          type="button"
-          onClick={logout}
-          className="w-full rounded-md border bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-        >
+        <Button type="button" variant="secondary" onClick={logout} className="w-full">
           Sign out and switch accounts
-        </button>
+        </Button>
 
         <p className="mt-3 text-xs text-muted-foreground">
           Access is granted by role. Once an administrator assigns your account a role that a

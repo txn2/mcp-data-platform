@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { Download, Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 
 interface ImageRendererProps {
@@ -63,14 +64,12 @@ export function ImageRenderer({ contentUrl, fileName, sizeBytes, contentType }: 
       <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground" data-feedback-anchorable>
         <p className="font-medium text-foreground">This image could not be loaded</p>
         <p className="mt-1 text-xs">The content may have been removed from storage, or the format is not supported by this browser.</p>
-        <a
-          href={contentUrl}
-          download={fileName}
-          className="mt-4 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
-        >
-          <Download className="h-3.5 w-3.5" />
-          Download
-        </a>
+        <Button asChild variant="outline" className="mt-4">
+          <a href={contentUrl} download={fileName}>
+            <Download />
+            Download
+          </a>
+        </Button>
       </div>
     );
   }
@@ -150,52 +149,48 @@ function ImageToolbar({
 }: ImageToolbarProps) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="icon-xs"
         onClick={() => onStepZoom(-1)}
         disabled={zoomIndex === 0}
         aria-label="Zoom out"
-        className="rounded-md border p-1.5 hover:bg-accent disabled:opacity-40"
       >
-        <Minus className="h-3 w-3" />
-      </button>
+        <Minus />
+      </Button>
       <span className="w-12 text-center tabular-nums text-muted-foreground">
         {fit ? "Fit" : `${Math.round(zoom * 100)}%`}
       </span>
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="icon-xs"
         onClick={() => onStepZoom(1)}
         disabled={zoomIndex === ZOOM_STEPS.length - 1}
         aria-label="Zoom in"
-        className="rounded-md border p-1.5 hover:bg-accent disabled:opacity-40"
       >
-        <Plus className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        onClick={onToggleFit}
-        className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 hover:bg-accent"
-      >
-        <Maximize2 className="h-3 w-3" />
+        <Plus />
+      </Button>
+      <Button type="button" variant="outline" size="xs" onClick={onToggleFit}>
+        <Maximize2 />
         {fit ? "Actual size" : "Fit"}
-      </button>
-      <button type="button" onClick={onReset} aria-label="Reset view" className="rounded-md border p-1.5 hover:bg-accent">
-        <RotateCcw className="h-3 w-3" />
-      </button>
+      </Button>
+      <Button type="button" variant="outline" size="icon-xs" onClick={onReset} aria-label="Reset view">
+        <RotateCcw />
+      </Button>
 
       <span className="ml-auto text-muted-foreground">
         {dimensions ? `${dimensions.w} x ${dimensions.h}` : ""}
         {sizeBytes ? ` · ${formatBytes(sizeBytes)}` : ""}
         {` · ${contentType}`}
       </span>
-      <a
-        href={contentUrl}
-        download={fileName}
-        className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 hover:bg-accent"
-      >
-        <Download className="h-3 w-3" />
-        Download
-      </a>
+      <Button asChild variant="outline" size="xs">
+        <a href={contentUrl} download={fileName}>
+          <Download />
+          Download
+        </a>
+      </Button>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { History, ChevronDown, ChevronUp } from "lucide-react";
 import type { AssetVersion } from "@/api/portal/types";
+import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 
 interface VersionHistoryPanelProps {
@@ -87,13 +88,9 @@ export function VersionHistoryPanel({
       </div>
 
       {!expanded && versions.length > 3 && (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="text-xs text-primary hover:underline"
-        >
+        <Button type="button" variant="link" size="xs" onClick={() => setExpanded(true)} className="px-0">
           Show all {versions.length} versions
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -1,6 +1,16 @@
 import { useState, useMemo, useCallback } from "react";
 import Papa from "papaparse";
-import { ChevronUp, ChevronDown, Search, Download } from "lucide-react";
+import { Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { SearchInput } from "@/components/patterns/SearchInput";
+import { SortableHead } from "@/components/patterns/SortableHead";
 
 interface Props {
   content: string;
@@ -100,70 +110,62 @@ export function CsvRenderer({ content, fileName, delimiter = "," }: Props) {
     <div className="space-y-3">
       {/* Search + Download */}
       <div className="flex items-center justify-between gap-3">
-        <div className="relative max-w-sm flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            placeholder="Search all columns..."
-            className="w-full rounded-md border bg-transparent pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2 dark:bg-input/30"
-          />
-        </div>
-        <button
+        <SearchInput
+          className="max-w-sm flex-1"
+          value={filterText}
+          onChange={(e) => setFilterText(e.target.value)}
+          placeholder="Search all columns..."
+          aria-label="Search all columns"
+        />
+        <Button
           type="button"
+          variant="outline"
           onClick={handleDownload}
-          className="flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent shrink-0"
+          className="shrink-0"
           title={isTsv ? "Download TSV" : "Download CSV"}
         >
-          <Download className="h-4 w-4" />
+          <Download />
           Download
-        </button>
+        </Button>
       </div>
 
-      {/* Table */}
-      <div className="rounded-lg border bg-card overflow-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm">
-            <tr>
+      {/* Table. `overflow-hidden` on the frame, not the scroller: ui/table
+          brings its own horizontal scroll container, and without the frame
+          clipping, the header fill squares off the rounded corners. */}
+      <div className="overflow-hidden rounded-lg border bg-card">
+        <Table>
+          {/* Lighter than SortableHead's `hover:bg-muted/80`, or hovering a
+              sortable header would paint the fill it already carries. */}
+          <TableHeader className="bg-muted/40">
+            <TableRow>
               {columns.map((col) => (
-                <th
+                <SortableHead
                   key={col}
-                  onClick={() => handleSort(col)}
-                  className="px-3 py-2 text-left font-medium text-muted-foreground cursor-pointer select-none whitespace-nowrap hover:text-foreground transition-colors"
-                >
-                  <span className="inline-flex items-center gap-1">
-                    {col}
-                    {sortColumn === col &&
-                      (sortDirection === "asc" ? (
-                        <ChevronUp className="h-3.5 w-3.5" />
-                      ) : (
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      ))}
-                  </span>
-                </th>
+                  label={col}
+                  sortKey={col}
+                  sortBy={sortColumn}
+                  sortDir={sortDirection}
+                  onSort={handleSort}
+                />
               ))}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {displayRows.map((row, i) => (
-              <tr
-                key={i}
-                className="border-t transition-colors hover:bg-accent/30 even:bg-muted/20"
-              >
+              <TableRow key={i} className="even:bg-muted/20">
                 {columns.map((col) => (
-                  <td
+                  <TableCell
                     key={col}
-                    className="px-3 py-1.5 max-w-[200px] truncate"
+                    className="max-w-[200px] truncate"
                     title={String(row[col] ?? "")}
                   >
                     {String(row[col] ?? "")}
-                  </td>
+                  </TableCell>
                 ))}
-              </tr>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {/* Footer */}

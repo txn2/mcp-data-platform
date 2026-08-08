@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { EditorView } from "@codemirror/view";
 import { WrapText } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { codeMirrorExtensions } from "@/lib/codemirror";
 import type { CodeLanguage } from "./registry";
 import { languageForContentType } from "./registry";
@@ -40,17 +41,16 @@ export function CodeRenderer({ content, language, contentType, fileName }: CodeR
     <div className="space-y-2" data-feedback-anchorable>
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">{resolved ? resolved.toUpperCase() : "Plain text"}</span>
-        <button
+        <Button
           type="button"
+          variant={wrap ? "secondary" : "outline"}
+          size="xs"
           onClick={() => setWrap((w) => !w)}
           aria-pressed={wrap}
-          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
-            wrap ? "bg-accent font-medium" : "hover:bg-accent/50"
-          }`}
         >
-          <WrapText className="h-3 w-3" />
+          <WrapText />
           Wrap
-        </button>
+        </Button>
       </div>
       <CodeMirror
         value={content}

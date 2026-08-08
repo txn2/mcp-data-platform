@@ -92,10 +92,12 @@ describe("JsonRenderer", () => {
   it("round-trips between the tree, formatted and raw views", async () => {
     render(<JsonRenderer content={DOC} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "raw" }));
+    // The view switch is a SegmentedControl, so its faces keep the button role
+    // and carry their own words rather than a CSS-capitalized lowercase mode.
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
     expect(screen.queryByRole("tree")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "tree" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tree" }));
     expect(screen.getByRole("tree", { name: /json document/i })).toBeInTheDocument();
   });
 

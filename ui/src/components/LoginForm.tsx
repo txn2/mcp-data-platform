@@ -4,6 +4,9 @@ import { useResolvedDark } from "@/stores/theme";
 import { useBranding } from "@/api/portal/hooks";
 import { resolvePortalLogo } from "@/lib/portalLogo";
 import { LogIn } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const DEFAULT_PORTAL_TITLE = "MCP Data Platform";
 const DEFAULT_PORTAL_TAGLINE = "Sign in to access the platform.";
@@ -85,27 +88,23 @@ export function LoginForm() {
         </div>
 
         {sessionExpired && !error && (
-          <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-            Your session has expired. Please sign in again.
-          </p>
+          <Alert variant="warning" className="mb-3">
+            <AlertDescription>Your session has expired. Please sign in again.</AlertDescription>
+          </Alert>
         )}
 
         {error && (
-          <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-            {error}
-          </p>
+          <Alert variant="destructive" className="mb-3">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {/* SSO Button — shown when OIDC is enabled */}
         {oidcEnabled && (
-          <button
-            type="button"
-            onClick={loginOIDC}
-            className="mb-3 flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <LogIn className="h-4 w-4" />
+          <Button type="button" onClick={loginOIDC} className="mb-3 w-full">
+            <LogIn />
             {oidcButtonLabel}
-          </button>
+          </Button>
         )}
 
         {/* "or use an API key" divider — only when OIDC is also an
@@ -119,7 +118,7 @@ export function LoginForm() {
           </div>
         )}
 
-        <input
+        <Input
           type="text"
           autoComplete="off"
           data-1p-ignore
@@ -129,21 +128,20 @@ export function LoginForm() {
           onKeyDown={handleKeyDown}
           placeholder="X-API-Key"
           style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
-          className="mb-3 w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none ring-ring focus:ring-2 dark:bg-input/30"
+          className="mb-3"
           autoFocus={!oidcEnabled}
         />
-        <button
+        {/* With SSO on the page the key form is the secondary way in, so it
+            takes the secondary face and leaves the filled one to OIDC. */}
+        <Button
           type="button"
+          variant={oidcEnabled ? "secondary" : "default"}
           disabled={!key.trim() || loading}
           onClick={handleApiKeyLogin}
-          className={`w-full rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50 ${
-            oidcEnabled
-              ? "border bg-secondary text-secondary-foreground hover:bg-secondary/80"
-              : "bg-primary text-primary-foreground hover:bg-primary/90"
-          }`}
+          className="w-full"
         >
           {loading ? "Validating..." : "Sign in with API key"}
-        </button>
+        </Button>
       </div>
     </div>
   );

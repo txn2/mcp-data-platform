@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { Button } from "@/components/ui/button";
 import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
 
 interface Props {
@@ -37,14 +38,9 @@ export function InfiniteFooter({ hasMore, isLoadingMore, onLoadMore }: Props) {
       {/* Sentinel: observed to auto-load the next page on scroll. */}
       <div ref={sentinelRef} aria-hidden="true" className="h-px" />
       <div className="flex justify-center pt-1">
-        <button
-          type="button"
-          onClick={onLoadMore}
-          disabled={isLoadingMore}
-          className="rounded-md border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-60"
-        >
+        <Button type="button" variant="outline" onClick={onLoadMore} disabled={isLoadingMore}>
           {isLoadingMore ? "Loading more…" : "Load more"}
-        </button>
+        </Button>
       </div>
     </>
   );

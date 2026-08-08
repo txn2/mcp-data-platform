@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDirectoryUsers } from "@/api/portal/hooks";
 import type { DirectoryUser } from "@/api/portal/types";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { parseEmailAddress } from "@/lib/emailAddress";
 
 interface Props {
@@ -105,7 +107,7 @@ export function UserPicker({ value, onChange, placeholder }: Props) {
 
   return (
     <div ref={containerRef} className="relative flex-1">
-      <input
+      <Input
         type="email"
         placeholder={placeholder ?? "Email address"}
         value={value}
@@ -118,7 +120,6 @@ export function UserPicker({ value, onChange, placeholder }: Props) {
         aria-expanded={showDropdown}
         aria-controls="user-picker-listbox"
         aria-activedescendant={highlight >= 0 ? `user-picker-opt-${highlight}` : undefined}
-        className="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2 dark:bg-input/30"
       />
       {showDropdown && (
         <ul
@@ -153,11 +154,7 @@ export function UserPicker({ value, onChange, placeholder }: Props) {
                       <span>{u.email}</span>
                     )}
                   </span>
-                  {!u.confirmed && (
-                    <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                      Invited
-                    </span>
-                  )}
+                  {!u.confirmed && <Badge variant="warning">Invited</Badge>}
                 </button>
               </li>
             );

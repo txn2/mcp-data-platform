@@ -161,7 +161,7 @@ describe("MyAssetsPage: share icons overlay on card thumbnail", () => {
     try {
       render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
       // Semantic ranking is a Mine-scope feature; the default scope is "all".
-      fireEvent.click(screen.getByRole("tab", { name: "Mine" }));
+      fireEvent.mouseDown(screen.getByRole("tab", { name: "Mine" }));
       expect(screen.getByText("Annual Summary")).toBeInTheDocument();
 
       expect(() =>
@@ -240,12 +240,12 @@ describe("MyAssetsPage: scope filter and tabs", () => {
     expect(screen.getByText(/Shared by carol@example.com/)).toBeInTheDocument();
 
     // Mine scope hides shared items.
-    fireEvent.click(screen.getByRole("tab", { name: "Mine" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Mine" }));
     expect(screen.getByText("My Own Asset")).toBeInTheDocument();
     expect(screen.queryByText("Shared Chart")).not.toBeInTheDocument();
 
     // Shared scope hides owned items.
-    fireEvent.click(screen.getByRole("tab", { name: "Shared" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Shared" }));
     expect(screen.getByText("Shared Chart")).toBeInTheDocument();
     expect(screen.queryByText("My Own Asset")).not.toBeInTheDocument();
   });
@@ -259,7 +259,8 @@ describe("MyAssetsPage: scope filter and tabs", () => {
     const onNavigate = vi.fn();
     render(<MyAssetsPage onNavigate={onNavigate} />, { wrapper });
 
-    fireEvent.click(screen.getByRole("button", { name: "Collections" }));
+    // AssetsTabs rides ui/tabs, so its faces are tabs rather than buttons.
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Collections" }));
     expect(onNavigate).toHaveBeenCalledWith("/collections");
   });
 });
@@ -278,7 +279,7 @@ describe("MyAssetsPage: load more pagination", () => {
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
     // Mine scope draws only from the browse (useInfiniteAssets) list.
-    fireEvent.click(screen.getByRole("tab", { name: "Mine" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Mine" }));
 
     const button = screen.getByRole("button", { name: "Load more" });
     fireEvent.click(button);
@@ -295,7 +296,7 @@ describe("MyAssetsPage: load more pagination", () => {
     } as unknown as ReturnType<typeof useInfiniteAssets>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
-    fireEvent.click(screen.getByRole("tab", { name: "Mine" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Mine" }));
 
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
   });
@@ -320,7 +321,7 @@ describe("MyAssetsPage: load more pagination", () => {
     } as unknown as ReturnType<typeof useInfiniteSharedWithMe>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
-    fireEvent.click(screen.getByRole("tab", { name: "Shared" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Shared" }));
 
     expect(screen.getByText(/load more to keep looking/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
@@ -339,7 +340,7 @@ describe("MyAssetsPage: load more pagination", () => {
     } as unknown as ReturnType<typeof useInfiniteAssets>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
-    fireEvent.click(screen.getByRole("tab", { name: "Mine" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Mine" }));
 
     expect(screen.getByText("No assets yet")).toBeInTheDocument();
     expect(

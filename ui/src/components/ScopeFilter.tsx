@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 /** Ownership scope for asset/collection listings. */
 export type Scope = "mine" | "shared" | "all";
@@ -39,25 +39,36 @@ interface Props {
   onChange: (scope: Scope) => void;
 }
 
-/** Segmented Mine / Shared / All control. */
+/**
+ * Segmented Mine / Shared / All control.
+ *
+ * A `ui/tabs` list rather than a `SegmentedControl`: what the choice switches
+ * between is three different listings of the same page, which is a tablist, and
+ * it keeps the `role="tab"` semantics the screenshot suite drives it by.
+ */
 export function ScopeFilter({ value, onChange }: Props) {
   return (
-    <div className="flex gap-0.5 rounded-md border p-0.5" role="tablist" aria-label="Ownership scope">
-      {OPTIONS.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          role="tab"
-          aria-selected={value === opt.value}
-          onClick={() => onChange(opt.value)}
-          className={cn(
-            "rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
-            value === opt.value ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
+    <Tabs
+      value={value}
+      // Manual activation: each scope is a different query, so Radix's
+      // select-on-focus default would fire one per face an arrow key passes.
+      activationMode="manual"
+      onValueChange={(v) => onChange(v as Scope)}
+    >
+      <TabsList aria-label="Ownership scope">
+        {OPTIONS.map((opt) => (
+          <TabsTrigger
+            key={opt.value}
+            value={opt.value}
+            type="button"
+            // The listing these faces choose between is the page below, not a
+            // TabsContent, so Radix's stamped panel id names nothing.
+            aria-controls={undefined}
+          >
+            {opt.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
   );
 }
