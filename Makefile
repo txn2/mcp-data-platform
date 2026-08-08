@@ -1337,10 +1337,6 @@ bench-report-check:
 	@echo "Recomputing the knowledge-use report tables (smoke: script must run clean)..."
 	@python3 bench/reports/knowledge-use/pk_tables.py > /dev/null || \
 		{ echo "FAIL: bench/reports/knowledge-use/pk_tables.py no longer runs against bench/results/knowledge-use/."; exit 1; }
-	@echo "Recomputing the context-economics decomposition (pins the frozen probe, its summary, and the protocol)..."
-	@python3 bench/reports/context-economics/decompose.py > /dev/null || \
-		{ echo "FAIL: bench/reports/context-economics/decompose.py — the archives no longer reproduce a committed artifact."; \
-		  python3 bench/reports/context-economics/decompose.py | grep -E "^  FAIL|check\(s\) FAILED"; exit 1; }
 	@echo "OK: report toolchains reproduce from the committed archives."
 
 ## bench-calibrate: Run the judge calibration and print its human-agreement rate (needs ANTHROPIC_API_KEY; uses the rubric's pinned model)

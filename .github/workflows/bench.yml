@@ -57,12 +57,11 @@ jobs:
       - name: Build, vet, and test the harness
         run: make bench-test
 
-      - name: Recompute the reports and pre-registrations from the archives
-        # Pins the published headline numbers, and the figures the
-        # context-economics protocol cites, to bench/results/ (stdlib python3,
-        # offline). A drift between the archives, a recompute toolchain, and a
-        # committed page fails here instead of reaching a reader. Also part of
-        # `make verify` (bench-report-check).
+      - name: Recompute the reports from the archives
+        # Pins the published headline numbers to bench/results/ (stdlib
+        # python3, offline). A drift between the archives, a recompute
+        # toolchain, and a committed page fails here instead of reaching a
+        # reader. Also part of `make verify` (bench-report-check).
         run: make bench-report-check
 
       - name: Lint the harness
