@@ -1,6 +1,23 @@
 import { FilterChip } from "@/components/FilterChip";
+import {
+  SegmentedControl,
+  type SegmentedOption,
+} from "@/components/patterns/SegmentedControl";
 import { typeLabel } from "./graphModel";
 import { DEPTHS, type GraphMode } from "./useGraphFocus";
+
+const SCOPES: SegmentedOption<GraphMode>[] = [
+  { value: "focus", label: "Explore", text: "Explore" },
+  { value: "corpus", label: "Whole corpus", text: "Whole corpus" },
+];
+
+// One face per hop count, named for what the number means so the control reads
+// as a distance rather than an unlabelled index.
+const HOPS: SegmentedOption<string>[] = DEPTHS.map((d) => ({
+  value: String(d),
+  label: `${d} hop${d === 1 ? "" : "s"}`,
+  text: String(d),
+}));
 
 interface GraphToolbarProps {
   /** Node types present, with counts, most-used first. */
@@ -30,43 +47,29 @@ export function GraphToolbar({
 }: GraphToolbarProps) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <div
-        role="radiogroup"
-        aria-label="Graph scope"
-        className="inline-flex rounded-md border border-border p-0.5"
-      >
-        <ScopeOption label="Explore" active={mode === "focus"} onClick={() => onModeChange("focus")} />
-        <ScopeOption label="Whole corpus" active={mode === "corpus"} onClick={() => onModeChange("corpus")} />
-      </div>
+      <SegmentedControl
+        label="Graph scope"
+        value={mode}
+        onChange={onModeChange}
+        options={SCOPES}
+      />
 
       {mode === "focus" && (
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
             Hops
           </span>
-          <div role="radiogroup" aria-label="Neighbourhood depth" className="inline-flex gap-1">
-            {DEPTHS.map((d) => (
-              <button
-                key={d}
-                type="button"
-                role="radio"
-                aria-checked={depth === d}
-                onClick={() => onDepthChange(d)}
-                className={`h-6 w-6 rounded-md border text-xs font-medium transition-colors ${
-                  depth === d
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                {d}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            label="Neighbourhood depth"
+            value={String(depth)}
+            onChange={(d) => onDepthChange(Number(d))}
+            options={HOPS}
+          />
         </div>
       )}
 
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Show
         </span>
         <div role="group" aria-label="Node types" className="flex flex-wrap items-center gap-1.5">
@@ -82,30 +85,5 @@ export function GraphToolbar({
         </div>
       </div>
     </div>
-  );
-}
-
-/** ScopeOption is one segment of the explore/whole-corpus switch. */
-function ScopeOption({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      onClick={onClick}
-      className={`rounded px-2.5 py-1 text-sm font-medium transition-colors ${
-        active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
-      }`}
-    >
-      {label}
-    </button>
   );
 }

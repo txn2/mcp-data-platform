@@ -9,14 +9,14 @@ import { authenticate } from "../screenshots/helpers/auth";
 async function gotoGraph(page: Page): Promise<void> {
   await authenticate(page);
   await page.goto("/portal/knowledge/pages");
-  await page.getByRole("radio", { name: "Graph" }).click();
+  await page.getByRole("button", { name: "Graph" }).click();
   await expect(page.getByRole("application", { name: "Knowledge graph" })).toBeVisible();
 }
 
 /** Opens the graph and drops it into the whole-corpus overview. */
 async function gotoCorpus(page: Page): Promise<void> {
   await gotoGraph(page);
-  await page.getByRole("radio", { name: "Whole corpus" }).click();
+  await page.getByRole("button", { name: "Whole corpus" }).click();
 }
 
 /** node returns the graph vertex with the given accessible name. */
@@ -64,7 +64,7 @@ test.describe("Knowledge graph", () => {
     await page.getByRole("button", { name: /^finance/ }).click();
     await page.getByPlaceholder("Search knowledge by content...").fill("revenue");
 
-    await page.getByRole("radio", { name: "Graph" }).click();
+    await page.getByRole("button", { name: "Graph" }).click();
 
     await expect(page.getByRole("application", { name: "Knowledge graph" })).toBeVisible();
     await expect(page.getByRole("button", { name: /^finance/ })).toHaveAttribute(
@@ -73,7 +73,7 @@ test.describe("Knowledge graph", () => {
     );
     await expect(page.getByPlaceholder("Find nodes in the graph...")).toHaveValue("revenue");
 
-    await page.getByRole("radio", { name: "Cards" }).click();
+    await page.getByRole("button", { name: "Cards" }).click();
     await expect(page.getByRole("application", { name: "Knowledge graph" })).toHaveCount(0);
     await expect(page.getByPlaceholder("Search knowledge by content...")).toHaveValue("revenue");
   });
@@ -108,9 +108,9 @@ test.describe("Knowledge graph", () => {
     const shown = async () =>
       Number(/(\d+) of \d+ nodes/.exec(await page.getByText(/^Around /).innerText())?.[1]);
 
-    await page.getByRole("radio", { name: "1" }).click();
+    await page.getByRole("group", { name: "Neighbourhood depth" }).getByRole("button", { name: "1" }).click();
     const atOne = await shown();
-    await page.getByRole("radio", { name: "3" }).click();
+    await page.getByRole("group", { name: "Neighbourhood depth" }).getByRole("button", { name: "3" }).click();
 
     expect(await shown()).toBeGreaterThan(atOne);
   });
@@ -155,7 +155,9 @@ test.describe("Knowledge graph", () => {
     await node(page, "Page: Fiscal Calendar").click();
     await inspector(page).getByRole("button", { name: /Open/ }).click();
 
-    await expect(page.getByRole("heading", { name: "Fiscal Calendar", level: 1 }).first()).toBeVisible();
+    // Level 2 is the detail's PageHeader title; the body's own `# Fiscal
+    // Calendar` renders as the level-1 heading inside the article.
+    await expect(page.getByRole("heading", { name: "Fiscal Calendar", level: 2 })).toBeVisible();
   });
 
   test("opens an entity node at its portal home", async ({ page }) => {

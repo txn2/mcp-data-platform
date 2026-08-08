@@ -1,18 +1,22 @@
 import { LayoutGrid, Share2 } from "lucide-react";
+import {
+  SegmentedControl,
+  type SegmentedOption,
+} from "@/components/patterns/SegmentedControl";
 
 /** KnowledgeView is the layout the knowledge-pages surface is rendered in. */
 export type KnowledgeView = "cards" | "graph";
 
-const OPTIONS: { value: KnowledgeView; label: string; Icon: typeof LayoutGrid }[] = [
-  { value: "cards", label: "Cards", Icon: LayoutGrid },
-  { value: "graph", label: "Graph", Icon: Share2 },
+const OPTIONS: SegmentedOption<KnowledgeView>[] = [
+  { value: "cards", label: "Cards", icon: LayoutGrid, text: "Cards" },
+  { value: "graph", label: "Graph", icon: Share2, text: "Graph" },
 ];
 
 /**
  * ViewToggle switches the knowledge corpus between the card list and the graph.
  * The two are alternate layouts of the same filtered corpus, so the control is a
- * radio group rather than a navigation: the reader's search and tag filter carry
- * across the switch.
+ * SegmentedControl rather than a navigation: the reader's search and tag filter
+ * carry across the switch, and nothing under it is a tab panel.
  */
 export function ViewToggle({
   value,
@@ -22,23 +26,11 @@ export function ViewToggle({
   onChange: (view: KnowledgeView) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label="Knowledge layout" className="inline-flex rounded-md border border-border p-0.5">
-      {OPTIONS.map(({ value: v, label, Icon }) => (
-        <button
-          key={v}
-          type="button"
-          role="radio"
-          aria-checked={value === v}
-          onClick={() => onChange(v)}
-          className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-sm font-medium transition-colors ${
-            value === v
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:bg-muted"
-          }`}
-        >
-          <Icon className="h-4 w-4" /> {label}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl
+      label="Knowledge layout"
+      value={value}
+      onChange={onChange}
+      options={OPTIONS}
+    />
   );
 }

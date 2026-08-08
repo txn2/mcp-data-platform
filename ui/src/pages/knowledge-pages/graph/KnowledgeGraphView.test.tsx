@@ -192,7 +192,7 @@ describe("KnowledgeGraphView", () => {
     // whole chain on screen and every later navigation looks broken.
     graphResult.current = { data: bridgeGraph(), isLoading: false, isError: false };
     renderGraph();
-    fireEvent.click(screen.getByRole("radio", { name: "Whole corpus" }));
+    fireEvent.click(screen.getByRole("button", { name: "Whole corpus" }));
 
     fireEvent.click(screen.getByLabelText("Page: Left l4"));
     fireEvent.click(within(screen.getByRole("complementary")).getByRole("button", { name: /Path from/ }));
@@ -301,7 +301,7 @@ describe("KnowledgeGraphView", () => {
 
     // Two unconnected nodes are only on screen together in corpus mode: the
     // focus view shows one node's neighbourhood, and they are in different ones.
-    fireEvent.click(screen.getByRole("radio", { name: "Whole corpus" }));
+    fireEvent.click(screen.getByRole("button", { name: "Whole corpus" }));
 
     const inspector = () => screen.getByRole("complementary");
     fireEvent.click(screen.getByRole("button", { name: "Page: Alone A" }));
@@ -315,10 +315,10 @@ describe("KnowledgeGraphView", () => {
     graphResult.current = { data: bridgeGraph(), isLoading: false, isError: false };
     renderGraph();
 
-    fireEvent.click(screen.getByRole("radio", { name: "1" }));
+    fireEvent.click(screen.getByRole("button", { name: "1" }));
     expect(screen.getByText(/3 of 9 nodes/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("radio", { name: "3" }));
+    fireEvent.click(screen.getByRole("button", { name: "3" }));
     // Three hops from the bridge reaches each chain's third page; the far ends
     // are four hops out and stay off screen.
     expect(screen.getByText(/7 of 9 nodes/)).toBeInTheDocument();
@@ -328,7 +328,7 @@ describe("KnowledgeGraphView", () => {
     graphResult.current = { data: bridgeGraph(), isLoading: false, isError: false };
     renderGraph();
 
-    fireEvent.click(screen.getByRole("radio", { name: "Whole corpus" }));
+    fireEvent.click(screen.getByRole("button", { name: "Whole corpus" }));
 
     expect(screen.getByText(/9 nodes, 8 references/)).toBeInTheDocument();
     expect(screen.queryByText(/Around/)).not.toBeInTheDocument();

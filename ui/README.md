@@ -79,7 +79,18 @@ to be applied, not yet applied, and only `applied` is the finished state.
 `SegmentedControl` is a group of toggle buttons (`role="group"`, `aria-pressed`),
 not a tablist: nothing under it is a tab panel, the same content is redrawn. So
 its faces stay `getByRole("button", ...)`, unlike `ui/tabs` and unlike
-`ScopeFilter`, whose Mine/Shared/All faces really are `role="tab"`.
+`ScopeFilter`, whose Mine/Shared/All faces really are `role="tab"`. It also
+replaces the hand-rolled `role="radiogroup"` switches the knowledge surfaces
+used to carry (cards-or-graph, explore-or-whole-corpus, the graph's hop radius),
+so a spec that drove those by `getByRole("radio", ...)` now asks for a button —
+and, where the face's name is a bare number, scopes the query to the group by
+its label.
+
+`Card` takes `asChild`, like `Badge`: a card whose box is a landmark keeps the
+landmark and takes the card face, e.g. `<Card asChild><aside>…</aside></Card>`
+for the knowledge graph's inspector, which Playwright reaches as
+`getByRole("complementary")`. Restating the face as loose classes on the
+semantic tag is the thing this avoids.
 
 A shadcn `Select` is a Radix listbox, not a native `<select>`: an item cannot
 carry an empty value, so a facet's "no filter" choice travels under a sentinel
