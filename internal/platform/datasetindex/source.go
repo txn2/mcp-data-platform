@@ -22,9 +22,13 @@ type Lister interface {
 // threshold applied.
 const listQuery = "*"
 
-// pageSize is how many datasets one enumeration round trip asks for. Large
-// enough that a few-thousand-dataset catalog is a handful of calls, small
-// enough that one response stays a reasonable payload.
+// pageSize is how many datasets one enumeration round trip asks for: large
+// enough to keep a few-thousand-dataset catalog to tens of calls, small enough
+// that one response stays a reasonable payload. It is a request, not a
+// guarantee — a lister may serve fewer, and the DataHub client clamps every
+// search to its own MaxLimit, 100 by default, which is what makes one sweep of
+// the default 5000-entry cap up to 50 round trips — so enumerate pages by what
+// came back rather than by this.
 const pageSize = 200
 
 // Source implements indexjobs.Source for the catalog-datasets kind. The unit is
@@ -80,48 +84,78 @@ func (s *Source) LoadItems(ctx context.Context, _ string) ([]indexjobs.Item, err
 // repeat an entry when the underlying set shifts between calls, and a repeated
 // item id would make the mirrored count disagree with the item count.
 //
-// Reaching the cap is logged rather than passed over: coverage is reported
-// against the mirror, so a truncated corpus would otherwise read as full
-// coverage on the Indexing dashboard. The log fires whenever the cap stopped
-// the paging, including the boundary case where the catalog holds exactly
-// max_entries datasets and nothing was actually dropped — asking the catalog
-// for one more page to tell those apart would cost a round trip on every sweep
-// of every capped deployment.
+// Paging advances by how many rows came back, never by how many were asked for,
+// and only an empty page ends the enumeration. A lister is free to return fewer
+// rows than requested — the DataHub client clamps every search to its own
+// MaxLimit, which is below pageSize by default — so treating a short page as the
+// end of the corpus truncates it at the first response (#1231). Advancing by the
+// returned length is correct whatever any layer below clamps to.
+//
+// A page that carries no indexable URN the corpus does not already hold ends the
+// enumeration as an error, not as a result: a lister that ignores Offset would
+// otherwise return the same rows forever, and stopping successfully would hand
+// LoadItems a corpus that is short through no decision of its own — which the
+// Sink's atomic replace would then prune the rest of the mirror down to. Failing
+// keeps the previous sweep's mirror intact and leaves the unit for the next
+// reconciler sweep, which is the fail-closed contract LoadItems documents.
+//
+// Reaching the cap is a decision rather than a surprise, so it returns what it
+// has and logs: coverage is reported against the mirror, so a truncated corpus
+// would otherwise read as full coverage on the Indexing dashboard. The log fires
+// whenever the cap stopped the paging, including the boundary case where the
+// catalog holds exactly max_entries datasets and nothing was actually dropped —
+// asking the catalog for one more page to tell those apart would cost a round
+// trip on every sweep of every capped deployment.
 func (s *Source) enumerate(ctx context.Context) ([]Entry, error) {
 	var (
 		out  []Entry
 		seen = make(map[string]bool)
 	)
-	for offset := 0; offset < s.maxEntries; offset += pageSize {
-		limit := min(pageSize, s.maxEntries-offset)
+	for offset := 0; offset < s.maxEntries; {
 		results, err := s.lister.SearchTables(ctx, semantic.SearchFilter{
 			Query:  listQuery,
-			Limit:  limit,
+			Limit:  min(pageSize, s.maxEntries-offset),
 			Offset: offset,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("catalogSource: enumerate catalog at offset %d: %w", offset, err)
 		}
-		for i := range results {
-			if results[i].URN == "" || seen[results[i].URN] {
-				continue
-			}
-			seen[results[i].URN] = true
-			out = append(out, Entry{
-				URN:         results[i].URN,
-				Name:        results[i].Name,
-				Description: results[i].Description,
-				Tags:        results[i].Tags,
-				Domain:      results[i].Domain,
-			})
-		}
-		if len(results) < limit {
+		if len(results) == 0 {
 			return out, nil
 		}
+		before := len(out)
+		out = appendUnseen(out, seen, results)
+		if len(out) == before {
+			return nil, fmt.Errorf(
+				"catalogSource: enumerate stalled at offset %d: a page of %d rows held no dataset that was not already indexed, so the catalog is repeating rows or returning them without a URN (indexed %d)",
+				offset, len(results), len(out))
+		}
+		offset += len(results)
 	}
-	slog.Warn("catalog index: entry cap reached; any catalog datasets beyond it are not indexed",
+	slog.Warn("catalog index: enumeration stopped: entry cap reached; any catalog datasets beyond it are not indexed",
 		"max_entries", s.maxEntries, "indexed", len(out))
 	return out, nil
+}
+
+// appendUnseen appends an entry for every result carrying a URN not already in
+// seen, marking those URNs seen, and returns the extended slice. An unchanged
+// length means the page held nothing the corpus does not already have, which is
+// what ends the enumeration.
+func appendUnseen(out []Entry, seen map[string]bool, results []semantic.TableSearchResult) []Entry {
+	for i := range results {
+		if results[i].URN == "" || seen[results[i].URN] {
+			continue
+		}
+		seen[results[i].URN] = true
+		out = append(out, Entry{
+			URN:         results[i].URN,
+			Name:        results[i].Name,
+			Description: results[i].Description,
+			Tags:        results[i].Tags,
+			Domain:      results[i].Domain,
+		})
+	}
+	return out
 }
 
 // OnSucceeded is a no-op: the ranked search reads catalog_datasets directly on
