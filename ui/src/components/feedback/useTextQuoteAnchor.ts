@@ -32,16 +32,21 @@ function buildTextQuote(): TextQuoteAnchor | null {
   // quote is still captured and re-resolution/highlighting is a later
   // enhancement, so first-match is acceptable here.
   const quote = exact.slice(0, MAX_QUOTE);
+  return { type: "text_quote", exact: quote, ...quoteContext(container, quote) };
+}
+
+// quoteContext is the little surrounding text that lets a quote be found again,
+// taken from the first occurrence of the quote in the container.
+function quoteContext(
+  container: HTMLElement,
+  quote: string,
+): Pick<TextQuoteAnchor, "prefix" | "suffix"> {
   const full = container.textContent ?? "";
   const idx = full.indexOf(quote);
-  const anchor: TextQuoteAnchor = { type: "text_quote", exact: quote };
-  if (idx >= 0) {
-    const prefix = full.slice(Math.max(0, idx - CONTEXT_LEN), idx);
-    const suffix = full.slice(idx + quote.length, idx + quote.length + CONTEXT_LEN);
-    if (prefix) anchor.prefix = prefix;
-    if (suffix) anchor.suffix = suffix;
-  }
-  return anchor;
+  if (idx < 0) return {};
+  const prefix = full.slice(Math.max(0, idx - CONTEXT_LEN), idx);
+  const suffix = full.slice(idx + quote.length, idx + quote.length + CONTEXT_LEN);
+  return { ...(prefix ? { prefix } : {}), ...(suffix ? { suffix } : {}) };
 }
 
 // useTextQuoteAnchor tracks the most recent text selection made inside any

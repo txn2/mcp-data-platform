@@ -1,12 +1,76 @@
 import { useState, useRef, useCallback } from "react";
-import { X, Users, Loader2 } from "lucide-react";
+import { X, Loader2 } from "lucide-react";
 import { useUploadResource } from "@/api/resources/hooks";
 import { useAuthStore } from "@/stores/auth";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatBytes } from "@/lib/format";
 import { parseTags } from "@/lib/tags";
 import { RESOURCE_POSITIONING } from "@/lib/positioning";
 import { CATEGORIES, CATEGORY_HINTS } from "./shared";
 import { Overlay } from "./Overlay";
+import { UploadTargets } from "./UploadTargets";
+
+const MAX_BYTES = 100 * 1024 * 1024;
+
+interface UploadDraft {
+  file: File | null;
+  displayName: string;
+  description: string;
+  category: string;
+  tagsInput: string;
+}
+
+// rejectDraft states why a draft cannot be sent, or null when it can. The
+// server validates all of this again; this only spares a round trip per target.
+function rejectDraft(draft: UploadDraft): string | null {
+  if (!draft.file) return "File is required";
+  if (!draft.displayName.trim()) return "Display name is required";
+  if (!draft.description.trim()) return "Description is required";
+  if (draft.file.size > MAX_BYTES) return "File exceeds 100 MB limit";
+  return null;
+}
+
+// draftForm builds the multipart body for one target. Every target gets the
+// same file and metadata; only the scope differs.
+function draftForm(draft: UploadDraft, target: { scope: string; scope_id: string }): FormData {
+  const fd = new FormData();
+  fd.set("scope", target.scope);
+  if (target.scope_id) fd.set("scope_id", target.scope_id);
+  fd.set("category", draft.category);
+  fd.set("display_name", draft.displayName.trim());
+  fd.set("description", draft.description.trim());
+  fd.set("file", draft.file!);
+  for (const t of parseTags(draft.tagsInput)) fd.append("tags", t);
+  return fd;
+}
+
+// rejectTargets states why a fan-out scope has nothing to upload to. A global
+// upload always has exactly one target, so only the two fan-out scopes can be
+// empty here.
+function rejectTargets(count: number, scope: string): string | null {
+  if (count > 0) return null;
+  if (scope === "persona") return "Select at least one persona";
+  return "Enter at least one email address";
+}
+
+// fanOutMessage reports a multi-target upload. A total failure reads as the
+// failure it is; a partial one has to name both halves, because the successes
+// are already created and re-running the whole upload would duplicate them.
+function fanOutMessage(successes: string[], errors: string[], total: number): string {
+  if (errors.length === total) return errors.join("; ");
+  return `Succeeded: ${successes.join(", ")}. Failed: ${errors.join("; ")}`;
+}
 
 export function UploadModal({ onClose, admin, personaNames }: { onClose: () => void; admin: boolean; personaNames: string[] }) {
   const upload = useUploadResource();
@@ -53,17 +117,17 @@ export function UploadModal({ onClose, admin, personaNames }: { onClose: () => v
     if (submitting.current) return;
     submitting.current = true;
 
-    if (!file) { setError("File is required"); submitting.current = false; return; }
-    if (!displayName.trim()) { setError("Display name is required"); submitting.current = false; return; }
-    if (!description.trim()) { setError("Description is required"); submitting.current = false; return; }
-
-    const maxBytes = 100 * 1024 * 1024;
-    if (file.size > maxBytes) { setError("File exceeds 100 MB limit"); submitting.current = false; return; }
-
+    const draft: UploadDraft = {
+      file,
+      displayName,
+      description,
+      category: effectiveCategory,
+      tagsInput,
+    };
     const targets = resolveTargets();
-    if (targets.length === 0) {
-      if (scope === "persona") setError("Select at least one persona");
-      else if (scope === "user") setError("Enter at least one email address");
+    const rejection = rejectDraft(draft) ?? rejectTargets(targets.length, scope);
+    if (rejection) {
+      setError(rejection);
       submitting.current = false;
       return;
     }
@@ -71,114 +135,90 @@ export function UploadModal({ onClose, admin, personaNames }: { onClose: () => v
     setUploading(true);
     setError("");
 
-    const tags = parseTags(tagsInput);
     const successes: string[] = [];
     const errors: string[] = [];
-
     for (const target of targets) {
-      const fd = new FormData();
-      fd.set("scope", target.scope);
-      if (target.scope_id) fd.set("scope_id", target.scope_id);
-      fd.set("category", effectiveCategory);
-      fd.set("display_name", displayName.trim());
-      fd.set("description", description.trim());
-      fd.set("file", file);
-      for (const t of tags) fd.append("tags", t);
-
+      const label = target.scope_id || "global";
       try {
-        await upload.mutateAsync(fd);
-        successes.push(target.scope_id || "global");
+        await upload.mutateAsync(draftForm(draft, target));
+        successes.push(label);
       } catch (err) {
-        errors.push(`${target.scope_id || "global"}: ${err instanceof Error ? err.message : "failed"}`);
+        errors.push(`${label}: ${err instanceof Error ? err.message : "failed"}`);
       }
     }
 
     setUploading(false);
     submitting.current = false;
     if (errors.length > 0) {
-      const msg = errors.length === targets.length
-        ? errors.join("; ")
-        : `Succeeded: ${successes.join(", ")}. Failed: ${errors.join("; ")}`;
-      setError(msg);
-    } else {
-      onClose();
+      setError(fanOutMessage(successes, errors, targets.length));
+      return;
     }
+    onClose();
   }, [file, displayName, description, scope, effectiveCategory, tagsInput, upload, onClose, resolveTargets]);
 
   return (
     <Overlay onClose={onClose}>
-      <div className="bg-card rounded-lg border shadow-lg w-full p-6 space-y-4">
+      <div className="w-full space-y-4 rounded-lg border bg-card p-6 shadow-lg">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Upload Resource</h2>
-          <button onClick={onClose} className="rounded p-1 hover:bg-muted"><X className="h-4 w-4" /></button>
+          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+            <X />
+          </Button>
         </div>
 
         <p className="text-xs text-muted-foreground">{RESOURCE_POSITIONING}</p>
 
-        {error && <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">{error}</p>}
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
         <div className="space-y-3">
           {admin && (
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">Scope</span>
-              <select value={scope} onChange={(e) => { setScope(e.target.value); setSelectedPersonas([]); setUserEmails(""); }} className="w-full rounded-md border bg-background px-3 py-2 text-sm">
-                <option value="global">Global</option>
-                <option value="persona">Persona</option>
-                <option value="user">User</option>
-              </select>
-            </label>
-          )}
-          {admin && scope === "persona" && (
-            <div className="space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">Personas</span>
-              <div className="rounded-md border bg-background p-2 max-h-32 overflow-y-auto space-y-0.5">
-                {personaNames.length === 0 ? (
-                  <p className="text-xs text-muted-foreground py-1 px-1">No personas configured</p>
-                ) : personaNames.map((name) => (
-                  <label key={name} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted cursor-pointer text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selectedPersonas.includes(name)}
-                      onChange={() => togglePersona(name)}
-                      className="rounded border-muted-foreground"
-                    />
-                    <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    {name}
-                  </label>
-                ))}
-              </div>
-              {selectedPersonas.length > 0 && (
-                <p className="text-xs text-muted-foreground">{selectedPersonas.length} selected — one resource will be created per persona</p>
-              )}
-            </div>
-          )}
-          {admin && scope === "user" && (
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">User emails (comma-separated)</span>
-              <input
-                value={userEmails}
-                onChange={(e) => setUserEmails(e.target.value)}
-                placeholder="user@example.com, other@example.com"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-              />
-              {userEmails.split(",").filter((e) => e.trim()).length > 1 && (
-                <p className="text-xs text-muted-foreground">{userEmails.split(",").filter((e) => e.trim()).length} users — one resource will be created per user</p>
-              )}
-            </label>
+            <UploadTargets
+              scope={scope}
+              onScopeChange={(next) => {
+                setScope(next);
+                setSelectedPersonas([]);
+                setUserEmails("");
+              }}
+              personaNames={personaNames}
+              selectedPersonas={selectedPersonas}
+              onTogglePersona={togglePersona}
+              userEmails={userEmails}
+              onUserEmailsChange={setUserEmails}
+            />
           )}
           <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">Category</span>
-              <select value={cat} onChange={(e) => setCat(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm">
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                <option value="custom">Custom...</option>
-              </select>
-            </label>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Category</Label>
+              <Select value={cat} onValueChange={setCat}>
+                <SelectTrigger aria-label="Category" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="custom">Custom...</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {cat === "custom" && (
-              <label className="space-y-1">
-                <span className="text-xs font-medium text-muted-foreground">Custom Category</span>
-                <input value={customCat} onChange={(e) => setCustomCat(e.target.value.toLowerCase())} placeholder="e.g. guides" className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2" />
-              </label>
+              <div className="space-y-1">
+                <Label htmlFor="upload-custom-category" className="text-xs text-muted-foreground">
+                  Custom Category
+                </Label>
+                <Input
+                  id="upload-custom-category"
+                  value={customCat}
+                  onChange={(e) => setCustomCat(e.target.value.toLowerCase())}
+                  placeholder="e.g. guides"
+                />
+              </div>
             )}
           </div>
           {CATEGORY_HINTS[cat] && (
@@ -186,47 +226,68 @@ export function UploadModal({ onClose, admin, personaNames }: { onClose: () => v
           )}
         </div>
 
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-muted-foreground">Display Name</span>
-          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Human-readable name" className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2" />
-        </label>
+        <div className="space-y-1">
+          <Label htmlFor="upload-display-name" className="text-xs text-muted-foreground">
+            Display Name
+          </Label>
+          <Input
+            id="upload-display-name"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Human-readable name"
+          />
+        </div>
 
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-muted-foreground">Description</span>
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What is this and what should the agent do with it?" rows={2} className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2 resize-none" />
-        </label>
+        <div className="space-y-1">
+          <Label htmlFor="upload-description" className="text-xs text-muted-foreground">
+            Description
+          </Label>
+          <Textarea
+            id="upload-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What is this and what should the agent do with it?"
+            rows={2}
+            className="field-sizing-fixed min-h-0 resize-none"
+          />
+        </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">Tags (comma-separated)</span>
-            <input value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} placeholder="finance, q4" className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2" />
-          </label>
           <div className="space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">File</span>
-            <div
+            <Label htmlFor="upload-tags" className="text-xs text-muted-foreground">
+              Tags (comma-separated)
+            </Label>
+            <Input
+              id="upload-tags"
+              value={tagsInput}
+              onChange={(e) => setTagsInput(e.target.value)}
+              placeholder="finance, q4"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">File</Label>
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => fileRef.current?.click()}
-              className="flex items-center justify-center gap-2 rounded-md border-2 border-dashed bg-muted/30 px-3 py-2 cursor-pointer hover:border-primary/40 transition-colors"
+              className="w-full font-normal"
             >
-              {file ? (
-                <span className="text-xs truncate">{file.name} ({formatBytes(file.size)})</span>
-              ) : (
-                <span className="text-xs text-muted-foreground">Choose file (max 100 MB)</span>
-              )}
-            </div>
+              <span className="truncate text-xs">
+                {file ? `${file.name} (${formatBytes(file.size)})` : "Choose file (max 100 MB)"}
+              </span>
+            </Button>
             <input ref={fileRef} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="rounded-md border px-4 py-2 text-sm hover:bg-muted transition-colors">Cancel</button>
-          <button
-            onClick={handleSubmit}
-            disabled={uploading}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-          >
-            {uploading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={uploading}>
+            {uploading && <Loader2 className="animate-spin" />}
             Upload
-          </button>
+          </Button>
         </div>
       </div>
     </Overlay>

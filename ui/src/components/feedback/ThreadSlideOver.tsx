@@ -1,5 +1,6 @@
 import { ExternalLink } from "lucide-react";
 import { useThread } from "@/api/portal/hooks";
+import { Button } from "@/components/ui/button";
 import { ThreadDetail } from "./ThreadDetail";
 import { SlideOver } from "./SlideOver";
 import { targetMeta } from "./targetRoute";
@@ -22,17 +23,19 @@ export function ThreadSlideOver({ threadId, onClose, onNavigate }: Props) {
     <SlideOver onClose={onClose}>
       {meta?.route && (
         <div className="border-b p-2">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => {
               onNavigate(meta.route!);
               onClose();
             }}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="w-full justify-start text-xs text-muted-foreground"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
+            <ExternalLink />
             Go to {meta.label.toLowerCase()}
-          </button>
+          </Button>
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-auto">

@@ -135,8 +135,10 @@ describe("Replay in Inspector flow", () => {
 
     // Selection + tab: the Try It tab is active for the event's tool (not the
     // first tool in the list, and not the Overview tab).
-    const tryItTab = screen.getByRole("button", { name: "Try It" });
-    expect(tryItTab.className).toContain("border-primary");
+    expect(screen.getByRole("tab", { name: "Try It" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
 
     // Intent consumed: the replay banner renders (it lives only in TryItTab).
     expect(

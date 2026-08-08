@@ -6,18 +6,13 @@ import {
   useMyActivityBreakdown,
 } from "@/api/portal/hooks";
 import { StatCard } from "@/components/cards/StatCard";
+import { SectionCard } from "@/components/patterns/SectionCard";
 import { TimeseriesChart } from "@/components/charts/TimeseriesChart";
 import { BreakdownBarChart } from "@/components/charts/BarChart";
+import { TimeRangePicker } from "@/pages/audit/TimeRangePicker";
 import { formatDuration } from "@/lib/formatDuration";
 import { formatToolName } from "@/lib/formatToolName";
 import type { TimeseriesBucket, BreakdownEntry } from "@/api/admin/types";
-
-const presets: { value: TimeRangePreset; label: string }[] = [
-  { value: "1h", label: "1h" },
-  { value: "6h", label: "6h" },
-  { value: "24h", label: "24h" },
-  { value: "7d", label: "7d" },
-];
 
 function getResolution(preset: TimeRangePreset): string {
   switch (preset) {
@@ -33,7 +28,7 @@ function getResolution(preset: TimeRangePreset): string {
 }
 
 export function ActivityPage() {
-  const { preset, setPreset, getStartTime, getEndTime } = useTimeRangeStore();
+  const { preset, getStartTime, getEndTime } = useTimeRangeStore();
   const { startTime, endTime } = useMemo(
     () => ({ startTime: getStartTime(), endTime: getEndTime() }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -65,22 +60,9 @@ export function ActivityPage() {
 
   return (
     <div className="space-y-6">
-      {/* Time Range */}
-      <div className="flex items-center gap-1">
-        {presets.map((p) => (
-          <button
-            key={p.value}
-            onClick={() => setPreset(p.value)}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              preset === p.value
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted"
-            }`}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
+      {/* The dashboard's own window chooser, over the store both pages share:
+          a range picked here is the range the dashboard opens on. */}
+      <TimeRangePicker />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-4">
@@ -98,25 +80,21 @@ export function ActivityPage() {
         />
       </div>
 
-      {/* Activity Timeline */}
-      <div className="rounded-lg border bg-card p-4">
-        <h2 className="mb-3 text-sm font-medium">My Activity</h2>
+      <SectionCard title="My Activity">
         <TimeseriesChart
           data={timeseries.data as TimeseriesBucket[] | undefined}
           isLoading={timeseries.isLoading}
           preset={preset}
         />
-      </div>
+      </SectionCard>
 
-      {/* Top Tools */}
-      <div className="rounded-lg border bg-card p-4">
-        <h2 className="mb-3 text-sm font-medium">Top Tools</h2>
+      <SectionCard title="Top Tools">
         <BreakdownBarChart
           data={toolBreakdown.data as BreakdownEntry[] | undefined}
           isLoading={toolBreakdown.isLoading}
           labelMap={toolLabelMap}
         />
-      </div>
+      </SectionCard>
     </div>
   );
 }

@@ -11,11 +11,10 @@ export function EmptyState({
   action,
   className,
   children,
-}: {
+  ...props
+}: React.ComponentProps<"div"> & {
   icon?: LucideIcon;
   action?: React.ReactNode;
-  className?: string;
-  children: React.ReactNode;
 }) {
   return (
     <div
@@ -23,6 +22,7 @@ export function EmptyState({
         "flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground",
         className,
       )}
+      {...props}
     >
       {Icon && <Icon aria-hidden className="size-5" />}
       <div>{children}</div>

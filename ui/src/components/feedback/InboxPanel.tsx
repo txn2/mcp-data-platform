@@ -1,15 +1,26 @@
 import { useState } from "react";
-import { Inbox, ClipboardCheck, AtSign } from "lucide-react";
+import { Inbox, ClipboardCheck, AtSign, type LucideIcon } from "lucide-react";
 import {
   useInfiniteMentionsWorklist,
   useInfinitePractitionerWorklist,
   useInfiniteSMEWorklist,
 } from "@/api/portal/hooks";
-import { cn } from "@/lib/utils";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
-import { KIND_LABEL, STATUS_CHIP, STATUS_LABEL, formatRelative } from "./meta";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { ThreadWithMeta } from "@/api/portal/types";
+import { ThreadStatusBadge } from "./ThreadBadges";
+import { KIND_LABEL, formatRelative } from "./meta";
 
 type Tab = "practitioner" | "sme" | "mentions";
+
+const TAB_ITEMS: { key: Tab; label: string; icon: LucideIcon }[] = [
+  { key: "practitioner", label: "Needs resolution", icon: Inbox },
+  { key: "sme", label: "Awaiting my validation", icon: ClipboardCheck },
+  { key: "mentions", label: "Mentions of me", icon: AtSign },
+];
 
 // InboxPanel is the feedback worklist / inbox (#603): self-scoped tabs so
 // nothing is dropped — open work that needs the practitioner's resolution,
@@ -21,64 +32,92 @@ export function InboxPanel({ onOpenThread }: { onOpenThread?: (id: string) => vo
   const sme = useInfiniteSMEWorklist();
   const mentions = useInfiniteMentionsWorklist();
   const active = { practitioner, sme, mentions }[tab];
+  const totals: Record<Tab, number | undefined> = {
+    practitioner: practitioner.data?.total,
+    sme: sme.data?.total,
+    mentions: mentions.data?.total,
+  };
   const threads = active.data?.data ?? [];
 
-  const tabBtn = (key: Tab, label: string, total: number | undefined, Icon: typeof Inbox) => (
-    <button
-      type="button"
-      onClick={() => setTab(key)}
-      className={cn(
-        "flex flex-1 items-center justify-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium",
-        tab === key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
-      )}
-    >
-      <Icon className="h-3.5 w-3.5" /> {label}
-      {total ? <span className="rounded-full bg-muted px-1.5 text-[10px]">{total}</span> : null}
-    </button>
-  );
-
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex">
-        {tabBtn("practitioner", "Needs resolution", practitioner.data?.total, Inbox)}
-        {tabBtn("sme", "Awaiting my validation", sme.data?.total, ClipboardCheck)}
-        {tabBtn("mentions", "Mentions of me", mentions.data?.total, AtSign)}
-      </div>
+    <Tabs
+      value={tab}
+      onValueChange={(v) => setTab(v as Tab)}
+      className="h-full gap-0"
+    >
+      <TabsList
+        variant="line"
+        className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-1 border-b p-0"
+      >
+        {TAB_ITEMS.map((t) => (
+          <TabsTrigger
+            key={t.key}
+            value={t.key}
+            className="flex-1 px-3 py-2 text-xs group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
+          >
+            <t.icon /> {t.label}
+            {totals[t.key] ? (
+              <Badge variant="muted" className="px-1.5 text-[10px]">
+                {totals[t.key]}
+              </Badge>
+            ) : null}
+          </TabsTrigger>
+        ))}
+      </TabsList>
 
-      <div className="flex-1 overflow-auto">
-        {active.isLoading && <p className="p-3 text-xs text-muted-foreground">Loading…</p>}
-        {active.isError && <p className="p-3 text-xs text-destructive">Failed to load your worklist.</p>}
-        {!active.isLoading && !active.isError && threads.length === 0 && (
-          <p className="p-4 text-sm text-muted-foreground">Nothing here. You're all caught up.</p>
+      {/* The three worklists share one row shape, so each tab's panel is the
+          same list over whichever query the active tab selected. Only the
+          active panel mounts, so the body is written once. */}
+      {TAB_ITEMS.map((t) => (
+        <TabsContent key={t.key} value={t.key} className="min-h-0 overflow-auto">
+          {active.isLoading && <p className="p-3 text-xs text-muted-foreground">Loading…</p>}
+          {active.isError && (
+            <Alert variant="destructive" className="m-3 w-auto">
+              <AlertDescription>Failed to load your worklist.</AlertDescription>
+            </Alert>
+          )}
+          {!active.isLoading && !active.isError && threads.length === 0 && (
+            <EmptyState className="m-3">Nothing here. You&apos;re all caught up.</EmptyState>
+          )}
+          <ul className="divide-y">
+            {threads.map((thread) => (
+              <WorklistRow
+                key={thread.id}
+                thread={thread}
+                onOpen={() => onOpenThread?.(thread.id)}
+              />
+            ))}
+          </ul>
+          <div className="p-3">
+            <InfiniteFooter
+              hasMore={active.hasNextPage}
+              isLoadingMore={active.isFetchingNextPage}
+              onLoadMore={active.fetchNextPage}
+            />
+          </div>
+        </TabsContent>
+      ))}
+    </Tabs>
+  );
+}
+
+function WorklistRow({ thread: t, onOpen }: { thread: ThreadWithMeta; onOpen: () => void }) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+      >
+        <span className="shrink-0 text-xs text-muted-foreground">{KIND_LABEL[t.kind]}</span>
+        <span className="min-w-0 flex-1 truncate">{t.title || "(untitled feedback)"}</span>
+        <ThreadStatusBadge status={t.status} />
+        {t.last_event_at && (
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            {formatRelative(t.last_event_at)}
+          </span>
         )}
-        <ul className="divide-y">
-          {threads.map((t) => (
-            <li key={t.id}>
-              <button
-                type="button"
-                onClick={() => onOpenThread?.(t.id)}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
-              >
-                <span className="shrink-0 text-xs text-muted-foreground">{KIND_LABEL[t.kind]}</span>
-                <span className="min-w-0 flex-1 truncate">{t.title || "(untitled feedback)"}</span>
-                <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium", STATUS_CHIP[t.status])}>
-                  {STATUS_LABEL[t.status]}
-                </span>
-                {t.last_event_at && (
-                  <span className="shrink-0 text-[10px] text-muted-foreground">{formatRelative(t.last_event_at)}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div className="p-3">
-          <InfiniteFooter
-            hasMore={active.hasNextPage}
-            isLoadingMore={active.isFetchingNextPage}
-            onLoadMore={active.fetchNextPage}
-          />
-        </div>
-      </div>
-    </div>
+      </button>
+    </li>
   );
 }

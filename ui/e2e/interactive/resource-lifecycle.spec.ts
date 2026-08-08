@@ -129,9 +129,12 @@ test.describe("Admin resources table", () => {
     await authenticate(page);
     await page.goto(ADMIN_RESOURCES);
 
+    // The sort facet is a Radix listbox, not a native <select>: the order is
+    // chosen by opening the trigger and clicking the option.
+    await page.getByRole("combobox", { name: "Sort resources" }).click();
     const [resp] = await Promise.all([
       page.waitForResponse((r) => r.url().includes("sort=last_read")),
-      page.getByTestId("resources-sort").selectOption("last_read"),
+      page.getByRole("option", { name: "Recently read" }).click(),
     ]);
     expect(resp.status()).toBe(200);
 

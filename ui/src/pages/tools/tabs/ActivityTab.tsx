@@ -1,7 +1,9 @@
 import { ExternalLink } from "lucide-react";
 import type { ToolDetail } from "@/api/admin/types";
 import { formatDuration } from "@/lib/formatDuration";
+import { StatCard } from "@/components/cards/StatCard";
 import { StatusBadge } from "@/components/cards/StatusBadge";
+import { Button } from "@/components/ui/button";
 
 export function ActivityTab({ detail }: { detail: ToolDetail }) {
   const a = detail.activity;
@@ -14,12 +16,7 @@ export function ActivityTab({ detail }: { detail: ToolDetail }) {
           No calls recorded for this tool in the last{" "}
           {a ? formatWindow(a.window_seconds) : "24 hours"}.
         </p>
-        <a
-          href={auditHref}
-          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-        >
-          Open audit log <ExternalLink className="h-3 w-3" />
-        </a>
+        <AuditLogLink href={auditHref}>Open audit log</AuditLogLink>
       </div>
     );
   }
@@ -34,39 +31,27 @@ export function ActivityTab({ detail }: { detail: ToolDetail }) {
         Aggregated over the last {formatWindow(a.window_seconds)}.
       </p>
       <div className="grid grid-cols-3 gap-3">
-        <Metric label="Calls" value={a.call_count.toLocaleString()} />
-        <Metric
+        <StatCard label="Calls" value={a.call_count.toLocaleString()} />
+        {/* The rate is the one figure that carries a verdict, so it reads as a
+            status pill rather than as another number. */}
+        <StatCard
           label="Success rate"
-          value={
-            <StatusBadge variant={successVariant}>{successPct}%</StatusBadge>
-          }
+          value={<StatusBadge variant={successVariant}>{successPct}%</StatusBadge>}
         />
-        <Metric label="Avg duration" value={formatDuration(a.avg_duration_ms)} />
+        <StatCard label="Avg duration" value={formatDuration(a.avg_duration_ms)} />
       </div>
-      <a
-        href={auditHref}
-        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-      >
-        View full audit log for this tool <ExternalLink className="h-3 w-3" />
-      </a>
+      <AuditLogLink href={auditHref}>View full audit log for this tool</AuditLogLink>
     </div>
   );
 }
 
-function Metric({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
+function AuditLogLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
-    <div className="rounded border bg-card p-3">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-1 text-lg font-semibold">{value}</p>
-    </div>
+    <Button asChild variant="link" size="xs" className="px-0">
+      <a href={href}>
+        {children} <ExternalLink />
+      </a>
+    </Button>
   );
 }
 

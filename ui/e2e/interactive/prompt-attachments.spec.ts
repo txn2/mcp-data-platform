@@ -119,7 +119,7 @@ test.describe("Resource dependency view", () => {
     await authenticate(page);
     await page.goto("/portal/resources");
     // The page opens on "My Resources"; the seeded attachment is a global one.
-    await page.getByRole("button", { name: "Global" }).click();
+    await page.getByRole("tab", { name: "Global" }).click();
 
     await page.getByText("SQL Style Guide").first().click();
     const usedBy = page.getByTestId("resource-used-by-prompts");

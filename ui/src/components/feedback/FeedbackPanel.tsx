@@ -3,6 +3,7 @@ import { X, Plus } from "lucide-react";
 import { useInfiniteThreads } from "@/api/portal/hooks";
 import type { FeedbackTarget } from "@/api/portal/types";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
+import { Button } from "@/components/ui/button";
 import { ThreadList } from "./ThreadList";
 import { ThreadDetail } from "./ThreadDetail";
 import { NewThreadForm } from "./NewThreadForm";
@@ -43,23 +44,26 @@ export function FeedbackPanel({ target, canModerate, onClose }: Props) {
           </p>
         </div>
         {view.kind === "list" && (
-          <button
+          <Button
             type="button"
+            size="sm"
             onClick={() => setView({ kind: "new" })}
-            className="ml-auto flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            className="ml-auto text-xs"
           >
-            <Plus className="h-3.5 w-3.5" /> New
-          </button>
+            <Plus /> New
+          </Button>
         )}
         {onClose && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
             onClick={onClose}
-            className={`rounded p-1 hover:bg-accent ${view.kind === "list" ? "" : "ml-auto"}`}
+            className={view.kind === "list" ? undefined : "ml-auto"}
             aria-label="Close feedback"
           >
-            <X className="h-4 w-4" />
-          </button>
+            <X />
+          </Button>
         )}
       </div>
 

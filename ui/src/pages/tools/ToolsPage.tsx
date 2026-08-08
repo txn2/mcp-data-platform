@@ -89,9 +89,9 @@ export function ToolsPage({ initialTab: _initialTab }: { initialTab?: string } =
     <div className="flex h-[calc(100vh-8rem)] gap-3 overflow-hidden rounded-lg border bg-card">
       <aside className="w-72 shrink-0 border-r">
         {toolsLoading ? (
-          <div className="p-6 text-center text-sm text-muted-foreground">
+          <p className="p-6 text-center text-sm text-muted-foreground">
             Loading tools…
-          </div>
+          </p>
         ) : (
           <ToolsList
             tools={tools}

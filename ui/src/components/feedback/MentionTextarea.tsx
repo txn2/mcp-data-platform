@@ -7,6 +7,7 @@ import {
 import type { FeedbackTarget } from "@/api/portal/types";
 import { activeMentionQuery, replaceMentionQuery, scanMentions } from "@/lib/mentions";
 import { useAuthStore } from "@/stores/auth";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -152,7 +153,7 @@ export function MentionTextarea({
 
   return (
     <div ref={containerRef} className="relative">
-      <textarea
+      <Textarea
         ref={textareaRef}
         aria-label={ariaLabel}
         value={value}
@@ -164,7 +165,10 @@ export function MentionTextarea({
         onKeyUp={(e) => syncTrigger(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
         onClick={(e) => syncTrigger(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
         onBlur={() => setPendingCaret(null)}
-        className={cn("w-full rounded-md border bg-background px-2 py-1.5 text-sm", className)}
+        // ui/textarea sizes to its content by default, which silently overrides
+        // the caller's `rows`; the composer asks for a fixed height so the
+        // suggestion list below it does not move as the body is typed.
+        className={cn("field-sizing-fixed min-h-0 bg-background py-1.5 text-sm", className)}
       />
       {open && (
         <ul

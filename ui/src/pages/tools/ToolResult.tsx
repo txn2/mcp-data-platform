@@ -1,6 +1,16 @@
 import type { ToolCallResponse } from "@/api/admin/types";
 import { StatusBadge } from "@/components/cards/StatusBadge";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { formatDuration } from "@/lib/formatDuration";
+import { cn } from "@/lib/utils";
 
 interface ToolResultProps {
   result: ToolCallResponse;
@@ -22,25 +32,19 @@ export function ToolResult({
 
   return (
     <div
-      className={`rounded-lg border ${result.is_error ? "border-red-200 bg-red-50" : "bg-card"} p-4`}
+      className={cn(
+        "rounded-lg border p-4",
+        // The error face is tinted from the destructive token rather than a
+        // fixed red, so it survives the dark theme the raw palette did not.
+        result.is_error ? "border-destructive/30 bg-destructive/5" : "bg-card",
+      )}
     >
-      <div className="mb-3 flex items-center gap-3">
-        <StatusBadge variant={result.is_error ? "error" : "success"}>
-          {result.is_error ? "Error" : "Success"}
-        </StatusBadge>
-        <StatusBadge variant="neutral">
-          {formatDuration(result.duration_ms)}
-        </StatusBadge>
-        {enrichmentBlocks.length > 0 && (
-          <StatusBadge variant="success">Enriched</StatusBadge>
-        )}
-        <button
-          onClick={onToggleRaw}
-          className="ml-auto rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          {showRaw ? "Formatted" : "Raw"}
-        </button>
-      </div>
+      <ResultSummary
+        result={result}
+        enriched={enrichmentBlocks.length > 0}
+        showRaw={showRaw}
+        onToggleRaw={onToggleRaw}
+      />
 
       {!hasContent ? (
         <p className="text-sm text-muted-foreground">
@@ -55,26 +59,65 @@ export function ToolResult({
       ) : (
         <div className="space-y-4">
           <div>
-            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Tool Result
-            </p>
+            <BlockLabel>Tool Result</BlockLabel>
             <FormattedBlock text={primary} kind={toolKind} />
           </div>
-          {enrichmentBlocks.map((block, idx) => {
-            const label =
-              detectEnrichmentLabel(block.text) ?? `Enrichment ${idx + 1}`;
-            return (
-              <div key={idx} className="border-t pt-3">
-                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-primary">
-                  {label}
-                </p>
-                <EnrichmentBlock text={block.text} />
-              </div>
-            );
-          })}
+          {enrichmentBlocks.map((block, idx) => (
+            <div key={idx} className="border-t pt-3">
+              <BlockLabel className="text-primary">
+                {detectEnrichmentLabel(block.text) ?? `Enrichment ${idx + 1}`}
+              </BlockLabel>
+              <EnrichmentBlock text={block.text} />
+            </div>
+          ))}
         </div>
       )}
     </div>
+  );
+}
+
+// ResultSummary is the verdict line above a call's output: whether it worked,
+// how long it took, whether enrichment fired, and the raw/formatted switch.
+function ResultSummary({
+  result,
+  enriched,
+  showRaw,
+  onToggleRaw,
+}: {
+  result: ToolCallResponse;
+  enriched: boolean;
+  showRaw: boolean;
+  onToggleRaw: () => void;
+}) {
+  return (
+    <div className="mb-3 flex items-center gap-3">
+      <StatusBadge variant={result.is_error ? "error" : "success"}>
+        {result.is_error ? "Error" : "Success"}
+      </StatusBadge>
+      <StatusBadge variant="neutral">{formatDuration(result.duration_ms)}</StatusBadge>
+      {enriched && <StatusBadge variant="success">Enriched</StatusBadge>}
+      <Button
+        variant="ghost"
+        size="xs"
+        onClick={onToggleRaw}
+        className="ml-auto text-muted-foreground"
+      >
+        {showRaw ? "Formatted" : "Raw"}
+      </Button>
+    </div>
+  );
+}
+
+function BlockLabel({ className, children }: { className?: string; children: React.ReactNode }) {
+  return (
+    <p
+      className={cn(
+        "mb-1.5 text-[11px] font-medium tracking-wide uppercase text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </p>
   );
 }
 
@@ -171,28 +214,28 @@ function MarkdownTableView({ text }: { text: string }) {
   return (
     <div className="space-y-2">
       <div className="max-h-[400px] overflow-auto rounded border">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b bg-muted/50">
+        <Table className="text-xs">
+          <TableHeader>
+            <TableRow className="bg-muted/50 hover:bg-muted/50">
               {headers.map((h, i) => (
-                <th key={i} className="px-3 py-2 text-left font-medium">
+                <TableHead key={i} className="h-9 px-3 text-xs">
                   {h}
-                </th>
+                </TableHead>
               ))}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.map((row, ri) => (
-              <tr key={ri} className="border-b">
+              <TableRow key={ri}>
                 {row.map((cell, ci) => (
-                  <td key={ci} className="px-3 py-1.5 font-mono">
+                  <TableCell key={ci} className="px-3 py-1.5 font-mono">
                     {cell}
-                  </td>
+                  </TableCell>
                 ))}
-              </tr>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
       {otherLines.filter((l) => l.trim()).length > 0 && (
         <p className="text-xs text-muted-foreground">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { MessageSquarePlus, X } from "lucide-react";
 import { useCreateThread, type CreateThreadInput } from "@/api/portal/hooks";
 import type {
@@ -6,6 +6,16 @@ import type {
   ThreadKind,
   TextQuoteAnchor,
 } from "@/api/portal/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { MentionTextarea } from "./MentionTextarea";
 import { THREAD_KINDS } from "./meta";
 
@@ -15,6 +25,12 @@ interface Props {
   onCancel: () => void;
   onCreated: (threadId: string) => void;
 }
+
+// Text-quote anchoring is offered for asset, prompt, and knowledge-page targets
+// (all render their content through the anchorable markdown/plain-text
+// renderers) when the reader has a live selection. Collections and standalone
+// feedback are object-level and have nothing to anchor to.
+const ANCHORABLE: FeedbackTarget["type"][] = ["asset", "prompt", "knowledge_page"];
 
 function targetFields(target: FeedbackTarget): Partial<CreateThreadInput> {
   switch (target.type) {
@@ -31,6 +47,35 @@ function targetFields(target: FeedbackTarget): Partial<CreateThreadInput> {
   }
 }
 
+// AnchorToggle offers to pin the thread to the passage the reader has selected,
+// showing which passage that is so the choice is not made blind.
+function AnchorToggle({
+  checked,
+  onChange,
+  exact,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  exact: string;
+}) {
+  return (
+    <Label className="items-start gap-2 rounded-md border bg-muted/40 p-2 text-xs font-normal">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5"
+      />
+      <span className="min-w-0">
+        <span className="font-medium">Anchor to selection</span>
+        <span className="mt-0.5 block truncate text-muted-foreground italic">
+          &ldquo;{exact}&rdquo;
+        </span>
+      </span>
+    </Label>
+  );
+}
+
 export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: Props) {
   const [kind, setKind] = useState<ThreadKind>("comment");
   const [body, setBody] = useState("");
@@ -39,16 +84,9 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
   const [rating, setRating] = useState(5);
   const [useAnchor, setUseAnchor] = useState(true);
   const create = useCreateThread();
+  const ids = useId();
 
-  // Text-quote anchoring is offered for asset, prompt, and knowledge-page
-  // targets (all render their content through the anchorable markdown/plain-text
-  // renderers) when the user has a live selection. Collections and standalone
-  // are object-level.
-  const canAnchor =
-    (target.type === "asset" ||
-      target.type === "prompt" ||
-      target.type === "knowledge_page") &&
-    !!availableAnchor;
+  const anchor = ANCHORABLE.includes(target.type) ? availableAnchor : null;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,7 +96,7 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
       requires_resolution: requiresResolution,
       ...(title.trim() ? { title: title.trim() } : {}),
       ...(kind === "rating" ? { rating } : {}),
-      ...(canAnchor && useAnchor && availableAnchor ? { anchor: availableAnchor } : {}),
+      ...(anchor && useAnchor ? { anchor } : {}),
       ...targetFields(target),
     } as CreateThreadInput;
 
@@ -73,57 +111,63 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
         <h3 className="flex items-center gap-1.5 text-sm font-semibold">
           <MessageSquarePlus className="h-4 w-4" /> New feedback
         </h3>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-sm"
           onClick={onCancel}
-          className="rounded p-1 hover:bg-accent"
           aria-label="Cancel"
         >
-          <X className="h-4 w-4" />
-        </button>
+          <X />
+        </Button>
       </div>
 
-      <label className="text-xs font-medium text-muted-foreground">
-        Kind
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value as ThreadKind)}
-          className="mt-1 w-full rounded-md border bg-background px-2 py-1.5 text-sm"
-        >
-          {THREAD_KINDS.map((k) => (
-            <option key={k.value} value={k.value}>
-              {k.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Kind</Label>
+        <Select value={kind} onValueChange={(v) => setKind(v as ThreadKind)}>
+          <SelectTrigger aria-label="Kind" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {THREAD_KINDS.map((k) => (
+              <SelectItem key={k.value} value={k.value}>
+                {k.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       {kind === "rating" && (
-        <label className="text-xs font-medium text-muted-foreground">
-          Rating (1-5)
-          <input
+        <div className="space-y-1">
+          <Label htmlFor={`${ids}-rating`} className="text-xs text-muted-foreground">
+            Rating (1-5)
+          </Label>
+          <Input
+            id={`${ids}-rating`}
             type="number"
             min={1}
             max={5}
             value={rating}
             onChange={(e) => setRating(Number(e.target.value))}
-            className="mt-1 w-full rounded-md border bg-background px-2 py-1.5 text-sm"
           />
-        </label>
+        </div>
       )}
 
-      <label className="text-xs font-medium text-muted-foreground">
-        Title (optional)
-        <input
+      <div className="space-y-1">
+        <Label htmlFor={`${ids}-title`} className="text-xs text-muted-foreground">
+          Title (optional)
+        </Label>
+        <Input
+          id={`${ids}-title`}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Short summary"
-          className="mt-1 w-full rounded-md border bg-background px-2 py-1.5 text-sm"
         />
-      </label>
+      </div>
 
-      <label className="text-xs font-medium text-muted-foreground">
-        Message
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">Message</Label>
         <MentionTextarea
           target={target}
           value={body}
@@ -132,35 +176,22 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
           rows={4}
           placeholder="Describe your feedback. Type @ to mention someone."
           aria-label="Message"
-          className="mt-1 resize-y"
+          className="resize-y"
         />
-      </label>
+      </div>
 
-      {canAnchor && (
-        <label className="flex items-start gap-2 rounded-md border bg-muted/40 p-2 text-xs">
-          <input
-            type="checkbox"
-            checked={useAnchor}
-            onChange={(e) => setUseAnchor(e.target.checked)}
-            className="mt-0.5"
-          />
-          <span className="min-w-0">
-            <span className="font-medium">Anchor to selection</span>
-            <span className="mt-0.5 block truncate text-muted-foreground italic">
-              &ldquo;{availableAnchor?.exact}&rdquo;
-            </span>
-          </span>
-        </label>
+      {anchor && (
+        <AnchorToggle checked={useAnchor} onChange={setUseAnchor} exact={anchor.exact} />
       )}
 
-      <label className="flex items-center gap-2 text-xs font-medium">
+      <Label className="gap-2 text-xs">
         <input
           type="checkbox"
           checked={requiresResolution}
           onChange={(e) => setRequiresResolution(e.target.checked)}
         />
         Requires resolution
-      </label>
+      </Label>
 
       {create.isError && (
         <p className="text-xs text-destructive">
@@ -169,20 +200,12 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
       )}
 
       <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
-        >
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={!body.trim() || create.isPending}
-          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
+        </Button>
+        <Button type="submit" size="sm" disabled={!body.trim() || create.isPending}>
           {create.isPending ? "Posting…" : "Post feedback"}
-        </button>
+        </Button>
       </div>
     </form>
   );
