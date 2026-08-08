@@ -125,24 +125,6 @@
       "count": 1
     }
   },
-  "src/pages/knowledge-pages/parts/KnowledgePageDetail.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/knowledge-pages/parts/KnowledgePageForm.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/knowledge-pages/parts/KnowledgePageList.tsx": {
-    "complexity": {
-      "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    }
-  },
   "src/pages/knowledge/ContextDocsTab.tsx": {
     "complexity": {
       "count": 3

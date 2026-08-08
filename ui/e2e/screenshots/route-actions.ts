@@ -54,7 +54,7 @@ export async function openFeedbackMentionComposer(page: Page): Promise<void> {
  */
 export async function openKnowledgeGraph(page: Page): Promise<void> {
   await page
-    .getByRole("radio", { name: "Graph" })
+    .getByRole("button", { name: "Graph" })
     .click({ timeout: 3_000 })
     .catch(() => {});
   await page.waitForTimeout(600);
@@ -91,7 +91,7 @@ export async function openInsightReviewDrawer(page: Page): Promise<void> {
 export async function openKnowledgeGraphCorpus(page: Page): Promise<void> {
   await openKnowledgeGraph(page);
   await page
-    .getByRole("radio", { name: "Whole corpus" })
+    .getByRole("button", { name: "Whole corpus" })
     .click({ timeout: 3_000 })
     .catch(() => {});
   await page.waitForTimeout(900);

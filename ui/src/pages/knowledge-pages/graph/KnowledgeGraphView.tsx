@@ -1,4 +1,7 @@
+import { Share2 } from "lucide-react";
 import { useKnowledgeGraph, type KnowledgeGraphResponse } from "@/api/portal/hooks";
+import { EmptyState } from "@/components/patterns/EmptyState";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { GraphWorkspace } from "./GraphWorkspace";
 import { useElementSize } from "./useElementSize";
 
@@ -56,9 +59,11 @@ function renderState({
 }) {
   if (isError) {
     return (
-      <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-        Failed to load the knowledge graph. Please try again.
-      </p>
+      <Alert variant="destructive">
+        <AlertDescription>
+          Failed to load the knowledge graph. Please try again.
+        </AlertDescription>
+      </Alert>
     );
   }
   if (isLoading || !data) {
@@ -66,13 +71,13 @@ function renderState({
   }
   if (data.nodes.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+      <EmptyState icon={Share2}>
         {tag ? `No pages tagged "${tag}" to graph.` : "No knowledge pages to graph yet."}
         <p className="mt-2 text-xs">
           The graph draws pages and the entities they reference. Cite an entity on a page to give it
           an edge.
         </p>
-      </div>
+      </EmptyState>
     );
   }
   return null;

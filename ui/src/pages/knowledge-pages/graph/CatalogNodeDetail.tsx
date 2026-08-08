@@ -3,6 +3,8 @@ import {
   useDataHubConnections,
   type TableContext,
 } from "@/api/portal/datahub";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 /**
  * CatalogNodeDetail resolves a catalog node against the DataHub catalog itself.
@@ -74,9 +76,9 @@ function CatalogFacts({ conn, context }: { conn: string; context: TableContext }
       {!!context.tags?.length && (
         <p className="mt-1 flex flex-wrap gap-1">
           {context.tags.map((t) => (
-            <span key={t} className="rounded border border-border px-1 text-muted-foreground">
+            <Badge key={t} variant="outline" className="rounded-sm px-1 text-muted-foreground">
               {t}
-            </span>
+            </Badge>
           ))}
         </p>
       )}
@@ -84,7 +86,12 @@ function CatalogFacts({ conn, context }: { conn: string; context: TableContext }
   );
 }
 
-/** CatalogRow is the one-line frame the lookup's non-result states share. */
+/**
+ * CatalogRow is the one-line frame the lookup's non-result states share. It is
+ * a readout rather than an Alert even in its warning tone: it re-renders for
+ * every node the reader selects, and ui/alert is `role="alert"`, so each
+ * selection would be announced as a new alert.
+ */
 function CatalogRow({
   children,
   tone = "muted",
@@ -94,11 +101,10 @@ function CatalogRow({
 }) {
   return (
     <p
-      className={`rounded-md border px-2.5 py-2 text-xs ${
-        tone === "warn"
-          ? "border-destructive/40 bg-destructive/5 text-muted-foreground"
-          : "border-border bg-muted/40 text-muted-foreground"
-      }`}
+      className={cn(
+        "rounded-md border px-2.5 py-2 text-xs text-muted-foreground",
+        tone === "warn" ? "border-destructive/40 bg-destructive/5" : "bg-muted/40",
+      )}
     >
       {children}
     </p>

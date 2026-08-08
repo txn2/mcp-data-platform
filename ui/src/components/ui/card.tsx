@@ -1,10 +1,20 @@
 import * as React from "react"
+import * as Slot from "@radix-ui/react-slot"
 
 import { cn } from "@/lib/utils"
 
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+// asChild, as on Badge: a card whose box is a landmark (an aside, a section)
+// keeps that element and takes the card face, instead of restating the face as
+// loose classes on the semantic tag.
+function Card({
+  className,
+  asChild = false,
+  ...props
+}: React.ComponentProps<"div"> & { asChild?: boolean }) {
+  const Comp = asChild ? Slot.Root : "div"
+
   return (
-    <div
+    <Comp
       data-slot="card"
       className={cn(
         "flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm",
