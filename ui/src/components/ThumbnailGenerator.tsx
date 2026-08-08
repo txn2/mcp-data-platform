@@ -199,13 +199,15 @@ const LIGHT_SCHEME: Scheme = {
 // Dark tokens mirror the portal's shadcn dark palette so the captured thumbnail
 // blends into the dark card. html2canvas needs concrete colors (it cannot
 // resolve CSS custom properties off-DOM), so these are hardcoded; keep them in
-// sync with the `.dark` block in src/index.css (--card -> #020817,
+// sync with the `.dark` block in src/index.css (--card -> #131a25,
 // --card-foreground -> #f8fafc, --border/--muted/...) if that palette changes.
+// A stale value here is not self-correcting: the thumbnail is captured once and
+// stored as a blob, so it keeps the old backing forever.
 const DARK_SCHEME: Scheme = {
   variant: "dark",
   mermaidTheme: "dark",
   tokens: {
-    bg: "#020817",
+    bg: "#131a25",
     fg: "#f8fafc",
     codeBg: "#1e293b",
     border: "#334155",

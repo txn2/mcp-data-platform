@@ -107,7 +107,7 @@ export function EntityBody({
                         // max-width on a <td> is ignored in auto table layout, so
                         // the description column is bounded on an inner block.
                         <div className="max-w-md">
-                          <CollapsibleMarkdown content={c.description} fadeFrom="from-background" />
+                          <CollapsibleMarkdown content={c.description} fadeFrom="from-card" />
                         </div>
                       ) : (
                         "—"

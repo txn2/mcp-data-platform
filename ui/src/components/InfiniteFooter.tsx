@@ -41,7 +41,7 @@ export function InfiniteFooter({ hasMore, isLoadingMore, onLoadMore }: Props) {
           type="button"
           onClick={onLoadMore}
           disabled={isLoadingMore}
-          className="rounded-md border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-60"
+          className="rounded-md border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-60"
         >
           {isLoadingMore ? "Loading more…" : "Load more"}
         </button>

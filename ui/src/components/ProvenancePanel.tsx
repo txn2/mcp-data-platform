@@ -112,7 +112,7 @@ function ProvenanceCard({
     <button
       type="button"
       onClick={onClick}
-      className="w-full text-left rounded-md border bg-background p-3 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="w-full text-left rounded-md border bg-card p-3 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-start gap-2.5">
         <div className="mt-0.5 rounded bg-muted p-1.5">

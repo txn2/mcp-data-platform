@@ -48,7 +48,7 @@ export function MetadataPicker({
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
           disabled={isPending}
-          className="w-full rounded-md border bg-background py-1 pl-8 pr-2 text-xs outline-none ring-ring focus:ring-2 disabled:opacity-50"
+          className="w-full rounded-md border bg-transparent py-1 pl-8 pr-2 text-xs outline-none ring-ring focus:ring-2 disabled:opacity-50 dark:bg-input/30"
         />
       </div>
       {open && (

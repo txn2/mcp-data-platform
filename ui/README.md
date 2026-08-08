@@ -29,6 +29,46 @@ not let `shadcn init`/`add` rewrite the file to oklch (diff `src/index.css`
 after any `add` and revert token churn). Vendored components import the scoped
 `@radix-ui/react-*` packages, not the unified `radix-ui` meta-package.
 
+### Surfaces
+
+Three surfaces have to stay distinguishable from each other in both modes, and
+which token a component reaches for follows from which of the three it is:
+
+| Surface | Token | What sits on it |
+| --- | --- | --- |
+| Page | `--background` | `body` and the `AppShell` `<main>`; nothing else fills with it |
+| Raised sheet | `--card` / `--popover` | Cards, dialogs, drawers, menus, the header and sidebar, the active face of a tab track |
+| Recessed fill | `--muted` (and `--secondary` / `--accent`) | Tab tracks, code and `pre` blocks, table header rows, hover states |
+
+Light runs muted &lt; background &lt; card, dark runs background &lt; card &lt;
+muted, so `--background` and `--card` are never interchangeable even though
+stock shadcn ships them equal. Four rules follow.
+
+- **`--background` is the page and nothing else.** As an opaque fill it belongs
+  only on `body` and `<main>`. Inside a card it was invisible while the two
+  tokens were equal; now it reads as a tinted well in light and a sunken black
+  box in dark. (A translucent `bg-background/40`-style scrim over an image or a
+  panel is not a fill and is unaffected.)
+- **A control or nested sheet takes `--card`**: outline buttons, list rows,
+  modal surfaces, the active face of a tab track. **A well takes `--muted`**:
+  code and `pre` blocks, preview frames, scroll wells, tab tracks themselves.
+- **A field takes `bg-transparent`** (what `ui/input` and `ui/textarea` do) so
+  it inherits whatever surface it lands on. Add `dark:bg-input/30` alongside it
+  on a hand-rolled field to match the primitives.
+- **A fill that must match its container names the container's own token.**
+  `CollapsibleMarkdown`'s `fadeFrom` is `from-card` inside a card and
+  `from-background` on the page; naming the wrong one shows a seam.
+
+Two consumers cannot read the tokens at all and have to be updated by hand when
+the palette moves: `ThumbnailGenerator`'s `DARK_SCHEME`/`LIGHT_SCHEME` (html2canvas
+cannot resolve custom properties, and the thumbnail is stored as a blob, so a
+stale value is permanent) and the public viewer's inline
+`internal/portal/publicviewer/templates/public_viewer.html` token block.
+
+Where a component needs the surface *furthest* from `--muted` rather than a
+named one — the image viewer's checkerboard, a switch knob on a muted track —
+that is `--card` in light and `--background` in dark, so it needs both.
+
 App-level composition patterns live in `src/components/patterns/`:
 
 | Component | Contract |

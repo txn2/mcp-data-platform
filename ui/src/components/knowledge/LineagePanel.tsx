@@ -20,7 +20,7 @@ export function LineagePanel({ pageId }: { pageId: string }) {
       </p>
       <ul className="space-y-2">
         {insights.map((ins) => (
-          <li key={ins.id} className="rounded-md border bg-background p-2.5">
+          <li key={ins.id} className="rounded-md border bg-card p-2.5">
             <div className="mb-1 flex items-center gap-2">
               <KnowledgeStatusBadge status={ins.status} />
               {ins.category && <span className="text-xs text-muted-foreground">{ins.category}</span>}

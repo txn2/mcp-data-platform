@@ -7,9 +7,21 @@
    on <html>, so all dark: utilities must key off the class. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Surface ramp.
+   Three surfaces have to stay distinguishable at every step, in both modes:
+   the page (`--background`, painted by body and by AppShell's <main>), the
+   raised sheet a card/popover/dialog sits on (`--card`, `--popover`), and the
+   recessed fill of a well, track, or code block (`--muted`, and the
+   `--secondary`/`--accent` values that share its role).
+
+   Light runs muted < background < card: a tinted page with white sheets and
+   fills a shade below the page. Dark runs background < card < muted: a near
+   black page with the sheet lifted off it. Moving any one of the three toward
+   another collapses a step — a page tinted all the way down to `--muted`, for
+   instance, erases every tab track and code block that sits directly on it. */
 @layer base {
   :root {
-    --background: 0 0% 100%;
+    --background: 210 40% 96.5%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
@@ -17,16 +29,20 @@
     --popover-foreground: 222.2 84% 4.9%;
     --primary: 221.2 83.2% 53.3%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
+    --secondary: 210 40% 94.5%;
     --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
+    --muted: 210 40% 94.5%;
+    /* 44%, not the stock 46.9%: secondary copy has to clear WCAG AA (4.5:1)
+       on the tinted page, where 46.9% lands at 4.39:1. At 44% it clears on
+       all three surfaces — 4.86:1 on the page, 5.27:1 on a card, 4.63:1 on a
+       muted fill. */
+    --muted-foreground: 215.4 16.3% 44%;
+    --accent: 210 40% 94.5%;
     --accent-foreground: 222.2 47.4% 11.2%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+    --border: 214 32% 88%;
+    --input: 214 32% 88%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
     --sidebar-width: 16rem;
@@ -36,9 +52,9 @@
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
+    --card: 218 33% 11%;
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
+    --popover: 218 33% 11%;
     --popover-foreground: 210 40% 98%;
     --primary: 217.2 91.2% 59.8%;
     --primary-foreground: 222.2 47.4% 11.2%;
@@ -50,8 +66,8 @@
     --accent-foreground: 210 40% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
+    --border: 217 24% 20%;
+    --input: 217 24% 20%;
     --ring: 224.3 76.3% 48%;
   }
 }
@@ -106,12 +122,16 @@
  *
  * A transparent image needs a backing that is neither white nor black, or the
  * viewer cannot tell transparency from a solid fill of the theme's background.
- * The squares are drawn from the theme's own muted color so the pattern reads
- * at the same weight in light and dark.
+ * The squares are drawn from the theme's own muted color, so the base has to be
+ * whichever surface sits furthest from `--muted` — and that is not the same
+ * token in both modes. Light runs muted < background < card, so the card is
+ * furthest; dark runs background < card < muted, so the page is. Pinning one
+ * token for both would put two adjacent steps of the ramp against each other
+ * and flatten the pattern out of sight in the other mode.
  */
 .checkerboard {
   --checker: hsl(var(--muted));
-  background-color: hsl(var(--background));
+  background-color: hsl(var(--card));
   background-image:
     linear-gradient(45deg, var(--checker) 25%, transparent 25%),
     linear-gradient(-45deg, var(--checker) 25%, transparent 25%),
@@ -119,4 +139,8 @@
     linear-gradient(-45deg, transparent 75%, var(--checker) 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.dark .checkerboard {
+  background-color: hsl(var(--background));
 }

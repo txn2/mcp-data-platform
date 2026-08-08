@@ -108,7 +108,9 @@ export function ConnectionViewer({
               <CollapsibleMarkdown
                 content={connection.description}
                 maxHeightPx={200}
-                fadeFrom="from-muted"
+                // The detail pane is unfilled, so the fade has to match the
+                // page the master/detail shell is laid on.
+                fadeFrom="from-background"
               />
             </div>
           )}
