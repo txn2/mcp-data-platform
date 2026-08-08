@@ -1,6 +1,15 @@
 import { useEffect } from "react";
 import { Database } from "lucide-react";
 import { useDataHubConnections } from "@/api/portal/datahub";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // DataHubConnectionSelect is the connection picker for the Catalog section
 // (#719/#720/#1194), rendered once for the section rather than once per inner
@@ -30,7 +39,7 @@ export function DataHubConnectionSelect({
   }, [connections, value, onChange]);
 
   if (isLoading) {
-    return <div className="h-9 w-48 animate-pulse rounded-md bg-muted" />;
+    return <Skeleton className="h-9 w-48" />;
   }
   if (!connections || connections.length === 0) {
     return null;
@@ -39,29 +48,24 @@ export function DataHubConnectionSelect({
   const selected = connections.find((c) => c.name === value);
 
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <Database className="h-4 w-4 text-muted-foreground" aria-hidden />
+    <div className="flex items-center gap-2 text-sm">
+      <Database className="size-4 text-muted-foreground" aria-hidden />
       <span className="text-muted-foreground">Connection</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={connections.length === 1}
-        aria-label="DataHub connection"
-        className="rounded-md border bg-background px-2 py-1.5 text-sm outline-none ring-ring focus:ring-2 disabled:opacity-70"
-      >
-        {connections.map((c) => (
-          <option key={c.name} value={c.name}>
-            {c.name}
-            {c.writable ? "" : " (read-only)"}
-          </option>
-        ))}
-      </select>
-      {selected && !selected.writable && (
-        <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-          read-only
-        </span>
-      )}
-    </label>
+      <Select value={value} onValueChange={onChange} disabled={connections.length === 1}>
+        <SelectTrigger size="sm" aria-label="DataHub connection">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {connections.map((c) => (
+            <SelectItem key={c.name} value={c.name}>
+              {c.name}
+              {c.writable ? "" : " (read-only)"}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {selected && !selected.writable && <Badge variant="warning">read-only</Badge>}
+    </div>
   );
 }
 

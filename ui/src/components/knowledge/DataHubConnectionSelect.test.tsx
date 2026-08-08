@@ -66,9 +66,10 @@ describe("DataHubConnectionSelect", () => {
     render(<DataHubConnectionSelect value="archive" onChange={onChange} />);
     expect(screen.getByText("read-only")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("DataHub connection"), {
-      target: { value: "primary" },
-    });
+    // The control is a Radix listbox: jsdom has no PointerEvent, so it opens on
+    // a key press rather than a pointer down (see src/test/setup.ts).
+    fireEvent.keyDown(screen.getByLabelText("DataHub connection"), { key: "Enter" });
+    fireEvent.click(screen.getByRole("option", { name: "primary" }));
     expect(onChange).toHaveBeenCalledWith("primary");
   });
 

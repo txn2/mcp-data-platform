@@ -1,16 +1,24 @@
 import { X } from "lucide-react";
 import { useKnowledgePageVersions } from "@/api/portal/hooks";
+import { SectionCard } from "@/components/patterns/SectionCard";
+import { Button } from "@/components/ui/button";
 
 export function KnowledgePageHistory({ id, onClose }: { id: string; onClose: () => void }) {
   const { data } = useKnowledgePageVersions(id);
   return (
-    <div className="rounded-lg border border-border bg-muted/40 p-4">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm font-medium text-foreground">Version history</span>
-        <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+    <SectionCard
+      title="Version history"
+      action={
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Close version history"
+          onClick={onClose}
+        >
+          <X />
+        </Button>
+      }
+    >
       <ul className="space-y-1 text-sm text-muted-foreground">
         {(data?.versions ?? []).map((v) => (
           <li key={v.id} className="flex justify-between gap-4">
@@ -22,6 +30,6 @@ export function KnowledgePageHistory({ id, onClose }: { id: string; onClose: () 
           </li>
         ))}
       </ul>
-    </div>
+    </SectionCard>
   );
 }

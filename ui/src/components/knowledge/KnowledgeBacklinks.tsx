@@ -1,5 +1,6 @@
 import { BookOpen } from "lucide-react";
 import { useKnowledgeBacklinks } from "@/api/portal/hooks";
+import { SectionCard } from "@/components/patterns/SectionCard";
 import { EntityChip } from "./EntityChip";
 
 /**
@@ -25,11 +26,14 @@ export function KnowledgeBacklinks({
   if (pages.length === 0) return null;
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <BookOpen className="h-3.5 w-3.5" />
-        {pages.length} knowledge {pages.length === 1 ? "page references" : "pages reference"} this
-      </p>
+    <SectionCard
+      title={
+        <span className="flex items-center gap-1.5 text-muted-foreground">
+          <BookOpen className="size-3.5" aria-hidden />
+          {pages.length} knowledge {pages.length === 1 ? "page references" : "pages reference"} this
+        </span>
+      }
+    >
       <div className="flex flex-wrap gap-1.5">
         {pages.map((p) => {
           const pageUrn = `mcp:knowledge_page:${p.id}`;
@@ -43,6 +47,6 @@ export function KnowledgeBacklinks({
           );
         })}
       </div>
-    </div>
+    </SectionCard>
   );
 }

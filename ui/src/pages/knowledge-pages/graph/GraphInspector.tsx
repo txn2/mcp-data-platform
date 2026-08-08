@@ -1,5 +1,7 @@
 import { ArrowUpRight, Crosshair, Plus, Route, X } from "lucide-react";
 import type { KnowledgeGraphNode } from "@/api/portal/hooks";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import {
   bridgeRank,
   communityFill,
@@ -38,9 +40,9 @@ export function GraphInspector(props: GraphInspectorProps) {
   const { node, analysis, path, tracingFrom } = props;
   if (!node) {
     return (
-      <aside className="w-72 shrink-0 rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
-        Select a node to inspect it.
-      </aside>
+      <Card asChild className="w-72 shrink-0 p-4 text-sm text-muted-foreground">
+        <aside>Select a node to inspect it.</aside>
+      </Card>
     );
   }
 
@@ -48,39 +50,46 @@ export function GraphInspector(props: GraphInspectorProps) {
   const citedBy = [...(analysis.index.citedBy.get(node.id) ?? [])];
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-card p-4">
-      <InspectorHeader node={node} />
+    <Card asChild className="w-72 shrink-0 gap-3 overflow-y-auto p-4">
+      <aside>
+        <InspectorHeader node={node} />
 
-      {/* A catalog node's label is derived from its URN, so it is neither the
-          entity's name nor something the catalog can be searched for. Resolve it
-          against the catalog and show what is actually there. */}
-      {node.type === "datahub" && <CatalogNodeDetail urn={node.id} />}
+        {/* A catalog node's label is derived from its URN, so it is neither the
+            entity's name nor something the catalog can be searched for. Resolve
+            it against the catalog and show what is actually there. */}
+        {node.type === "datahub" && <CatalogNodeDetail urn={node.id} />}
 
-      <InspectorStats
-        node={node}
-        analysis={analysis}
-        citeCount={cites.length}
-        citedByCount={citedBy.length}
-      />
+        <InspectorStats
+          node={node}
+          analysis={analysis}
+          citeCount={cites.length}
+          citedByCount={citedBy.length}
+        />
 
-      {tracingFrom === node.id ? (
-        <TracingPrompt onCancel={props.onCancelPath} />
-      ) : (
-        path && <PathReadout path={path} nodeByID={props.nodeByID} onSelect={props.onSelect} />
-      )}
-
-      <div className="flex flex-wrap gap-1.5">
-        <InspectorAction icon={Crosshair} label="Focus" onClick={() => props.onFocus(node.id)} />
-        <InspectorAction icon={Plus} label="Expand" onClick={() => props.onExpand(node.id)} />
-        <InspectorAction icon={Route} label="Path from" onClick={() => props.onStartPath(node.id)} />
-        {nodeDestination(node) && (
-          <InspectorAction icon={ArrowUpRight} label="Open" onClick={() => props.onOpen(node)} />
+        {tracingFrom === node.id ? (
+          <TracingPrompt onCancel={props.onCancelPath} />
+        ) : (
+          path && <PathReadout path={path} nodeByID={props.nodeByID} onSelect={props.onSelect} />
         )}
-      </div>
 
-      <NeighbourList title="References" ids={cites} nodeByID={props.nodeByID} onSelect={props.onSelect} />
-      <NeighbourList title="Referenced by" ids={citedBy} nodeByID={props.nodeByID} onSelect={props.onSelect} />
-    </aside>
+        <div className="flex flex-wrap gap-1.5">
+          <InspectorAction icon={Crosshair} label="Focus" onClick={() => props.onFocus(node.id)} />
+          <InspectorAction icon={Plus} label="Expand" onClick={() => props.onExpand(node.id)} />
+          <InspectorAction icon={Route} label="Path from" onClick={() => props.onStartPath(node.id)} />
+          {nodeDestination(node) && (
+            <InspectorAction icon={ArrowUpRight} label="Open" onClick={() => props.onOpen(node)} />
+          )}
+        </div>
+
+        <NeighbourList title="References" ids={cites} nodeByID={props.nodeByID} onSelect={props.onSelect} />
+        <NeighbourList
+          title="Referenced by"
+          ids={citedBy}
+          nodeByID={props.nodeByID}
+          onSelect={props.onSelect}
+        />
+      </aside>
+    </Card>
   );
 }
 
@@ -188,13 +197,19 @@ function BridgeStat({ node, analysis }: { node: KnowledgeGraphNode; analysis: Gr
 /** TracingPrompt tells the reader the graph is waiting for the path's far end. */
 function TracingPrompt({ onCancel }: { onCancel: () => void }) {
   return (
-    <p className="flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-2.5 py-2 text-xs text-foreground">
-      <Route className="mt-px h-3.5 w-3.5 shrink-0 text-primary" />
+    <div className="flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-2.5 py-2 text-xs">
+      <Route className="mt-px size-3.5 shrink-0 text-primary" />
       <span>Click another node to trace the shortest path to it.</span>
-      <button type="button" onClick={onCancel} aria-label="Cancel path">
-        <X className="h-3.5 w-3.5" />
-      </button>
-    </p>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="-my-1 ml-auto"
+        onClick={onCancel}
+        aria-label="Cancel path"
+      >
+        <X />
+      </Button>
+    </div>
   );
 }
 
@@ -234,13 +249,9 @@ function InspectorAction({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
-    >
-      <Icon className="h-3.5 w-3.5" /> {label}
-    </button>
+    <Button variant="outline" size="xs" className="text-muted-foreground" onClick={onClick}>
+      <Icon /> {label}
+    </Button>
   );
 }
 
@@ -268,11 +279,16 @@ function PathReadout({
       </p>
       <ol className="space-y-0.5">
         {path.map((id, i) => (
-          <li key={id} className="truncate text-xs text-muted-foreground">
-            <span className="mr-1 opacity-60">{i + 1}.</span>
-            <button type="button" onClick={() => onSelect(id)} className="hover:text-foreground hover:underline">
+          <li key={id} className="flex items-baseline gap-1 truncate text-xs text-muted-foreground">
+            <span className="opacity-60">{i + 1}.</span>
+            <Button
+              variant="link"
+              size="xs"
+              className="h-auto truncate p-0 font-normal text-muted-foreground hover:text-foreground"
+              onClick={() => onSelect(id)}
+            >
               {nodeByID.get(id)?.label ?? id}
-            </button>
+            </Button>
           </li>
         ))}
       </ol>
@@ -306,10 +322,11 @@ function NeighbourList({
       <ul className="space-y-0.5">
         {shown.map((id) => (
           <li key={id}>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="xs"
+              className="h-auto w-full justify-start gap-1.5 truncate px-1 py-0.5 font-normal text-muted-foreground"
               onClick={() => onSelect(id)}
-              className="flex w-full items-center gap-1.5 truncate rounded px-1 py-0.5 text-left text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <span
                 className="inline-block h-2 w-2 shrink-0"
@@ -319,7 +336,7 @@ function NeighbourList({
                 }}
               />
               <span className="truncate">{nodeByID.get(id)?.label ?? id}</span>
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

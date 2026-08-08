@@ -45,9 +45,16 @@ vi.mock("./DataHubConnectionSelect", () => ({
 
 import { RefPicker } from "./RefPicker";
 
-// pick selects a reference type and types a search query.
+// The type control is a Radix listbox: jsdom has no PointerEvent, so it opens on
+// a key press rather than a pointer down (see src/test/setup.ts).
+function openTypes() {
+  fireEvent.keyDown(screen.getByLabelText("Reference type"), { key: "Enter" });
+}
+
+// pick selects a reference type by its display name and types a search query.
 function pick(type: string, query: string) {
-  fireEvent.change(screen.getByLabelText("Reference type"), { target: { value: type } });
+  openTypes();
+  fireEvent.click(screen.getByRole("option", { name: type }));
   fireEvent.change(screen.getByPlaceholderText(/Search .* to reference/), {
     target: { value: query },
   });
@@ -70,7 +77,7 @@ describe("RefPicker", () => {
     // The whole point of #1159: an author selects "Net Revenue" and never sees
     // the generated key DataHub gave the term.
     render(<RefPicker pageId="kp1" />);
-    pick("glossary_term", "net");
+    pick("Glossary term", "net");
 
     fireEvent.click(screen.getByText("Net Revenue"));
     expect(setRefs).toHaveBeenCalledWith(["urn:li:glossaryTerm:8f3c1a94"]);
@@ -79,25 +86,25 @@ describe("RefPicker", () => {
   it("attaches a tag and a domain by name too", () => {
     render(<RefPicker pageId="kp1" />);
 
-    pick("tag", "pii");
+    pick("Tag", "pii");
     fireEvent.click(screen.getByText("PII"));
     expect(setRefs).toHaveBeenLastCalledWith(["urn:li:tag:pii"]);
 
-    pick("domain", "finance");
+    pick("Domain", "finance");
     fireEvent.click(screen.getByText("Finance"));
     expect(setRefs).toHaveBeenLastCalledWith(["urn:li:domain:c3d4e5f6"]);
   });
 
   it("filters domains client-side, since DataHub has no name-scoped domain search", () => {
     render(<RefPicker pageId="kp1" />);
-    pick("domain", "market");
+    pick("Domain", "market");
     expect(screen.getByText("Marketing")).toBeInTheDocument();
     expect(screen.queryByText("Finance")).not.toBeInTheDocument();
   });
 
   it("keeps the portal types storing mcp: references", () => {
     render(<RefPicker pageId="kp1" />);
-    pick("asset", "sales");
+    pick("Asset", "sales");
     fireEvent.click(screen.getByText("Sales Dashboard"));
     expect(setRefs).toHaveBeenCalledWith(["mcp:asset:a1"]);
   });
@@ -107,7 +114,7 @@ describe("RefPicker", () => {
       { urn: "urn:li:tag:pii", type: "datahub", label: "PII", exists: true, source: "manual" },
     ];
     render(<RefPicker pageId="kp1" />);
-    pick("glossary_term", "net");
+    pick("Glossary term", "net");
     fireEvent.click(screen.getByText("Net Revenue"));
     expect(setRefs).toHaveBeenCalledWith(["urn:li:tag:pii", "urn:li:glossaryTerm:8f3c1a94"]);
   });
@@ -123,7 +130,7 @@ describe("RefPicker", () => {
       },
     ];
     render(<RefPicker pageId="kp1" />);
-    pick("glossary_term", "net");
+    pick("Glossary term", "net");
     // The candidate is marked as already attached and its button is disabled,
     // so a second click cannot duplicate it. Scope to the candidate list: the
     // term also appears above as the chip for the reference already attached.
@@ -138,7 +145,7 @@ describe("RefPicker", () => {
     // belong to none, so the connection control has nothing to say for them.
     render(<RefPicker pageId="kp1" />);
     expect(screen.queryByText(/^connection:/)).not.toBeInTheDocument();
-    pick("tag", "pii");
+    pick("Tag", "pii");
     expect(screen.getByText(/^connection:/)).toBeInTheDocument();
   });
 
@@ -147,9 +154,8 @@ describe("RefPicker", () => {
     // a candidate on a database-only deployment.
     mockConnections = [];
     render(<RefPicker pageId="kp1" />);
-    const options = Array.from(
-      screen.getByLabelText("Reference type").querySelectorAll("option"),
-    ).map((o) => o.textContent);
+    openTypes();
+    const options = screen.getAllByRole("option").map((o) => o.textContent);
     expect(options).toEqual(["Asset", "Collection", "Page", "Prompt"]);
   });
 
@@ -183,7 +189,7 @@ describe("RefPicker", () => {
       },
     ];
     render(<RefPicker pageId="kp1" />);
-    pick("glossary_term", "net");
+    pick("Glossary term", "net");
     fireEvent.click(screen.getByText("Net Revenue"));
     expect(setRefs).toHaveBeenCalledWith(["urn:li:tag:pii", "urn:li:glossaryTerm:8f3c1a94"]);
   });

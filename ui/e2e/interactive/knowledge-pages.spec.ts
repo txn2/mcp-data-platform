@@ -35,7 +35,9 @@ test.describe("Knowledge Pages", () => {
 
   test("opens a page and renders its markdown body", async ({ page }) => {
     await page.getByText("Fiscal Calendar").click();
-    await expect(page.getByRole("heading", { name: "Fiscal Calendar", level: 1 }).first()).toBeVisible();
+    // The PageHeader title is a level-2 heading; the body's own `# Fiscal
+    // Calendar` is the level-1 one, so the level separates them.
+    await expect(page.getByRole("heading", { name: "Fiscal Calendar", level: 2 })).toBeVisible();
     // Body markdown is rendered inside the article (a list item from the body).
     await expect(page.getByRole("article").getByText("Q1: February - April")).toBeVisible();
   });
@@ -48,12 +50,10 @@ test.describe("Knowledge Pages", () => {
     await page.keyboard.type("# Operating Hours\n\nMon-Fri 9-5 Pacific.");
     await page.getByRole("button", { name: "Create page" }).click();
     // Lands on the new page detail. The body typed above opens with its own
-    // `# Operating Hours`, so once the markdown renders there are two level-1
-    // headings by that name and an unqualified locator is a strict-mode
-    // violation the moment the article beats the assertion. Take the first,
-    // which is the page title, as the sibling render test does.
+    // `# Operating Hours`, so the page title is named by the level rather than
+    // by position: the PageHeader title is level 2, the body's heading level 1.
     await expect(
-      page.getByRole("heading", { name: "Operating Hours", level: 1 }).first(),
+      page.getByRole("heading", { name: "Operating Hours", level: 2 }),
     ).toBeVisible();
   });
 

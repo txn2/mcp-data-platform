@@ -107,16 +107,6 @@
       "count": 1
     }
   },
-  "src/components/knowledge/EntityChip.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/components/knowledge/RefPicker.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
   "src/components/layout/AppShell.tsx": {
     "complexity": {
       "count": 1
@@ -135,24 +125,6 @@
       "count": 1
     }
   },
-  "src/pages/knowledge-pages/parts/KnowledgePageDetail.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/knowledge-pages/parts/KnowledgePageForm.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/knowledge-pages/parts/KnowledgePageList.tsx": {
-    "complexity": {
-      "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    }
-  },
   "src/pages/knowledge/ContextDocsTab.tsx": {
     "complexity": {
       "count": 3
@@ -163,32 +135,7 @@
       "count": 1
     }
   },
-  "src/pages/knowledge/MyKnowledgePage.tsx": {
-    "complexity": {
-      "count": 2
-    }
-  },
-  "src/pages/knowledge/capture/ChangesetsTab.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/knowledge/capture/InsightDrawer.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/knowledge/capture/KnowledgeCaptureTab.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
   "src/pages/knowledge/catalog/sections.tsx": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/pages/knowledge/hub/UnifiedSearch.tsx": {
     "complexity": {
       "count": 1
     }

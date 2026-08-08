@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import type { KnowledgeGraphNode, KnowledgeGraphResponse } from "@/api/portal/hooks";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { GraphCanvas } from "./GraphCanvas";
 import { GraphInspector } from "./GraphInspector";
 import { GraphSummary } from "./GraphSummary";
@@ -124,32 +126,36 @@ export function GraphWorkspace({ data, width, query, onOpenPage, onNavigate }: G
           queryText={query.trim()}
         />
         <div className="ml-auto flex items-center gap-1.5">
-          <ViewportButton
-            label="Zoom in"
+          <Button
+            variant="outline"
+            size="icon-xs"
+            aria-label="Zoom in"
             onClick={() => viewport.zoomBy(ZOOM_IN, canvasWidth / 2, CANVAS_HEIGHT / 2)}
           >
-            <ZoomIn className="h-3.5 w-3.5" />
-          </ViewportButton>
-          <ViewportButton
-            label="Zoom out"
+            <ZoomIn />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon-xs"
+            aria-label="Zoom out"
             onClick={() => viewport.zoomBy(ZOOM_OUT, canvasWidth / 2, CANVAS_HEIGHT / 2)}
           >
-            <ZoomOut className="h-3.5 w-3.5" />
-          </ViewportButton>
-          <ViewportButton label="Fit" onClick={viewport.reset}>
+            <ZoomOut />
+          </Button>
+          <Button variant="outline" size="xs" onClick={viewport.reset}>
             Fit
-          </ViewportButton>
-          <ViewportButton label="Reset layout" onClick={() => setGeneration((g) => g + 1)}>
-            <RotateCcw className="h-3.5 w-3.5" /> Reset layout
-          </ViewportButton>
+          </Button>
+          <Button variant="outline" size="xs" onClick={() => setGeneration((g) => g + 1)}>
+            <RotateCcw /> Reset layout
+          </Button>
         </div>
       </div>
 
       {data.truncated && data.notice && (
-        <p className="flex items-start gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
-          <span>{data.notice}</span>
-        </p>
+        <Alert variant="warning">
+          <AlertTriangle />
+          <AlertDescription>{data.notice}</AlertDescription>
+        </Alert>
       )}
 
       <div className="flex gap-3">
@@ -196,27 +202,5 @@ export function GraphWorkspace({ data, width, query, onOpenPage, onNavigate }: G
         pull in its neighbours, trace a path to another node, or open it.
       </p>
     </div>
-  );
-}
-
-/** ViewportButton is one pan/zoom control in the toolbar row. */
-function ViewportButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
-    >
-      {children}
-    </button>
   );
 }

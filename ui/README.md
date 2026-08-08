@@ -42,6 +42,7 @@ App-level composition patterns live in `src/components/patterns/`:
 | `SortableHead` | A `ui/table` header that sorts on click, with the direction shown on the sorted column |
 | `SearchInput` | A list's free-text filter: a `ui/input` with the magnifier inside its leading edge |
 | `SegmentedControl` | A small "which way do I want this shown" switch: adjacent faces in a bordered trough, the chosen one filled |
+| `DrawerShell` | The one shape a right-hand detail slide-over takes: dimmed page, title and close along the top, the detail scrolling under it, an optional pinned footer for the action it exists to offer; Escape closes it |
 
 Conventions the exemplar (Knowledge > Catalog) established: buttons, inputs,
 labels, textareas, selects, tables, tabs, badges, and alerts come from
@@ -63,10 +64,33 @@ users/public-link pair. `components/listView.ts` holds the grid-or-table
 preference the two lists share — the layout half of what `ScopeFilter` does for
 ownership — plus the Load-more derivation both browse hooks use.
 
+The knowledge surfaces share three app-level pieces of their own:
+`knowledge/KnowledgeStatusBadge` owns the lifecycle vocabulary (pending,
+approved, applied, rejected, rolled back, superseded, active, stale, archived)
+and the tint each word carries, so a status is the same colour in the review
+queue, a reader's own lists, a changeset row, and a page's lineage;
+`knowledge/UrnBadge` names a linked catalog entity in a dense list (readable
+tail, whole URN on hover) and is deliberately not an `EntityChip`, since nothing
+it renders is navigable; `knowledge/EntityChip` stays the navigable citation and
+now rides `ui/badge`, square-cornered so it reads as a citation rather than a
+status pill. Approved is `info`, not `success`: an approved insight is cleared
+to be applied, not yet applied, and only `applied` is the finished state.
+
 `SegmentedControl` is a group of toggle buttons (`role="group"`, `aria-pressed`),
 not a tablist: nothing under it is a tab panel, the same content is redrawn. So
 its faces stay `getByRole("button", ...)`, unlike `ui/tabs` and unlike
-`ScopeFilter`, whose Mine/Shared/All faces really are `role="tab"`.
+`ScopeFilter`, whose Mine/Shared/All faces really are `role="tab"`. It also
+replaces the hand-rolled `role="radiogroup"` switches the knowledge surfaces
+used to carry (cards-or-graph, explore-or-whole-corpus, the graph's hop radius),
+so a spec that drove those by `getByRole("radio", ...)` now asks for a button —
+and, where the face's name is a bare number, scopes the query to the group by
+its label.
+
+`Card` takes `asChild`, like `Badge`: a card whose box is a landmark keeps the
+landmark and takes the card face, e.g. `<Card asChild><aside>…</aside></Card>`
+for the knowledge graph's inspector, which Playwright reaches as
+`getByRole("complementary")`. Restating the face as loose classes on the
+semantic tag is the thing this avoids.
 
 A shadcn `Select` is a Radix listbox, not a native `<select>`: an item cannot
 carry an empty value, so a facet's "no filter" choice travels under a sentinel
