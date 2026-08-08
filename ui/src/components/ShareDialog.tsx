@@ -1,6 +1,10 @@
 import { useState } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   useShares,
   useCreateShare,
@@ -18,11 +22,6 @@ import {
   UserShareSection,
   type LinkAccessMode,
 } from "@/components/share/ShareSections";
-import {
-  modalNaturalClass,
-  modalOverlayClass,
-  modalRowClass,
-} from "@/components/ModalShell";
 
 export type ShareTarget =
   | { type: "asset"; id: string }
@@ -161,81 +160,67 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   const activeShares = shares.filter((s) => !s.revoked);
 
   return (
-    <Dialog.Root
+    <Dialog
       open={open}
       onOpenChange={(v) => {
         if (!v) setConfirmRevoke(null);
         onOpenChange(v);
       }}
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className={modalOverlayClass}>
-          <div className={modalRowClass}>
-            <Dialog.Content
-              className={modalNaturalClass(
-                "max-w-lg",
-                "rounded-lg border bg-card p-6 shadow-lg",
-              )}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <Dialog.Title className="text-lg font-semibold">
-                  {isPrompt
-                    ? "Share Prompt"
-                    : isCollection
-                      ? "Share Collection"
-                      : "Share Asset"}
-                </Dialog.Title>
-                <Dialog.Close className="rounded-md p-1 hover:bg-accent">
-                  <X className="h-4 w-4" />
-                </Dialog.Close>
-              </div>
+      <DialogContent aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle className="text-lg">
+            {isPrompt
+              ? "Share Prompt"
+              : isCollection
+                ? "Share Collection"
+                : "Share Asset"}
+          </DialogTitle>
+        </DialogHeader>
 
-              {/* Link shares are not offered for prompts, which are run, not viewed via a public page */}
-              {!isPrompt && (
-                <LinkShareSection
-                  linkAccess={linkAccess}
-                  setLinkAccess={setLinkAccess}
-                  ttl={ttl}
-                  setTtl={setTtl}
-                  showOptions={showOptions}
-                  setShowOptions={setShowOptions}
-                  showExpiration={showExpiration}
-                  setShowExpiration={setShowExpiration}
-                  noticeText={noticeText}
-                  setNoticeText={setNoticeText}
-                  onCreate={handleCreateLink}
-                  isPending={isPending}
-                />
-              )}
+        {/* Link shares are not offered for prompts, which are run, not viewed via a public page */}
+        {!isPrompt && (
+          <LinkShareSection
+            linkAccess={linkAccess}
+            setLinkAccess={setLinkAccess}
+            ttl={ttl}
+            setTtl={setTtl}
+            showOptions={showOptions}
+            setShowOptions={setShowOptions}
+            showExpiration={showExpiration}
+            setShowExpiration={setShowExpiration}
+            noticeText={noticeText}
+            setNoticeText={setNoticeText}
+            onCreate={handleCreateLink}
+            isPending={isPending}
+          />
+        )}
 
-              {/* Share with user */}
-              <UserShareSection
-                email={email}
-                setEmail={setEmail}
-                permission={permission}
-                setPermission={setPermission}
-                notify={notify}
-                setNotify={setNotify}
-                message={message}
-                setMessage={setMessage}
-                error={shareError}
-                onClearError={() => setShareError(null)}
-                onShare={handleShareWithUser}
-                isPending={isPending}
-              />
+        {/* Share with user */}
+        <UserShareSection
+          email={email}
+          setEmail={setEmail}
+          permission={permission}
+          setPermission={setPermission}
+          notify={notify}
+          setNotify={setNotify}
+          message={message}
+          setMessage={setMessage}
+          error={shareError}
+          onClearError={() => setShareError(null)}
+          onShare={handleShareWithUser}
+          isPending={isPending}
+        />
 
-              <ActiveShares
-                shares={activeShares}
-                copied={copied}
-                confirmRevoke={confirmRevoke}
-                setConfirmRevoke={setConfirmRevoke}
-                onCopy={handleCopy}
-                onRevoke={(id) => revokeShare.mutate(id)}
-              />
-            </Dialog.Content>
-          </div>
-        </Dialog.Overlay>
-      </Dialog.Portal>
-    </Dialog.Root>
+        <ActiveShares
+          shares={activeShares}
+          copied={copied}
+          confirmRevoke={confirmRevoke}
+          setConfirmRevoke={setConfirmRevoke}
+          onCopy={handleCopy}
+          onRevoke={(id) => revokeShare.mutate(id)}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }

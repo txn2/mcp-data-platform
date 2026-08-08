@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { AuthImg } from "@/components/AuthImg";
+import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 /**
@@ -7,8 +8,9 @@ import { cn } from "@/lib/utils";
  * thumbnail (or the icon standing in for one that has not been rendered yet)
  * above whatever the list wants to say about the item.
  *
- * It is a button rather than a Card holding a link because the whole tile is
- * the target — the same shape `VocabCard` uses in the catalog.
+ * The whole tile is the target, so the card face rides a button through
+ * `Card asChild` rather than wrapping one — the tile keeps the button role and
+ * still cannot drift from the card face every other box on the page wears.
  */
 export function ThumbCard({
   onClick,
@@ -33,27 +35,32 @@ export function ThumbCard({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <Card
+      asChild
       className={cn(
-        "relative flex w-full flex-col items-start overflow-hidden rounded-xl border bg-card text-left shadow-sm transition-colors hover:border-primary/50 hover:bg-muted/50",
+        "relative w-full items-start gap-0 overflow-hidden py-0 text-left transition-colors hover:border-primary/50 hover:bg-muted/50",
         className,
       )}
     >
-      {aspect !== null && (
-        <div className={cn("w-full bg-muted", aspect)}>
-          {thumbnailSrc ? (
-            <AuthImg src={thumbnailSrc} alt="" className="h-full w-full object-cover object-top" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              <Icon className="size-8 text-muted-foreground/30" />
-            </div>
-          )}
-        </div>
-      )}
-      {overlay}
-      <div className={cn("w-full p-4", bodyClassName)}>{children}</div>
-    </button>
+      <button type="button" onClick={onClick}>
+        {aspect !== null && (
+          <div className={cn("w-full bg-muted", aspect)}>
+            {thumbnailSrc ? (
+              <AuthImg
+                src={thumbnailSrc}
+                alt=""
+                className="h-full w-full object-cover object-top"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center">
+                <Icon className="size-8 text-muted-foreground/30" />
+              </div>
+            )}
+          </div>
+        )}
+        {overlay}
+        <div className={cn("w-full p-4", bodyClassName)}>{children}</div>
+      </button>
+    </Card>
   );
 }

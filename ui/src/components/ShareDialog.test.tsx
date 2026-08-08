@@ -34,6 +34,16 @@ function renderDialog() {
   );
 }
 
+/**
+ * choose picks an option from one of the dialog's Radix listboxes. jsdom has no
+ * PointerEvent, so the trigger's pointerdown handler never runs and the listbox
+ * has to be opened from the keyboard (see ui/README.md).
+ */
+function choose(control: RegExp, option: RegExp) {
+  fireEvent.keyDown(screen.getByLabelText(control), { key: "Enter" });
+  fireEvent.click(screen.getByRole("option", { name: option }));
+}
+
 describe("ShareDialog access modes", () => {
   beforeEach(() => {
     createAsset.mutate.mockClear();
@@ -54,9 +64,7 @@ describe("ShareDialog access modes", () => {
   it("warns that a public link opens without sign-in and sends access_mode public", () => {
     renderDialog();
 
-    fireEvent.change(screen.getByLabelText(/who can open this link/i), {
-      target: { value: "public" },
-    });
+    choose(/who can open this link/i, /anyone with the link/i);
     expect(screen.getByText(/works without signing in/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /create link/i }));
@@ -87,6 +95,21 @@ describe("ShareDialog access modes", () => {
         shared_with_email: "bob@example.com",
         permission: "viewer",
       },
+      expect.anything(),
+    );
+  });
+
+  it("sends the permission chosen for the recipient", () => {
+    renderDialog();
+
+    fireEvent.change(screen.getByLabelText("Recipient"), {
+      target: { value: "bob@example.com" },
+    });
+    choose(/permission/i, /editor/i);
+    fireEvent.click(screen.getByRole("button", { name: /^share$/i }));
+
+    expect(createAsset.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ permission: "editor" }),
       expect.anything(),
     );
   });

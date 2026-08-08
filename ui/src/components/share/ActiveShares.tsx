@@ -1,5 +1,8 @@
 import { Trash2, Check, Copy } from "lucide-react";
 import type { Share } from "@/api/portal/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 
 function formatTimeRemaining(expiresAt?: string): string {
   if (!expiresAt) return "No expiration";
@@ -117,19 +120,16 @@ function ShareDescriptor({ share }: { share: Share }) {
 
 /** RecipientLabel describes a share addressed to a person. */
 function RecipientLabel({ share }: { share: Share }) {
-  const editor = share.permission === "editor";
   return (
     <span className="text-muted-foreground">
       User: {share.shared_with_email || share.shared_with_user_id}
-      <span
-        className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-medium ${editor ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}
-      >
-        {editor ? "Editor" : "Viewer"}
-      </span>
+      {/* The same pill the item lists carry, so a permission reads the same
+          colour wherever it is stated. */}
+      <SharePermissionBadge permission={share.permission} className="ml-1.5" />
       {share.access_mode === "public" && (
-        <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+        <Badge variant="warning" className="ml-1.5">
           Opens without sign-in
-        </span>
+        </Badge>
       )}
     </span>
   );
@@ -169,59 +169,66 @@ function ShareActions({
   return (
     <div className="flex items-center gap-1 ml-2">
       {isLink && (
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="xs"
           onClick={() =>
             onCopy(
               `${window.location.origin}/portal/view/${share.token}`,
               share.id,
             )
           }
-          className="flex items-center gap-1 rounded px-2 py-1 text-xs hover:bg-accent"
           title="Copy public link"
         >
           {copied === share.id ? (
             <>
-              <Check className="h-3.5 w-3.5 text-green-500" />
+              <Check className="text-emerald-600 dark:text-emerald-400" />
               Copied
             </>
           ) : (
             <>
-              <Copy className="h-3.5 w-3.5" />
+              <Copy />
               Copy Link
             </>
           )}
-        </button>
+        </Button>
       )}
       {confirmRevoke === share.id ? (
         <div className="flex items-center gap-1">
-          <button
+          <Button
             type="button"
+            variant="destructive"
+            size="xs"
             onClick={() => {
               onRevoke(share.id);
               setConfirmRevoke(null);
             }}
-            className="rounded px-2 py-0.5 text-xs font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
             Remove
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
             onClick={() => setConfirmRevoke(null)}
-            className="rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground"
           >
             Cancel
-          </button>
+          </Button>
         </div>
       ) : (
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           onClick={() => setConfirmRevoke(share.id)}
-          className="rounded p-1 hover:bg-destructive/10 text-destructive"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
           title="Revoke"
+          aria-label="Revoke"
         >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+          <Trash2 />
+        </Button>
       )}
     </div>
   );
