@@ -31,7 +31,10 @@ A study earns a column once it has a protocol or a report.
 Negative results and evidence-backed platform decisions are indexed in
 [`docs/findings-register.md`](docs/findings-register.md) — a retired study
 candidate gets a register row, not silence, so concluded research is never
-repeated unknowingly.
+repeated unknowingly. The register also carries the staged study lifecycle
+every candidate follows and the open candidate ledger;
+[`docs/study-landscape.md`](docs/study-landscape.md) is the standing survey of
+external work each candidate is checked against first.
 
 Each directory under [`results/`](results/) carries a README stating what that
 run family does and does not establish; [`results/README.md`](results/README.md)
