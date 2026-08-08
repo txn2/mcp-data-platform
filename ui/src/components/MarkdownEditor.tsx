@@ -158,7 +158,7 @@ export function MarkdownEditor({
         </div>
 
         {/* View mode toggle */}
-        <div className="flex items-center gap-0.5 rounded-md border bg-background p-0.5">
+        <div className="flex items-center gap-0.5 rounded-md border bg-card p-0.5">
           {VIEW_MODES.map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
@@ -208,7 +208,10 @@ export function MarkdownEditor({
         {showPreview && (
           <div
             className={cn(
-              "overflow-auto bg-background",
+              // Split view puts this pane beside CodeMirror, which paints its
+              // own sheet; the preview has to be the same surface as the card
+              // and the editor or the two halves read as different documents.
+              "overflow-auto bg-card",
               showEditor ? "w-1/2" : "w-full",
             )}
           >

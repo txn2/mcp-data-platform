@@ -168,7 +168,7 @@ export function MentionTextarea({
         // ui/textarea sizes to its content by default, which silently overrides
         // the caller's `rows`; the composer asks for a fixed height so the
         // suggestion list below it does not move as the body is typed.
-        className={cn("field-sizing-fixed min-h-0 bg-background py-1.5 text-sm", className)}
+        className={cn("field-sizing-fixed min-h-0 py-1.5 text-sm", className)}
       />
       {open && (
         <ul

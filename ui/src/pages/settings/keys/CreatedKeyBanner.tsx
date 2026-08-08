@@ -30,7 +30,7 @@ export function CreatedKeyBanner({
         Key created: {response.name} — copy it now, it will not be shown again
       </AlertTitle>
       <AlertDescription className="mt-2 flex w-full flex-row items-center gap-2">
-        <code className="flex-1 break-all rounded-md border border-current/30 bg-background px-3 py-2 font-mono text-sm">
+        <code className="flex-1 break-all rounded-md border border-current/30 bg-card px-3 py-2 font-mono text-sm">
           {response.key}
         </code>
         <Button

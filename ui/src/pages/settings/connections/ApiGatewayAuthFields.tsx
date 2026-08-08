@@ -146,7 +146,7 @@ function ConnectPanel({
   }, [connectionName, startOAuth]);
 
   return (
-    <div className="space-y-2 rounded-md border bg-background px-3 py-3">
+    <div className="space-y-2 rounded-md border bg-muted px-3 py-3">
       <p className="text-xs">
         <strong>Connect</strong> opens the IdP sign-in page in a new tab. After the
         browser flow completes, the platform persists the refresh token (encrypted)

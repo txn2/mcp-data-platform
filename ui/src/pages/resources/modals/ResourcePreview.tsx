@@ -116,7 +116,7 @@ function PreviewFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="space-y-1">
       <span className="text-xs font-medium text-muted-foreground">Preview</span>
-      <div className="max-h-[50vh] overflow-auto rounded-md border bg-background p-2">{children}</div>
+      <div className="max-h-[50vh] overflow-auto rounded-md border bg-muted p-2">{children}</div>
     </div>
   );
 }

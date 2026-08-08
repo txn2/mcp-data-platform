@@ -80,7 +80,7 @@ export function CollectionsManagerDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <ModalScroll onClose={onClose} width="max-w-lg" label="Manage collections">
-      <div className="rounded-lg border bg-background shadow-lg">
+      <div className="rounded-lg border bg-card shadow-lg">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
             <FolderOpen className="size-4 text-muted-foreground" /> Manage

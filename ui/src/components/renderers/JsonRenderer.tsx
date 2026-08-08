@@ -127,7 +127,7 @@ export function JsonRenderer({ content, fileName }: JsonRendererProps) {
                 }}
                 placeholder="Search keys and values"
                 aria-label="Search keys and values"
-                className="w-56 rounded-md border bg-background py-1.5 pl-7 pr-2 text-xs outline-none ring-ring focus:ring-2"
+                className="w-56 rounded-md border bg-transparent py-1.5 pl-7 pr-2 text-xs outline-none ring-ring focus:ring-2 dark:bg-input/30"
               />
             </div>
 

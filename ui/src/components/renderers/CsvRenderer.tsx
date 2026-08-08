@@ -107,7 +107,7 @@ export function CsvRenderer({ content, fileName, delimiter = "," }: Props) {
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
             placeholder="Search all columns..."
-            className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+            className="w-full rounded-md border bg-transparent pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2 dark:bg-input/30"
           />
         </div>
         <button

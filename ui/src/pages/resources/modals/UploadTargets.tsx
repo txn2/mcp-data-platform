@@ -58,7 +58,7 @@ export function UploadTargets({
       {scope === "persona" && (
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Personas</Label>
-          <div className="max-h-32 space-y-0.5 overflow-y-auto rounded-md border bg-background p-2">
+          <div className="max-h-32 space-y-0.5 overflow-y-auto rounded-md border bg-muted p-2">
             {personaNames.length === 0 ? (
               <p className="px-1 py-1 text-xs text-muted-foreground">No personas configured</p>
             ) : (

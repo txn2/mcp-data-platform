@@ -63,7 +63,7 @@ export function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40">
+    <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="w-full max-w-sm rounded-lg border bg-card p-6 shadow-sm">
         {/* Brand header: logo + title row, tagline beneath. Matches the
             pattern operators see on downstream portals (e.g. the
@@ -129,7 +129,7 @@ export function LoginForm() {
           onKeyDown={handleKeyDown}
           placeholder="X-API-Key"
           style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
-          className="mb-3 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+          className="mb-3 w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none ring-ring focus:ring-2 dark:bg-input/30"
           autoFocus={!oidcEnabled}
         />
         <button

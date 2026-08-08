@@ -202,7 +202,10 @@ export function ConfigToggle({
       >
         <span
           className={cn(
-            "pointer-events-none block h-4 w-4 rounded-full bg-background shadow-sm transition-transform",
+            // The knob takes whichever surface is furthest from the off-state
+            // `bg-muted` track in this mode — card in light, page in dark —
+            // the same rule the image viewer's checkerboard follows.
+            "pointer-events-none block h-4 w-4 rounded-full bg-card shadow-sm transition-transform dark:bg-background",
             checked ? "translate-x-4" : "translate-x-0",
           )}
         />

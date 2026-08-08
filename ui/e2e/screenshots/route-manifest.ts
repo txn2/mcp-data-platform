@@ -123,13 +123,12 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/assets/ast-001",
     category: "user",
     beforeCapture: async (page) => {
-      const btn = page.getByRole("main").getByRole("button", { name: /Feedback/ }).first();
-      if (await btn.isVisible()) {
-        await btn.click();
-        const row = page.getByText("We don't use that term");
-        if (await row.isVisible()) await row.click();
-        await page.waitForTimeout(500);
-      }
+      // Both clicks auto-wait. An `isVisible()` guard does not retry, so with
+      // the panel or its thread list a frame late the step was skipped without
+      // error and the detail slug captured the list — or the bare viewer.
+      await page.getByRole("main").getByRole("button", { name: /Feedback/ }).first().click();
+      await page.getByRole("button", { name: /We don't use that term/ }).click();
+      await page.waitForTimeout(500);
     },
   },
   {

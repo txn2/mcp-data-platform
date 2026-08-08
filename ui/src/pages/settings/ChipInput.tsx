@@ -26,7 +26,7 @@ export function ChipInput({
   label?: string;
 }) {
   return (
-    <div className="flex flex-wrap gap-1 rounded-md border bg-background p-1.5 focus-within:ring-2 focus-within:ring-ring">
+    <div className="flex flex-wrap gap-1 rounded-md border bg-transparent p-1.5 focus-within:ring-2 focus-within:ring-ring dark:bg-input/30">
       {values.map((v) => (
         <Badge key={v} variant="muted" className="gap-1 rounded font-mono text-[10px]">
           {v}

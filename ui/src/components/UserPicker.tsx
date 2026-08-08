@@ -118,7 +118,7 @@ export function UserPicker({ value, onChange, placeholder }: Props) {
         aria-expanded={showDropdown}
         aria-controls="user-picker-listbox"
         aria-activedescendant={highlight >= 0 ? `user-picker-opt-${highlight}` : undefined}
-        className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
+        className="w-full rounded-md border bg-transparent px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2 dark:bg-input/30"
       />
       {showDropdown && (
         <ul

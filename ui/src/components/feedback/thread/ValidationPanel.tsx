@@ -33,7 +33,11 @@ export function ValidationPanel({ threadId }: { threadId: string }) {
         rows={2}
         placeholder="Reason (required to dispute)…"
         aria-label="Dispute reason"
-        className="field-sizing-fixed min-h-0 w-full resize-y bg-background py-1.5 text-xs"
+        // The panel behind it is tinted amber, so the field takes the opaque
+        // card surface rather than inheriting the tint. `dark:` is repeated
+        // because ui/textarea's own `dark:bg-input/30` would otherwise win the
+        // cascade and let the amber back through in dark mode.
+        className="field-sizing-fixed min-h-0 w-full resize-y bg-card py-1.5 text-xs dark:bg-card"
       />
       <div className="mt-2 flex gap-2">
         <Button
