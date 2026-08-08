@@ -93,22 +93,42 @@ tint classes. Warnings, errors, and success notices are `Alert`, whose
 `destructive`/`warning`/`success` variants carry the same tints as the matching
 badge variants; dashed boxes are reserved for `EmptyState`.
 
-A modal is a `ui/dialog` whenever it wants a focus trap, Escape handling and
-ARIA wiring — which is every dialog the app opens over a page. The overlays
-that predate Radix keep `components/ModalShell.tsx`, and both routes take their
+A modal is a `ui/dialog` whenever it wants a focus trap and the full ARIA
+wiring — which is every dialog the app opens over a page. The overlays that
+predate Radix keep `components/ModalShell.tsx`, and both routes take their
 geometry from `lib/modal`, so a modal cannot be half-fixed: the overlay is the
 scroll container and `DialogContent` renders *inside* it, because the stock
 shadcn content centers itself with a translate and a dialog taller than the
 viewport then loses its own title bar off the top edge with no way to scroll
-back. `DialogContent` comes in two shapes — the default keeps its natural
-height and lets the backdrop scroll, and `capped` bounds the panel at the
-viewport and lays it out as a column so a header stays put while the body
-scrolls (`HelpDialog`). A capped panel carries no padding of its own: each
-region pads itself, or the header scrolls away with the body it heads.
+back. Both routes offer the same two shapes: `DialogContent`'s default and
+`ModalScroll` keep the panel's natural height and let the backdrop scroll,
+while `DialogContent capped` (`HelpDialog`) and `ModalShell` bound the panel at
+the viewport and lay it out as a column so a header and footer stay put while
+the body scrolls (`resources/modals/DetailModal`, whose header holds the
+resource's name and whose footer holds Download, Edit and Delete). A capped
+panel carries no padding of its own: each region pads itself, or the header
+scrolls away with the body it heads.
+Pick the natural shape only for a modal that is one block of bounded content —
+a confirmation, not a detail read whose sections grow with what it is showing.
 
-`showCloseButton={false}` is not decoration: `ConfirmDialog` and `PromptDialog`
-refuse Escape and outside clicks while a mutation is in flight, and Radix's
-corner Close would be the one exit those guards do not cover.
+Escape closes a `ModalShell`, a `ModalScroll` and a `DrawerShell` as well as a
+Radix dialog, so neither route leaves an overlay that only a pointer can
+dismiss. All three take it from `hooks/useEscapeToClose`, which is one
+implementation rather than three because each of its guards is a bug when a
+copy forgets it: it runs in the bubble phase and defers to `defaultPrevented`,
+which is how a `Select` or a nested `ui/dialog` opened over an overlay takes the
+key for itself (Radix's `DismissableLayer` handles Escape in the capture phase
+and marks the event handled when it dismisses), and it leaves a keydown raised
+mid-IME-composition alone, since that Escape cancels a candidate window rather
+than the form around it.
+
+`busy` is the hand-rolled route's version of the guard the Radix route already
+had: pass the same pending flag that disables the submit button and both Escape
+and the backdrop click are refused for the span of the mutation. Closing then
+would unmount the only component that renders the outcome, so a partial failure
+would read as success — the reason `ConfirmDialog` and `PromptDialog` refuse
+both in that state, and the reason `showCloseButton={false}` is not decoration
+there: Radix's corner Close would be the one exit those guards do not cover.
 
 The saved-things surfaces (Assets, Collections, the collection viewer) share
 three more app-level pieces alongside those patterns: `cards/ThumbCard` is the

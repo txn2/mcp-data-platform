@@ -79,7 +79,16 @@ export function CollectionsManagerDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <ModalScroll onClose={onClose} width="max-w-lg" label="Manage collections">
+    <ModalScroll
+      onClose={onClose}
+      width="max-w-lg"
+      label="Manage collections"
+      busy={
+        createMutation.isPending ||
+        updateMutation.isPending ||
+        deleteMutation.isPending
+      }
+    >
       <div className="rounded-lg border bg-card shadow-lg">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h3 className="flex items-center gap-2 text-sm font-semibold">

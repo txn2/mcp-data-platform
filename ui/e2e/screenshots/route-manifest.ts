@@ -4,6 +4,9 @@ import {
   openInsightReviewDrawer,
   openKnowledgeGraph,
   openKnowledgeGraphCorpus,
+  openPersonaScopeTab,
+  openResourceDetail,
+  openResourceLifecycle,
   openShareDialog,
   openShareDialogWithRecipient,
 } from "./route-actions";
@@ -72,13 +75,7 @@ export const routes: ScreenshotRoute[] = [
     slug: "resources",
     path: "/portal/resources",
     category: "user",
-    beforeCapture: async (page) => {
-      const tab = page.locator("text=data-engineer").first();
-      if (await tab.isVisible()) {
-        await tab.click();
-        await page.waitForTimeout(500);
-      }
-    },
+    beforeCapture: openPersonaScopeTab,
   },
   {
     // Resource upload modal.
@@ -438,20 +435,24 @@ export const routes: ScreenshotRoute[] = [
     },
   },
   {
-    // Resource detail: version history, usage, and the prompts attaching it
-    // (#1014). Opened on the fixture that carries a revision trail and read
-    // activity, so the capture shows the lifecycle surfaces populated.
+    // Resource detail as it opens: what the resource is, its metadata, and the
+    // inline preview. The dialog caps at the viewport and scrolls its body
+    // (#1233), so the lifecycle panels below the fold are a second capture
+    // rather than more of this one.
     slug: "resource-detail",
     path: "/portal/admin/resources",
     category: "admin",
-    beforeCapture: async (page) => {
-      await page
-        .getByText("SQL Style Guide", { exact: true })
-        .first()
-        .click({ timeout: 3_000 })
-        .catch(() => {});
-      await page.waitForTimeout(700);
-    },
+    beforeCapture: openResourceDetail,
+  },
+  {
+    // The same dialog scrolled to the lifecycle surfaces: the usage rollup, the
+    // version history with its restore actions, and the prompts attaching the
+    // resource (#1014). Opened on the fixture that carries a revision trail and
+    // read activity, so those surfaces are populated rather than empty.
+    slug: "resource-lifecycle",
+    path: "/portal/admin/resources",
+    category: "admin",
+    beforeCapture: openResourceLifecycle,
   },
   {
     slug: "admin-prompts",
@@ -462,13 +463,7 @@ export const routes: ScreenshotRoute[] = [
     slug: "admin-resources",
     path: "/portal/admin/resources",
     category: "admin",
-    beforeCapture: async (page) => {
-      const tab = page.locator("text=data-engineer").first();
-      if (await tab.isVisible()) {
-        await tab.click();
-        await page.waitForTimeout(500);
-      }
-    },
+    beforeCapture: openPersonaScopeTab,
   },
   {
     slug: "admin-keys",

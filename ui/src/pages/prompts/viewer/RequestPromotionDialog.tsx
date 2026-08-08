@@ -26,7 +26,7 @@ export function RequestPromotionDialog({
   onSubmit: () => void;
 }) {
   return (
-    <ModalScroll onClose={onCancel} width="max-w-sm" label="Request promotion">
+    <ModalScroll onClose={onCancel} width="max-w-sm" label="Request promotion" busy={pending}>
       <div className="space-y-4 rounded-lg border bg-card p-6 shadow-lg">
         <div>
           <h3 className="text-sm font-semibold">Request promotion</h3>

@@ -35,6 +35,7 @@ export function ChangesetDrawer({
     <DrawerShell
       title="Changeset Detail"
       onClose={onClose}
+      busy={rollback.isPending}
       footer={
         !changeset.rolled_back && (
           <Button

@@ -96,3 +96,47 @@ export async function openKnowledgeGraphCorpus(page: Page): Promise<void> {
     .catch(() => {});
   await page.waitForTimeout(900);
 }
+
+/**
+ * openResourceDetail opens the resources table's revision-trail fixture, which
+ * is the only one carrying both a read-activity rollup and a version history.
+ */
+export async function openResourceDetail(page: Page): Promise<void> {
+  await page
+    .getByText("SQL Style Guide", { exact: true })
+    .first()
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(700);
+}
+
+/**
+ * openResourceLifecycle opens the same dialog and scrolls its body to the
+ * lifecycle panels. Those sit below the fold of the capped panel (#1233), so a
+ * capture of the dialog as it opens shows the identity and the preview and
+ * cannot reach the usage rollup, the version trail, or the prompts attaching
+ * the resource -- which is what the docs prose beside this image documents.
+ */
+export async function openResourceLifecycle(page: Page): Promise<void> {
+  await openResourceDetail(page);
+  await page
+    .getByTestId("resource-usage")
+    .scrollIntoViewIfNeeded({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(500);
+}
+
+/**
+ * openPersonaScopeTab switches a resources table to the data-engineer persona
+ * scope, which is the one the fixtures populate. Both the user and admin
+ * resources captures want it, so it lives here rather than twice in the
+ * manifest. The tab is absent on a deployment with no persona resources, which
+ * is why its visibility is checked rather than assumed.
+ */
+export async function openPersonaScopeTab(page: Page): Promise<void> {
+  const tab = page.locator("text=data-engineer").first();
+  if (await tab.isVisible()) {
+    await tab.click();
+    await page.waitForTimeout(500);
+  }
+}
