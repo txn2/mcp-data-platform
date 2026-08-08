@@ -1,3 +1,4 @@
+import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 interface StatCardProps {
@@ -9,19 +10,14 @@ interface StatCardProps {
   className?: string;
 }
 
+// StatCard is one figure in a row of them: the ui/card face at a tile's
+// density, so a stat row and the sections under it are the same box.
 export function StatCard({ label, value, detail, className }: StatCardProps) {
   return (
-    <div
-      className={cn(
-        "rounded-lg border bg-card p-4 shadow-sm",
-        className,
-      )}
-    >
+    <Card className={cn("gap-1 p-4", className)}>
       <p className="text-sm font-medium text-muted-foreground">{label}</p>
-      <p className="mt-1 text-2xl font-bold">{value}</p>
-      {detail && (
-        <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
-      )}
-    </div>
+      <p className="text-2xl font-bold">{value}</p>
+      {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
+    </Card>
   );
 }

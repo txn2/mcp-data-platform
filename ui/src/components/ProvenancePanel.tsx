@@ -9,12 +9,16 @@ import {
   Check,
   type LucideIcon,
 } from "lucide-react";
-import * as Dialog from "@radix-ui/react-dialog";
 import {
-  modalNaturalClass,
-  modalOverlayClass,
-  modalRowClass,
-} from "@/components/ModalShell";
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import type { Provenance, ProvenanceToolCall } from "@/api/portal/types";
 import { formatToolName } from "@/lib/formatToolName";
 
@@ -183,70 +187,60 @@ function DetailModal({
   };
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className={modalOverlayClass}>
-          <div className={modalRowClass}>
-            <Dialog.Content
-              className={modalNaturalClass(
-                "max-w-lg",
-                "rounded-lg border bg-card p-6 shadow-lg focus:outline-none",
-              )}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Icon className="h-4 w-4 text-muted-foreground" />
+            {formatToolName(call.tool_name)}
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            {call.tool_name} &middot;{" "}
+            {new Date(call.timestamp).toLocaleString()}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-xs font-medium text-muted-foreground">
+              {sql ? "SQL Query" : "Parameters"}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              onClick={handleCopy}
+              className="text-muted-foreground"
+              title={sql ? "Copy SQL query" : "Copy parameters"}
+              aria-label={sql ? "Copy SQL query" : "Copy parameters"}
             >
-              <Dialog.Title className="flex items-center gap-2 text-base font-semibold">
-                <Icon className="h-4 w-4 text-muted-foreground" />
-                {formatToolName(call.tool_name)}
-              </Dialog.Title>
-              <Dialog.Description className="mt-1 text-xs text-muted-foreground">
-                {call.tool_name} &middot;{" "}
-                {new Date(call.timestamp).toLocaleString()}
-              </Dialog.Description>
-
-              <div className="mt-4">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {sql ? "SQL Query" : "Parameters"}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-                    title={sql ? "Copy SQL query" : "Copy parameters"}
-                    aria-label={sql ? "Copy SQL query" : "Copy parameters"}
-                  >
-                    {copied ? (
-                      <>
-                        <Check className="h-3.5 w-3.5 text-green-500" />
-                        Copied
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-3.5 w-3.5" />
-                        Copy
-                      </>
-                    )}
-                  </button>
-                </div>
-                <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-words">
-                  {detail}
-                </pre>
-              </div>
-
-              <div className="mt-4 flex justify-end">
-                <Dialog.Close asChild>
-                  <button
-                    type="button"
-                    className="rounded-md bg-secondary px-3 py-1.5 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-                  >
-                    Close
-                  </button>
-                </Dialog.Close>
-              </div>
-            </Dialog.Content>
+              {copied ? (
+                <>
+                  <Check className="text-emerald-600 dark:text-emerald-400" />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <Copy />
+                  Copy
+                </>
+              )}
+            </Button>
           </div>
-        </Dialog.Overlay>
-      </Dialog.Portal>
-    </Dialog.Root>
+          <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-words">
+            {detail}
+          </pre>
+        </div>
+
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="secondary">
+              Close
+            </Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -288,13 +282,17 @@ export function ProvenancePanel({ provenance }: Props) {
       </div>
 
       {otherCalls.length > 0 && (
-        <button
+        // A disclosure toggle, not an empty state: the dashed outline this
+        // used to carry is reserved for EmptyState.
+        <Button
           type="button"
+          variant="outline"
+          size="xs"
           onClick={() => setShowAll((v) => !v)}
-          className="w-full rounded-md border border-dashed py-1.5 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+          className="w-full text-muted-foreground"
         >
           {showAll ? "Show queries only" : `Show all ${calls.length} calls`}
-        </button>
+        </Button>
       )}
 
       <DetailModal

@@ -51,9 +51,24 @@ Status pills wrap `ui/badge` semantic variants (`success`/`warning`/`danger`/
 `info`/`muted`, e.g. `components/cards/StatusBadge.tsx`) rather than restating
 tint classes. Warnings, errors, and success notices are `Alert`, whose
 `destructive`/`warning`/`success` variants carry the same tints as the matching
-badge variants; dashed boxes are reserved for `EmptyState`. Modal geometry still
-goes through `components/ModalShell.tsx` (`ui/dialog.tsx` is vendored but
-existing modals keep the ModalShell contract).
+badge variants; dashed boxes are reserved for `EmptyState`.
+
+A modal is a `ui/dialog` whenever it wants a focus trap, Escape handling and
+ARIA wiring — which is every dialog the app opens over a page. The overlays
+that predate Radix keep `components/ModalShell.tsx`, and both routes take their
+geometry from `lib/modal`, so a modal cannot be half-fixed: the overlay is the
+scroll container and `DialogContent` renders *inside* it, because the stock
+shadcn content centers itself with a translate and a dialog taller than the
+viewport then loses its own title bar off the top edge with no way to scroll
+back. `DialogContent` comes in two shapes — the default keeps its natural
+height and lets the backdrop scroll, and `capped` bounds the panel at the
+viewport and lays it out as a column so a header stays put while the body
+scrolls (`HelpDialog`). A capped panel carries no padding of its own: each
+region pads itself, or the header scrolls away with the body it heads.
+
+`showCloseButton={false}` is not decoration: `ConfirmDialog` and `PromptDialog`
+refuse Escape and outside clicks while a mutation is in flight, and Radix's
+corner Close would be the one exit those guards do not cover.
 
 The saved-things surfaces (Assets, Collections, the collection viewer) share
 three more app-level pieces alongside those patterns: `cards/ThumbCard` is the
@@ -142,6 +157,17 @@ nothing to `FormData`. A dynamic form that reads its values back out of the DOM
 declares — pairs each listbox with a hidden input carrying the chosen value.
 `required` then has to be enforced in the submit handler rather than by the
 browser, since a hidden field cannot raise the native validation bubble.
+
+The app shell states its own rail vocabulary in `components/layout/sidebar/`:
+`NavButton` is the one face a rail row wears (a section link, the collapse
+toggle, Sign Out), so a row cannot look like a nav item in one part of the rail
+and like something else in another; `NavSection` is a captioned run of them;
+`navItems` holds both item lists and `isNavActive`, which decides which single
+item is lit for a route — including the routes a section owns but does not
+name (Collections and the viewers under Assets, `/knowledge/pages/:id` under
+Knowledge). A collapsed rail has no room for a waiting-work count, so
+`NavButton` shows a dot carrying the count's words instead: the cue survives
+the collapse even though the figure does not.
 
 The feedback surfaces share `components/feedback/ThreadBadges`, which owns both
 feedback vocabularies — the seven kinds a thread can be opened as, and the five

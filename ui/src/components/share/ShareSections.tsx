@@ -1,6 +1,18 @@
 import { Link, ChevronDown, ChevronRight, TriangleAlert } from "lucide-react";
 import type { SharePermission, ShareAccessMode } from "@/api/portal/types";
 import { UserPicker } from "@/components/UserPicker";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 /**
  * The two ways to create a share, split out of ShareDialog so the dialog file
@@ -13,6 +25,14 @@ import { UserPicker } from "@/components/UserPicker";
  * a link addressed to nobody cannot be restricted to a recipient.
  */
 export type LinkAccessMode = Exclude<ShareAccessMode, "restricted">;
+
+/** The lifetimes a link share can be minted with. */
+const TTL_OPTIONS = [
+  { value: "1h", label: "1 hour" },
+  { value: "24h", label: "24 hours" },
+  { value: "168h", label: "7 days" },
+  { value: "720h", label: "30 days" },
+];
 
 export interface LinkShareSectionProps {
   linkAccess: LinkAccessMode;
@@ -50,63 +70,60 @@ export function LinkShareSection({
   isPending,
 }: LinkShareSectionProps) {
   return (
-    <div className="mb-4">
+    <div>
       <h3 className="text-sm font-medium mb-2">Share by Link</h3>
       <div className="flex gap-2">
-        <select
+        <Select
           value={linkAccess}
-          onChange={(e) => setLinkAccess(e.target.value as LinkAccessMode)}
-          className="rounded-md border bg-background px-3 py-1.5 text-sm"
-          aria-label="Who can open this link"
+          onValueChange={(v) => setLinkAccess(v as LinkAccessMode)}
         >
-          <option value="authenticated">Signed-in users</option>
-          <option value="public">Anyone with the link</option>
-        </select>
-        <select
-          value={ttl}
-          onChange={(e) => setTtl(e.target.value)}
-          className="rounded-md border bg-background px-3 py-1.5 text-sm"
-          aria-label="Link expiration"
-        >
-          <option value="1h">1 hour</option>
-          <option value="24h">24 hours</option>
-          <option value="168h">7 days</option>
-          <option value="720h">30 days</option>
-        </select>
-        <button
-          type="button"
-          onClick={onCreate}
-          disabled={isPending}
-          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          <Link className="h-3.5 w-3.5" />
+          <SelectTrigger size="sm" aria-label="Who can open this link">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="authenticated">Signed-in users</SelectItem>
+            <SelectItem value="public">Anyone with the link</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={ttl} onValueChange={setTtl}>
+          <SelectTrigger size="sm" aria-label="Link expiration">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TTL_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button type="button" size="sm" onClick={onCreate} disabled={isPending}>
+          <Link />
           Create Link
-        </button>
+        </Button>
       </div>
       {linkAccess === "public" && (
-        <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
+        <Alert variant="warning" className="mt-2">
+          <TriangleAlert />
+          <AlertDescription className="text-xs">
             This link works without signing in. Anyone who receives it,
             including anyone it is forwarded to, can open the content.
-          </span>
-        </p>
+          </AlertDescription>
+        </Alert>
       )}
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="xs"
         onClick={() => setShowOptions((v) => !v)}
-        className="flex items-center gap-1 mt-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        className="mt-2 px-1 text-muted-foreground"
       >
-        {showOptions ? (
-          <ChevronDown className="h-3 w-3" />
-        ) : (
-          <ChevronRight className="h-3 w-3" />
-        )}
+        {showOptions ? <ChevronDown /> : <ChevronRight />}
         Options
-      </button>
+      </Button>
       {showOptions && (
         <div className="mt-2 space-y-2 rounded-md border bg-muted/30 p-3">
-          <label className="flex items-center gap-2 text-sm">
+          <Label className="text-sm font-normal">
             <input
               type="checkbox"
               checked={showExpiration}
@@ -114,21 +131,21 @@ export function LinkShareSection({
               className="rounded border-input"
             />
             Show expiration notice
-          </label>
+          </Label>
           <div>
-            <label
-              className="text-sm text-muted-foreground"
+            <Label
+              className="font-normal text-muted-foreground"
               htmlFor="notice-text"
             >
               Notice text
-            </label>
-            <input
+            </Label>
+            <Input
               id="notice-text"
               type="text"
               placeholder="Leave empty to hide the notice"
               value={noticeText}
               onChange={(e) => setNoticeText(e.target.value)}
-              className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
+              className="mt-1 text-sm"
             />
             <p className="mt-1 text-xs text-muted-foreground">
               Clear to hide notice bar entirely.
@@ -184,7 +201,7 @@ export function UserShareSection({
 }: UserShareSectionProps) {
   const hasRecipient = email.trim() !== "";
   return (
-    <div className="mb-4">
+    <div>
       <h3 className="text-sm font-medium mb-2">Share with User</h3>
       <p className="mb-2 text-xs text-muted-foreground">
         Only this person can open the link, and their access lasts until you
@@ -202,30 +219,34 @@ export function UserShareSection({
             setEmail(v);
           }}
         />
-        <select
+        <Select
           value={permission}
-          onChange={(e) => setPermission(e.target.value as SharePermission)}
-          className="rounded-md border bg-background px-3 py-1.5 text-sm"
-          aria-label="Permission"
+          onValueChange={(v) => setPermission(v as SharePermission)}
         >
-          <option value="viewer">Viewer</option>
-          <option value="editor">Editor</option>
-        </select>
-        <button
+          <SelectTrigger size="sm" aria-label="Permission">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="viewer">Viewer</SelectItem>
+            <SelectItem value="editor">Editor</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
           type="button"
+          variant="secondary"
+          size="sm"
           onClick={onShare}
           disabled={!hasRecipient || isPending}
-          className="rounded-md bg-secondary px-3 py-1.5 text-sm font-medium text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50"
         >
           Share
-        </button>
+        </Button>
       </div>
 
       {/* The notice and note only matter once someone is named: a link share
           addressed to nobody has no recipient to mail. */}
       {hasRecipient && (
         <div className="mt-2 space-y-2">
-          <label className="flex items-center gap-2 text-sm">
+          <Label className="text-sm font-normal">
             <input
               type="checkbox"
               checked={notify}
@@ -233,23 +254,25 @@ export function UserShareSection({
               className="rounded border-input"
             />
             Notify by email
-          </label>
+          </Label>
           {notify && (
             <div>
-              <label
-                className="text-xs text-muted-foreground"
+              <Label
+                className="text-xs font-normal text-muted-foreground"
                 htmlFor="share-message"
               >
                 Message (optional)
-              </label>
-              <textarea
+              </Label>
+              <Textarea
                 id="share-message"
                 rows={2}
                 maxLength={MAX_SHARE_MESSAGE}
                 placeholder="Here's the Q3 revenue breakdown you asked about"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                className="mt-1 w-full resize-y rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
+                // field-sizing-fixed: the primitive sizes to its content by
+                // default, which silently overrides the two rows asked for.
+                className="mt-1 field-sizing-fixed min-h-0 resize-y text-sm"
               />
               <p className="mt-1 text-xs text-muted-foreground">
                 Plain text only, included in the email. Links and formatting are
@@ -262,13 +285,10 @@ export function UserShareSection({
       )}
 
       {error && (
-        <p
-          role="alert"
-          className="mt-2 flex items-start gap-1.5 text-xs text-destructive"
-        >
-          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{error}</span>
-        </p>
+        <Alert variant="destructive" className="mt-2">
+          <TriangleAlert />
+          <AlertDescription className="text-xs">{error}</AlertDescription>
+        </Alert>
       )}
     </div>
   );

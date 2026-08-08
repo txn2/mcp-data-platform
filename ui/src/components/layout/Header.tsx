@@ -1,5 +1,10 @@
 import { useThemeStore } from "@/stores/theme";
 import { useBranding } from "@/api/portal/hooks";
+import { Button } from "@/components/ui/button";
+import {
+  SegmentedControl,
+  type SegmentedOption,
+} from "@/components/patterns/SegmentedControl";
 import { Sun, Moon, Monitor, Menu } from "lucide-react";
 
 interface Props {
@@ -7,10 +12,14 @@ interface Props {
   onMenuClick?: () => void;
 }
 
-const themeOptions = [
-  { value: "light" as const, icon: Sun, label: "Light" },
-  { value: "dark" as const, icon: Moon, label: "Dark" },
-  { value: "system" as const, icon: Monitor, label: "System" },
+type Theme = "light" | "dark" | "system";
+
+// The theme trio is a segmented switch, not a tablist: nothing below it is a
+// panel, the same page is redrawn in another palette.
+const themeOptions: SegmentedOption<Theme>[] = [
+  { value: "light", icon: Sun, label: "Light" },
+  { value: "dark", icon: Moon, label: "Dark" },
+  { value: "system", icon: Monitor, label: "System" },
 ];
 
 export function Header({ title, onMenuClick }: Props) {
@@ -22,13 +31,16 @@ export function Header({ title, onMenuClick }: Props) {
     <header className="flex h-14 items-center justify-between border-b bg-card px-4 sm:px-6">
       <div className="flex items-center gap-3">
         {onMenuClick && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
             onClick={onMenuClick}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Open navigation"
+            className="text-muted-foreground"
           >
-            <Menu className="h-5 w-5" />
-          </button>
+            <Menu className="size-5" />
+          </Button>
         )}
         <h1 className="text-lg font-semibold truncate">{title}</h1>
       </div>
@@ -38,22 +50,12 @@ export function Header({ title, onMenuClick }: Props) {
             v{version}
           </span>
         )}
-        <div className="flex gap-0.5 rounded-md border p-0.5">
-          {themeOptions.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setTheme(opt.value)}
-              title={opt.label}
-              className={`rounded-sm p-1.5 transition-colors ${
-                theme === opt.value
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <opt.icon className="h-3.5 w-3.5" />
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          label="Theme"
+          value={theme}
+          onChange={setTheme}
+          options={themeOptions}
+        />
       </div>
     </header>
   );

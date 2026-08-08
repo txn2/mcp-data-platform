@@ -32,6 +32,7 @@ import { UsersPanel } from "@/pages/settings/UsersPanel";
 import { ChangelogPage } from "@/pages/settings/ChangelogPage";
 import { AdminSettingsPage } from "@/pages/settings/AdminSettingsPage";
 import { ShieldAlert } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const pageTitles: Record<string, string> = {
   "/activity": "Activity",
@@ -87,13 +88,22 @@ function isAssetRoute(path: string): boolean {
   );
 }
 
-function AccessDenied() {
+/**
+ * AdminOnlyNotice is the defense-in-depth answer to an admin route reached by
+ * a non-admin: the rail does not offer these routes, so this is only ever seen
+ * on a typed URL or a stale link. Named apart from `components/AccessDenied`,
+ * which is the whole-page refusal for an account that maps to no persona.
+ */
+function AdminOnlyNotice() {
   return (
-    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-      <ShieldAlert className="h-12 w-12 mb-2 opacity-30" />
-      <p className="text-sm font-medium">Access Denied</p>
-      <p className="text-xs mt-1">You need admin privileges to view this section.</p>
-    </div>
+    <Alert variant="destructive" className="mx-auto max-w-md">
+      <ShieldAlert />
+      <AlertTitle>Access denied</AlertTitle>
+      <AlertDescription>
+        You need admin privileges to view this section. Ask an administrator to
+        grant your account an admin role.
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -363,7 +373,7 @@ export function AppShell() {
           )}
 
           {/* Admin routes — admin only (defense in depth) */}
-          {isAdminRoute && !isAdmin && <AccessDenied />}
+          {isAdminRoute && !isAdmin && <AdminOnlyNotice />}
           {isAdminRoute && isAdmin && (
             <>
               {/* Dashboard now hosts the merged MCP / API Gateway / Events
