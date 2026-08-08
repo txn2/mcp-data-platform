@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   flattenJson,
   visibleNodes,
@@ -296,8 +297,10 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
 
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      size="xs"
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(value);
@@ -310,10 +313,9 @@ export function CopyButton({ value, label }: { value: string; label: string }) {
       disabled={!value}
       title={label}
       aria-label={label}
-      className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent disabled:opacity-40"
     >
-      {copied ? <Check className="h-3 w-3 text-green-600 dark:text-green-400" /> : <Copy className="h-3 w-3" />}
+      {copied ? <Check className="text-emerald-600 dark:text-emerald-400" /> : <Copy />}
       {label}
-    </button>
+    </Button>
   );
 }

@@ -16,7 +16,11 @@ export function SortableHead<K extends string>({
 }: {
   label: string;
   sortKey: K;
-  sortBy: K;
+  // null when nothing is sorted yet. A caller must not stand a sentinel string
+  // in for that: a table whose keys are data (a CSV's own column names) can
+  // hold any string, including "", and the sentinel would then mark a real
+  // column as sorted.
+  sortBy: K | null;
   sortDir: "asc" | "desc";
   onSort: (key: K) => void;
   className?: string;

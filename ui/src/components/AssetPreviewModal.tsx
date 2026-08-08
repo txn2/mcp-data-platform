@@ -1,5 +1,12 @@
 import { useState, useEffect } from "react";
-import { X, Download, FileWarning } from "lucide-react";
+import { Download, FileWarning } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { apiFetchRaw } from "@/api/portal/client";
 import { LARGE_ASSET_THRESHOLD } from "@/api/portal/hooks";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
@@ -16,7 +23,12 @@ interface Props {
 /**
  * Modal overlay that fetches and renders an asset's content for quick preview.
  * Skips loading for assets exceeding LARGE_ASSET_THRESHOLD.
- * Press Escape or click the backdrop to close.
+ *
+ * The capped dialog shape keeps the asset's name and type in view while a long
+ * document scrolls under them; Escape and the backdrop close it, both from the
+ * dialog primitive rather than a hand-rolled key listener. Callers mount this
+ * only while a preview is open, so the dialog is always open once rendered and
+ * a close request goes straight back to them.
  */
 export function AssetPreviewModal({ assetId, assetName, contentType, sizeBytes, onClose }: Props) {
   const tooLarge = sizeBytes != null && sizeBytes > LARGE_ASSET_THRESHOLD;
@@ -45,52 +57,35 @@ export function AssetPreviewModal({ assetId, assetName, contentType, sizeBytes, 
     return () => { cancelled = true; };
   }, [assetId, tooLarge]);
 
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [onClose]);
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={onClose}
-        role="button"
-        tabIndex={-1}
-        aria-label="Close preview"
-      />
-      <div className="relative bg-card border rounded-lg shadow-xl w-full max-w-5xl mx-4 max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b shrink-0">
-          <h3 className="text-sm font-semibold truncate flex-1">{assetName}</h3>
-          <span className="text-xs text-muted-foreground shrink-0">{contentType}</span>
-          <button
-            onClick={onClose}
-            className="rounded-md p-1 hover:bg-accent text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent capped className="max-w-5xl" aria-describedby={undefined}>
+        {/* text-left as well as flex-row: DialogHeader's default pair is
+            `text-center sm:text-left`, so a row that only overrides the
+            direction still centres its text on a narrow viewport. */}
+        <DialogHeader className="shrink-0 flex-row items-center gap-3 border-b px-4 py-3 pr-12 text-left">
+          <DialogTitle className="min-w-0 flex-1 truncate text-sm">{assetName}</DialogTitle>
+          <span className="shrink-0 text-xs text-muted-foreground">{contentType}</span>
+        </DialogHeader>
 
-        {/* Content */}
-        <div className="flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto">
           {tooLarge ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
               <FileWarning className="h-10 w-10 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
                 Too large to preview ({formatBytes(sizeBytes!)})
               </p>
-              <a
-                href={`/api/v1/portal/assets/${assetId}/content`}
-                download={assetName}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Download
-              </a>
+              <Button asChild size="sm">
+                <a href={`/api/v1/portal/assets/${assetId}/content`} download={assetName}>
+                  <Download />
+                  Download
+                </a>
+              </Button>
             </div>
           ) : loading ? (
             <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
@@ -106,7 +101,7 @@ export function AssetPreviewModal({ assetId, assetName, contentType, sizeBytes, 
             </div>
           ) : null}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,11 +1,21 @@
 import { lazy, Suspense, useCallback, useMemo, useState } from "react";
-import { AlertTriangle, ChevronsDownUp, ChevronsUpDown, Search, ArrowUp, ArrowDown } from "lucide-react";
+import { AlertTriangle, ChevronsDownUp, ChevronsUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { SearchInput } from "@/components/patterns/SearchInput";
+import { SegmentedControl, type SegmentedOption } from "@/components/patterns/SegmentedControl";
 import { JsonTree, CopyButton } from "./json/JsonTree";
 import { valueAtPath, type JsonValue } from "./json/model";
 
 const CodeView = lazy(() => import("./CodeRenderer").then((m) => ({ default: m.CodeRenderer })));
 
 type ViewMode = "tree" | "formatted" | "raw";
+
+const VIEW_MODES: SegmentedOption<ViewMode>[] = [
+  { value: "tree", label: "Tree", text: "Tree" },
+  { value: "formatted", label: "Formatted", text: "Formatted" },
+  { value: "raw", label: "Raw", text: "Raw" },
+];
 
 interface JsonRendererProps {
   content: string;
@@ -60,13 +70,11 @@ export function JsonRenderer({ content, fileName }: JsonRendererProps) {
   if (parsed.error) {
     return (
       <div className="space-y-3" data-feedback-anchorable>
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-50 px-3 py-2 text-sm dark:bg-amber-950/30">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-          <div>
-            <p className="font-medium">This content is not valid JSON</p>
-            <p className="text-xs text-muted-foreground">{parsed.error}</p>
-          </div>
-        </div>
+        <Alert variant="warning">
+          <AlertTriangle />
+          <AlertTitle>This content is not valid JSON</AlertTitle>
+          <AlertDescription>{parsed.error}</AlertDescription>
+        </Alert>
         <Suspense fallback={<pre className="rounded-lg border bg-card p-4 text-xs">{content}</pre>}>
           <CodeView content={content} language="json" fileName={fileName} />
         </Suspense>
@@ -82,78 +90,60 @@ export function JsonRenderer({ content, fileName }: JsonRendererProps) {
   return (
     <div className="space-y-2" data-feedback-anchorable>
       <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-md border text-xs">
-          {(["tree", "formatted", "raw"] as ViewMode[]).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setMode(m)}
-              className={`px-3 py-1.5 capitalize transition-colors first:rounded-l-md last:rounded-r-md ${
-                mode === m ? "bg-accent font-medium" : "hover:bg-accent/50"
-              }`}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl label="JSON view" value={mode} onChange={setMode} options={VIEW_MODES} />
 
         {mode === "tree" && (
           <>
-            <button
-              type="button"
-              onClick={() => setExpandToken((t) => t + 1)}
-              className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs hover:bg-accent"
-            >
-              <ChevronsUpDown className="h-3 w-3" />
+            <Button type="button" variant="outline" size="xs" onClick={() => setExpandToken((t) => t + 1)}>
+              <ChevronsUpDown />
               Expand all
-            </button>
-            <button
-              type="button"
-              onClick={() => setCollapseToken((t) => t + 1)}
-              className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs hover:bg-accent"
-            >
-              <ChevronsDownUp className="h-3 w-3" />
+            </Button>
+            <Button type="button" variant="outline" size="xs" onClick={() => setCollapseToken((t) => t + 1)}>
+              <ChevronsDownUp />
               Collapse all
-            </button>
+            </Button>
 
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setActiveMatch(0);
-                }}
-                placeholder="Search keys and values"
-                aria-label="Search keys and values"
-                className="w-56 rounded-md border bg-transparent py-1.5 pl-7 pr-2 text-xs outline-none ring-ring focus:ring-2 dark:bg-input/30"
-              />
-            </div>
+            <SearchInput
+              type="search"
+              className="w-56"
+              // md:text-xs as well as text-xs: ui/input's base is
+              // `text-base md:text-sm`, and a bare `text-xs` leaves the
+              // breakpoint rule standing on every desktop viewport.
+              inputClassName="h-8 text-xs md:text-xs"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setActiveMatch(0);
+              }}
+              placeholder="Search keys and values"
+              aria-label="Search keys and values"
+            />
 
             {query.trim() !== "" && (
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <span aria-live="polite">
                   {matches.length === 0 ? "No matches" : `${activeMatch + 1} of ${matches.length}`}
                 </span>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="icon-xs"
                   onClick={() => step(-1)}
                   disabled={matches.length === 0}
                   aria-label="Previous match"
-                  className="rounded border p-1 hover:bg-accent disabled:opacity-40"
                 >
-                  <ArrowUp className="h-3 w-3" />
-                </button>
-                <button
+                  <ArrowUp />
+                </Button>
+                <Button
                   type="button"
+                  variant="outline"
+                  size="icon-xs"
                   onClick={() => step(1)}
                   disabled={matches.length === 0}
                   aria-label="Next match"
-                  className="rounded border p-1 hover:bg-accent disabled:opacity-40"
                 >
-                  <ArrowDown className="h-3 w-3" />
-                </button>
+                  <ArrowDown />
+                </Button>
               </div>
             )}
           </>

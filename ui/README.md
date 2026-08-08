@@ -164,7 +164,11 @@ drive it. The dashboard's primary bar uses the `line` variant, which needs
 `group-data-[orientation=horizontal]/tabs:h-auto` on the list (plain `h-auto`
 loses to the variant's compound selector) and, when the list carries the
 bar's own `border-b`, `after:bottom-[-1px]` on the trigger so the active
-underline lands on that border instead of below it.
+underline lands on that border instead of below it. A Radix trigger selects on
+`mousedown`, not `click`, so a jsdom spec drives it with
+`fireEvent.mouseDown` — `fireEvent.click` leaves the bar on its old tab and the
+assertion that follows fails somewhere else entirely. Playwright's `click()` is
+a real mouse press and needs no such accommodation.
 
 `MarkdownEditor` sizes itself to its parent (`h-full`), so it must not be a
 stretched grid item: in a grid cell it renders as tall as the cell *plus* its

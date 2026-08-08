@@ -3,6 +3,11 @@ import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { EditorView, placeholder as cmPlaceholder } from "@codemirror/view";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
+import { Button } from "@/components/ui/button";
+import {
+  SegmentedControl,
+  type SegmentedOption,
+} from "@/components/patterns/SegmentedControl";
 import { cn } from "@/lib/utils";
 import {
   Bold,
@@ -81,10 +86,10 @@ const TOOLBAR_GROUPS = [
   ],
 ];
 
-const VIEW_MODES: { mode: ViewMode; icon: typeof Pencil; label: string }[] = [
-  { mode: "edit", icon: Pencil, label: "Editor" },
-  { mode: "split", icon: Columns2, label: "Split" },
-  { mode: "preview", icon: Eye, label: "Preview" },
+const VIEW_MODES: SegmentedOption<ViewMode>[] = [
+  { value: "edit", icon: Pencil, label: "Editor" },
+  { value: "split", icon: Columns2, label: "Split" },
+  { value: "preview", icon: Eye, label: "Preview" },
 ];
 
 export function MarkdownEditor({
@@ -143,39 +148,34 @@ export function MarkdownEditor({
                   <div className="mx-1 h-4 w-px bg-border" />
                 )}
                 {group.map((btn) => (
-                  <button
+                  <Button
                     key={btn.label}
                     type="button"
+                    variant="ghost"
+                    // icon-sm, not icon-xs: SegmentedControl sizes an
+                    // icon-only face at icon-sm, and the view switch shares
+                    // this toolbar row with these.
+                    size="icon-sm"
                     title={btn.label}
+                    aria-label={btn.label}
                     onClick={() => handleToolbar(btn.before, btn.after, btn.placeholder)}
-                    className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className="text-muted-foreground"
                   >
-                    <btn.icon className="h-3.5 w-3.5" />
-                  </button>
+                    <btn.icon />
+                  </Button>
                 ))}
               </div>
             ))}
         </div>
 
         {/* View mode toggle */}
-        <div className="flex items-center gap-0.5 rounded-md border bg-card p-0.5">
-          {VIEW_MODES.map(({ mode, icon: Icon, label }) => (
-            <button
-              key={mode}
-              type="button"
-              title={label}
-              onClick={() => setViewMode(mode)}
-              className={cn(
-                "rounded px-2 py-1 text-xs font-medium transition-colors",
-                viewMode === mode
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          label="Editor view"
+          value={viewMode}
+          onChange={setViewMode}
+          options={VIEW_MODES}
+          className="bg-card"
+        />
       </div>
 
       {/* Editor + Preview panes */}

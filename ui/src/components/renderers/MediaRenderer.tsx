@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Download, FileAudio, FileText, FileVideo } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/format";
 
 interface MediaRendererProps {
@@ -48,14 +49,12 @@ function MediaFrame({
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>{contentType}</span>
         {sizeBytes ? <span>· {formatBytes(sizeBytes)}</span> : null}
-        <a
-          href={contentUrl}
-          download={fileName}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-foreground hover:bg-accent"
-        >
-          <Download className="h-3 w-3" />
-          Download
-        </a>
+        <Button asChild variant="outline" size="xs" className="ml-auto text-foreground">
+          <a href={contentUrl} download={fileName}>
+            <Download />
+            Download
+          </a>
+        </Button>
       </div>
 
       {failed ? (
@@ -124,14 +123,12 @@ export function PdfRenderer({ contentUrl, fileName, sizeBytes }: PdfRendererProp
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>PDF document</span>
         {sizeBytes ? <span>· {formatBytes(sizeBytes)}</span> : null}
-        <a
-          href={contentUrl}
-          download={fileName}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-foreground hover:bg-accent"
-        >
-          <Download className="h-3 w-3" />
-          Download
-        </a>
+        <Button asChild variant="outline" size="xs" className="ml-auto text-foreground">
+          <a href={contentUrl} download={fileName}>
+            <Download />
+            Download
+          </a>
+        </Button>
       </div>
       <object
         data={contentUrl}
@@ -146,14 +143,12 @@ export function PdfRenderer({ contentUrl, fileName, sizeBytes }: PdfRendererProp
             <p className="text-sm font-medium">This browser cannot display PDFs inline</p>
             <p className="mt-1 text-xs text-muted-foreground">Download the file to open it in a PDF reader.</p>
           </div>
-          <a
-            href={contentUrl}
-            download={fileName}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Download className="h-4 w-4" />
-            Download
-          </a>
+          <Button asChild>
+            <a href={contentUrl} download={fileName}>
+              <Download />
+              Download
+            </a>
+          </Button>
         </div>
       </object>
     </div>

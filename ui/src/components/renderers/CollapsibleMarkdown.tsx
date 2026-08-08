@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
 // COLLAPSED_MAX_PX is the clamped height when content overflows, roughly
@@ -67,13 +68,15 @@ export function CollapsibleMarkdown({
         )}
       </div>
       {overflowing && (
-        <button
+        <Button
           type="button"
+          variant="link"
+          size="xs"
           onClick={() => setExpanded((v) => !v)}
-          className="mt-1 text-xs font-medium text-primary hover:underline"
+          className="mt-1 px-0"
         >
           {expanded ? "Show less" : "Show more"}
-        </button>
+        </Button>
       )}
     </div>
   );
