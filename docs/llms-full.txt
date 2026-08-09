@@ -856,7 +856,7 @@ Explicit session handles (`sessions.handles`, issue #792) adopt the pattern the 
 | `s3_semantic_enrichment` | bool | true | Add DataHub context to S3 results (default on; set false to disable) |
 | `unwrap_json` | bool | true | Auto-unwrap single-row VARCHAR-of-JSON results (e.g. from raw_query) |
 | `column_context_filtering` | bool | true | Limit column enrichment to SQL-referenced columns |
-| `estimate_row_counts` | bool | false | Run `SELECT COUNT(*)` when reporting table availability so enriched DataHub results carry an estimated row count. Off by default: `COUNT(*)` can trigger a full table scan and make search enrichment very slow |
+| `estimate_row_counts` | bool | false | Run `SELECT COUNT(*)` when reporting table availability so enriched DataHub results carry an estimated row count, and so the insight review path can state a row count beside a pending claim (and flag one that disagrees). Off by default: `COUNT(*)` can trigger a full table scan and make search enrichment very slow |
 | `search_schema_preview` | bool | true | Add bounded column-name+type preview to datahub_search query_context |
 | `schema_preview_max_columns` | int | 15 | Max columns per entity in schema preview |
 | `semantic_fallback` | bool | false | When a Trino-table URN lookup misses on the semantic provider, fall back to a similarity search and surface the top-K hits as SUGGESTED matches annotated with `match_kind: semantic`. Default off; operators opt in. Issue #444. |
@@ -2316,6 +2316,8 @@ HTTP endpoints for managing insights and changesets. All endpoints require admin
 | `until` | RFC3339 | Filter by creation time (before) |
 | `page` | integer | Page number (1-based) |
 | `per_page` | integer | Results per page (default 20, max 100) |
+
+**Observed warehouse state:** a pending insight whose entity URN resolves through the configured query provider to an available table carries `observed_entities` on both the list and detail payloads: one entry per resolved URN with `urn`, `query_table`, `connection`, `estimated_rows` (only when `enrichment.estimate_row_counts` is on), and an advisory `conflict` (`claimed_rows`, `observed_rows`, `message`) when the claim text states an integer the table disagrees with. When a claim states several numbers, the one nearest the estimate is compared. The marker never blocks promotion — approve and reject are unchanged. The field is omitted entirely, leaving the payload byte-identical to before, for a decided insight, an unresolvable URN, an unavailable table, a lookup that outran the read path's budget, and a deployment with no (or a noop) query provider.
 
 ### Changeset Endpoints
 

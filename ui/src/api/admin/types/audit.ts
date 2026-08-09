@@ -123,6 +123,30 @@ export interface RelatedColumn {
   relevance: string;
 }
 
+/**
+ * ClaimConflict is the advisory marker raised when a pending claim states a
+ * number and the table currently estimates a different one. It never blocks a
+ * promotion: the reviewer decides.
+ */
+export interface ClaimConflict {
+  claimed_rows: number;
+  observed_rows: number;
+  message: string;
+}
+
+/**
+ * ObservedEntity is the warehouse state the platform observed for one entity a
+ * pending insight is about: what it is queryable as, and how many rows it holds
+ * right now. Present only for a URN the query provider resolved as available.
+ */
+export interface ObservedEntity {
+  urn: string;
+  query_table?: string;
+  connection?: string;
+  estimated_rows?: number;
+  conflict?: ClaimConflict;
+}
+
 export interface Insight {
   id: string;
   created_at: string;
@@ -142,6 +166,12 @@ export interface Insight {
   applied_by?: string;
   applied_at?: string;
   changeset_ref?: string;
+  /**
+   * The warehouse state observed for this insight's entities (#1219). Served
+   * only while the insight is pending and only for URNs the query provider
+   * resolved as available, so it is absent on most insights.
+   */
+  observed_entities?: ObservedEntity[];
 }
 
 export interface InsightListResponse {

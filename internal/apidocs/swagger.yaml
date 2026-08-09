@@ -626,7 +626,7 @@ definitions:
     properties:
       data:
         items:
-          $ref: '#/definitions/knowledge.Insight'
+          $ref: '#/definitions/admin.insightView'
         type: array
       page:
         example: 1
@@ -649,6 +649,77 @@ definitions:
       insight_text:
         example: The amount column represents gross margin before returns.
         type: string
+    type: object
+  admin.insightView:
+    properties:
+      applied_at:
+        type: string
+      applied_by:
+        type: string
+      captured_by:
+        example: analyst@example.com
+        type: string
+      category:
+        example: correction
+        type: string
+      changeset_ref:
+        type: string
+      confidence:
+        example: high
+        type: string
+      created_at:
+        example: "2026-01-15T14:30:00Z"
+        type: string
+      entity_urns:
+        items:
+          type: string
+        type: array
+      id:
+        example: a1b2c3d4e5f67890a1b2c3d4e5f67890
+        type: string
+      insight_text:
+        example: The amount column represents gross margin before returns, not revenue.
+        type: string
+      observed_entities:
+        items:
+          $ref: '#/definitions/insightobs.Observation'
+        type: array
+      persona:
+        example: analyst
+        type: string
+      related_columns:
+        items:
+          $ref: '#/definitions/knowledge.RelatedColumn'
+        type: array
+      review_notes:
+        example: Verified with data engineering team
+        type: string
+      reviewed_at:
+        type: string
+      reviewed_by:
+        description: Lifecycle fields (populated by migrations 000007 and 000008)
+        example: admin@example.com
+        type: string
+      session_id:
+        example: sess_abc123
+        type: string
+      sink_class:
+        description: |-
+          SinkClass is the #633 organizing axis carried onto the backing memory
+          record so the unified write path and apply_knowledge sink router can
+          route by it. Empty for insights captured before #633.
+        example: schema_entity
+        type: string
+      source:
+        example: user
+        type: string
+      status:
+        example: pending
+        type: string
+      suggested_actions:
+        items:
+          $ref: '#/definitions/knowledge.SuggestedAction'
+        type: array
     type: object
   admin.personaContextDetail:
     properties:
@@ -2316,6 +2387,35 @@ definitions:
         example: ok
         type: string
     type: object
+  insightobs.Conflict:
+    properties:
+      claimed_rows:
+        example: 1140
+        type: integer
+      message:
+        example: claim states 1140; the table currently estimates 1200
+        type: string
+      observed_rows:
+        example: 1200
+        type: integer
+    type: object
+  insightobs.Observation:
+    properties:
+      conflict:
+        $ref: '#/definitions/insightobs.Conflict'
+      connection:
+        example: primary
+        type: string
+      estimated_rows:
+        example: 1200
+        type: integer
+      query_table:
+        example: iceberg.retail.daily_sales
+        type: string
+      urn:
+        example: urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)
+        type: string
+    type: object
   knowledge.Changeset:
     properties:
       applied_by:
@@ -2366,73 +2466,6 @@ definitions:
         type: string
       latest_at:
         type: string
-    type: object
-  knowledge.Insight:
-    properties:
-      applied_at:
-        type: string
-      applied_by:
-        type: string
-      captured_by:
-        example: analyst@example.com
-        type: string
-      category:
-        example: correction
-        type: string
-      changeset_ref:
-        type: string
-      confidence:
-        example: high
-        type: string
-      created_at:
-        example: "2026-01-15T14:30:00Z"
-        type: string
-      entity_urns:
-        items:
-          type: string
-        type: array
-      id:
-        example: a1b2c3d4e5f67890a1b2c3d4e5f67890
-        type: string
-      insight_text:
-        example: The amount column represents gross margin before returns, not revenue.
-        type: string
-      persona:
-        example: analyst
-        type: string
-      related_columns:
-        items:
-          $ref: '#/definitions/knowledge.RelatedColumn'
-        type: array
-      review_notes:
-        example: Verified with data engineering team
-        type: string
-      reviewed_at:
-        type: string
-      reviewed_by:
-        description: Lifecycle fields (populated by migrations 000007 and 000008)
-        example: admin@example.com
-        type: string
-      session_id:
-        example: sess_abc123
-        type: string
-      sink_class:
-        description: |-
-          SinkClass is the #633 organizing axis carried onto the backing memory
-          record so the unified write path and apply_knowledge sink router can
-          route by it. Empty for insights captured before #633.
-        example: schema_entity
-        type: string
-      source:
-        example: user
-        type: string
-      status:
-        example: pending
-        type: string
-      suggested_actions:
-        items:
-          $ref: '#/definitions/knowledge.SuggestedAction'
-        type: array
     type: object
   knowledge.InsightStats:
     properties:
@@ -7465,7 +7498,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/knowledge.Insight'
+            $ref: '#/definitions/admin.insightView'
         "404":
           description: Not Found
           schema:

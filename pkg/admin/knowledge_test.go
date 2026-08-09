@@ -284,7 +284,7 @@ func TestNewKnowledgeHandler(t *testing.T) {
 	store := &mockInsightStore{}
 	csStore := &mockChangesetStore{}
 	writer := &mockDataHubWriter{}
-	kh := NewKnowledgeHandler(store, csStore, writer, nil)
+	kh := NewKnowledgeHandler(store, csStore, writer, nil, nil)
 	require.NotNil(t, kh)
 	assert.Equal(t, store, kh.insightStore)
 	assert.Equal(t, csStore, kh.changesetStore)
@@ -298,7 +298,7 @@ func TestListInsights(t *testing.T) {
 		store := &mockInsightStore{
 			listResult: []mockListResult{{insights: nil, total: 0, err: nil}},
 		}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
 		w := httptest.NewRecorder()
@@ -323,7 +323,7 @@ func TestListInsights(t *testing.T) {
 		store := &mockInsightStore{
 			listResult: []mockListResult{{insights: insights, total: 5, err: nil}},
 		}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights?page=1&per_page=2", http.NoBody)
 		w := httptest.NewRecorder()
@@ -344,7 +344,7 @@ func TestListInsights(t *testing.T) {
 		store := &mockInsightStore{
 			listResult: []mockListResult{{insights: nil, total: 0, err: nil}},
 		}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights?status=pending&category=correction&confidence=high", http.NoBody)
 		w := httptest.NewRecorder()
@@ -358,7 +358,7 @@ func TestListInsights(t *testing.T) {
 		store := &mockInsightStore{
 			listResult: []mockListResult{{err: fmt.Errorf("db connection failed")}},
 		}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
 		w := httptest.NewRecorder()
@@ -381,7 +381,7 @@ func TestGetInsight(t *testing.T) {
 			Category:    "correction",
 		}
 		store := &mockInsightStore{getResult: insight}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights/ins-123", http.NoBody)
 		req.SetPathValue("id", "ins-123")
@@ -397,7 +397,7 @@ func TestGetInsight(t *testing.T) {
 
 	t.Run("returns 404 when not found", func(t *testing.T) {
 		store := &mockInsightStore{getErr: fmt.Errorf("not found")}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights/nonexistent", http.NoBody)
 		req.SetPathValue("id", "nonexistent")
@@ -419,7 +419,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 			Status: knowledge.StatusPending,
 		}
 		store := &mockInsightStore{getResult: insight}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		body := `{"status":"approved","review_notes":"looks good"}`
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123/status", strings.NewReader(body))
@@ -440,7 +440,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 			Status: knowledge.StatusPending,
 		}
 		store := &mockInsightStore{getResult: insight}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		body := `{"status":"rejected","review_notes":"not relevant"}`
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-456/status", strings.NewReader(body))
@@ -453,7 +453,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 
 	t.Run("invalid target status returns 400", func(t *testing.T) {
 		store := &mockInsightStore{}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		body := `{"status":"applied"}`
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123/status", strings.NewReader(body))
@@ -472,7 +472,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 			Status: knowledge.StatusRejected, // rejected is terminal — cannot approve
 		}
 		store := &mockInsightStore{getResult: insight}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		body := `{"status":"approved"}`
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-789/status", strings.NewReader(body))
@@ -487,7 +487,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 
 	t.Run("insight not found returns 404", func(t *testing.T) {
 		store := &mockInsightStore{getErr: fmt.Errorf("not found")}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/missing/status", strings.NewReader(statusApprovedBody))
 		req.SetPathValue("id", "missing")
@@ -499,7 +499,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 
 	t.Run("invalid JSON body returns 400", func(t *testing.T) {
 		store := &mockInsightStore{}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123/status", strings.NewReader("{invalid"))
 		req.SetPathValue("id", "ins-123")
@@ -518,7 +518,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 			getResult:       insight,
 			updateStatusErr: fmt.Errorf("db error"),
 		}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-500/status", strings.NewReader(statusApprovedBody))
 		req.SetPathValue("id", "ins-500")
@@ -534,7 +534,7 @@ func TestUpdateInsightStatus(t *testing.T) {
 			Status: knowledge.StatusPending,
 		}
 		store := &mockInsightStore{getResult: insight}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		ctx := context.WithValue(context.Background(), adminUserKey, &User{UserID: "admin-1", Roles: []string{"admin"}})
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-admin/status", strings.NewReader(statusApprovedBody))
@@ -556,7 +556,7 @@ func TestUpdateInsight(t *testing.T) {
 			Status: knowledge.StatusPending,
 		}
 		store := &mockInsightStore{getResult: insight}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		body := `{"insight_text":"updated text that is long enough","category":"correction"}`
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-edit", strings.NewReader(body))
@@ -577,7 +577,7 @@ func TestUpdateInsight(t *testing.T) {
 			Status: knowledge.StatusApplied,
 		}
 		store := &mockInsightStore{getResult: insight}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		body := `{"insight_text":"new text"}`
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-applied", strings.NewReader(body))
@@ -592,7 +592,7 @@ func TestUpdateInsight(t *testing.T) {
 
 	t.Run("insight not found returns 404", func(t *testing.T) {
 		store := &mockInsightStore{getErr: fmt.Errorf("not found")}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		body := `{"insight_text":"new text"}`
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/missing", strings.NewReader(body))
@@ -605,7 +605,7 @@ func TestUpdateInsight(t *testing.T) {
 
 	t.Run("invalid JSON body returns 400", func(t *testing.T) {
 		store := &mockInsightStore{}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-123", strings.NewReader("{bad"))
 		req.SetPathValue("id", "ins-123")
@@ -624,7 +624,7 @@ func TestUpdateInsight(t *testing.T) {
 			getResult: insight,
 			updateErr: fmt.Errorf("update failed"),
 		}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		body := `{"insight_text":"updated text"}`
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/knowledge/insights/ins-err", strings.NewReader(body))
@@ -649,7 +649,7 @@ func TestGetStats(t *testing.T) {
 		store := &mockInsightStore{
 			statsResult: &mockStatsResult{stats: stats, err: nil},
 		}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights/stats", http.NoBody)
 		w := httptest.NewRecorder()
@@ -666,7 +666,7 @@ func TestGetStats(t *testing.T) {
 		store := &mockInsightStore{
 			statsResult: &mockStatsResult{stats: nil, err: fmt.Errorf("stats failed")},
 		}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights/stats", http.NoBody)
 		w := httptest.NewRecorder()
@@ -679,7 +679,7 @@ func TestGetStats(t *testing.T) {
 		store := &mockInsightStore{
 			statsResult: &mockStatsResult{stats: &emptyStats, err: nil},
 		}
-		kh := NewKnowledgeHandler(store, nil, nil, nil)
+		kh := NewKnowledgeHandler(store, nil, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights/stats?status=pending&category=correction", http.NoBody)
 		w := httptest.NewRecorder()
@@ -697,7 +697,7 @@ func TestListChangesets(t *testing.T) {
 		csStore := &mockChangesetStore{
 			listResult: []mockChangesetListResult{{changesets: nil, total: 0, err: nil}},
 		}
-		kh := NewKnowledgeHandler(nil, csStore, nil, nil)
+		kh := NewKnowledgeHandler(nil, csStore, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets", http.NoBody)
 		w := httptest.NewRecorder()
@@ -721,7 +721,7 @@ func TestListChangesets(t *testing.T) {
 		csStore := &mockChangesetStore{
 			listResult: []mockChangesetListResult{{changesets: changesets, total: 10, err: nil}},
 		}
-		kh := NewKnowledgeHandler(nil, csStore, nil, nil)
+		kh := NewKnowledgeHandler(nil, csStore, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets?page=2&per_page=2", http.NoBody)
 		w := httptest.NewRecorder()
@@ -739,7 +739,7 @@ func TestListChangesets(t *testing.T) {
 		csStore := &mockChangesetStore{
 			listResult: []mockChangesetListResult{{err: fmt.Errorf("db error")}},
 		}
-		kh := NewKnowledgeHandler(nil, csStore, nil, nil)
+		kh := NewKnowledgeHandler(nil, csStore, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets", http.NoBody)
 		w := httptest.NewRecorder()
@@ -752,7 +752,7 @@ func TestListChangesets(t *testing.T) {
 		csStore := &mockChangesetStore{
 			listResult: []mockChangesetListResult{{changesets: nil, total: 0, err: nil}},
 		}
-		kh := NewKnowledgeHandler(nil, csStore, nil, nil)
+		kh := NewKnowledgeHandler(nil, csStore, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets?entity_urn=urn:test&rolled_back=true", http.NoBody)
 		w := httptest.NewRecorder()
@@ -775,7 +775,7 @@ func TestGetChangeset(t *testing.T) {
 			NewValue:      map[string]any{"description": "new"},
 		}
 		csStore := &mockChangesetStore{getResult: cs}
-		kh := NewKnowledgeHandler(nil, csStore, nil, nil)
+		kh := NewKnowledgeHandler(nil, csStore, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets/cs-123", http.NoBody)
 		req.SetPathValue("id", "cs-123")
@@ -791,7 +791,7 @@ func TestGetChangeset(t *testing.T) {
 
 	t.Run("returns 404 when not found", func(t *testing.T) {
 		csStore := &mockChangesetStore{getErr: fmt.Errorf("not found")}
-		kh := NewKnowledgeHandler(nil, csStore, nil, nil)
+		kh := NewKnowledgeHandler(nil, csStore, nil, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/changesets/nonexistent", http.NoBody)
 		req.SetPathValue("id", "nonexistent")
@@ -828,7 +828,7 @@ func TestRollbackChangeset(t *testing.T) {
 		writer := &mockDataHubWriter{}
 		csStore := &mockChangesetStore{getResult: cs}
 		insightStore := &mockInsightStore{}
-		kh := NewKnowledgeHandler(insightStore, csStore, writer, nil)
+		kh := NewKnowledgeHandler(insightStore, csStore, writer, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-roll/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-roll")
@@ -850,7 +850,7 @@ func TestRollbackChangeset(t *testing.T) {
 		cs := addTermChangeset("cs-keep", "urn:li:glossaryTerm:canonical")
 		writer := &mockDataHubWriter{}
 		csStore := &mockChangesetStore{getResult: cs}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, writer, nil)
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, writer, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-keep/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-keep")
@@ -865,7 +865,7 @@ func TestRollbackChangeset(t *testing.T) {
 	t.Run("already rolled back returns 409", func(t *testing.T) {
 		cs := &knowledge.Changeset{ID: "cs-already", RolledBack: true}
 		csStore := &mockChangesetStore{getResult: cs}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil)
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-already/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-already")
@@ -878,7 +878,7 @@ func TestRollbackChangeset(t *testing.T) {
 
 	t.Run("changeset not found returns 404", func(t *testing.T) {
 		csStore := &mockChangesetStore{getErr: fmt.Errorf("not found")}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil)
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/missing/rollback", http.NoBody)
 		req.SetPathValue("id", "missing")
@@ -897,7 +897,7 @@ func TestRollbackChangeset(t *testing.T) {
 			},
 		}
 		csStore := &mockChangesetStore{getResult: cs}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil)
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-unrev/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-unrev")
@@ -923,7 +923,7 @@ func TestRollbackChangeset(t *testing.T) {
 			getResult:  cs,
 			listResult: []mockChangesetListResult{{changesets: []knowledge.Changeset{*newer}, total: 1}},
 		}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil)
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-old/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-old")
@@ -947,7 +947,7 @@ func TestRollbackChangeset(t *testing.T) {
 		}
 		writer := &mockDataHubWriter{updateDescErr: fmt.Errorf("datahub down")}
 		csStore := &mockChangesetStore{getResult: cs}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, writer, nil)
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, writer, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-fail/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-fail")
@@ -971,7 +971,7 @@ func TestRollbackChangeset(t *testing.T) {
 		}
 		writer := &mockDataHubWriter{}
 		csStore := &mockChangesetStore{getResult: cs}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, writer, nil)
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, writer, nil, nil)
 
 		ctx := context.WithValue(context.Background(), adminUserKey, &User{UserID: "admin-1", Roles: []string{"admin"}})
 		req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/changesets/cs-desc/rollback", http.NoBody)
@@ -990,7 +990,7 @@ func TestRollbackChangeset(t *testing.T) {
 	t.Run("store rollback error returns 500", func(t *testing.T) {
 		cs := addTermChangeset("cs-storeerr", "urn:li:glossaryTerm:added")
 		csStore := &mockChangesetStore{getResult: cs, rollbackErr: fmt.Errorf("rollback db error")}
-		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil)
+		kh := NewKnowledgeHandler(&mockInsightStore{}, csStore, &mockDataHubWriter{}, nil, nil)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/changesets/cs-storeerr/rollback", http.NoBody)
 		req.SetPathValue("id", "cs-storeerr")
