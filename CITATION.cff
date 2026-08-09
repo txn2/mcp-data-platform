@@ -1,8 +1,20 @@
-# Citation metadata for mcp-data-platform and its knowledge-layer benchmark
-# report. Format: Citation File Format 1.2.0 (https://citation-file-format.github.io).
-# GitHub renders a "Cite this repository" button from this file.
+# Citation metadata for mcp-data-platform and the benchmark report series
+# published from it. Format: Citation File Format 1.2.0
+# (https://citation-file-format.github.io).
+#
+# GitHub renders a "Cite this repository" button from this file. The top-level
+# entry below is the software, so that button cites the platform. The three
+# benchmark reports are separate publications with their own Zenodo deposits and
+# are listed under `references:`; cite the report, not the repository, when the
+# thing being cited is a measurement.
+#
+# Report DOIs here are concept DOIs (they always resolve to the newest version);
+# each report's version DOIs are listed beneath it.
 cff-version: 1.2.0
-message: "If you use this software or cite its benchmark report, please cite it as below."
+message: >-
+  If you use this software in your work, please cite it as below. If you are
+  citing a benchmark result rather than the software, cite the corresponding
+  report under `references`.
 title: mcp-data-platform
 abstract: >-
   A composable, semantic-first MCP server platform composing DataHub, Trino, and
@@ -17,30 +29,78 @@ authors:
 repository-code: "https://github.com/txn2/mcp-data-platform"
 url: "https://mcp-data-platform.txn2.com"
 license: Apache-2.0
-preferred-citation:
-  type: report
-  title: >-
-    Does a Semantic Knowledge Layer Make an Agent Measurably Better? A
-    Reproducible Benchmark of the mcp-data-platform Knowledge Layer
-  authors:
-    - family-names: Johnston
-      given-names: Craig
-      email: cj@imti.co
-      affiliation: "Deasil Works, Inc."
-  year: 2026
-  month: 7
-  institution:
-    name: "Deasil Works, Inc. / txn2"
-  url: "https://mcp-data-platform.txn2.com/reference/benchmark-report/"
-  version: "2.0.1"
-  doi: 10.5281/zenodo.21438044
-  identifiers:
-    - type: doi
-      value: 10.5281/zenodo.21751635
-      description: "Version DOI for the v2.0.1 snapshot"
-    - type: doi
-      value: 10.5281/zenodo.21751050
-      description: "Version DOI for the v2.0 snapshot (PDF had a typesetting defect; superseded by v2.0.1)"
-    - type: doi
-      value: 10.5281/zenodo.21438045
-      description: "Version DOI for the v1.0 snapshot"
+version: 1.119.0
+date-released: "2026-08-04"
+keywords:
+  - Model Context Protocol
+  - semantic layer
+  - data catalog
+  - knowledge layer
+  - agent tooling
+references:
+  - type: report
+    title: >-
+      Does a Semantic Knowledge Layer Make an Agent Measurably Better? A
+      Reproducible Benchmark of the mcp-data-platform Knowledge Layer
+    authors:
+      - family-names: Johnston
+        given-names: Craig
+        email: cj@imti.co
+        affiliation: "Deasil Works, Inc."
+    year: 2026
+    month: 7
+    institution:
+      name: "Deasil Works, Inc. / txn2"
+    url: "https://mcp-data-platform.txn2.com/reference/benchmark-report/"
+    version: "2.0.1"
+    doi: 10.5281/zenodo.21438044
+    identifiers:
+      - type: doi
+        value: 10.5281/zenodo.21751635
+        description: "Version DOI for the v2.0.1 snapshot"
+      - type: doi
+        value: 10.5281/zenodo.21751050
+        description: "Version DOI for the v2.0 snapshot (PDF had a typesetting defect; superseded by v2.0.1)"
+      - type: doi
+        value: 10.5281/zenodo.21438045
+        description: "Version DOI for the v1.0 snapshot"
+  - type: report
+    title: >-
+      When Do Agents Use Stored Knowledge? Derivability, Capability, and the
+      Limits of a Knowledge Layer
+    authors:
+      - family-names: Johnston
+        given-names: Craig
+        email: cj@imti.co
+        affiliation: "Deasil Works, Inc."
+    year: 2026
+    month: 7
+    institution:
+      name: "Deasil Works, Inc. / txn2"
+    url: "https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-use/"
+    version: "1.0"
+    doi: 10.5281/zenodo.21614058
+    identifiers:
+      - type: doi
+        value: 10.5281/zenodo.21614059
+        description: "Version DOI for the v1.0 snapshot"
+  - type: report
+    title: >-
+      Knowledge Pollution: Verification Displacement, Capability, and the Price
+      of a Curation Gate
+    authors:
+      - family-names: Johnston
+        given-names: Craig
+        email: cj@imti.co
+        affiliation: "Deasil Works, Inc."
+    year: 2026
+    month: 8
+    institution:
+      name: "Deasil Works, Inc. / txn2"
+    url: "https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-pollution/"
+    version: "1.0"
+    doi: 10.5281/zenodo.21834812
+    identifiers:
+      - type: doi
+        value: 10.5281/zenodo.21834813
+        description: "Version DOI for the v1.0 snapshot"
