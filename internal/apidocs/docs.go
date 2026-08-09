@@ -4765,7 +4765,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/knowledge.Insight"
+                            "$ref": "#/definitions/admin.insightView"
                         }
                     },
                     "404": {
@@ -15192,7 +15192,7 @@ const docTemplate = `{
                 "data": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/knowledge.Insight"
+                        "$ref": "#/definitions/admin.insightView"
                     }
                 },
                 "page": {
@@ -15223,6 +15223,101 @@ const docTemplate = `{
                 "insight_text": {
                     "type": "string",
                     "example": "The amount column represents gross margin before returns."
+                }
+            }
+        },
+        "admin.insightView": {
+            "type": "object",
+            "properties": {
+                "applied_at": {
+                    "type": "string"
+                },
+                "applied_by": {
+                    "type": "string"
+                },
+                "captured_by": {
+                    "type": "string",
+                    "example": "analyst@example.com"
+                },
+                "category": {
+                    "type": "string",
+                    "example": "correction"
+                },
+                "changeset_ref": {
+                    "type": "string"
+                },
+                "confidence": {
+                    "type": "string",
+                    "example": "high"
+                },
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-01-15T14:30:00Z"
+                },
+                "entity_urns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string",
+                    "example": "a1b2c3d4e5f67890a1b2c3d4e5f67890"
+                },
+                "insight_text": {
+                    "type": "string",
+                    "example": "The amount column represents gross margin before returns, not revenue."
+                },
+                "observed_entities": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/insightobs.Observation"
+                    }
+                },
+                "persona": {
+                    "type": "string",
+                    "example": "analyst"
+                },
+                "related_columns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/knowledge.RelatedColumn"
+                    }
+                },
+                "review_notes": {
+                    "type": "string",
+                    "example": "Verified with data engineering team"
+                },
+                "reviewed_at": {
+                    "type": "string"
+                },
+                "reviewed_by": {
+                    "description": "Lifecycle fields (populated by migrations 000007 and 000008)",
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "session_id": {
+                    "type": "string",
+                    "example": "sess_abc123"
+                },
+                "sink_class": {
+                    "description": "SinkClass is the #633 organizing axis carried onto the backing memory\nrecord so the unified write path and apply_knowledge sink router can\nroute by it. Empty for insights captured before #633.",
+                    "type": "string",
+                    "example": "schema_entity"
+                },
+                "source": {
+                    "type": "string",
+                    "example": "user"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                },
+                "suggested_actions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/knowledge.SuggestedAction"
+                    }
                 }
             }
         },
@@ -17441,6 +17536,47 @@ const docTemplate = `{
                 }
             }
         },
+        "insightobs.Conflict": {
+            "type": "object",
+            "properties": {
+                "claimed_rows": {
+                    "type": "integer",
+                    "example": 1140
+                },
+                "message": {
+                    "type": "string",
+                    "example": "claim states 1140; the table currently estimates 1200"
+                },
+                "observed_rows": {
+                    "type": "integer",
+                    "example": 1200
+                }
+            }
+        },
+        "insightobs.Observation": {
+            "type": "object",
+            "properties": {
+                "conflict": {
+                    "$ref": "#/definitions/insightobs.Conflict"
+                },
+                "connection": {
+                    "type": "string",
+                    "example": "primary"
+                },
+                "estimated_rows": {
+                    "type": "integer",
+                    "example": 1200
+                },
+                "query_table": {
+                    "type": "string",
+                    "example": "iceberg.retail.daily_sales"
+                },
+                "urn": {
+                    "type": "string",
+                    "example": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"
+                }
+            }
+        },
         "knowledge.Changeset": {
             "type": "object",
             "properties": {
@@ -17511,95 +17647,6 @@ const docTemplate = `{
                 },
                 "latest_at": {
                     "type": "string"
-                }
-            }
-        },
-        "knowledge.Insight": {
-            "type": "object",
-            "properties": {
-                "applied_at": {
-                    "type": "string"
-                },
-                "applied_by": {
-                    "type": "string"
-                },
-                "captured_by": {
-                    "type": "string",
-                    "example": "analyst@example.com"
-                },
-                "category": {
-                    "type": "string",
-                    "example": "correction"
-                },
-                "changeset_ref": {
-                    "type": "string"
-                },
-                "confidence": {
-                    "type": "string",
-                    "example": "high"
-                },
-                "created_at": {
-                    "type": "string",
-                    "example": "2026-01-15T14:30:00Z"
-                },
-                "entity_urns": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "id": {
-                    "type": "string",
-                    "example": "a1b2c3d4e5f67890a1b2c3d4e5f67890"
-                },
-                "insight_text": {
-                    "type": "string",
-                    "example": "The amount column represents gross margin before returns, not revenue."
-                },
-                "persona": {
-                    "type": "string",
-                    "example": "analyst"
-                },
-                "related_columns": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/knowledge.RelatedColumn"
-                    }
-                },
-                "review_notes": {
-                    "type": "string",
-                    "example": "Verified with data engineering team"
-                },
-                "reviewed_at": {
-                    "type": "string"
-                },
-                "reviewed_by": {
-                    "description": "Lifecycle fields (populated by migrations 000007 and 000008)",
-                    "type": "string",
-                    "example": "admin@example.com"
-                },
-                "session_id": {
-                    "type": "string",
-                    "example": "sess_abc123"
-                },
-                "sink_class": {
-                    "description": "SinkClass is the #633 organizing axis carried onto the backing memory\nrecord so the unified write path and apply_knowledge sink router can\nroute by it. Empty for insights captured before #633.",
-                    "type": "string",
-                    "example": "schema_entity"
-                },
-                "source": {
-                    "type": "string",
-                    "example": "user"
-                },
-                "status": {
-                    "type": "string",
-                    "example": "pending"
-                },
-                "suggested_actions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/knowledge.SuggestedAction"
-                    }
                 }
             }
         },

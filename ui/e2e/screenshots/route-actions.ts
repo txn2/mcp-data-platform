@@ -85,6 +85,57 @@ export async function openInsightReviewDrawer(page: Page): Promise<void> {
 }
 
 /**
+ * openInsightReviewClaim opens the review queue on the insight whose claim text
+ * matches, rather than on whichever row happens to be newest. The observed
+ * warehouse state (#1219) is attached to specific fixtures, so a capture of it
+ * has to name the row it wants.
+ */
+async function openInsightReviewClaim(page: Page, claim: RegExp): Promise<void> {
+  // A drawer left open by the previous capture (light and dark share one page,
+  // and a hash-only navigation does not reload) covers the rows, so its overlay
+  // would swallow the click that picks this capture's row.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  await page
+    .getByRole("tab", { name: /Review queue/i })
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(400);
+  await page
+    .locator("table tbody tr")
+    .filter({ hasText: claim })
+    .first()
+    .click({ timeout: 3_000 });
+  await page.waitForTimeout(600);
+}
+
+/**
+ * openInsightObservedState opens a pending claim whose entity the query provider
+ * resolved: the drawer states what the entity is queryable as and how many rows
+ * it currently holds, beside the claim being decided.
+ */
+export async function openInsightObservedState(page: Page): Promise<void> {
+  await openInsightReviewClaim(page, /daily_sales lags the source system/);
+}
+
+/**
+ * openInsightClaimConflict opens the pending claim that states a row count the
+ * table disagrees with: the same drawer, carrying the advisory marker.
+ */
+export async function openInsightClaimConflict(page: Page): Promise<void> {
+  await openInsightReviewClaim(page, /inventory_levels holds 1140 rows/);
+}
+
+/**
+ * openInsightNoRowEstimate opens a pending claim whose entity resolves on a
+ * connection that does not estimate row counts: the reviewer learns the entity
+ * exists and is queryable, and no count is claimed on the platform's behalf.
+ */
+export async function openInsightNoRowEstimate(page: Page): Promise<void> {
+  await openInsightReviewClaim(page, /synced by CDC, so late edits appear here first/);
+}
+
+/**
  * openKnowledgeGraphCorpus opens the graph and switches it to the whole-corpus
  * overview, where the detected clusters are drawn as regions.
  */

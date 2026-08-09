@@ -1,12 +1,15 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
 
+	"github.com/txn2/mcp-data-platform/internal/admin/insightobs"
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 
+	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -18,31 +21,56 @@ type KnowledgeHandler struct {
 	changesetStore knowledge.ChangesetStore
 	datahubWriter  knowledge.DataHubWriter
 	pageReverter   knowledge.PageReverter
+	observer       *insightobs.Observer
 }
 
 // NewKnowledgeHandler creates a new knowledge admin handler. pageReverter may be
 // nil when knowledge pages are unavailable; rolling back a page promotion then
-// returns a clear "not configured" error rather than mis-reverting.
+// returns a clear "not configured" error rather than mis-reverting. queryProvider
+// may be nil or noop; the read path then serves the insight alone, exactly as it
+// did before it could observe anything.
 func NewKnowledgeHandler(
 	insightStore knowledge.InsightStore,
 	changesetStore knowledge.ChangesetStore,
 	writer knowledge.DataHubWriter,
 	pageReverter knowledge.PageReverter,
+	queryProvider query.Provider,
 ) *KnowledgeHandler {
 	return &KnowledgeHandler{
 		insightStore:   insightStore,
 		changesetStore: changesetStore,
 		datahubWriter:  writer,
 		pageReverter:   pageReverter,
+		observer:       insightobs.New(queryProvider),
 	}
+}
+
+// insightView is an insight as the review path sees it: the stored record and,
+// beside it, the warehouse state the platform observed for the entities the
+// claim is about (#1219). ObservedEntities is omitted whenever nothing resolved,
+// so a deployment with no query provider serves the payload it always did.
+type insightView struct {
+	knowledge.Insight
+	ObservedEntities []insightobs.Observation `json:"observed_entities,omitempty"`
+}
+
+// insightViews pairs each insight with its observations, resolved in one pass
+// so a page of the review queue costs one round of provider lookups.
+func (h *KnowledgeHandler) insightViews(ctx context.Context, insights []knowledge.Insight) []insightView {
+	observed := h.observer.Annotate(ctx, insights)
+	views := make([]insightView, len(insights))
+	for i := range insights {
+		views[i] = insightView{Insight: insights[i], ObservedEntities: observed[i]}
+	}
+	return views
 }
 
 // insightListResponse wraps a paginated list of insights.
 type insightListResponse struct {
-	Data    []knowledge.Insight `json:"data"`
-	Total   int                 `json:"total" example:"50"`
-	Page    int                 `json:"page" example:"1"`
-	PerPage int                 `json:"per_page" example:"20"`
+	Data    []insightView `json:"data"`
+	Total   int           `json:"total" example:"50"`
+	Page    int           `json:"page" example:"1"`
+	PerPage int           `json:"per_page" example:"20"`
 }
 
 // ListInsights handles GET /api/v1/admin/knowledge/insights.
@@ -74,12 +102,8 @@ func (h *KnowledgeHandler) ListInsights(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if insights == nil {
-		insights = []knowledge.Insight{}
-	}
-
 	writeJSON(w, http.StatusOK, insightListResponse{
-		Data:    insights,
+		Data:    h.insightViews(r.Context(), insights),
 		Total:   total,
 		Page:    filter.Offset/filter.EffectiveLimit() + 1,
 		PerPage: filter.EffectiveLimit(),
@@ -93,7 +117,7 @@ func (h *KnowledgeHandler) ListInsights(w http.ResponseWriter, r *http.Request) 
 // @Tags         Knowledge
 // @Produce      json
 // @Param        id  path  string  true  "Insight ID"
-// @Success      200  {object}  knowledge.Insight
+// @Success      200  {object}  insightView
 // @Failure      404  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
@@ -101,11 +125,11 @@ func (h *KnowledgeHandler) ListInsights(w http.ResponseWriter, r *http.Request) 
 func (h *KnowledgeHandler) GetInsight(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 	insight, err := h.insightStore.Get(r.Context(), id)
-	if err != nil {
+	if err != nil || insight == nil {
 		writeError(w, http.StatusNotFound, "insight not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, insight)
+	writeJSON(w, http.StatusOK, h.insightViews(r.Context(), []knowledge.Insight{*insight})[0])
 }
 
 // statusUpdateRequest represents the body of PUT /insights/:id/status.

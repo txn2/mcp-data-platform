@@ -785,6 +785,7 @@ func BuildAdminHandler(p *platform.Platform) http.Handler {
 			p.KnowledgeChangesetStore(),
 			p.KnowledgeDataHubWriter(),
 			p.PortalKnowledgePageStore(),
+			p.QueryProvider(),
 		)
 	}
 

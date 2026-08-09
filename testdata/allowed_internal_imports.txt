@@ -19,6 +19,8 @@ internal/admin/connoauthapi -> pkg/pkcestore
 internal/admin/connoauthapi -> pkg/platform
 internal/admin/connoauthapi -> pkg/toolkits/apigateway
 internal/admin/connoauthapi -> pkg/toolkits/gateway
+internal/admin/insightobs -> pkg/query
+internal/admin/insightobs -> pkg/toolkits/knowledge
 internal/admin/notifyapi -> internal/httpjson
 internal/admin/notifyapi -> internal/notification/notifyrender
 internal/admin/notifyapi -> pkg/notification
@@ -262,6 +264,7 @@ internal/server -> pkg/platform
 pkg/admin -> internal/admin/auditapi
 pkg/admin -> internal/admin/catalogapi
 pkg/admin -> internal/admin/connoauthapi
+pkg/admin -> internal/admin/insightobs
 pkg/admin -> internal/admin/notifyapi
 pkg/admin -> internal/admin/settingsapi
 pkg/admin -> internal/httpjson
@@ -289,6 +292,7 @@ pkg/admin -> pkg/platform/instructions
 pkg/admin -> pkg/platform/personastore
 pkg/admin -> pkg/portal
 pkg/admin -> pkg/prompt
+pkg/admin -> pkg/query
 pkg/admin -> pkg/registry
 pkg/admin -> pkg/toolkit
 pkg/admin -> pkg/toolkits/apigateway/catalog

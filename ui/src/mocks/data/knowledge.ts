@@ -1,4 +1,4 @@
-import type { Insight, Changeset } from "@/api/admin/types";
+import type { Insight, Changeset, ObservedEntity } from "@/api/admin/types";
 
 // ---------------------------------------------------------------------------
 // Seeded PRNG (mulberry32) — deterministic mock data across page loads
@@ -440,6 +440,78 @@ function generateNewValue(
 }
 
 // ---------------------------------------------------------------------------
+// Observed warehouse state (#1219)
+// ---------------------------------------------------------------------------
+
+/**
+ * applyObservedState gives the queue's first pending rows the warehouse state
+ * the server observes for a pending claim, so every state a reviewer must be
+ * able to tell apart is present in the mock: an entity queryable with a row
+ * count, a claim whose stated count disagrees with that count, and a connection
+ * that does not estimate row counts at all. Their claim text is set alongside so
+ * the mock cannot state a count the observation silently contradicts.
+ *
+ * Every other pending insight carries nothing, which is what an unresolvable
+ * entity, an unavailable table, and a deployment with no query provider all
+ * look like on the wire.
+ */
+function applyObservedState(insights: Insight[]): void {
+  const pending = insights.filter((i) => i.status === "pending");
+
+  // Claim, entity and observation are set together: a mock whose claim names
+  // one table while the observation names another would teach the surface to
+  // read as noise rather than as the platform looking at the same thing.
+  const fixtures: {
+    text: string;
+    table: string;
+    observed: Omit<ObservedEntity, "urn" | "query_table">;
+  }[] = [
+    {
+      text: "daily_sales lags the source system by one day: the orders feed backfills overnight.",
+      table: "iceberg.retail.daily_sales",
+      observed: { connection: "primary", estimated_rows: 1284902 },
+    },
+    {
+      text: "inventory_levels holds 1140 rows for warehouse WH-07 after the duplicate cleanup.",
+      table: "iceberg.inventory.inventory_levels",
+      observed: {
+        connection: "primary",
+        estimated_rows: 1200,
+        conflict: {
+          claimed_rows: 1140,
+          observed_rows: 1200,
+          message: "claim states 1140; the table currently estimates 1200",
+        },
+      },
+    },
+    {
+      text: "product_catalog is mastered in the ERP system and synced by CDC, so late edits appear here first.",
+      table: "iceberg.retail.product_catalog",
+      observed: { connection: "warehouse" },
+    },
+  ];
+
+  fixtures.forEach((fixture, i) => {
+    const insight = pending[i];
+    if (!insight) return;
+    const urn = `urn:li:dataset:(urn:li:dataPlatform:trino,${fixture.table},PROD)`;
+    insight.insight_text = fixture.text;
+    insight.entity_urns = [urn, ...insight.entity_urns.slice(1)];
+    insight.suggested_actions = insight.suggested_actions.map((a) => ({
+      ...a,
+      target: urn,
+    }));
+    insight.related_columns = insight.related_columns.map((c) => ({
+      ...c,
+      urn,
+    }));
+    insight.observed_entities = [
+      { urn, query_table: fixture.table, ...fixture.observed },
+    ];
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -447,4 +519,5 @@ function generateNewValue(
 // (the status pool is ~30% pending), making the #706 count/pagination behavior
 // visible in frontend-mock as well as `make dev`.
 export const mockInsights: Insight[] = generateInsights(110);
+applyObservedState(mockInsights);
 export const mockChangesets: Changeset[] = generateChangesets(mockInsights);

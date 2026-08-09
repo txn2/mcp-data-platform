@@ -630,6 +630,7 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 			p.KnowledgeChangesetStore(),
 			p.KnowledgeDataHubWriter(),
 			p.PortalKnowledgePageStore(),
+			p.QueryProvider(),
 		)
 	}
 

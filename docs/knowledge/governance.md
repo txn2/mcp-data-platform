@@ -100,6 +100,18 @@ Response includes:
 
 This side-by-side view helps admins assess whether an insight adds value compared to what's already in the catalog.
 
+### Observed Warehouse State
+
+Some claims are about entities the platform can query itself, and those are exactly the claims worth checking before promotion: a record count is settled by one query, and once the gate certifies it, every identity downstream inherits its standing.
+
+So the review path shows the reviewer what it can see. When a pending insight's entity URN resolves through the configured query provider to an available table, the admin insights endpoints and the portal review drawer carry the observation beside the claim: what the entity is queryable as, which connection it lives on, and the rows it currently estimates. When the claim states a number that the table disagrees with, the item carries an advisory conflict marker naming both numbers.
+
+The marker is advisory in the strict sense: it changes what a reviewer sees, never what a reviewer may do. Estimates are estimates, the number in a claim may be about something else entirely, and promotion is never refused mechanically.
+
+Row counts require `enrichment.estimate_row_counts` ([Configuration](../server/configuration.md)), which is off by default because `COUNT(*)` can scan a whole table. With it off, the observation still states that the entity exists and is queryable — which is the larger half of the question — and claims no count.
+
+A deployment with no query provider, an entity URN that does not resolve, a table reported unavailable, and an insight already decided all carry no observation at all: the payload and the drawer are exactly what they were. See the [Admin REST API](admin-api.md#observed-warehouse-state) for the field shape and the [Admin Portal guide](../server/admin-portal.md#observed-warehouse-state) for the review surface.
+
 ### Approve or Reject
 
 Transition insight statuses with optional review notes:

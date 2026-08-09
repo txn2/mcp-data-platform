@@ -12,6 +12,7 @@ import { formatUser } from "@/lib/formatUser";
 import { LabeledBlock, MetaField, MetaGrid } from "./fields";
 import { confidenceVariant, formatCategory } from "./helpers";
 import { InsightLifecycle, InsightTables } from "./insightSections";
+import { ObservedEntities } from "./ObservedEntities";
 
 export function InsightDrawer({
   insight,
@@ -79,6 +80,8 @@ export function InsightDrawer({
           <MarkdownRenderer content={insight.insight_text} bare />
         </div>
       </LabeledBlock>
+
+      <ObservedEntities observed={insight.observed_entities} />
 
       {insight.entity_urns.length > 0 && (
         <LabeledBlock label="Entity URNs">

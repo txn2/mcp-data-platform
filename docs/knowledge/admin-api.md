@@ -51,7 +51,7 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/insights?status=pending&
 
 ```json
 {
-  "insights": [
+  "data": [
     {
       "id": "a1b2c3d4e5f67890a1b2c3d4e5f67890",
       "created_at": "2025-01-15T14:30:00Z",
@@ -127,9 +127,40 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/insights/a1b2c3d4e5f6789
       "detail": "Gross margin before returns"
     }
   ],
-  "status": "pending"
+  "status": "pending",
+  "observed_entities": [
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+      "query_table": "hive.sales.orders",
+      "connection": "primary",
+      "estimated_rows": 1200
+    }
+  ]
 }
 ```
+
+### Observed Warehouse State
+
+A pending insight is a claim awaiting certification, and some claims are about entities the platform can query itself. When a pending insight's entity URN resolves through the configured query provider to an available table, the list and detail payloads carry that observation beside the claim in `observed_entities`, one entry per resolved URN, in the order the insight carries them.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `urn` | string | The entity URN this observation is for |
+| `query_table` | string | What the entity is queryable as, e.g. `hive.sales.orders` |
+| `connection` | string | The query connection the table lives on |
+| `estimated_rows` | integer | Rows the engine currently estimates. Present only when `enrichment.estimate_row_counts` is on ([Configuration](../server/configuration.md)) |
+| `conflict` | object | Advisory marker: `claimed_rows`, `observed_rows`, and a `message` naming both |
+
+`conflict` is raised when the claim text states an integer and the table estimates a different one. It is advisory: an estimate is an estimate, the number in the claim may be about something else, and promotion is never refused mechanically — approve and reject behave exactly as they do without it. When a claim states several numbers, the one nearest the estimate is compared, since if even that number disagrees with the warehouse, every reading of the claim does.
+
+`observed_entities` is omitted, not empty, whenever there is nothing observed:
+
+- the insight is not `pending` (a decided insight is history, not a decision to inform)
+- the URN does not resolve, or the provider reports the table unavailable
+- the query provider is absent or `noop`
+- the lookups did not finish inside the read path's budget
+
+In every one of those cases the payload is byte-identical to what the endpoint served before it could observe anything, so a client that does not know the field is unaffected.
 
 ### Update Insight
 

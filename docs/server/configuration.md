@@ -856,7 +856,7 @@ enrichment:
 | `datahub_storage_enrichment` | bool | `true` | Add S3 availability to DataHub results. Default on; set `false` to disable. |
 | `unwrap_json` | bool | `true` | Auto-unwrap single-row VARCHAR-of-JSON results |
 | `column_context_filtering` | bool | `true` | Limit column enrichment to SQL-referenced columns |
-| `estimate_row_counts` | bool | `false` | Run `SELECT COUNT(*)` when reporting table availability, so enriched DataHub results carry an estimated row count. Off by default: `COUNT(*)` can trigger a full table scan and make search enrichment very slow |
+| `estimate_row_counts` | bool | `false` | Run `SELECT COUNT(*)` when reporting table availability, so enriched DataHub results carry an estimated row count. Also what lets the insight review path state a row count beside a pending claim, and what the advisory claim-conflict marker compares against ([Knowledge governance](../knowledge/governance.md#observed-warehouse-state)). Off by default: `COUNT(*)` can trigger a full table scan and make search enrichment very slow |
 | `semantic_fallback` | bool | `false` | When a URN-equality lookup misses, fall back to similarity search and surface the top hit as a **suggested** match, annotated `match_kind=semantic` so the model knows it was inferred rather than resolved. Audit rows record `enrichment_match_kind` so operators can measure the false-positive rate. Requires a semantic provider supporting the `semantic` search mode (DataHub does) |
 | `semantic_fallback_top_k` | int | `1` | Suggestions surfaced per miss when `semantic_fallback` is on. Clamped to 1-10 to keep suggested-match output bounded |
 | `memory_limit` | int | `5` | Max memory records recalled and rendered into `memory_context` per tool call |
