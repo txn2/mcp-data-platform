@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/completionlayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/iam"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -110,7 +111,7 @@ func (p *Platform) completionHandler() func(context.Context, *mcp.CompleteReques
 		PersonaRegistry: p.personaRegistry,
 	}
 	if p.personaRegistry != nil {
-		deps.PersonasForRoles = personasForRolesFunc(p.personaRegistry)
+		deps.PersonasForRoles = iam.PersonasForRoles(p.personaRegistry)
 	}
 	return completionlayer.New(deps).Handler()
 }

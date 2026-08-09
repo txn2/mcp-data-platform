@@ -14,7 +14,6 @@ import (
 	"log/slog"
 	"maps"
 	"os"
-	"slices"
 	"time"
 
 	// PostgreSQL driver for database/sql.
@@ -1087,6 +1086,7 @@ func (p *Platform) initProviders(opts *Options) error {
 	} else if p.storageProvider, err = p.createStorageProvider(); err != nil {
 		return fmt.Errorf("creating storage provider: %w", err)
 	}
+
 	return nil
 }
 
@@ -1664,7 +1664,9 @@ func (p *Platform) initSearch() error {
 		ResourceBlobs:      p.resources.S3Client(),
 		ResourceBucket:     p.config.Resources.Managed.S3Bucket,
 		ResourceReads:      p.resources.ReadRecorder(),
-		PersonasForRoles:   personasForRolesFunc(p.personaRegistry),
+		VerifiableInsights: p.config.Knowledge.IsVerifiableInsightsEnabled(),
+		QueryProvider:      p.queryProvider,
+		PersonasForRoles:   iam.PersonasForRoles(p.personaRegistry),
 		ConnectionScope:    connectionScopeFor(p.personaRegistry, p.connectionSources, p.toolkitRegistry),
 		Registry:           p.toolkitRegistry,
 		Embedding:          p.embeddingProv,
@@ -2173,7 +2175,7 @@ func (p *Platform) finalizeSetup() {
 			PersonaRegistry: p.personaRegistry,
 		}
 		if p.personaRegistry != nil {
-			completionDeps.PersonasForRoles = personasForRolesFunc(p.personaRegistry)
+			completionDeps.PersonasForRoles = iam.PersonasForRoles(p.personaRegistry)
 		}
 		completionHandler = completionlayer.New(completionDeps).Handler()
 	}
@@ -2293,26 +2295,9 @@ func (p *Platform) addManagedResourceMiddleware() {
 	}
 	// Resolve all persona memberships from roles.
 	if p.personaRegistry != nil {
-		cfg.PersonasForRoles = personasForRolesFunc(p.personaRegistry)
+		cfg.PersonasForRoles = iam.PersonasForRoles(p.personaRegistry)
 	}
 	p.mcpServer.AddReceivingMiddleware(middleware.MCPManagedResourceMiddleware(cfg))
-}
-
-// personasForRolesFunc returns a PersonasForRoles function that resolves
-// all persona names a user belongs to from their roles.
-func personasForRolesFunc(pr *persona.Registry) middleware.PersonasForRoles {
-	return func(roles []string) []string {
-		var names []string
-		for _, per := range pr.All() {
-			for _, r := range per.Roles {
-				if slices.Contains(roles, r) {
-					names = append(names, per.Name)
-					break
-				}
-			}
-		}
-		return names
-	}
 }
 
 // addProvenanceMiddleware registers provenance tracking middleware when portal is enabled.
@@ -2426,7 +2411,7 @@ func (p *Platform) addPromptVisibilityMiddleware() {
 		GetByName:     p.prompts.GetByName,
 	}
 	if p.personaRegistry != nil {
-		cfg.PersonasForRoles = personasForRolesFunc(p.personaRegistry)
+		cfg.PersonasForRoles = iam.PersonasForRoles(p.personaRegistry)
 	}
 	p.mcpServer.AddReceivingMiddleware(
 		middleware.MCPPromptVisibilityMiddleware(cfg),
@@ -2584,6 +2569,7 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 		SchemaPreviewMaxColumns:     p.config.Enrichment.EffectiveSchemaPreviewMaxColumns(),
 		SemanticFallbackEnabled:     p.config.Enrichment.IsSemanticFallbackEnabled(),
 		SemanticFallbackTopK:        p.config.Enrichment.EffectiveSemanticFallbackTopK(),
+		VerifiableInsights:          p.config.Knowledge.IsVerifiableInsightsEnabled(),
 		MemoryLimit:                 p.config.Enrichment.EffectiveMemoryLimit(),
 		MemoryContextBudgetBytes:    p.config.Enrichment.EffectiveMemoryContextBudgetBytes(),
 		MemorySummaryBytes:          p.config.Enrichment.EffectiveMemorySummaryBytes(),

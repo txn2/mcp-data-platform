@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/txn2/mcp-data-platform/internal/tableavail"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -31,6 +32,16 @@ func MCPSemanticEnrichmentMiddleware(
 	memoryProvider MemoryProvider,
 	pageProvider ...KnowledgePageProvider,
 ) mcp.Middleware {
+	// The checkable-insight marker resolves through the same query provider this
+	// middleware already holds, so it is built here rather than handed in. The
+	// nil check is on the concrete type: a nil *Cache stored in the interface
+	// would not read as absent, leaving every enriched call asking a resolver
+	// that can only answer nothing (#1220).
+	if c := tableavail.NewWithOptions(queryProvider,
+		tableavail.Options{Timeout: tableavail.DeliveryTimeout, SkipRowEstimate: true}); cfg.VerifiableInsights && c != nil {
+		cfg.InsightVerifier = c
+	}
+
 	enricher := &semanticEnricher{
 		semanticProvider: semanticProvider,
 		queryProvider:    queryProvider,

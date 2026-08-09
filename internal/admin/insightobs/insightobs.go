@@ -20,27 +20,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
-	"golang.org/x/sync/errgroup"
-
+	"github.com/txn2/mcp-data-platform/internal/tableavail"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
 const (
-	// observeTimeout bounds the whole observation pass for one request. Row
-	// estimation runs COUNT(*) when the query provider is configured for it,
-	// which is unbounded work against the warehouse; an admin list must not
-	// wait on it. Whatever has resolved when the budget expires is what the
-	// reviewer sees.
-	observeTimeout = 5 * time.Second
-
-	// observeConcurrency bounds how many URNs are resolved at once, so a page
-	// of insights cannot fan a burst of describe/count queries at the engine.
-	observeConcurrency = 8
-
 	// base10 and bits64 are how a claim integer is parsed: written in decimal,
 	// held in the same width as the row estimate it is compared against.
 	base10 = 10
@@ -50,24 +36,6 @@ const (
 	// Claim text is human prose, not a data feed; a bound keeps the scan of a
 	// pathological body finite.
 	maxClaimIntegers = 64
-
-	// observeTTL is how long a lookup answers for. The review queue polls, and
-	// without a memory an open browser tab would re-run a page of COUNT(*)
-	// queries every refresh. A row count a few minutes old is still what the
-	// reviewer needs: it is read against a claim, not watched as a live meter.
-	observeTTL = 5 * time.Minute
-
-	// observeCacheMax bounds the remembered lookups. This is a cache, not a
-	// store: over the bound it is emptied rather than evicted precisely, since
-	// a miss costs one lookup and nothing is lost.
-	observeCacheMax = 512
-
-	// maxLookupsPerRequest bounds how many entities one read may ask the
-	// warehouse about, so a full page of insights cannot turn into hundreds of
-	// describe/count queries at once. The answers are remembered, so the next
-	// read of the same page starts where this one stopped and the page fills in
-	// over a refresh or two rather than in one burst.
-	maxLookupsPerRequest = 64
 )
 
 // Observation is the warehouse state observed for one entity URN carried by an
@@ -94,23 +62,11 @@ type Conflict struct {
 
 // Observer resolves insight entity URNs through a query provider, remembering
 // each answer briefly so a polling review queue does not re-ask the warehouse
-// the same question every refresh.
+// the same question every refresh. The lookup and its memory are the shared
+// tableavail.Cache; this type owns only what the review path adds on top of it,
+// the pending-only scope and the claim-versus-estimate conflict marker.
 type Observer struct {
-	provider query.Provider
-	timeout  time.Duration
-	ttl      time.Duration
-	now      func() time.Time
-
-	mu    sync.Mutex
-	cache map[string]cacheEntry
-}
-
-// cacheEntry remembers one lookup. A nil avail is a remembered "the provider
-// does not report this entity as available", which is worth remembering for
-// exactly as long as a positive answer.
-type cacheEntry struct {
-	avail   *query.TableAvailability
-	expires time.Time
+	avail *tableavail.Cache
 }
 
 // New returns an Observer over p, or nil when no query provider is configured.
@@ -120,13 +76,7 @@ func New(p query.Provider) *Observer {
 	if p == nil {
 		return nil
 	}
-	return &Observer{
-		provider: p,
-		timeout:  observeTimeout,
-		ttl:      observeTTL,
-		now:      time.Now,
-		cache:    make(map[string]cacheEntry),
-	}
+	return &Observer{avail: tableavail.New(p)}
 }
 
 // Annotate returns the observed entity state for each insight, index-aligned
@@ -144,9 +94,7 @@ func (o *Observer) Annotate(ctx context.Context, insights []knowledge.Insight) [
 		return out
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, o.timeout)
-	defer cancel()
-	available := o.resolve(ctx, urns)
+	available := o.avail.Resolve(ctx, urns)
 	if len(available) == 0 {
 		return out
 	}
@@ -164,120 +112,14 @@ func (o *Observer) Annotate(ctx context.Context, insights []knowledge.Insight) [
 // same entity is commonly claimed about repeatedly, and resolving it once per
 // request is both cheaper and consistent across the rows of one page.
 func pendingURNs(insights []knowledge.Insight) []string {
-	seen := make(map[string]struct{})
-	urns := make([]string, 0, len(insights))
+	sets := make([][]string, 0, len(insights))
 	for _, ins := range insights {
 		if ins.Status != knowledge.StatusPending {
 			continue
 		}
-		for _, urn := range ins.EntityURNs {
-			if urn == "" {
-				continue
-			}
-			if _, dup := seen[urn]; dup {
-				continue
-			}
-			seen[urn] = struct{}{}
-			urns = append(urns, urn)
-		}
+		sets = append(sets, ins.EntityURNs)
 	}
-	return urns
-}
-
-// resolve returns the available tables among urns, asking the provider only
-// about the ones no recent lookup has already answered.
-func (o *Observer) resolve(ctx context.Context, urns []string) map[string]*query.TableAvailability {
-	out := make(map[string]*query.TableAvailability, len(urns))
-	unanswered := o.remembered(urns, out)
-	if len(unanswered) == 0 {
-		return out
-	}
-
-	if len(unanswered) > maxLookupsPerRequest {
-		unanswered = unanswered[:maxLookupsPerRequest]
-	}
-
-	answers := o.ask(ctx, unanswered)
-	o.remember(answers)
-	for urn, avail := range answers {
-		if avail != nil {
-			out[urn] = avail
-		}
-	}
-	return out
-}
-
-// remembered fills out from the cache and returns the URNs still to ask about.
-func (o *Observer) remembered(urns []string, out map[string]*query.TableAvailability) []string {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	now := o.now()
-	unanswered := make([]string, 0, len(urns))
-	for _, urn := range urns {
-		entry, ok := o.cache[urn]
-		if !ok || now.After(entry.expires) {
-			unanswered = append(unanswered, urn)
-			continue
-		}
-		if entry.avail != nil {
-			out[urn] = entry.avail
-		}
-	}
-	return unanswered
-}
-
-// ask looks each URN up through the provider. Lookups are independent, so they
-// run concurrently under a bound. An entry with a nil value is an answer — the
-// provider does not report that entity as available — while a URN missing from
-// the result got no answer at all (an error, or the budget ran out), and is
-// left for the next request rather than remembered as absent.
-func (o *Observer) ask(ctx context.Context, urns []string) map[string]*query.TableAvailability {
-	var mu sync.Mutex
-	answers := make(map[string]*query.TableAvailability, len(urns))
-
-	g := new(errgroup.Group)
-	g.SetLimit(observeConcurrency)
-	for _, urn := range urns {
-		g.Go(func() error {
-			// The budget is shared by the whole pass: once it is spent, the
-			// queued lookups are dropped rather than started.
-			if ctx.Err() != nil {
-				return nil
-			}
-			avail, err := o.provider.GetTableAvailability(ctx, urn)
-			if err != nil {
-				return nil
-			}
-			mu.Lock()
-			defer mu.Unlock()
-			if avail == nil || !avail.Available {
-				answers[urn] = nil
-				return nil
-			}
-			answers[urn] = avail
-			return nil
-		})
-	}
-	// Every task returns nil: one entity the provider cannot see must not
-	// cancel the lookups of the others, so a failure is an absent observation.
-	_ = g.Wait()
-	return answers
-}
-
-// remember stores the answers for observeTTL, emptying the cache rather than
-// growing past its bound.
-func (o *Observer) remember(answers map[string]*query.TableAvailability) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	expires := o.now().Add(o.ttl)
-	if len(o.cache)+len(answers) > observeCacheMax {
-		o.cache = make(map[string]cacheEntry, len(answers))
-	}
-	for urn, avail := range answers {
-		o.cache[urn] = cacheEntry{avail: avail, expires: expires}
-	}
+	return tableavail.Distinct(sets...)
 }
 
 // observationsFor builds the observations for one insight, in the order the

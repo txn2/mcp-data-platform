@@ -19,7 +19,11 @@
 // prompt providers, and push injection, land in follow-up PRs.
 package knowledge
 
-import "context"
+import (
+	"context"
+
+	"github.com/txn2/mcp-data-platform/pkg/query"
+)
 
 // Scope declares whether a provider's records are visible to every caller or
 // only to the caller who owns them. The Router uses it to decide which
@@ -160,6 +164,13 @@ type Hit struct {
 	// can reference it from a knowledge page without hand-assembling or guessing
 	// the form. Omitted when the entity is not referenceable.
 	Reference string `json:"reference,omitempty"`
+	// Verifiable names the queryable table a checkable hit could be settled
+	// against, when the source's linked entity resolves through a query provider
+	// (#1220). A delivered claim otherwise reads as something to take on trust;
+	// this says the claim's subject is one query away. Nil whenever nothing
+	// resolved, so a deployment with no query provider serves the payload it
+	// always did.
+	Verifiable *query.Verifiable `json:"verifiable,omitempty"`
 	// Link is set by sources whose hit is backed by a file the MCP client can
 	// attach directly (a managed resource). The search surface renders it as an
 	// mcp.ResourceLink content block alongside the JSON result, so a client with

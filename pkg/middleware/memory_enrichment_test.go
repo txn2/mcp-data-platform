@@ -455,7 +455,7 @@ func TestRenderMemoryContext_Dedup(t *testing.T) {
 		{ID: "b", Content: "revenue  includes   deferred amounts"}, // near-identical
 		{ID: "c", Content: "Distinct fact about churn"},
 	}
-	rendered, omitted := renderMemoryContext(memories, 0, 0)
+	rendered, omitted := renderMemoryContext(memories, nil, 0, 0)
 	require.Len(t, rendered, 2)
 	assert.Empty(t, omitted)
 	assert.Equal(t, "a", rendered[0].ID)
@@ -472,7 +472,7 @@ func TestRenderMemoryContext_DedupKeysOnFullContent(t *testing.T) {
 		{ID: "b", Content: prefix + "SECOND record distinct tail"},
 	}
 	// Summary cap shorter than the shared prefix: both summaries are identical.
-	rendered, omitted := renderMemoryContext(memories, 30, 0)
+	rendered, omitted := renderMemoryContext(memories, nil, 30, 0)
 	require.Len(t, rendered, 2, "records sharing only a truncated-summary prefix must not collapse")
 	assert.Empty(t, omitted)
 	assert.Equal(t, "a", rendered[0].ID)
@@ -486,7 +486,7 @@ func TestRenderMemoryContext_BudgetOmitsAsStubs(t *testing.T) {
 		{ID: "c", Reference: "mcp:memory:c", Content: strings.Repeat("z", 200)},
 	}
 	// Budget large enough for one full summary only.
-	rendered, omitted := renderMemoryContext(memories, 0, 120)
+	rendered, omitted := renderMemoryContext(memories, nil, 0, 120)
 	require.Len(t, rendered, 1)
 	assert.Equal(t, "a", rendered[0].ID)
 
@@ -503,7 +503,7 @@ func TestRenderMemoryContext_AlwaysRendersAtLeastOne(t *testing.T) {
 		{ID: "a", Content: strings.Repeat("x", 5000)},
 	}
 	// Budget smaller than the single record; it must still be rendered.
-	rendered, omitted := renderMemoryContext(memories, 0, 10)
+	rendered, omitted := renderMemoryContext(memories, nil, 0, 10)
 	require.Len(t, rendered, 1)
 	assert.Empty(t, omitted)
 }
@@ -512,7 +512,7 @@ func TestRenderMemoryContext_SummaryAndTruncationFlag(t *testing.T) {
 	memories := []MemorySnippet{
 		{ID: "a", Reference: "mcp:memory:a", Content: strings.Repeat("w", 500)},
 	}
-	rendered, _ := renderMemoryContext(memories, 100, 0)
+	rendered, _ := renderMemoryContext(memories, nil, 100, 0)
 	require.Len(t, rendered, 1)
 	assert.True(t, rendered[0].Truncated)
 	assert.Equal(t, "mcp:memory:a", rendered[0].Reference)

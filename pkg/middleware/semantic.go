@@ -155,6 +155,20 @@ type EnrichmentConfig struct {
 	// disables the budget (every recalled record is rendered). Issue #761.
 	MemoryContextBudgetBytes int
 
+	// VerifiableInsights marks a pushed insight as checkable: when the entity its
+	// claim is about resolves through the enrichment's own query provider to an
+	// available table, the rendered record names that table and connection, so
+	// the claim arrives with the one query that would settle it rather than as
+	// something to take on trust (#1220). False (the operator opted out) leaves
+	// every rendered record exactly as it was, as does a query provider that
+	// cannot resolve anything.
+	VerifiableInsights bool
+
+	// InsightVerifier is the resolver behind VerifiableInsights. The enrichment
+	// constructor fills it from the query provider it is given; a caller sets it
+	// directly only to supply its own resolver (tests).
+	InsightVerifier EntityVerifier
+
 	// MemorySummaryBytes caps each rendered memory record to a summary-first
 	// excerpt (first paragraph, or the first N bytes on a rune boundary), so
 	// the agent fetches the full record via its reference only when it

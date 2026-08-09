@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/txn2/mcp-data-platform/internal/tableavail"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/query"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -53,7 +55,18 @@ type insightSource interface {
 // a request carries no platform context, so a public share viewer must not be
 // able to reach applied organization knowledge through it.
 type InsightsProvider struct {
-	store insightSource
+	store    insightSource
+	verifier EntityVerifier
+}
+
+// EntityVerifier resolves entity URNs to the queryable table behind them, so a
+// delivered claim can name the one query that would settle it. It is declared
+// here (rather than imported) so the provider depends on the capability, not on
+// the query provider or the cache in front of it.
+type EntityVerifier interface {
+	// Verifiables returns the queryable identity of each URN that resolves,
+	// keyed by URN. URNs that do not resolve are absent from the result.
+	Verifiables(ctx context.Context, urns []string) map[string]query.Verifiable
 }
 
 // NewInsightsProvider builds the insights provider over a searchable insight
@@ -61,6 +74,11 @@ type InsightsProvider struct {
 func NewInsightsProvider(store insightSource) *InsightsProvider {
 	return &InsightsProvider{store: store}
 }
+
+// SetVerifier wires the resolver that marks a delivered insight as checkable
+// (#1220). Nil (the default, and what a deployment with no query provider or an
+// operator opt-out gets) leaves every delivered payload exactly as it was.
+func (p *InsightsProvider) SetVerifier(v EntityVerifier) { p.verifier = v }
 
 // Name returns the provenance label.
 func (*InsightsProvider) Name() string { return SourceInsights }
@@ -90,14 +108,85 @@ func (p *InsightsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 		return nil, err
 	}
 
-	if !sharedArmApplies(q.Status) {
-		return hits, nil
+	if sharedArmApplies(q.Status) {
+		shared, armErr := p.searchArm(ctx, q, seen, true)
+		if armErr != nil {
+			return nil, armErr
+		}
+		hits = trimToLimit(append(hits, shared...), q.Limit)
 	}
-	shared, err := p.searchArm(ctx, q, seen, true)
-	if err != nil {
-		return nil, err
+	return p.markVerifiable(ctx, hits, q.Caller), nil
+}
+
+// markVerifiable names, on each hit whose entity resolves, the table one query
+// would settle its claim against (#1220). The whole page is resolved in one pass
+// so an entity claimed by several insights costs one lookup, and the marker is
+// applied after the arms merge so a hit is marked exactly once however it was
+// found. A hit whose entities do not resolve is returned untouched.
+func (p *InsightsProvider) markVerifiable(ctx context.Context, hits []Hit, caller Caller) []Hit {
+	if p.verifier == nil || len(hits) == 0 {
+		return hits
 	}
-	return trimToLimit(append(hits, shared...), q.Limit), nil
+
+	sets := make([][]string, 0, len(hits))
+	for i := range hits {
+		sets = append(sets, hits[i].EntityURNs)
+	}
+	urns := reachableURNs(tableavail.Distinct(sets...), caller)
+	if len(urns) == 0 {
+		return hits
+	}
+	resolved := p.verifier.Verifiables(ctx, urns)
+	if len(resolved) == 0 {
+		return hits
+	}
+
+	for i := range hits {
+		hits[i].Verifiable = firstVerifiable(hits[i].EntityURNs, resolved, caller)
+	}
+	return hits
+}
+
+// reachableURNs drops the entities the caller's persona may not reach, before
+// any of them is looked up.
+//
+// An insight is not connection-scoped — knowing a colleague's conclusion about a
+// warehouse you cannot query is the point of shared knowledge — but the marker
+// is topology: it names a connection and asserts the entity is reachable on it,
+// which is exactly what the catalog and connections arms withhold from a persona
+// whose rules exclude that connection (#1108). Filtering here also keeps the
+// resolution from issuing a describe against a connection the caller's persona
+// could not have queried.
+func reachableURNs(urns []string, caller Caller) []string {
+	out := make([]string, 0, len(urns))
+	for _, urn := range urns {
+		if caller.allowsURN(urn) {
+			out = append(out, urn)
+		}
+	}
+	return out
+}
+
+// firstVerifiable returns the queryable identity of the first URN that resolved
+// to a connection the caller may reach, in the order the record carries its
+// entities. A record linked to several entities names one table to check rather
+// than a list to choose from: the first linked entity is the record's own
+// primary subject, and a claim that needs more than one table to settle is not
+// the checkable shape this marker is for.
+//
+// The connection is re-checked here because the URN filter is a different
+// question: a URN maps to every connection of its platform and passes when the
+// persona may reach ANY of them, while the resolved answer names the one
+// connection the marker would actually disclose.
+func firstVerifiable(urns []string, resolved map[string]query.Verifiable, caller Caller) *query.Verifiable {
+	for _, urn := range urns {
+		v, ok := resolved[urn]
+		if !ok || !caller.allowsConnection(v.Connection) {
+			continue
+		}
+		return &v
+	}
+	return nil
 }
 
 // trimToLimit caps the merged arms at the candidate limit the Router asked this
@@ -279,7 +368,23 @@ func (p *InsightsProvider) Fetch(ctx context.Context, ref string, caller Caller)
 		Body:       in.InsightText,
 		Content:    in,
 		EntityURNs: in.EntityURNs,
+		Verifiable: p.verifiableFor(ctx, in.EntityURNs, caller),
 	}, true, nil
+}
+
+// verifiableFor resolves one record's entities to the table its claim could be
+// settled against, so a fetched insight carries the same marker its search hit
+// did (#1220) — including the same persona connection boundary, since a fetch
+// must never disclose topology a search would have withheld.
+func (p *InsightsProvider) verifiableFor(ctx context.Context, urns []string, caller Caller) *query.Verifiable {
+	if p.verifier == nil || len(urns) == 0 {
+		return nil
+	}
+	reachable := reachableURNs(tableavail.Distinct(urns), caller)
+	if len(reachable) == 0 {
+		return nil
+	}
+	return firstVerifiable(urns, p.verifier.Verifiables(ctx, reachable), caller)
 }
 
 // readableBy reports whether a caller may read an insight: their own at any

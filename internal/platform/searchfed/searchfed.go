@@ -33,6 +33,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/tableavail"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge/federation"
@@ -40,6 +41,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -105,6 +107,16 @@ type Config struct {
 	// configured default persona for a caller whose roles match none. Nil leaves
 	// the caller carrying only the resolved persona.
 	PersonasForRoles func(roles []string) []string
+
+	// VerifiableInsights marks a delivered insight as checkable (#1220): a search
+	// hit or fetched record whose entity resolves through QueryProvider to an
+	// available table names the table and connection one query would settle its
+	// claim against. False (the operator opted out) leaves both payloads
+	// unchanged, as does a QueryProvider that cannot resolve anything.
+	VerifiableInsights bool
+	// QueryProvider backs that resolution. Nil, or the noop fallback, leaves the
+	// insights payloads unchanged; it is used for nothing else here.
+	QueryProvider query.Provider
 
 	// ConnectionScope is the persona connection boundary the topology sources
 	// (catalog, connections, endpoints) apply to discovery, so a caller never sees
@@ -184,7 +196,16 @@ func storeProviders(cfg Config) []knowledge.Provider {
 	// SQL store and the noop store do not implement InsightSearcher (and so are
 	// not SearchableInsightStores).
 	if s, ok := cfg.InsightStore.(knowledgekit.SearchableInsightStore); ok {
-		providers = append(providers, knowledge.NewInsightsProvider(s))
+		insights := knowledge.NewInsightsProvider(s)
+		// A cache is wired only when it can actually resolve; the nil check is on
+		// the concrete type because a nil *Cache in the interface would not read
+		// as absent and would leave every search calling a resolver that can only
+		// answer nothing.
+		if c := tableavail.NewWithOptions(cfg.QueryProvider,
+			tableavail.Options{Timeout: tableavail.DeliveryTimeout, SkipRowEstimate: true}); cfg.VerifiableInsights && c != nil {
+			insights.SetVerifier(c)
+		}
+		providers = append(providers, insights)
 	}
 	// The technical catalog is a knowledge sink only when a real DataHub semantic
 	// provider is configured (the noop fallback would add an always-empty

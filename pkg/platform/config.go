@@ -262,12 +262,27 @@ type KnowledgeConfig struct {
 	// see internal/platform/datasetindex.
 	CatalogIndex datasetindex.Config `yaml:"catalog_index"`
 
+	// VerifiableInsights marks a delivered insight as checkable (#1220): when the
+	// entity its claim is about resolves through the query provider, every
+	// delivery surface (search hits, fetch, and the memory_context enrichment
+	// block) names the table and connection one query would settle the claim
+	// against. Enabled by default (nil = enabled); set false to deliver insights
+	// with no verification marker. Inert without a query provider, which resolves
+	// nothing.
+	VerifiableInsights *bool `yaml:"verifiable_insights"`
+
 	// SearchProviderTimeout bounds each knowledge provider arm in the `search`
 	// fan-out; default 5s, a negative value disables it.
 	SearchProviderTimeout time.Duration `yaml:"search_provider_timeout"`
 	// SearchEmbedTimeout bounds the serial intent-embedding step in `search`,
 	// independent of the fan-out bound; default 5s, a negative value disables it.
 	SearchEmbedTimeout time.Duration `yaml:"search_embed_timeout"`
+}
+
+// IsVerifiableInsightsEnabled reports whether a delivered insight carries the
+// queryable identity of its subject, defaulting to true when not explicitly set.
+func (c *KnowledgeConfig) IsVerifiableInsightsEnabled() bool {
+	return !isExplicitlyDisabled(c.VerifiableInsights)
 }
 
 // KnowledgeApplyConfig configures the apply_knowledge tool.
