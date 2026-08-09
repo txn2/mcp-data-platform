@@ -12,7 +12,8 @@
 [![Signed by Cosign](https://img.shields.io/badge/artifacts-signed_by_cosign-blue?logo=sigstore&logoColor=white)](https://github.com/sigstore/cosign)
 [![Docker](https://img.shields.io/badge/ghcr.io-txn2%2Fmcp--data--platform-blue?logo=docker)](https://github.com/txn2/mcp-data-platform/pkgs/container/mcp-data-platform)
 [![Benchmark Report: Knowledge Layer](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21438044-blue?label=Report%3A%20Knowledge%20Layer)](https://doi.org/10.5281/zenodo.21438044)
-[![Benchmark Report: Knowledge Use](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21614059-blue?label=Report%3A%20Knowledge%20Use)](https://doi.org/10.5281/zenodo.21614059)
+[![Benchmark Report: Knowledge Use](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21614058-blue?label=Report%3A%20Knowledge%20Use)](https://doi.org/10.5281/zenodo.21614058)
+[![Benchmark Report: Knowledge Pollution](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21834812-blue?label=Report%3A%20Knowledge%20Pollution)](https://doi.org/10.5281/zenodo.21834812)
 
 **[Documentation](https://mcp-data-platform.txn2.com/)** | **[Installation](https://mcp-data-platform.txn2.com/server/installation/)** | **[Quick Start](#quick-start)** | **[Go Library](https://mcp-data-platform.txn2.com/library/overview/)**
 
