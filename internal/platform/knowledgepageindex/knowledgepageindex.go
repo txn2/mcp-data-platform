@@ -1,22 +1,23 @@
 // Package knowledgepageindex is the knowledge-page consumer of the shared
 // indexjobs framework (#633). It registers a Source/Sink pair under
 // source_kind = "portal-knowledge-pages" so the reconciler embeds canonical
-// knowledge pages off the request path: a newly created page (whose vector is
-// still NULL) or one left stale by a content edit or a provider model swap
+// knowledge pages off the request path: a newly created page (which has no
+// vectors yet) or one left stale by a content edit or a provider model swap
 // self-heals on the next sweep.
 //
-// Like the asset, prompt, and memory consumers, pages store their vectors inline
-// on the portal_knowledge_pages table (one embedding per row), not in a
-// dedicated vector table. So this package's Store reads and writes the embedding
-// / embedding_model / embedding_text_hash columns directly: a page IS its own
-// indexing unit. SourceID is the page id; each unit yields exactly one Item
-// whose text is portal.KnowledgePageIndexText (title + body + tags). The body is
-// indexed (unlike assets, whose body lives unindexed in S3), so page CONTENT is
+// SourceID is the page id, and a unit yields one Item per CHUNK of the page's
+// composed text (title + body + tags, split by knowledgepage.IndexChunks to the
+// provider's input budget), because a page's body routinely exceeds what an
+// embedding provider accepts in one call — before #1242 everything past that
+// budget was trimmed off and never reached the model. The vectors live in
+// portal_knowledge_page_embedding_chunks, one row per chunk, and search keeps the
+// best-scoring chunk per page so results stay page-granular. The body is indexed
+// (unlike assets, whose body lives unindexed in S3), so page CONTENT is
 // semantically searchable.
 //
-// Only non-deleted pages are indexed. Gap detection and coverage both filter on
-// deleted_at IS NULL, so a soft-deleted page is never embedded and never counted
-// as missing coverage.
+// Only live pages with indexable text are indexed. Gap detection and coverage
+// share one predicate, so a soft-deleted or text-less page is never embedded and
+// never counted as missing coverage.
 package knowledgepageindex
 
 import (
@@ -32,13 +33,14 @@ const SourceKind = "portal-knowledge-pages"
 // RegisterConsumer registers the knowledge-pages Source/Sink pair on the shared
 // indexjobs registry. Keeping the wiring here (rather than inline in the
 // platform) keeps the platform package thin. currentModel is the embedding
-// provider's model identifier.
+// provider's model identifier; maxInputBytes is that provider's per-text input
+// budget (embedding.MaxInputBytes), the size pages are chunked to.
 func RegisterConsumer(reg interface {
 	Register(indexjobs.Source, indexjobs.Sink) error
-}, db *sql.DB, currentModel string,
+}, db *sql.DB, currentModel string, maxInputBytes int,
 ) error {
 	store := NewStore(db)
-	if err := reg.Register(NewSource(store), NewSink(store, currentModel)); err != nil {
+	if err := reg.Register(NewSource(store, maxInputBytes), NewSink(store, currentModel)); err != nil {
 		return fmt.Errorf("registering knowledge-pages index consumer: %w", err)
 	}
 	return nil

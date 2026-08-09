@@ -7,9 +7,9 @@ import (
 )
 
 // Sink implements indexjobs.Sink for the portal-knowledge-pages kind over the
-// embedding columns of the portal_knowledge_pages table. currentModel is the
-// provider model the gap query diffs stored rows against, so a model swap
-// re-embeds rows stamped with the previous model.
+// page's embedding-chunk table. currentModel is the provider model the gap query
+// diffs stored pages against, so a model swap re-embeds pages stamped with the
+// previous model.
 type Sink struct {
 	store        *Store
 	currentModel string
@@ -17,8 +17,8 @@ type Sink struct {
 
 // NewSink returns a Sink backed by the given store. currentModel is the
 // embedding provider's model identifier (embedding.ModelName); pass "" on a
-// deployment whose provider does not name its model, in which case only
-// NULL-embedding rows are treated as gaps.
+// deployment whose provider does not name its model, in which case a page
+// converges once it has been through the worker at all.
 func NewSink(store *Store, currentModel string) *Sink {
 	return &Sink{store: store, currentModel: currentModel}
 }
@@ -32,39 +32,49 @@ var (
 // Kind reports the portal-knowledge-pages source kind.
 func (*Sink) Kind() string { return SourceKind }
 
-// ListExisting returns the page's persisted vector keyed by item id for the
-// worker's dedup pass.
+// ListExisting returns the page's persisted chunk vectors keyed by item id for
+// the worker's dedup pass, so an edit re-embeds only the chunks whose text moved.
 func (s *Sink) ListExisting(ctx context.Context, key indexjobs.Key) (map[string]indexjobs.Vector, error) {
 	return s.store.ListVectors(ctx, key.SourceID)
 }
 
-// Upsert writes the page's vector. The page unit holds one item and has no
-// sibling rows, so it delegates to the shared store write.
+// Upsert replaces the page's chunk set with the supplied rows, pruning any chunk
+// the page's current text no longer produces.
 func (s *Sink) Upsert(ctx context.Context, key indexjobs.Key, rows []indexjobs.Vector) error {
-	return s.store.UpsertVectors(ctx, key.SourceID, rows)
+	return s.store.ReplaceVectors(ctx, key.SourceID, rows)
 }
 
-// UpsertBatch is identical to Upsert for pages (single-item unit, no rows
-// outside the batch to preserve).
+// UpsertBatch writes one chunk of the embed pass in place, leaving the page's
+// other chunk rows untouched so partial progress survives a mid-pass failure.
 func (s *Sink) UpsertBatch(ctx context.Context, key indexjobs.Key, rows []indexjobs.Vector) error {
 	return s.store.UpsertVectors(ctx, key.SourceID, rows)
 }
 
-// StampExpected is a no-op for pages. Gap detection is condition-based
-// (embedding IS NULL OR model mismatch), not count-based.
-func (*Sink) StampExpected(context.Context, indexjobs.Key, int) error { return nil }
+// StampExpected marks the page's chunk set as produced by the current model. The
+// count is not stored: gap detection is condition-based (the page's marker versus
+// the current model), not a count comparison, because the number of chunks a page
+// produces is a function of its text and the provider's budget, not a target the
+// reconciler could independently derive.
+//
+// The worker calls this only after a successful embed pass, which is exactly the
+// convergence signal this marker records; a failure here is non-fatal (the next
+// sweep re-enqueues the page and its unchanged chunks are reused by the dedup
+// pass, so the retry costs no provider calls).
+func (s *Sink) StampExpected(ctx context.Context, key indexjobs.Key, _ int) error {
+	return s.store.StampModel(ctx, key.SourceID, s.currentModel)
+}
 
-// FindGaps returns non-deleted page ids whose embedding is missing or was
+// FindGaps returns the indexable page ids whose chunk set is missing or was
 // produced by a model other than the current one.
 func (s *Sink) FindGaps(ctx context.Context) ([]string, error) {
 	return s.store.FindGaps(ctx, s.currentModel)
 }
 
 // Coverage reports the portal-knowledge-pages kind's indexed-vs-expected totals
-// (non-deleted pages with an embedding vs all non-deleted pages). ExpectedKnown
-// is true: every non-deleted page is expected to converge to one vector.
+// (pages converged on the current model vs all indexable pages). ExpectedKnown is
+// true: every indexable page is expected to converge to a chunk set.
 func (s *Sink) Coverage(ctx context.Context) (indexjobs.Coverage, error) {
-	indexed, expected, err := s.store.Coverage(ctx)
+	indexed, expected, err := s.store.Coverage(ctx, s.currentModel)
 	if err != nil {
 		return indexjobs.Coverage{}, err
 	}

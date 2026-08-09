@@ -2077,13 +2077,17 @@ knowledge:
 | `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
 | `knowledge.pages.dedup_threshold` | float | `0.85` | Cosine similarity in `[0,1]` at or above which creating a knowledge page is blocked as a near-duplicate. Acts only when a real embedding provider is configured. A non-positive value selects the default |
 | `knowledge.pages.dedup_disabled` | bool | `false` | Turn the duplicate gate off entirely, so "no gate" is never confused with "left at default" |
-| `knowledge.pages.oversize_bytes` | int | `16384` | Body size in bytes at or above which a page write returns a non-blocking split suggestion. Negative disables this arm |
+| `knowledge.pages.oversize_bytes` | int | `16384` | Body size in bytes at or above which a page write returns a non-blocking split suggestion. Negative disables this arm. An editorial nudge, not a bound on search reach: page content is embedded as chunks sized to the provider input budget, so a page of any size is semantically searchable end to end (#1242) |
 | `knowledge.pages.oversize_sections` | int | `12` | Markdown heading count at or above which the split suggestion fires. Negative disables this arm |
 | `knowledge.reflexive_capture.enabled` | bool | `true` | Auto-capture a "misconception + fix" correction (source `automation`, reviewed sink-class) when a Trino query errors and a later same-session query over the same table(s) succeeds (#635). Default-on when the memory subsystem is available; set `false` to disable |
 | `knowledge.search_provider_timeout` | duration | `5s` | Per-provider deadline for the `search` fan-out arms, so one slow knowledge source drops out as a collected error rather than stalling the whole search. Set a negative duration to disable the bound. |
 | `knowledge.search_embed_timeout` | duration | `5s` | Deadline for the serial intent-embedding step in `search`, independent of `search_provider_timeout`. A slow or unreachable embedder degrades to lexical ranking rather than stalling the search; this knob lets you give a slow (cold or CPU-only) embedder headroom to preserve `hybrid` ranking without loosening the fan-out bound. Set a negative duration to disable the bound. |
 
 Prerequisites: `database.dsn` must be configured. The `apply_knowledge` tool requires the admin persona.
+
+## How much of a knowledge page is searchable
+
+All of it, at any size. A page's content (title, body, tags) is embedded as a SET of chunks rather than one vector, each chunk sized to the embedding provider's per-text input budget (`memory.embedding.ollama.max_input_bytes`, default 6,000 bytes) and split on the page's own markdown section boundaries where it has them, falling back to paragraph and then rune-boundary cuts. Every chunk is composed through the same title+body+tags composition a query is embedded over, so each carries the page's identity. Both vector readers -- the hybrid search arm and the create-time near-duplicate gate -- rank chunks and score each page by its best-matching chunk, so results stay page-granular while a fact at the end of a long runbook ranks its page exactly as one in the opening paragraph would, and a large candidate page is compared for duplication in full rather than by its head. Before #1242 a page carried one vector over text trimmed at the provider cap, so anything past roughly 6 KB reached the lexical arm only. Vectors live in `portal_knowledge_page_embedding_chunks`, replaced atomically by the indexjobs consumer; a content edit deletes the page's chunks in the same transaction as the write, so no vector outlives the text it was computed from.
 
 ## Insight Categories
 

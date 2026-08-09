@@ -297,6 +297,15 @@ func (o *ollamaProvider) Model() string {
 	return o.model
 }
 
+// MaxInputBytes returns the byte budget this provider trims each input
+// to before calling Ollama. Callers reach for it via the
+// `MaxInputBytes() int` type assertion (see the package-level
+// MaxInputBytes helper) when they must split their own text so no piece
+// is ever trimmed — the knowledge-page chunker sizes its chunks from
+// this value. Kept off the Provider interface for the same reason as
+// Model(): it is only meaningful for a provider that caps input.
+func (o *ollamaProvider) MaxInputBytes() int { return o.maxInputBytes }
+
 // Kind returns the Ollama kind identifier so callers can distinguish
 // this real, network-backed provider from the noop placeholder.
 func (*ollamaProvider) Kind() string { return KindOllama }

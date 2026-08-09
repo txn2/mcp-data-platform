@@ -267,8 +267,12 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 			collectionindex.NewSink(collStore, cfg.ModelName),
 		)
 	})
+	// Knowledge-pages consumer: embeds page content in chunks sized to the
+	// worker embedder's own input budget, so a page larger than one provider
+	// call is still semantically searchable end to end (#1242).
 	tryRegister(cfg.Consumers.PortalKnowledgePages, "portal knowledge pages", func() error {
-		return knowledgepageindex.RegisterConsumer(h.registry, cfg.DB, cfg.ModelName)
+		return knowledgepageindex.RegisterConsumer(h.registry, cfg.DB, cfg.ModelName,
+			embedding.MaxInputBytes(cfg.Embedder))
 	})
 	// Catalog-dataset consumer: mirrors the semantic catalog's dataset text into
 	// the platform's own index so a fact applied to a description is reachable

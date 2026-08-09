@@ -150,6 +150,10 @@ func TestStore_Update(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"title", "summary", "body", "tags", "current_version"}).
 			AddRow("Old", "olds", "oldbody", []byte(`["a"]`), 1))
 	mock.ExpectExec("UPDATE portal_knowledge_pages").WillReturnResult(sqlmock.NewResult(0, 1))
+	// The content edit drops the page's embedding chunks in the SAME transaction,
+	// so no vector computed from the old text survives the write (#1242).
+	mock.ExpectExec("DELETE FROM portal_knowledge_page_embedding_chunks").
+		WithArgs("kp1").WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec("INSERT INTO portal_knowledge_page_versions").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 

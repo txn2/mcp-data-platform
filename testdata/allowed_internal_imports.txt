@@ -469,6 +469,7 @@ pkg/portal -> pkg/prompt
 pkg/portal -> pkg/ratelimit
 pkg/portal -> pkg/registry
 pkg/portal -> pkg/toolkits/knowledge
+pkg/portal/knowledgepage -> pkg/embedding
 pkg/portal/mention -> internal/logsan
 pkg/portal/threads -> pkg/portal/mention
 pkg/prompt/attachserve -> pkg/contenttype

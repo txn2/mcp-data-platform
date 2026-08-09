@@ -204,7 +204,8 @@ func (h *Handler) knowledgePageDuplicates(ctx context.Context, req knowledgePage
 	if !ok {
 		return nil, nil
 	}
-	emb := h.embedSearchQuery(ctx, knowledgepage.IndexText(strings.TrimSpace(req.Title), req.Body, normalizeTags(req.Tags)))
+	emb := knowledgepage.CandidateEmbeddings(ctx, h.deps.EmbeddingProvider,
+		strings.TrimSpace(req.Title), req.Body, normalizeTags(req.Tags))
 	candidates, err := knowledgepage.NearDuplicatePages(ctx, prober, emb, h.deps.KnowledgePageDedupThreshold)
 	if err != nil {
 		return nil, fmt.Errorf("ranking knowledge pages for dedup: %w", err)
