@@ -1,0 +1,600 @@
+[
+  {
+    "role": "user",
+    "text": "The nightly ledger-reconcile job has now failed on three consecutive nights. Write the complete incident-handling document for this situation, one the on-shift engineer could follow as written: what is opened and at what severity, who has to be told, how the escalation proceeds and on what clocks when nobody acknowledges, what is communicated while it is open, what has to be true before it can be closed, and what record it has to leave behind. Completeness matters more than brevity; the document is the deliverable."
+  },
+  {
+    "role": "assistant",
+    "text": "I'll start by getting the platform documentation and session context."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01QrktuVrAw6ZTdXBedJJefa",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 4,
+          "query": "select:mcp__bench__platform_info,mcp__bench__search,mcp__bench__fetch,mcp__bench__list_connections"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01QrktuVrAw6ZTdXBedJJefa",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Snyy39HdjLqQeFXbSd2a2k",
+        "name": "mcp__bench__platform_info",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Snyy39HdjLqQeFXbSd2a2k",
+        "text": "{\"name\":\"mcp-data-platform-bench-gt\",\"version\":\"v1.120.0-dirty\",\"session_id\":\"dps_569018620231e649b5e673f806df1e06\",\"session_expires_at\":\"2026-08-09T20:33:25Z\",\"agent_instructions\":\"SESSION HANDLE: This call issued you session_id \\\"dps_569018620231e649b5e673f806df1e06\\\". Pass it as the session_id argument on EVERY subsequent tool call. Tool calls without it are refused (SESSION_REQUIRED). Do not call platform_info again unless a call returns SESSION_EXPIRED.\\n\\nHow to operate this platform:\\n- Discover before you act. Call `search` first: one query reveals what is already known across every source you can reach (the data catalog, its context documents, your memory, captured insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and connections). The answer may span several sources, or may not be in the data warehouse at all, so do not assume a backend and do not stop at the first result.\\n- Reuse what is known. Treat `search` results as the starting point and read a result in full with `fetch` (pass the result's `reference`), or drill in with the scoped tool a result points to, rather than re-deriving an answer or re-asking the user for something already recorded.\\n\\nUploaded reference material:\\nResources are human-uploaded inputs an agent uses as-is: report templates, brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated outputs. Knowledge pages are curated facts to search and synthesize. Memory is per-user recall. If it existed before the conversation and the agent should use it verbatim, it is a resource.\\n- Before you format a deliverable, `search` for an applicable template or reference resource and follow it rather than inventing a layout.\\n- When the user names a company file (\\\"our template\\\", \\\"the checklist\\\", \\\"the brand header\\\"), resolve it with `search` and read it in full with `fetch` (pass the result's `reference`) instead of asking them to paste it.\\n- Material attached to a prompt is authoritative: use it as given rather than paraphrasing it or substituting your own.\",\"toolkits\":[\"platform\",\"mcp\",\"api\"],\"toolkit_descriptions\":{\"platform\":\"Core platform tools: deployment info, connection listing, and resource access.\"},\"persona\":{\"name\":\"admin\",\"display_name\":\"Bench Graph Traversal (GT)\"},\"prompts\":[{\"name\":\"knowledge_capture_guidance\",\"description\":\"Guidance on when and how to capture domain knowledge insights\",\"category\":\"toolkit\",\"content\":\"## Knowledge Capture Guidance\\n\\n### Default Behavior: Capture Proactively\\n\\nYou should capture knowledge automatically during normal conversation. Do not wait for the user to say \\\"capture this\\\" or \\\"remember that.\\\" When someone tells you a fact about their data, that is knowledge. Record it.\\n\\nUse memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.\\n\\nThe goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.\\n\\n### When to Capture an Insight\\n\\nUse memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:\\n\\n**Corrections**: The user corrects a column description, table purpose, or data interpretation.\\nExample: \\\"That column isn't actually revenue, it's gross margin before returns.\\\"\\n\\n**Business Context**: The user explains what data means in business terms not captured in metadata.\\nExample: \\\"We only count active subscriptions, not trial accounts, for MRR calculations.\\\"\\n\\n**Data Quality**: The user reports data quality issues or known limitations.\\nExample: \\\"The timestamps before March 2024 are in UTC but after that they switched to America/Chicago.\\\"\\n\\n**Usage Guidance**: The user shares tips on how to query or interpret data correctly.\\nExample: \\\"Always filter by status='active' on that table, otherwise you get duplicates from soft deletes.\\\"\\n\\n**Relationships**: The user explains connections between datasets not captured in lineage.\\nExample: \\\"The customer_id in orders joins to the legacy CRM export, not the new identity table.\\\"\\n\\n**Enhancements**: The user suggests improvements to existing documentation or metadata.\\nExample: \\\"It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT.\\\"\\n\\n### Agent-Discovered Insights\\n\\nYou can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:\\n\\n**source: \\\"agent_discovery\\\"** — Use when you figure something out yourself during exploration:\\n- Discovering what a column actually contains by sampling data (e.g., \\\"column 'amt' appears to be in cents, not dollars, based on value ranges\\\")\\n- Finding join relationships not documented in lineage (e.g., \\\"orders.cust_id matches customers.legacy_id, not customers.id\\\")\\n- Identifying data quality patterns through queries (e.g., \\\"ship_date is NULL for 23% of completed orders since 2024-06\\\")\\n- Determining refresh cadence by observing max timestamps across multiple queries\\n\\n**source: \\\"enrichment_gap\\\"** — Use when flagging metadata gaps that need admin attention:\\n- A table has no description and you cannot determine its purpose from the data alone\\n- Column descriptions are missing or clearly outdated\\n- Lineage is incomplete or contradicts what the data shows\\n- Tags or glossary terms are absent for datasets that clearly belong to a domain\\n\\n**source: \\\"user\\\"** (default) — Use for insights the user explicitly shares with you.\\n\\n### When to Ask the User Instead\\n\\nDo NOT guess when:\\n- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone\\n- Multiple interpretations of a column or table are equally plausible\\n- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)\\n\\nIn these cases, ask the user to clarify before capturing anything.\\n\\n### When NOT to Capture\\n\\nDo NOT capture insights for:\\n- Transient questions or debugging (\\\"why is my query slow?\\\")\\n- Personal preferences (\\\"I prefer using CTEs\\\")\\n- Information already present in the catalog metadata\\n- Vague or unverifiable claims without specific context\\n- Trivial observations that don't add catalog value\\n- Trivially obvious metadata gaps without adding what the data actually means\\n- Speculative interpretations you have not verified by querying the data\\n- The same gap repeatedly within a single session\\n\\n### Best Practices\\n\\n- Include specific entity URNs when the insight relates to known datasets\\n- Suggest concrete actions (add_tag, update_description) when applicable\\n- Set confidence to \\\"high\\\" only when the user is clearly authoritative\\n- For agent discoveries, set confidence based on evidence strength: \\\"high\\\" if verified by querying, \\\"medium\\\" if inferred from patterns, \\\"low\\\" if speculative\\n- Capture the insight promptly while context is fresh\\n- Use markdown formatting when it aids clarity: backticks for `column_name` and `table_name`, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.\"},{\"name\":\"knowledge_apply_guidance\",\"description\":\"How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"category\":\"toolkit\",\"content\":\"## Reviewing Insights into Durable Knowledge\\n\\nYou hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as \\\"review and apply knowledge.\\\") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.\\n\\n### The loop, and why knowledge matters\\n\\n- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.\\n- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.\\n- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.\\n\\nAlways discover before you apply: search existing memory, insights, and knowledge first.\\n\\n### The expert review workflow\\n\\n1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.\\n2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.\\n3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.\\n4. **Route to the right home.**\\n   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.\\n   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.\\n5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:\u003cid\u003e, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).\\n6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).\\n7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.\\n\\n### Structure knowledge as a navigable graph\\n\\nPrefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:\u003cid\u003e references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.\\n\\n### Routing examples\\n\\n- \\\"The amount column excludes returns\\\" applies to DataHub: update_description on that dataset column.\\n- \\\"We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning\\\" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.\\n- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.\\n- A broad \\\"retail operations\\\" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.\"},{\"name\":\"capture-this-as-knowledge\",\"description\":\"Record insights from this conversation for data catalog improvement\",\"category\":\"toolkit\",\"content\":\"Capture the key insights from this conversation as domain knowledge for the data catalog.\\n\\n1. Review our conversation for corrections, business context, data quality observations, or relationships discovered\\n2. Identify which datasets and columns the insights relate to\\n3. Record each insight with appropriate categorization and confidence level\\n4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)\"},{\"name\":\"save-this-as-an-asset\",\"description\":\"Save output from this conversation as a viewable, shareable asset\",\"category\":\"toolkit\",\"content\":\"Save the most recent output or analysis from this conversation as a shareable asset.\\n\\n1. Identify the key output from our conversation (dashboard, report, chart, or analysis)\\n2. Package it with an appropriate name, description, and tags\\n3. Save it as an asset so it can be viewed and shared\\n4. Return the link to the saved asset\"},{\"name\":\"show-my-saved-assets\",\"description\":\"Browse your saved assets\",\"category\":\"toolkit\",\"content\":\"List my saved assets.\\n\\n1. Retrieve all assets I have saved\\n2. Present them with names, descriptions, tags, and creation dates\\n3. Highlight the most recent items\"}],\"features\":{\"semantic_enrichment\":false,\"query_enrichment\":false,\"storage_enrichment\":false,\"audit_logging\":true,\"knowledge_capture\":false,\"managed_resources\":true},\"config_version\":{\"api_version\":\"v1\",\"supported_versions\":[\"v1\"],\"latest_version\":\"v1\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01P8A7ZvFZ2cQavZZnWZ9Dkw",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "ledger-reconcile nightly job failure incident handling",
+          "limit": 30,
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01P8A7ZvFZ2cQavZZnWZ9Dkw",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Ledger Reconcile Job Runbook\\nOperating notes for the nightly ledger-reconcile job: what it compares, what a break means, and what a run of consecutive failures opens.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_ea61a64a-58a8-4d3f-879b-9b7842c545e7\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_ea61a64a-58a8-4d3f-879b-9b7842c545e7\"},{\"text\":\"Reconcile Failure History\\nThe record of past ledger-reconcile failures: how often the job has failed, what the causes were, and which nights required a manual run.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_73b4f3da-db42-4811-90a8-c225e78f4eaf\",\"score\":0.8192673902284937,\"reference\":\"mcp:knowledge_page:kp_73b4f3da-db42-4811-90a8-c225e78f4eaf\"},{\"text\":\"Reconcile Manual Run Procedure\\nHow to run the ledger reconciliation by hand for a named business date after a failed night, and what a manual run does and does not settle.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3a9d0a11-c3ef-4e0d-8aaa-242c632d1c7e\",\"score\":0.5759499429089104,\"reference\":\"mcp:knowledge_page:kp_3a9d0a11-c3ef-4e0d-8aaa-242c632d1c7e\"},{\"text\":\"Overnight Failure Review\\nThe morning review of overnight job failures: what is reviewed, how a repeat failure is recognized across nights, and what the review hands on.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_7ab37f76-ea1b-4031-a098-68d95a74e29f\",\"score\":0.5525050560465536,\"reference\":\"mcp:knowledge_page:kp_7ab37f76-ea1b-4031-a098-68d95a74e29f\"},{\"text\":\"Ledger Close Calendar\\nWhen each ledger extract is due, how the close periods are dated, and what a close period means for platform changes.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\",\"score\":0.48052813163276736,\"reference\":\"mcp:knowledge_page:kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\"},{\"text\":\"Ledger Extract Delivery Runbook\\nHow the nightly general-ledger extract is delivered, how a missing or truncated extract is recognized, and who is contacted upstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d0675db0-612e-4c03-b608-f1d4b85e49f2\",\"score\":0.4629945851421538,\"reference\":\"mcp:knowledge_page:kp_d0675db0-612e-4c03-b608-f1d4b85e49f2\"},{\"text\":\"Reconcile Break Triage Guide\\nHow to work the breaks the nightly reconciliation writes: the break categories, which ones self-clear, and when a break becomes an accounting question.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_cb7383f1-5a98-4c2e-ad45-3eda6ca2ef87\",\"score\":0.4561566181024293,\"reference\":\"mcp:knowledge_page:kp_cb7383f1-5a98-4c2e-ad45-3eda6ca2ef87\"},{\"text\":\"Night Shift Handover Notes\\nWhat the overnight shift hands to the morning: which jobs ran, which failed, what was left running, and what the morning review is expected to pick up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b5199742-f300-4ac5-8eb5-b73de53c767a\",\"score\":0.45239632369116095,\"reference\":\"mcp:knowledge_page:kp_b5199742-f300-4ac5-8eb5-b73de53c767a\"},{\"text\":\"Nightly Batch Window Calendar\\nThe overnight maintenance and batch windows: which jobs own which slot, how the windows are ordered, and how a window move is requested.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9\",\"score\":0.3715657828301906,\"reference\":\"mcp:knowledge_page:kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9\"},{\"text\":\"Duty Manager Response Matrix\\nThe clocks each escalation route runs to: how long a rung may hold before it climbs, what a doubled overnight clock means, and what is written when a clock runs out.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8883d7f9-4dfd-42d6-9691-f887a075c444\",\"score\":0.3535002485525082,\"reference\":\"mcp:knowledge_page:kp_8883d7f9-4dfd-42d6-9691-f887a075c444\"},{\"text\":\"Incident Severity Bands\\nThe platform's incident severity bands: what qualifies for each band, who is notified, and which escalation ladder a band follows.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3f717262-e1b6-4e93-9a5b-5e75bd98ff99\",\"score\":0.3380826030328101,\"reference\":\"mcp:knowledge_page:kp_3f717262-e1b6-4e93-9a5b-5e75bd98ff99\"},{\"text\":\"Platform Glossary\\nTerms used across the platform handbook: break, drop, window, rung, partition, and the difference between a job failing and a job reporting a problem.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9725eb69-62da-47e3-a0eb-68cd4dfaa298\",\"score\":0.30904238590027105,\"reference\":\"mcp:knowledge_page:kp_9725eb69-62da-47e3-a0eb-68cd4dfaa298\"},{\"text\":\"Opening and Closing an Incident\\nThe mechanics of an incident record: who may open one, what has to be filled in at the start, what closing requires, and why an incident is never deleted.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_c0ba809a-7b02-4cac-9771-3b40c2682647\",\"score\":0.3047262007095365,\"reference\":\"mcp:knowledge_page:kp_c0ba809a-7b02-4cac-9771-3b40c2682647\"},{\"text\":\"Duty Manager Rota\\nWho holds the platform duty manager role and when: the rota shape, the handover, the standing delegation, and how the rota is corrected when someone is unavailable.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8724ca47-3fab-4753-8f1b-51c80ec9fd9b\",\"score\":0.27876371355801094,\"reference\":\"mcp:knowledge_page:kp_8724ca47-3fab-4753-8f1b-51c80ec9fd9b\"},{\"text\":\"Warehouse Vacuum Job Runbook\\nOperating notes for the nightly warehouse-vacuum job: what it reclaims, when it runs, how its row-count delta is reviewed and when it wakes the on-call engineer.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_fc1d9175-14af-47bb-8144-e1bf5ac86707\",\"score\":0.25613292922535835,\"reference\":\"mcp:knowledge_page:kp_fc1d9175-14af-47bb-8144-e1bf5ac86707\"},{\"text\":\"On-Call Rotation Handbook\\nHow the platform on-call rotation works: shift length, handover, the batch review shift, and how a swap is arranged.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f7e100d4-816b-40b9-9d46-887e42ca8ea0\",\"score\":0.19022135978236512,\"reference\":\"mcp:knowledge_page:kp_f7e100d4-816b-40b9-9d46-887e42ca8ea0\"},{\"text\":\"Sessionization Job Runbook\\nOperating notes for the sessionization job that reads the clickstream-raw partitions: its window, its idempotency, and how a late partition is picked up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a3c496d9-a677-451c-8cae-23c1be307d23\",\"score\":0.17733869798174026,\"reference\":\"mcp:knowledge_page:kp_a3c496d9-a677-451c-8cae-23c1be307d23\"},{\"text\":\"Incident Communication Guide\\nWhat is said during an incident and to whom: the first notice, the rhythm of updates, the language to avoid, and who speaks to people outside the platform group.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1c337dbd-197b-4314-934b-411f802a9ff3\",\"score\":0.17214585282255634,\"reference\":\"mcp:knowledge_page:kp_1c337dbd-197b-4314-934b-411f802a9ff3\"},{\"text\":\"Export Re-run Procedure\\nHow to re-run a nightly export safely: single-hour re-runs, whole-night re-runs, what a re-run overwrites, and what has to be told downstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c\",\"score\":0.16555870268801307,\"reference\":\"mcp:knowledge_page:kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c\"},{\"text\":\"Export Delivery Expectations\\nWhen each nightly export is expected to land, how lateness is measured, and who is told when an export misses its expected hour.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3ec266dc-aa0a-4725-9991-73c89bdedda2\",\"score\":0.11956476497928877,\"reference\":\"mcp:knowledge_page:kp_3ec266dc-aa0a-4725-9991-73c89bdedda2\"},{\"text\":\"Escalation Ladders\\nThe platform's escalation routes: the rungs each route climbs, who sits on each rung, and where the timings for each rung are held.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_36b25264-b9f1-464a-95b9-e3831ae06627\",\"score\":0.041903614226899526,\"reference\":\"mcp:knowledge_page:kp_36b25264-b9f1-464a-95b9-e3831ae06627\"},{\"text\":\"Incident Postmortem Standard\\nWhat every incident record must contain when it closes: the timeline, the conditions that allowed it, the corrections, and how the record is reviewed.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_2f49c9c8-d561-4780-9a84-34964045367a\",\"score\":0.0346910144077037,\"reference\":\"mcp:knowledge_page:kp_2f49c9c8-d561-4780-9a84-34964045367a\"},{\"text\":\"Billing Events Field Guide\\nField-by-field meaning of the billing-events records: the state enumeration, the money fields and their units, and the fields that are only populated for refunds.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1e4d735a-d16d-4468-b297-b61ff566e20b\",\"score\":0.03327798016716204,\"reference\":\"mcp:knowledge_page:kp_1e4d735a-d16d-4468-b297-b61ff566e20b\"},{\"text\":\"Paging Channel Directory\\nHow each role is reached out of hours: the primary channel, the fallback, and what a silent page falls through to.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_e4294a2c-a0e7-45c8-a9fb-3b97ce018e2a\",\"score\":0.01892319790440617,\"reference\":\"mcp:knowledge_page:kp_e4294a2c-a0e7-45c8-a9fb-3b97ce018e2a\"},{\"text\":\"Billing Events Replay Guide\\nHow to replay the billing-events stream safely: choosing the offset, pausing non-idempotent consumers, and confirming the replay landed.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1f4e6bd9-05cf-49a1-b85a-3c81b9a4e468\",\"score\":0,\"reference\":\"mcp:knowledge_page:kp_1f4e6bd9-05cf-49a1-b85a-3c81b9a4e468\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":1,\"reference\":\"mcp:prompt:26b58ce1-719a-446b-aef9-d81fa23427f8\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0.856398371009499,\"reference\":\"mcp:prompt:0717ada8-5b79-473e-924a-7942081a10f6\"},{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":0.8347586798569244,\"reference\":\"mcp:prompt:59791e2f-db90-44d4-8db9-2add79c0e41e\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.23302073072032725,\"reference\":\"mcp:prompt:e515599a-968a-4f4a-8e12-940cc4739a12\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0,\"reference\":\"mcp:prompt:5c2321d2-757b-4852-a41d-5ea7cbb11a08\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":25},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":30,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_016kPf5VZFpedhkkWzMmswJP",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "incident severity classification escalation policy on-call paging acknowledgement timers",
+          "limit": 30,
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_016kPf5VZFpedhkkWzMmswJP",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Escalation Ladders\\nThe platform's escalation routes: the rungs each route climbs, who sits on each rung, and where the timings for each rung are held.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_36b25264-b9f1-464a-95b9-e3831ae06627\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_36b25264-b9f1-464a-95b9-e3831ae06627\"},{\"text\":\"Incident Severity Bands\\nThe platform's incident severity bands: what qualifies for each band, who is notified, and which escalation ladder a band follows.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3f717262-e1b6-4e93-9a5b-5e75bd98ff99\",\"score\":0.9471096906904863,\"reference\":\"mcp:knowledge_page:kp_3f717262-e1b6-4e93-9a5b-5e75bd98ff99\"},{\"text\":\"Incident Communication Guide\\nWhat is said during an incident and to whom: the first notice, the rhythm of updates, the language to avoid, and who speaks to people outside the platform group.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1c337dbd-197b-4314-934b-411f802a9ff3\",\"score\":0.8177227318022121,\"reference\":\"mcp:knowledge_page:kp_1c337dbd-197b-4314-934b-411f802a9ff3\"},{\"text\":\"Duty Manager Response Matrix\\nThe clocks each escalation route runs to: how long a rung may hold before it climbs, what a doubled overnight clock means, and what is written when a clock runs out.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8883d7f9-4dfd-42d6-9691-f887a075c444\",\"score\":0.797396561518484,\"reference\":\"mcp:knowledge_page:kp_8883d7f9-4dfd-42d6-9691-f887a075c444\"},{\"text\":\"Data Egress Approval Policy\\nWhen data may leave the platform boundary, who approves it, and what an approved egress route is obliged to record.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_572f2125-c69e-4760-a935-0544033ec651\",\"score\":0.5665670348166602,\"reference\":\"mcp:knowledge_page:kp_572f2125-c69e-4760-a935-0544033ec651\"},{\"text\":\"Paging Channel Directory\\nHow each role is reached out of hours: the primary channel, the fallback, and what a silent page falls through to.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_e4294a2c-a0e7-45c8-a9fb-3b97ce018e2a\",\"score\":0.4696628364236925,\"reference\":\"mcp:knowledge_page:kp_e4294a2c-a0e7-45c8-a9fb-3b97ce018e2a\"},{\"text\":\"Opening and Closing an Incident\\nThe mechanics of an incident record: who may open one, what has to be filled in at the start, what closing requires, and why an incident is never deleted.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_c0ba809a-7b02-4cac-9771-3b40c2682647\",\"score\":0.45759312746608505,\"reference\":\"mcp:knowledge_page:kp_c0ba809a-7b02-4cac-9771-3b40c2682647\"},{\"text\":\"Incident Postmortem Standard\\nWhat every incident record must contain when it closes: the timeline, the conditions that allowed it, the corrections, and how the record is reviewed.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_2f49c9c8-d561-4780-9a84-34964045367a\",\"score\":0.4480718569877411,\"reference\":\"mcp:knowledge_page:kp_2f49c9c8-d561-4780-9a84-34964045367a\"},{\"text\":\"Billing Events Replay Guide\\nHow to replay the billing-events stream safely: choosing the offset, pausing non-idempotent consumers, and confirming the replay landed.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1f4e6bd9-05cf-49a1-b85a-3c81b9a4e468\",\"score\":0.3601976688415133,\"reference\":\"mcp:knowledge_page:kp_1f4e6bd9-05cf-49a1-b85a-3c81b9a4e468\"},{\"text\":\"Change Announcement Channels\\nWhere a change to a published interface is announced, which channel is the authoritative one, and what an announcement has to contain.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_84131291-ec94-4399-8b06-1572353a474b\",\"score\":0.33276072428133563,\"reference\":\"mcp:knowledge_page:kp_84131291-ec94-4399-8b06-1572353a474b\"},{\"text\":\"Billing Events Stream Runbook\\nOperating notes for the billing-events stream: its producers, its tiering, its replay behavior, and how a proposed change to it is handled.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_ecee26d9-1caf-441a-a4e2-80b789337129\",\"score\":0.3082272804949845,\"reference\":\"mcp:knowledge_page:kp_ecee26d9-1caf-441a-a4e2-80b789337129\"},{\"text\":\"Billing Events Field Guide\\nField-by-field meaning of the billing-events records: the state enumeration, the money fields and their units, and the fields that are only populated for refunds.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1e4d735a-d16d-4468-b297-b61ff566e20b\",\"score\":0.241026883218052,\"reference\":\"mcp:knowledge_page:kp_1e4d735a-d16d-4468-b297-b61ff566e20b\"},{\"text\":\"Duty Manager Rota\\nWho holds the platform duty manager role and when: the rota shape, the handover, the standing delegation, and how the rota is corrected when someone is unavailable.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8724ca47-3fab-4753-8f1b-51c80ec9fd9b\",\"score\":0.23429413270879684,\"reference\":\"mcp:knowledge_page:kp_8724ca47-3fab-4753-8f1b-51c80ec9fd9b\"},{\"text\":\"Change Class Reference\\nThe platform's change classes: what each class covers, who signs a change off, and how much advance notice each one owes the consumers of a changed interface.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_fb51a148-2fa5-4db6-a76b-217f70795075\",\"score\":0.23402556631354815,\"reference\":\"mcp:knowledge_page:kp_fb51a148-2fa5-4db6-a76b-217f70795075\"},{\"text\":\"Night Shift Handover Notes\\nWhat the overnight shift hands to the morning: which jobs ran, which failed, what was left running, and what the morning review is expected to pick up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b5199742-f300-4ac5-8eb5-b73de53c767a\",\"score\":0.21007312590242272,\"reference\":\"mcp:knowledge_page:kp_b5199742-f300-4ac5-8eb5-b73de53c767a\"},{\"text\":\"On-Call Rotation Handbook\\nHow the platform on-call rotation works: shift length, handover, the batch review shift, and how a swap is arranged.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f7e100d4-816b-40b9-9d46-887e42ca8ea0\",\"score\":0.1995170643555781,\"reference\":\"mcp:knowledge_page:kp_f7e100d4-816b-40b9-9d46-887e42ca8ea0\"},{\"text\":\"Regulated Tier Operating Rules\\nWhat operating in the regulated tier obliges a stream owner to do: retention floors, access review, producer ownership duties and the change class regulated streams are governed by.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3ca1897f-da19-4659-9ca1-5dfecf17b34d\",\"score\":0.1966834263224638,\"reference\":\"mcp:knowledge_page:kp_3ca1897f-da19-4659-9ca1-5dfecf17b34d\"},{\"text\":\"Sessionization Job Runbook\\nOperating notes for the sessionization job that reads the clickstream-raw partitions: its window, its idempotency, and how a late partition is picked up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a3c496d9-a677-451c-8cae-23c1be307d23\",\"score\":0.13155265698051546,\"reference\":\"mcp:knowledge_page:kp_a3c496d9-a677-451c-8cae-23c1be307d23\"},{\"text\":\"Reconcile Break Triage Guide\\nHow to work the breaks the nightly reconciliation writes: the break categories, which ones self-clear, and when a break becomes an accounting question.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_cb7383f1-5a98-4c2e-ad45-3eda6ca2ef87\",\"score\":0.10615649066452816,\"reference\":\"mcp:knowledge_page:kp_cb7383f1-5a98-4c2e-ad45-3eda6ca2ef87\"},{\"text\":\"Clickstream Schema Notes\\nWhat the clickstream-raw partitions contain: the event envelope, the properties map, the identity fields and the known gaps in older partitions.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d16797b6-085c-4d96-b19b-f18920f12d67\",\"score\":0.08242315599880301,\"reference\":\"mcp:knowledge_page:kp_d16797b6-085c-4d96-b19b-f18920f12d67\"},{\"text\":\"Platform Glossary\\nTerms used across the platform handbook: break, drop, window, rung, partition, and the difference between a job failing and a job reporting a problem.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9725eb69-62da-47e3-a0eb-68cd4dfaa298\",\"score\":0.056261417227278426,\"reference\":\"mcp:knowledge_page:kp_9725eb69-62da-47e3-a0eb-68cd4dfaa298\"},{\"text\":\"Consumer Contract Registry\\nWhat the consumer contract registry records for each stream: who reads it, which schema version they pinned, and who is notified when it changes.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1d8c460d-54fe-4272-bf5b-755fb6cc4afe\",\"score\":0.02646116821148157,\"reference\":\"mcp:knowledge_page:kp_1d8c460d-54fe-4272-bf5b-755fb6cc4afe\"},{\"text\":\"Event Collector Drain Runbook\\nHow the event collectors drain before the clickstream-raw export runs: the drain signal, the lag metric, and what to do when a collector will not drain.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_08a5dca5-1dfe-47e3-8806-aa7a885e2116\",\"score\":0.013193329871494203,\"reference\":\"mcp:knowledge_page:kp_08a5dca5-1dfe-47e3-8806-aa7a885e2116\"},{\"text\":\"Ledger Close Calendar\\nWhen each ledger extract is due, how the close periods are dated, and what a close period means for platform changes.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\",\"score\":0.007120075532272519,\"reference\":\"mcp:knowledge_page:kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\"},{\"text\":\"Reconcile Manual Run Procedure\\nHow to run the ledger reconciliation by hand for a named business date after a failed night, and what a manual run does and does not settle.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3a9d0a11-c3ef-4e0d-8aaa-242c632d1c7e\",\"score\":0,\"reference\":\"mcp:knowledge_page:kp_3a9d0a11-c3ef-4e0d-8aaa-242c632d1c7e\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":1,\"reference\":\"mcp:prompt:59791e2f-db90-44d4-8db9-2add79c0e41e\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.6372338264660586,\"reference\":\"mcp:prompt:e515599a-968a-4f4a-8e12-940cc4739a12\"},{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":0.5879260797611656,\"reference\":\"mcp:prompt:26b58ce1-719a-446b-aef9-d81fa23427f8\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0.5544176069229577,\"reference\":\"mcp:prompt:0717ada8-5b79-473e-924a-7942081a10f6\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0,\"reference\":\"mcp:prompt:5c2321d2-757b-4852-a41d-5ea7cbb11a08\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":25},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":30,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "Found the knowledge base. Let me read the core pages."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01ABToFMme4fdRKugMTtXFtP",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_ea61a64a-58a8-4d3f-879b-9b7842c545e7",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01ABToFMme4fdRKugMTtXFtP",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_ea61a64a-58a8-4d3f-879b-9b7842c545e7\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_ea61a64a-58a8-4d3f-879b-9b7842c545e7\",\"source\":\"knowledge_pages\",\"title\":\"Ledger Reconcile Job Runbook\",\"body\":\"# Ledger Reconcile Job Runbook\\n\\nThe nightly `ledger-reconcile` job compares the settled-invoice view against\\nthe general ledger extract and writes one row per discrepancy. A discrepancy is\\ncalled a break. Breaks are expected in small numbers and are worked the next\\nmorning (mcp:knowledge_page:kp_cb7383f1-5a98-4c2e-ad45-3eda6ca2ef87).\\n\\n## Failure of the job itself\\n\\nA failed run is different from a break. The job fails when it cannot read one of\\nits two inputs, which usually means the ledger extract has not landed; the close\\ncalendar says when each extract is due (mcp:knowledge_page:kp_1f725023-9a89-4b6a-84ff-b1bf73f05733).\\n\\nA single failure is retried automatically on the next schedule. **Failures on\\nthree consecutive nights open a severity band B incident**, because at that point\\nthe reconciliation has not been proved for a full accounting period and the\\nquestion is no longer whether the job runs. What a band obliges, and how quickly,\\nis set centrally in mcp:knowledge_page:kp_3f717262-e1b6-4e93-9a5b-5e75bd98ff99 rather than here.\\n\\n## Manual runs\\n\\nThe job can be run by hand against a named business date once the missing input\\nhas landed. A manual run does not clear an open incident; the incident closes on\\nthe evidence that the scheduled run has recovered, not on a successful manual\\none.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_cb7383f1-5a98-4c2e-ad45-3eda6ca2ef87\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_3f717262-e1b6-4e93-9a5b-5e75bd98ff99\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Gzq1fS5B7jBi3r4xYFEzxA",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_3f717262-e1b6-4e93-9a5b-5e75bd98ff99",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Gzq1fS5B7jBi3r4xYFEzxA",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_3f717262-e1b6-4e93-9a5b-5e75bd98ff99\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_3f717262-e1b6-4e93-9a5b-5e75bd98ff99\",\"source\":\"knowledge_pages\",\"title\":\"Incident Severity Bands\",\"body\":\"# Incident Severity Bands\\n\\nAn incident is assigned a severity band when it is opened; opening one, and\\nwhat closing one takes, has its own mechanics (mcp:knowledge_page:kp_c0ba809a-7b02-4cac-9771-3b40c2682647).\\nThe band is a statement about consequence, not about effort: a small defect\\nwith an accounting consequence outranks a large one without.\\n\\n## The bands\\n\\n**Band A.** Customer-visible loss of service, or a defect that has already\\nproduced an incorrect external figure. Notified immediately to the whole\\nplatform group.\\n\\n**Band B.** An internal control that has stopped proving what it exists to\\nprove, with no external figure yet affected. Notified to the owning team and to\\nthe platform group's shift lead.\\n\\n**Band C.** A degradation with a known workaround already in place.\\n\\n**Band D.** A defect with no consequence before the next working day.\\n\\n## Escalation\\n\\nEach band follows a named escalation route, and the routes are held together in\\nmcp:knowledge_page:kp_36b25264-b9f1-464a-95b9-e3831ae06627 so a change to one is visible against the others.\\nBand A follows the red route, **band B follows the amber route**, bands C and D\\nfollow the standard route.\\n\\nWhat is said while an incident is open, and by whom, is not a band question\\n(mcp:knowledge_page:kp_1c337dbd-197b-4314-934b-411f802a9ff3).\\n\\nThe record an incident leaves behind, whatever its band, is described in\\nmcp:knowledge_page:kp_2f49c9c8-d561-4780-9a84-34964045367a.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_c0ba809a-7b02-4cac-9771-3b40c2682647\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_2f49c9c8-d561-4780-9a84-34964045367a\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_36b25264-b9f1-464a-95b9-e3831ae06627\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_1c337dbd-197b-4314-934b-411f802a9ff3\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01YNWe9opsKjERW9qZveuxVt",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_36b25264-b9f1-464a-95b9-e3831ae06627",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01YNWe9opsKjERW9qZveuxVt",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_36b25264-b9f1-464a-95b9-e3831ae06627\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_36b25264-b9f1-464a-95b9-e3831ae06627\",\"source\":\"knowledge_pages\",\"title\":\"Escalation Ladders\",\"body\":\"# Escalation Ladders\\n\\nAn escalation route is an ordered list of rungs. An incident starts at the first\\nrung and climbs one rung at a time; skipping a rung is allowed only when the\\nperson on it is the one escalating.\\n\\n## The routes\\n\\n**Red route.** First rung: the owning team's shift lead. Second rung: the\\nplatform duty manager. Third rung: the head of platform. Fourth rung: the\\nexecutive on call.\\n\\n**Amber route.** First rung: the owning team's shift lead. **Second rung: the\\nplatform duty manager.** Third rung: the head of platform.\\n\\n**Standard route.** First rung: the owning team's shift lead. Second rung: the\\nowning team's manager, during working hours only.\\n\\n## Timings\\n\\nThe routes above say who, and in what order. How long an incident may sit on a\\nrung before it climbs is not part of the route, because the same rung is worked\\nto different clocks on different routes; those clocks are held in\\nmcp:knowledge_page:kp_8883d7f9-4dfd-42d6-9691-f887a075c444.\\n\\nWho is on shift on any given night is the rotation's business\\n(mcp:knowledge_page:kp_f7e100d4-816b-40b9-9d46-887e42ca8ea0), and the channel each rung is reached on is\\nlisted in mcp:knowledge_page:kp_e4294a2c-a0e7-45c8-a9fb-3b97ce018e2a.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_8883d7f9-4dfd-42d6-9691-f887a075c444\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_f7e100d4-816b-40b9-9d46-887e42ca8ea0\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_e4294a2c-a0e7-45c8-a9fb-3b97ce018e2a\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_019n7JCM6zGgz7vRtUwMAq8E",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_8883d7f9-4dfd-42d6-9691-f887a075c444",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_019n7JCM6zGgz7vRtUwMAq8E",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_8883d7f9-4dfd-42d6-9691-f887a075c444\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_8883d7f9-4dfd-42d6-9691-f887a075c444\",\"source\":\"knowledge_pages\",\"title\":\"Duty Manager Response Matrix\",\"body\":\"# Duty Manager Response Matrix\\n\\nThis matrix holds the clocks. Each figure is the longest an incident may sit on\\nthat rung of that route before it must reach the next one.\\n\\n| Route | First rung | Second rung | Third rung |\\n| --- | --- | --- | --- |\\n| Red | 5 minutes | 10 minutes | 30 minutes |\\n| Amber | 20 minutes | 25 minutes | 2 hours |\\n| Standard | 4 hours | next working day | next working day |\\n\\nA clock starts when the incident is opened, not when it is acknowledged, and it\\nruns across shift handovers. An unacknowledged clock that expires climbs on its\\nown: the escalation is automatic and the acknowledgement is recorded late rather\\nthan the escalation being held back for it.\\n\\n## Overnight\\n\\nBetween 22:00 and 06:00 the standard route's clocks are doubled, because the\\nrung below it is on a pager rather than at a desk. The red and amber routes are\\nworked to the same clocks at every hour: an incident on either of them is\\nalready past the point where the hour is an excuse.\\n\\n## Recording\\n\\nEvery climb writes a line to the incident record: the rung it left, the rung it\\nreached, the clock that expired and whether it expired unacknowledged.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_015aiV3uShvAnaFhLpgVyGhf",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_c0ba809a-7b02-4cac-9771-3b40c2682647",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_015aiV3uShvAnaFhLpgVyGhf",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_c0ba809a-7b02-4cac-9771-3b40c2682647\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_c0ba809a-7b02-4cac-9771-3b40c2682647\",\"source\":\"knowledge_pages\",\"title\":\"Opening and Closing an Incident\",\"body\":\"# Opening and Closing an Incident\\n\\nAnyone may open an incident. Opening one costs almost nothing and not opening\\none costs the timeline, so the bias is deliberate.\\n\\n## At the start\\n\\nAn incident needs a one-line statement of what is wrong, the system it is wrong\\nin, and whoever opened it. Everything else is filled in as it is learned. An\\nincident that waits for a complete picture before it exists has no early\\ntimeline, which is the part that is hardest to reconstruct later.\\n\\n## Closing\\n\\nClosing needs evidence that the condition has gone, not an absence of further\\nreports. For a scheduled job that means a clean scheduled run.\\n\\nAn incident is never deleted. One opened by mistake is closed as such, because\\nthe record that somebody thought this was wrong is itself worth keeping.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01EvJUreh98ABPF7KkiEnFpB",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_1c337dbd-197b-4314-934b-411f802a9ff3",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01EvJUreh98ABPF7KkiEnFpB",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_1c337dbd-197b-4314-934b-411f802a9ff3\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_1c337dbd-197b-4314-934b-411f802a9ff3\",\"source\":\"knowledge_pages\",\"title\":\"Incident Communication Guide\",\"body\":\"# Incident Communication Guide\\n\\nThe opening notice says what is affected, what is not, and when the next update\\nwill come. It does not say what the cause is, because at that point nobody knows\\nand a guess in an opening notice outlives the incident.\\n\\nUpdates go out on the cadence the opening notice promised, including the ones\\nthat say nothing has changed. A silent incident is read as a resolved one.\\n\\nOnly the incident lead speaks to anyone outside the platform group. This is not\\nabout secrecy: it is that two well-meaning people describing the same partial\\npicture produce three versions of it.\\n\\nLanguage to avoid: \\\"should be fixed\\\", \\\"briefly\\\", \\\"minor\\\". Say what was observed\\nand what was done.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_015VEM92CjQzKWXuBpXTKqJ6",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_2f49c9c8-d561-4780-9a84-34964045367a",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_015VEM92CjQzKWXuBpXTKqJ6",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_2f49c9c8-d561-4780-9a84-34964045367a\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_2f49c9c8-d561-4780-9a84-34964045367a\",\"source\":\"knowledge_pages\",\"title\":\"Incident Postmortem Standard\",\"body\":\"# Incident Postmortem Standard\\n\\nEvery closed incident leaves a record, whatever its band. The record has four\\nparts.\\n\\n**Timeline.** What was observed and when, in the order it was observed, including\\nthe observations that turned out to be irrelevant.\\n\\n**Contributing conditions.** The conditions that had to hold for the incident to\\nhappen. Written as conditions rather than as causes, because the useful ones are\\nusually the conditions nobody chose.\\n\\n**Corrections.** What changed as a result, each with an owner. A correction with\\nno owner is a wish and is not recorded as a correction.\\n\\n**Review.** The record is read by someone who was not involved. The reviewer's\\njob is to find the part of the timeline that only makes sense to the people who\\nwere there.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01AkyxWUEXucn375BuHXPUcR",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_e4294a2c-a0e7-45c8-a9fb-3b97ce018e2a",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01AkyxWUEXucn375BuHXPUcR",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_e4294a2c-a0e7-45c8-a9fb-3b97ce018e2a\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_e4294a2c-a0e7-45c8-a9fb-3b97ce018e2a\",\"source\":\"knowledge_pages\",\"title\":\"Paging Channel Directory\",\"body\":\"# Paging Channel Directory\\n\\nEach role has a primary channel and one fallback. A page that is not\\nacknowledged on the primary within its own window repeats on the fallback; a page\\nunacknowledged on both is treated as unreachable and the sender moves on rather\\nthan waiting.\\n\\n| Role | Primary | Fallback |\\n| --- | --- | --- |\\n| Shift lead | pager app | phone |\\n| Duty manager | phone | pager app |\\n| Head of platform | phone | assistant's phone |\\n| Executive on call | phone | none |\\n\\nChannel changes are made in the directory and take effect on the next shift, not\\nimmediately, so a change made mid-incident does not silently redirect a page that\\nis already in flight.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01FThM8BX7YE3PfXDqKR5BrB",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_73b4f3da-db42-4811-90a8-c225e78f4eaf",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01FThM8BX7YE3PfXDqKR5BrB",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_73b4f3da-db42-4811-90a8-c225e78f4eaf\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_73b4f3da-db42-4811-90a8-c225e78f4eaf\",\"source\":\"knowledge_pages\",\"title\":\"Reconcile Failure History\",\"body\":\"# Reconcile Failure History\\n\\nThe reconciliation has failed on eleven nights in the last two years. The causes\\ngroup into three.\\n\\n**Late extract.** By far the most common: the upstream file had not landed when\\nthe job started. Every one of these cleared on the next schedule.\\n\\n**Schema drift.** The extract gained a column and the loader rejected the file.\\nTwo occurrences, both after an upstream release.\\n\\n**Consecutive failures.** Once, on three consecutive nights, caused by a\\ntransfer credential that had expired and was renewed only after the third\\nmorning. That run is the reason the consecutive-failure case is now handled\\nexplicitly rather than as three unrelated single failures.\\n\\nNothing here is a substitute for the current night's run log.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01JEGc3tZoywvLWMFbsFk1z1",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_3a9d0a11-c3ef-4e0d-8aaa-242c632d1c7e",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01JEGc3tZoywvLWMFbsFk1z1",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_3a9d0a11-c3ef-4e0d-8aaa-242c632d1c7e\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_3a9d0a11-c3ef-4e0d-8aaa-242c632d1c7e\",\"source\":\"knowledge_pages\",\"title\":\"Reconcile Manual Run Procedure\",\"body\":\"# Reconcile Manual Run Procedure\\n\\nA manual run takes one business date and both of that date's inputs. It refuses\\nto start if either input is absent, which is the same refusal the scheduled run\\nmakes and for the same reason: a reconciliation against one side is not a\\nreconciliation.\\n\\nRun it from the platform host with the date, wait for the break count, and read\\nthe breaks rather than the exit code. A run that produces an enormous break\\ncount almost always means the extract was for a different date.\\n\\nA manual run settles the numbers for that date. It does not settle whether the\\nscheduled job is healthy, and it is not evidence that the next night will run.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01HWYcwSHPBnExc2LvJXUadW",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_7ab37f76-ea1b-4031-a098-68d95a74e29f",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01HWYcwSHPBnExc2LvJXUadW",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_7ab37f76-ea1b-4031-a098-68d95a74e29f\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_7ab37f76-ea1b-4031-a098-68d95a74e29f\",\"source\":\"knowledge_pages\",\"title\":\"Overnight Failure Review\",\"body\":\"# Overnight Failure Review\\n\\nEvery morning one engineer reviews the night's failures. The review is a\\nreading, not a repair: anything that needs fixing is handed to the owning team\\nwith what the review found.\\n\\n## Repeats\\n\\nThe review reads three nights at a time rather than one. A job that failed once\\nis noise; the same job failing on consecutive nights is the thing the review\\nexists to notice, and it is noticed only by someone looking across nights.\\n\\n## What it hands on\\n\\nFor each failure: the job, the nights involved, whether it recovered on its own,\\nand whether anything downstream ran on partial input. The last of those is the\\none that gets missed, because a job that succeeded on incomplete input leaves no\\nfailure anywhere.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01RrdzoMGjFNiYFvqd9s5YU1",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_d0675db0-612e-4c03-b608-f1d4b85e49f2",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01RrdzoMGjFNiYFvqd9s5YU1",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_d0675db0-612e-4c03-b608-f1d4b85e49f2\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_d0675db0-612e-4c03-b608-f1d4b85e49f2\",\"source\":\"knowledge_pages\",\"title\":\"Ledger Extract Delivery Runbook\",\"body\":\"# Ledger Extract Delivery Runbook\\n\\nThe general-ledger extract arrives nightly from the finance system as a single\\nfile with a manifest. The manifest carries the row count and a checksum, and the\\nextract is not considered delivered until both match.\\n\\n## Missing\\n\\nA missing extract is the usual reason the reconciliation cannot run. Check the\\nmanifest first: a manifest without its file means the transfer failed, while no\\nmanifest at all means the upstream job did not run, and the two go to different\\npeople.\\n\\n## Truncated\\n\\nA file whose row count is below its manifest is quarantined rather than loaded.\\nA truncated extract that is loaded looks exactly like a night on which finance\\nposted very little, and the difference is only discovered a period later.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0185vugGFgfa4hPjWB4zxwdh",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_1f725023-9a89-4b6a-84ff-b1bf73f05733",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0185vugGFgfa4hPjWB4zxwdh",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\",\"source\":\"knowledge_pages\",\"title\":\"Ledger Close Calendar\",\"body\":\"# Ledger Close Calendar\\n\\nThe general ledger extract is due nightly at 03:40 and by 06:00 on the first two\\nworking days of a month, when the close batch runs ahead of it.\\n\\n## Close periods\\n\\nA close period runs to the last working day of the month. Records dated inside a\\nclosed period are never restated in place; a correction is posted into the open\\nperiod with a reference back.\\n\\n## Freeze\\n\\nPlatform changes that touch anything the ledger reads are frozen from the last\\nworking day of the month to the second working day of the next. The freeze does\\nnot stop an incident response, and a change applied during a freeze for incident\\nreasons is recorded as such.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01NQkhTcoBh35FdS1f2LuVgp",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_cb7383f1-5a98-4c2e-ad45-3eda6ca2ef87",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01NQkhTcoBh35FdS1f2LuVgp",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_cb7383f1-5a98-4c2e-ad45-3eda6ca2ef87\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_cb7383f1-5a98-4c2e-ad45-3eda6ca2ef87\",\"source\":\"knowledge_pages\",\"title\":\"Reconcile Break Triage Guide\",\"body\":\"# Reconcile Break Triage Guide\\n\\nA break is one discrepancy between the settled-invoice view and the ledger\\nextract. Breaks fall into three categories.\\n\\n**Timing.** The two sides saw the same event on different days. Timing breaks\\nclear themselves on the next run and are only worth investigating when the same\\nkey breaks on three separate nights.\\n\\n**Sign.** The two sides agree on the magnitude and disagree on the direction.\\nAlmost always a refund recorded as a charge upstream; it does not self-clear.\\n\\n**Orphan.** One side has a record the other has never seen. An orphan older than\\none close period stops being a data question and becomes an accounting one, and\\nis handed to finance with the record rather than resolved in the platform.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_011bMTpkaZNASBc15Dybkb4E",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_8724ca47-3fab-4753-8f1b-51c80ec9fd9b",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_011bMTpkaZNASBc15Dybkb4E",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_8724ca47-3fab-4753-8f1b-51c80ec9fd9b\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_8724ca47-3fab-4753-8f1b-51c80ec9fd9b\",\"source\":\"knowledge_pages\",\"title\":\"Duty Manager Rota\",\"body\":\"# Duty Manager Rota\\n\\nThe duty manager role rotates monthly among the platform leads. The rota is\\npublished a quarter ahead so the person on it can plan around it, and it changes\\nonly by the holder arranging a swap and recording it.\\n\\n## Delegation\\n\\nA duty manager who will be unreachable names a standing delegate for that\\nwindow. The delegate holds the role rather than assisting in it: there is no\\nstate in which two people hold it and no state in which nobody does.\\n\\n## Corrections\\n\\nA rota corrected less than a day ahead is announced in the platform channel as\\nwell as recorded, because the rota is read once at the start of a shift and not\\nre-read afterwards.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01KkJWRcT7HsK1Y74yXoVGjZ",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_f7e100d4-816b-40b9-9d46-887e42ca8ea0",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01KkJWRcT7HsK1Y74yXoVGjZ",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_f7e100d4-816b-40b9-9d46-887e42ca8ea0\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_f7e100d4-816b-40b9-9d46-887e42ca8ea0\",\"source\":\"knowledge_pages\",\"title\":\"On-Call Rotation Handbook\",\"body\":\"# On-Call Rotation Handbook\\n\\nThe platform rotation runs in week-long shifts, handed over on Tuesday mornings\\nso a weekend never falls across a handover. The outgoing engineer walks the\\nincoming one through anything still open; an incident with an open clock is never\\nhanded over silently.\\n\\n## The batch review shift\\n\\nSeparate from the pager rotation, one engineer each morning reviews the overnight\\nrun logs and the deltas the jobs reported. The review shift is a daytime duty and\\ncarries no pager.\\n\\n## Swaps\\n\\nA swap is arranged directly between the two engineers and recorded in the roster\\nbefore the shift starts. An unrecorded swap is the most common reason a page\\nreaches the wrong person, so the roster is the source of truth and not the\\nconversation that preceded it.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_015KjYF45GvomWX94uX4AtWA",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_9725eb69-62da-47e3-a0eb-68cd4dfaa298",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_015KjYF45GvomWX94uX4AtWA",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_9725eb69-62da-47e3-a0eb-68cd4dfaa298\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_9725eb69-62da-47e3-a0eb-68cd4dfaa298\",\"source\":\"knowledge_pages\",\"title\":\"Platform Glossary\",\"body\":\"# Platform Glossary\\n\\n**Break.** One discrepancy written by a reconciliation, not a failure of the\\nreconciliation itself.\\n\\n**Drop.** One scheduled delivery of an export. A missing drop is a delivery that\\ndid not arrive; a late drop is one that arrived outside its window.\\n\\n**Partition.** The unit a dataset is written and purged in. Nothing is ever\\nwritten or removed in units smaller than a partition.\\n\\n**Rung.** One position on an escalation route. An incident occupies exactly one\\nrung at a time.\\n\\n**Window.** A named span of the overnight schedule owned by one job family.\\n\\n**Failing versus reporting.** A job fails when it cannot complete. A job reports\\na problem when it completes and does not like what it saw. The two are worked by\\ndifferent people on different clocks, and conflating them is the reason most\\novernight pages reach the wrong person.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_016mGTW2HzcAMi3ontuU9m4u",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_b5199742-f300-4ac5-8eb5-b73de53c767a",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_016mGTW2HzcAMi3ontuU9m4u",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_b5199742-f300-4ac5-8eb5-b73de53c767a\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_b5199742-f300-4ac5-8eb5-b73de53c767a\",\"source\":\"knowledge_pages\",\"title\":\"Night Shift Handover Notes\",\"body\":\"# Night Shift Handover Notes\\n\\nThe handover is written, not spoken, and it is written as the night goes rather\\nthan at the end of it.\\n\\nIt records which jobs completed, which failed and whether they were retried,\\nanything left running deliberately, and anything the morning review should look\\nat even though it did not fail. That last category is the useful one: a job that\\ncompleted while doing something odd is invisible unless someone writes it down.\\n\\nAn open incident is never handed over in the notes alone. The outgoing engineer\\nspeaks to the incoming one, and the notes record that they did.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_018W4Y4oiyMFmvAEu8ougYeN",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9",
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_018W4Y4oiyMFmvAEu8ougYeN",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9\",\"source\":\"knowledge_pages\",\"title\":\"Nightly Batch Window Calendar\",\"body\":\"# Nightly Batch Window Calendar\\n\\nThe overnight schedule is divided into windows, each owned by one job family. A\\njob that overruns its window is not killed, but the window behind it starts late\\nand the delay accumulates across the night.\\n\\n| Window | Owner |\\n| --- | --- |\\n| 22:00 - 23:15 | collector drain |\\n| 23:15 - 00:45 | raw exports |\\n| 00:45 - 02:00 | maintenance and vacuum |\\n| 02:00 - 04:00 | aggregation |\\n| 04:00 - 05:30 | reconciliation |\\n\\nMoving a window is a scheduling change, not a job change: the request goes to the\\nplatform group with the reason and the earliest night it can take effect. A move\\nthat pushes any window past 05:30 needs the aggregation owner's agreement,\\nbecause the morning reports read what aggregation writes.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01BkHBVan1R6Gc3HPGwKtwE5",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "incident lead role, who owns the ledger-reconcile job, owning team, finance data team contacts",
+          "limit": 15,
+          "session_id": "dps_569018620231e649b5e673f806df1e06"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01BkHBVan1R6Gc3HPGwKtwE5",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Ledger Reconcile Job Runbook\\nOperating notes for the nightly ledger-reconcile job: what it compares, what a break means, and what a run of consecutive failures opens.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_ea61a64a-58a8-4d3f-879b-9b7842c545e7\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_ea61a64a-58a8-4d3f-879b-9b7842c545e7\"},{\"text\":\"Ledger Extract Delivery Runbook\\nHow the nightly general-ledger extract is delivered, how a missing or truncated extract is recognized, and who is contacted upstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d0675db0-612e-4c03-b608-f1d4b85e49f2\",\"score\":0.7718108742137535,\"reference\":\"mcp:knowledge_page:kp_d0675db0-612e-4c03-b608-f1d4b85e49f2\"},{\"text\":\"Incident Severity Bands\\nThe platform's incident severity bands: what qualifies for each band, who is notified, and which escalation ladder a band follows.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3f717262-e1b6-4e93-9a5b-5e75bd98ff99\",\"score\":0.7127385390545821,\"reference\":\"mcp:knowledge_page:kp_3f717262-e1b6-4e93-9a5b-5e75bd98ff99\"},{\"text\":\"Reconcile Failure History\\nThe record of past ledger-reconcile failures: how often the job has failed, what the causes were, and which nights required a manual run.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_73b4f3da-db42-4811-90a8-c225e78f4eaf\",\"score\":0.6049282280406247,\"reference\":\"mcp:knowledge_page:kp_73b4f3da-db42-4811-90a8-c225e78f4eaf\"},{\"text\":\"Reconcile Break Triage Guide\\nHow to work the breaks the nightly reconciliation writes: the break categories, which ones self-clear, and when a break becomes an accounting question.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_cb7383f1-5a98-4c2e-ad45-3eda6ca2ef87\",\"score\":0.6027270149043826,\"reference\":\"mcp:knowledge_page:kp_cb7383f1-5a98-4c2e-ad45-3eda6ca2ef87\"},{\"text\":\"Duty Manager Rota\\nWho holds the platform duty manager role and when: the rota shape, the handover, the standing delegation, and how the rota is corrected when someone is unavailable.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8724ca47-3fab-4753-8f1b-51c80ec9fd9b\",\"score\":0.5978747612333349,\"reference\":\"mcp:knowledge_page:kp_8724ca47-3fab-4753-8f1b-51c80ec9fd9b\"},{\"text\":\"Ledger Close Calendar\\nWhen each ledger extract is due, how the close periods are dated, and what a close period means for platform changes.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\",\"score\":0.5972808309287377,\"reference\":\"mcp:knowledge_page:kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\"},{\"text\":\"Escalation Ladders\\nThe platform's escalation routes: the rungs each route climbs, who sits on each rung, and where the timings for each rung are held.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_36b25264-b9f1-464a-95b9-e3831ae06627\",\"score\":0.46184382817606695,\"reference\":\"mcp:knowledge_page:kp_36b25264-b9f1-464a-95b9-e3831ae06627\"},{\"text\":\"Reconcile Manual Run Procedure\\nHow to run the ledger reconciliation by hand for a named business date after a failed night, and what a manual run does and does not settle.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3a9d0a11-c3ef-4e0d-8aaa-242c632d1c7e\",\"score\":0.45192595992313195,\"reference\":\"mcp:knowledge_page:kp_3a9d0a11-c3ef-4e0d-8aaa-242c632d1c7e\"},{\"text\":\"Opening and Closing an Incident\\nThe mechanics of an incident record: who may open one, what has to be filled in at the start, what closing requires, and why an incident is never deleted.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_c0ba809a-7b02-4cac-9771-3b40c2682647\",\"score\":0.4132022914582604,\"reference\":\"mcp:knowledge_page:kp_c0ba809a-7b02-4cac-9771-3b40c2682647\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":1,\"reference\":\"mcp:prompt:59791e2f-db90-44d4-8db9-2add79c0e41e\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.9683427125187267,\"reference\":\"mcp:prompt:e515599a-968a-4f4a-8e12-940cc4739a12\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0.7507893282821954,\"reference\":\"mcp:prompt:0717ada8-5b79-473e-924a-7942081a10f6\"},{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":0.6602619626767597,\"reference\":\"mcp:prompt:26b58ce1-719a-446b-aef9-d81fa23427f8\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0,\"reference\":\"mcp:prompt:5c2321d2-757b-4852-a41d-5ea7cbb11a08\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":10},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":15,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01TEnKrrQEVPBcXDmn1ABs3A",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "incident report template, document template, status update template",
+          "limit": 20,
+          "session_id": "dps_569018620231e649b5e673f806df1e06",
+          "sources": [
+            "resources",
+            "assets",
+            "context_documents",
+            "memory"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01TEnKrrQEVPBcXDmn1ABs3A",
+        "text": "{\"groups\":[],\"coverage\":[],\"count\":0,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "# Incident Handling Document — `ledger-reconcile` Failed on Three Consecutive Nights\n\n**Status:** Standing procedure, ready to follow as written\n**Applies to:** The on-shift platform engineer who has just established that the nightly `ledger-reconcile` job failed on three consecutive nights\n**Written:** 2026-08-09\n**Sources:** This document is assembled entirely from the platform knowledge pages cited inline. Where those pages are silent, the document says so rather than filling the gap.\n\n---\n\n## 1. What this document covers, and what it does not\n\nThis covers a **failure of the reconciliation job itself** on three consecutive nights — the job could not complete.\n\nIt does **not** cover breaks. Per *Platform Glossary*: a job **fails** when it cannot complete; a job **reports a problem** when it completes and does not like what it saw. *Ledger Reconcile Job Runbook* draws the same line: a break is one discrepancy the job writes, not a failure of the job. The glossary is explicit that conflating the two is the reason most overnight pages reach the wrong person. Breaks produced by a later recovered run are worked under *Reconcile Break Triage Guide*, separately from this incident, though §9 below explains where they intersect.\n\n---\n\n## 2. Step 0 — Confirm the trigger before opening anything\n\nConfirm all three of the following from the run log for the job, not from memory or from this document:\n\n1. The job **failed** on each of three nights — it did not complete. A run that completed and wrote a large number of breaks is not a failure and does not trigger this procedure.\n2. The three nights are **consecutive**. *Overnight Failure Review* is the control that normally spots this: the morning review reads three nights at a time, precisely because \"a job that failed once is noise; the same job failing on consecutive nights is the thing the review exists to notice.\"\n3. **Record the exact nights and the exact failure reason from each night's run log.** *Reconcile Failure History* is explicit: \"Nothing here is a substitute for the current night's run log.\"\n\nAlso check, before opening: **is an incident already open for this?** If the morning review or the night shift already opened one, join it rather than opening a second. *Night Shift Handover Notes* requires that an open incident is spoken about at handover and not passed in the notes alone, so ask the outgoing engineer directly.\n\nThe `ledger-reconcile` job owns the **04:00–05:30 reconciliation window** (*Nightly Batch Window Calendar*). A job that overruns its window is not killed, but note that windows running late accumulate across the night — relevant context for the timeline, not itself a failure.\n\n---\n\n## 3. What is opened, and at what severity\n\n**Open an incident at severity band B.**\n\nThis is not a judgement call. *Ledger Reconcile Job Runbook* states it directly: \"Failures on three consecutive nights open a severity band B incident, because at that point the reconciliation has not been proved for a full accounting period and the question is no longer whether the job runs.\"\n\nThis matches the band definition in *Incident Severity Bands*: **Band B is an internal control that has stopped proving what it exists to prove, with no external figure yet affected.** The band is a statement about consequence, not effort — \"a small defect with an accounting consequence outranks a large one without.\"\n\n### Who opens it\n\nAnyone may open an incident (*Opening and Closing an Incident*). The bias is deliberate: \"Opening one costs almost nothing and not opening one costs the timeline.\" Do not wait for a complete picture — \"an incident that waits for a complete picture before it exists has no early timeline, which is the part that is hardest to reconstruct later.\"\n\n### What must be filled in at the moment of opening\n\nPer *Opening and Closing an Incident*, three fields, and only three:\n\n| Field | Value for this incident |\n| --- | --- |\n| One-line statement of what is wrong | e.g. \"`ledger-reconcile` has failed on three consecutive scheduled runs (nights of \\\u003cdate\\\u003e, \\\u003cdate\\\u003e, \\\u003cdate\\\u003e).\" |\n| The system it is wrong in | The nightly `ledger-reconcile` job |\n| Who opened it | You |\n\n**Everything else is filled in as it is learned.** Do not delay opening to investigate the cause.\n\n**Record the opening timestamp precisely.** Every escalation clock in §5 runs from it.\n\n### When the band changes\n\n*Incident Severity Bands* defines **Band A** as customer-visible loss of service, or a defect that has **already produced an incorrect external figure**. If, at any point, you establish that an incorrect external figure has gone out — for example a downstream consumer published on partial or unreconciled input — the situation meets the band A definition and follows the **red route**, whose clocks are far tighter (5 / 10 / 30 minutes).\n\n\u003e **Material is silent:** none of the available pages describe the mechanics of re-banding an incident that is already open — who authorises it, whether the clocks restart from the re-band or continue from the original opening time, and whether the original band B record is superseded or continued. Raise the re-band with the duty manager rather than deciding it alone, and record what you did and on whose decision.\n\n---\n\n## 4. Who has to be told\n\n*Incident Severity Bands* sets the notification obligation for band B: **the owning team, and the platform group's shift lead.**\n\nFor comparison, so you can see what band B does *not* pull in: band A is notified immediately to the whole platform group. Band B is not.\n\nNotification is separate from escalation. The shift lead is both notified under this clause and occupies the first rung of the escalation route in §5 — telling them satisfies both, but the two obligations have different reasons and the escalation clock starts regardless of whether they answer.\n\n\u003e **Material is silent:** the available pages never name which team owns the `ledger-reconcile` job. Every escalation route begins \"the owning team's shift lead,\" but no page resolves \"owning team\" to a named team, distribution list, or channel for this job. Resolve this from the roster or the platform channel before you page, and **do not let the resolution delay the opening of the incident** — open first, then page.\n\u003e\n\u003e **Material is silent:** the pages likewise name no individuals. *Duty Manager Rota* says the duty manager role rotates monthly among the platform leads and is published a quarter ahead; *On-Call Rotation Handbook* says the rotation runs in week-long shifts handed over Tuesday mornings. Neither page carries the actual names for any date. Read the current rota and roster.\n\n### Two cautions on identifying the right people\n\n- **The roster is the source of truth, not the conversation.** *On-Call Rotation Handbook*: a swap is arranged between the two engineers and recorded in the roster before the shift starts; \"an unrecorded swap is the most common reason a page reaches the wrong person.\"\n- **The duty manager may be a delegate.** *Duty Manager Rota*: a duty manager who will be unreachable names a standing delegate, and the delegate **holds** the role rather than assisting in it — \"there is no state in which two people hold it and no state in which nobody does.\" Page whoever currently holds it; do not page both. A rota corrected less than a day ahead is announced in the platform channel as well as recorded, so check the channel if the rota looks stale.\n\n---\n\n## 5. How the escalation proceeds, and on what clocks\n\n**Band B follows the amber route** (*Incident Severity Bands*).\n\n### The rungs\n\nFrom *Escalation Ladders*, the amber route has three rungs, climbed one at a time:\n\n| Rung | Who |\n| --- | --- |\n| 1 | The owning team's shift lead |\n| 2 | The platform duty manager |\n| 3 | The head of platform |\n\nAn incident occupies **exactly one rung at a time** (*Platform Glossary*). Skipping a rung is allowed **only** when the person on that rung is the one escalating.\n\nNote the amber route stops at the head of platform. The **executive on call** is a fourth rung on the *red* route only, and is not reached by an amber incident.\n\n### The clocks\n\nFrom *Duty Manager Response Matrix*. Each figure is **the longest the incident may sit on that rung before it must reach the next one.**\n\n| Route | First rung | Second rung | Third rung |\n| --- | --- | --- | --- |\n| Red | 5 minutes | 10 minutes | 30 minutes |\n| **Amber (this incident)** | **20 minutes** | **25 minutes** | **2 hours** |\n| Standard | 4 hours | next working day | next working day |\n\nFour properties of these clocks, all stated in the matrix and all load-bearing:\n\n1. **A clock starts when the incident is opened, not when it is acknowledged.** The 20-minute first-rung clock is already running from the timestamp in §3, whether or not the shift lead has responded.\n2. **A clock runs across shift handovers.** A handover does not reset it. *On-Call Rotation Handbook* reinforces this: \"an incident with an open clock is never handed over silently.\"\n3. **An unacknowledged clock that expires climbs on its own.** \"The escalation is automatic and the acknowledgement is recorded late rather than the escalation being held back for it.\" You do not wait for an answer before climbing, and you do not need permission to climb.\n4. **The amber clocks are NOT doubled overnight.** *Duty Manager Response Matrix* doubles the **standard** route's clocks between 22:00 and 06:00 only, because the rung below it is on a pager rather than at a desk. \"The red and amber routes are worked to the same clocks at every hour: an incident on either of them is already past the point where the hour is an excuse.\" Since this job runs in the 04:00–05:30 window, a night-shift engineer will frequently open this incident inside the 22:00–06:00 span — **the 20/25/120-minute figures still apply unchanged.**\n\n### The escalation timeline, from T0 = the moment the incident is opened\n\n| Elapsed | What must have happened |\n| --- | --- |\n| **T0** | Incident opened at band B. Incident sits on rung 1. Page the owning team's shift lead. Notify the owning team (§4). |\n| **T0 + 20 min** | First-rung clock expires. The incident **must have reached rung 2, the platform duty manager**. If the shift lead has not acknowledged, it climbs anyway; the acknowledgement is recorded late. Write the climb line (§5, *Recording*). |\n| **T0 + 45 min** (20 + 25) | Second-rung clock expires. The incident **must have reached rung 3, the head of platform**. Same rule: unacknowledged climbs automatically. Write the climb line. |\n| **T0 + 2 h 45 min** (20 + 25 + 120) | Third-rung clock expires. See the gap immediately below. |\n\n\u003e **Material is silent:** the amber route has no fourth rung, but the matrix still assigns its third rung a 2-hour clock. No available page says what happens when the head of platform's 2-hour amber clock expires — whether the incident climbs to the executive on call (a red-route rung), whether it is re-banded, or whether the clock simply lapses with the incident held at the top of the route. If you reach T0 + 2h45 with the incident still open and unresolved, **raise this explicitly with the duty manager and the head of platform, record that the clock expired and that the route defines no successor rung, and do not silently do nothing.** This gap is a candidate correction for the postmortem (§11).\n\n### Paging mechanics — what \"reached\" means\n\nFrom *Paging Channel Directory*. Each role has a primary channel and exactly one fallback. **A page not acknowledged on the primary within its own window repeats on the fallback. A page unacknowledged on both is treated as unreachable and the sender moves on rather than waiting.**\n\n| Role | Primary | Fallback |\n| --- | --- | --- |\n| Shift lead | pager app | phone |\n| Duty manager | phone | pager app |\n| Head of platform | phone | assistant's phone |\n| Executive on call (red route only) | phone | none |\n\n\"Moving on\" means climbing to the next rung, not abandoning the incident. Record the unreachable rung.\n\nChannel changes take effect on the next shift, not immediately, \"so a change made mid-incident does not silently redirect a page that is already in flight\" — if someone tells you their number changed during the incident, the directory entry in force is still the one from the start of the shift.\n\n\u003e **Material is silent:** *Paging Channel Directory* refers to a page's \"own window\" on the primary channel before it repeats on the fallback, but no available page gives that window's length for any role. It is bounded in practice by the rung clock — the incident must reach the next rung by the figure in the matrix regardless of how the fallback resolves — so **treat the rung clock as the hard limit and do not let a fallback attempt push you past it.**\n\n### Recording each climb\n\n*Duty Manager Response Matrix*: every climb writes a line to the incident record containing four things.\n\n- The rung it left\n- The rung it reached\n- The clock that expired\n- **Whether it expired unacknowledged**\n\nWrite this line at the moment of the climb, not reconstructed afterwards.\n\n---\n\n## 6. What is communicated while the incident is open\n\nFrom *Incident Communication Guide*.\n\n### The opening notice\n\nSays three things, and stops:\n\n1. **What is affected.** The nightly `ledger-reconcile` job has failed on three consecutive scheduled runs; the reconciliation has not been proved across those nights.\n2. **What is not affected.** State only what you have actually checked. Do not assume.\n3. **When the next update will come.**\n\n**The opening notice does not say what the cause is.** The guide is explicit: \"at that point nobody knows and a guess in an opening notice outlives the incident.\" This applies with particular force here — *Reconcile Failure History* records three distinct causes for past failures (late extract, schema drift, an expired transfer credential), and naming the wrong one in the opening notice will steer the whole response.\n\n### Updates\n\n- Updates go out **on the cadence the opening notice promised**, including the updates that say nothing has changed. \"A silent incident is read as a resolved one.\"\n- **Say what was observed and what was done.**\n- **Language to avoid:** \"should be fixed\", \"briefly\", \"minor\".\n\n\u003e **Material is silent:** no available page specifies an update cadence — not a default, and not a per-band figure. The guide binds you to the cadence *your own opening notice promised*, so you must choose one and state it explicitly in the opening notice, then hold to it. Choose a cadence you can sustain across a handover, since the incident's clocks and its updates both survive one.\n\n### Who speaks outside the platform group\n\n**Only the incident lead speaks to anyone outside the platform group.** \"It is that two well-meaning people describing the same partial picture produce three versions of it.\"\n\nThis is directly live in this incident: the reconciliation sits against finance's ledger extract, and both the extract runbook and the break triage guide contemplate contact with finance. Route all of it through the incident lead.\n\n\u003e **Material is silent:** no available page defines who becomes the incident lead, how the role is assigned, or whether it transfers as the incident climbs rungs. The *Incident Communication Guide* refers to the lead as an established role without saying who fills it. **Establish and record the lead explicitly at the opening of the incident**, name them in the incident record, and re-record the name if it changes at a handover — otherwise the single-voice rule has no one enforcing it.\n\n---\n\n## 7. Contacting upstream\n\nThe reconciliation reads two inputs: the settled-invoice view and the general ledger extract. *Ledger Reconcile Job Runbook*: the job fails when it cannot read one of its two inputs, \"which usually means the ledger extract has not landed.\"\n\nFrom *Ledger Extract Delivery Runbook*, the diagnostic that decides who is contacted:\n\n- **Check the manifest first.** The extract arrives as a single file with a manifest carrying a row count and a checksum, and is not considered delivered until **both** match.\n- **A manifest without its file** means the transfer failed.\n- **No manifest at all** means the upstream job did not run.\n- **These two go to different people.**\n\n\u003e **Material is silent:** the runbook states that the two cases go to different people but does not name either contact, team, or channel. Resolve this before paging upstream; the platform channel or the duty manager is the route to that answer.\n\nAlso from that runbook: **a file whose row count is below its manifest is quarantined rather than loaded.** Do not attempt to load or reconcile against a short file — \"a truncated extract that is loaded looks exactly like a night on which finance posted very little, and the difference is only discovered a period later.\"\n\n### Timing context\n\n*Ledger Close Calendar*: the extract is due **nightly at 03:40**, and **by 06:00 on the first two working days of a month**, when the close batch runs ahead of it. An extract absent at the job's 04:00–05:30 window on one of those two days may be late rather than missing — check the date against the calendar before escalating upstream.\n\n### Change freeze\n\n*Ledger Close Calendar*: platform changes touching anything the ledger reads are frozen **from the last working day of the month to the second working day of the next**. Two things follow:\n\n1. **The freeze does not stop an incident response.**\n2. **A change applied during a freeze for incident reasons is recorded as such.** If you are inside the freeze window, make the change if the incident needs it and mark it in the record.\n\nCheck today's date against the freeze rule yourself before assuming either way.\n\n---\n\n## 8. Holding action — the manual run\n\n*Reconcile Manual Run Procedure*, and the manual-run section of *Ledger Reconcile Job Runbook*:\n\n- A manual run takes **one business date and both of that date's inputs**. It **refuses to start if either input is absent** — the same refusal the scheduled run makes, \"for the same reason: a reconciliation against one side is not a reconciliation.\" So the manual run is available only once the missing input has landed.\n- Run it from the platform host with the date, **wait for the break count, and read the breaks rather than the exit code.**\n- **A run that produces an enormous break count almost always means the extract was for a different date.** Check the date before treating that break count as real.\n- **A manual run settles the numbers for that date. It does not settle whether the scheduled job is healthy, and it is not evidence that the next night will run.**\n\n**A manual run does not close the incident.** *Ledger Reconcile Job Runbook* is unambiguous: \"the incident closes on the evidence that the scheduled run has recovered, not on a successful manual one.\" Run it for the business dates you can, because it settles those numbers — but do not treat it as the exit condition.\n\nBreaks produced by a manual or recovered run are worked under *Reconcile Break Triage Guide*, which classifies them as **timing** (self-clears on the next run; only investigate when the same key breaks on three separate nights), **sign** (magnitudes agree, directions disagree — usually a refund recorded upstream as a charge; does **not** self-clear), or **orphan** (one side holds a record the other has never seen; an orphan older than one close period \"stops being a data question and becomes an accounting one, and is handed to finance with the record rather than resolved in the platform\").\n\n---\n\n## 9. The check that is most often missed\n\n*Overnight Failure Review* names the thing that gets dropped, and it must be answered inside this incident: **did anything downstream run on partial input?**\n\n\"The last of those is the one that gets missed, because a job that succeeded on incomplete input leaves no failure anywhere.\"\n\nThree nights without a reconciliation is three nights in which any downstream consumer that read unreconciled or partial data produced output nobody flagged. Check this explicitly and record the answer either way — including \"nothing downstream ran on partial input.\" If something did, and it produced an external figure, re-band per §3.\n\n---\n\n## 10. What has to be true before the incident can be closed\n\nFrom *Opening and Closing an Incident*: **closing needs evidence that the condition has gone, not an absence of further reports. For a scheduled job that means a clean scheduled run.**\n\nReinforced by *Ledger Reconcile Job Runbook*: the incident closes on evidence that the **scheduled** run has recovered.\n\n**The closing conditions, all of which must hold:**\n\n1. **A clean scheduled run has completed.** Not a manual run. Not a night with no page. A scheduled run that completed.\n2. **The reconciliation is settled for each of the affected business dates** — either by the recovered scheduled run or by manual runs per §8, with the break counts read and the breaks handed to triage.\n3. **The downstream-partial-input question in §9 has been answered and recorded.**\n4. **The postmortem record in §11 exists.**\n\nRelated rules that apply at close:\n\n- **An incident is never deleted.** One opened by mistake is closed as such, \"because the record that somebody thought this was wrong is itself worth keeping.\"\n- Breaks left open in triage do not block closing this incident — this incident is about the job failing, not about the discrepancies it writes — but they must be handed on explicitly rather than closed with it.\n\n\u003e **Material is silent:** no available page says who is authorised to close an incident, or whether a band B incident that has climbed to the head of platform requires that rung's agreement to close. Given that the escalation is recorded against those rungs, confirm the close with the highest rung the incident reached and record that you did.\n\n---\n\n## 11. The record the incident has to leave behind\n\n**Every closed incident leaves a record, whatever its band** (*Incident Postmortem Standard*). Four parts, all required:\n\n### Timeline\nWhat was observed and when, **in the order it was observed, including the observations that turned out to be irrelevant.** This is why §3 tells you to open before you investigate — the early timeline is the part that cannot be reconstructed later. The timeline must include the automatic climb lines from §5 (rung left, rung reached, clock expired, whether unacknowledged), which are written as they happen and not backfilled.\n\n### Contributing conditions\n**The conditions that had to hold for the incident to happen — written as conditions rather than as causes, \"because the useful ones are usually the conditions nobody chose.\"**\n\n*Reconcile Failure History* is directly relevant material here, not a substitute for the current investigation. It records eleven failure nights in two years across three causes: **late extract** (by far the most common; every one cleared on the next schedule), **schema drift** (two occurrences, both after an upstream release, where the extract gained a column and the loader rejected the file), and **consecutive failures** — one prior run of three consecutive nights, caused by **a transfer credential that had expired and was renewed only after the third morning.** That prior run \"is the reason the consecutive-failure case is now handled explicitly rather than as three unrelated single failures.\" An expired credential is exactly the shape of condition this section is asking for: nobody chose it, and it is invisible until it has already cost three nights.\n\n### Corrections\n**What changed as a result, each with an owner. \"A correction with no owner is a wish and is not recorded as a correction.\"** Every correction gets a named owner before the record closes.\n\n### Review\n**The record is read by someone who was not involved.** \"The reviewer's job is to find the part of the timeline that only makes sense to the people who were there.\" Arrange the reviewer; do not consider the record complete until it has been read.\n\n\u003e **Material is silent:** no available page gives a deadline for producing the postmortem record or for completing the review, nor names the system the incident record lives in. Agree both with the duty manager and record the agreement.\n\n---\n\n## 12. If the incident crosses a handover\n\nIt very likely will — the job runs in the 04:00–05:30 window and the amber clocks are not relaxed overnight.\n\n- **Clocks do not reset at handover** (*Duty Manager Response Matrix*).\n- **An incident with an open clock is never handed over silently** (*On-Call Rotation Handbook*).\n- **An open incident is never handed over in the notes alone** (*Night Shift Handover Notes*). The outgoing engineer **speaks** to the incoming one, and **the notes record that they did.**\n- The handover notes are **written as the night goes, not at the end of it**, and record which jobs completed, which failed and whether they were retried, anything left running deliberately, and anything the morning review should look at even though it did not fail.\n- Hand over, explicitly and by name: the incident's opening timestamp, the current rung, the elapsed time against the current rung's clock, the identity of the incident lead, and the promised update cadence.\n\nThe morning **batch review shift** is a daytime duty and **carries no pager** (*On-Call Rotation Handbook*), and the *Overnight Failure Review* is \"a reading, not a repair\" — anything needing fixing is handed to the owning team with what the review found. **Do not hand an open, clocked incident to the review shift as if it were a repair owner.** It goes to the owning team and stays on the amber route.\n\n---\n\n## 13. Summary card\n\n| Question | Answer | Source |\n| --- | --- | --- |\n| What is opened | An incident | *Opening and Closing an Incident* |\n| At what severity | **Band B** | *Ledger Reconcile Job Runbook*, stated explicitly for three consecutive nights |\n| Filled in at open | One-line statement, the system, who opened it — nothing else | *Opening and Closing an Incident* |\n| Who is told | The owning team, and the platform group's shift lead | *Incident Severity Bands* |\n| Escalation route | **Amber**: shift lead → duty manager → head of platform | *Incident Severity Bands*, *Escalation Ladders* |\n| Clocks | **20 min → 25 min → 2 h**, from the moment of opening | *Duty Manager Response Matrix* |\n| Overnight | **Amber clocks are not doubled**; only the standard route's are | *Duty Manager Response Matrix* |\n| Unacknowledged | Climbs automatically; acknowledgement recorded late | *Duty Manager Response Matrix* |\n| Communication | Opening notice states affected / not affected / next update; **no cause named**; updates on the promised cadence including \"no change\"; only the incident lead speaks outside the platform group | *Incident Communication Guide* |\n| Closes on | **A clean scheduled run** — never a manual one | *Opening and Closing an Incident*, *Ledger Reconcile Job Runbook* |\n| Record | Timeline, contributing conditions, corrections each with an owner, review by someone uninvolved | *Incident Postmortem Standard* |\n| Never | Deleted | *Opening and Closing an Incident* |\n\n---\n\n## 14. Consolidated list of gaps in the available material\n\nEach of these is something this document needed and the platform's recorded knowledge does not supply. They are listed here so the on-shift engineer resolves them locally and so they can be raised as corrections in the postmortem.\n\n1. **The owning team for `ledger-reconcile` is never named.** Every escalation route starts at \"the owning team's shift lead,\" and no page resolves it for this job.\n2. **The amber route's third-rung 2-hour clock has no successor rung.** The matrix assigns the clock; the ladder defines nothing above the head of platform on amber.\n3. **The primary-channel acknowledgement window before a page repeats on the fallback is not given** for any role.\n4. **No update cadence is specified** anywhere — the engineer must choose one and is then bound by it.\n5. **The incident lead role is referenced but never assigned.** No page says who becomes lead or whether the role moves as the incident climbs.\n6. **The upstream finance contacts are not named**, despite the extract runbook turning on the fact that a missing file and a missing manifest go to *different* people.\n7. **Re-banding an open incident has no defined mechanics** — authority, clock treatment, and record handling are all unstated.\n8. **Closing authority is not defined**, and no page says whether a climbed incident needs the reached rung's agreement to close.\n9. **No deadline for the postmortem or its review**, and no named system where the incident record lives.\n10. **No names on any rota.** The rota and roster pages describe their shapes and their rules but carry no individuals for any date; both must be read live."
+  }
+]

@@ -63,6 +63,31 @@ Not a study; the probe killed the enforcement-study premise (#1145).
 | --- | --- |
 | [`pk-gateprobe/`](pk-gateprobe/) | Gate-off search-first probe: 128/128 search-first across eight clean gate-off arms, 16/16 in the gate-on control, plus one aborted arm, with summary, analyzer, and orchestrator logs. |
 
+## Graph-traversal probe (design postmortem; candidate still open)
+
+Summary: [`graph-traversal-probe/graph-traversal-SUMMARY.md`](graph-traversal-probe/graph-traversal-SUMMARY.md).
+Not a study. The probe ran in full and its fixture could not have shown
+traversal, so it settled nothing about the candidate (#1241); it is kept as an
+instrument-defect record and for the boundary condition it does establish.
+
+| Directory | What it is |
+| --- | --- |
+| [`graph-traversal-probe/`](graph-traversal-probe/) | Depth 0-3 cells over a 42-page planted page corpus, two capability tiers: 162 dereferences across 76 episodes, of which 160 used a reference search had already returned. The cells posed single-fact lookup questions, which search answers directly, so the design never varied the condition a reference graph exists for. Seven runs over three fixture generations, with summary, offline analyzer, fixture-gate reading and plant record. |
+
+## Graph-completion probe (premise held; candidate proceeds)
+
+Summary: [`graph-completion-probe/graph-completion-SUMMARY.md`](graph-completion-probe/graph-completion-SUMMARY.md).
+Not a study; the corrected premise probe for the same candidate (#1241),
+pre-registered on the ticket before any episode ran. No kill condition fired:
+agents traverse the reference graph when it is the only route (0.96 of the
+spread constraint set for the strong tier, 0.42 for the weak, by pure
+edge-following), and with search available the graph's value concentrates in
+the weaker tier. The candidate proceeds toward a density design.
+
+| Directory | What it is |
+| --- | --- |
+| [`graph-completion-probe/`](graph-completion-probe/) | Three completion cells over the 42-page corpus, 2x2 of corpus arm (graph vs stripped-to-prose) and search condition (on vs client-disallowed), two capability tiers, k=3: 72 episodes, 8 runs, zero failures, with design doc, pre-stated kill conditions, per-arm plant and sweep-gate records, offline analyzer and driver log. |
+
 ## API-connection architecture (closed)
 
 Design: [`docs/api-connection-study-design.md`](../docs/api-connection-study-design.md).

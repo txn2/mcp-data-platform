@@ -204,6 +204,16 @@ reason to run a probe, not evidence the effect exists.
     triples and rendered web pages — interlinked authored notes — is empty.
     Informs the graph-traversal candidate and matches this program's
     tier-inversion findings.
+
+    Gaps 7 to 10 remain open in the literature and open as candidates here.
+    A first premise probe of the traversal candidate ran in full and could
+    not speak to them: its cells posed single-fact lookup questions, which
+    search answers directly, so the design never varied the condition a
+    reference graph exists for. The instrument-defect row in
+    [`findings-register.md`](findings-register.md) records what it did and
+    did not measure. A gap being open externally was never a reason to expect
+    the effect, and a probe that cannot elicit the behavior is not evidence
+    that the behavior is absent.
 11. **Reproducibility discipline.** The flagship MCP discovery benchmark
     shows an 18.9-point spread across identical reruns; any new measurement
     needs repeated trials (pass^k-style) and pre-stated decision rules —

@@ -1,0 +1,399 @@
+{
+  "manifest": {
+    "started_at": "2026-08-09T08:30:02.563112Z",
+    "finished_at": "2026-08-09T08:32:31.870648Z",
+    "git_commit": "69f269275e98f9b1a09b8a85fd35d929fbb7fcfa",
+    "platform_version": "v1.120.0-dirty",
+    "model": "haiku",
+    "client_version": "2.1.225 (Claude Code)",
+    "disallowed_tools": [
+      "Bash",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Read",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "TodoWrite"
+    ],
+    "cells": 4,
+    "k": 1,
+    "attempts": 4,
+    "exploratory": true,
+    "scaffold": "You are an operations agent connected to a data platform over MCP. You answer questions about how this platform is run.\n\nRules:\n- Use the search tool to discover what is already recorded before answering.\n- Ground your answer in what the tools return; do not answer from prior knowledge about this company or its jobs.\n- If the question cannot be answered from what is available, say so plainly and explain why, rather than estimating.\n- End your reply with a single line: \"FINAL ANSWER: \u003canswer\u003e\", where the answer is one number, or the word UNAVAILABLE if the question cannot be answered.",
+    "corpus_pages": 42
+  },
+  "gate": {
+    "ran_at": "2026-08-09T08:29:48.110192Z",
+    "results": [
+      {
+        "cell_id": "gt-d0-vacuum",
+        "depth": 0,
+        "query": "warehouse vacuum job row-count delta paging threshold",
+        "entry_surfaced": true,
+        "entry_rank": 1,
+        "answer_surfaced": true,
+        "answer_rank": 1,
+        "answer_in_hit_text": false,
+        "hits": [
+          "vacuum-runbook",
+          "vacuum-tuning-notes",
+          "paging-channel-directory",
+          "duty-manager-rota",
+          "duty-manager-matrix"
+        ],
+        "pass": true
+      },
+      {
+        "cell_id": "gt-d1-clickstream",
+        "depth": 1,
+        "query": "clickstream-raw export how long partitions are kept before purge",
+        "entry_surfaced": true,
+        "entry_rank": 1,
+        "answer_surfaced": false,
+        "answer_rank": 0,
+        "answer_in_hit_text": false,
+        "hits": [
+          "clickstream-export-runbook",
+          "collector-drain-runbook",
+          "export-delivery-expectations",
+          "raw-zone-layout",
+          "export-rerun-procedure"
+        ],
+        "pass": true
+      },
+      {
+        "cell_id": "gt-d2-billing",
+        "depth": 2,
+        "query": "billing-events stream schema change advance notice for consumers",
+        "entry_surfaced": true,
+        "entry_rank": 1,
+        "answer_surfaced": false,
+        "answer_rank": 0,
+        "answer_in_hit_text": false,
+        "hits": [
+          "billing-events-runbook",
+          "clickstream-schema-notes",
+          "change-announcement-channels",
+          "stream-onboarding-checklist",
+          "billing-events-field-guide"
+        ],
+        "pass": true
+      },
+      {
+        "cell_id": "gt-d3-ledger",
+        "depth": 3,
+        "query": "ledger-reconcile job failed three consecutive nights incident response",
+        "entry_surfaced": true,
+        "entry_rank": 2,
+        "answer_surfaced": false,
+        "answer_rank": 0,
+        "answer_in_hit_text": false,
+        "hits": [
+          "reconcile-failure-history",
+          "ledger-reconcile-runbook",
+          "overnight-failure-review",
+          "reconcile-manual-run",
+          "reconcile-break-triage"
+        ],
+        "pass": true
+      }
+    ],
+    "pass": true
+  },
+  "planted": {
+    "planted_at": "2026-08-09T08:24:44.371953Z",
+    "base_url": "http://localhost:8098",
+    "pages": {
+      "batch-window-calendar": "kp_f012fa98-1327-4afc-8aaf-18dc84438396",
+      "billing-events-field-guide": "kp_8cef77fe-80bd-4356-b168-8475596c0fb8",
+      "billing-events-replay-guide": "kp_5ca13cd2-1ec9-4e6e-a592-6fc4426017ec",
+      "billing-events-runbook": "kp_c1dd2cc6-a6bf-4eb5-9836-ea73430c7fc4",
+      "change-announcement-channels": "kp_54665d8b-10c3-4750-8cc9-4c41090e7727",
+      "change-class-reference": "kp_87d093fc-1186-4585-a8de-159194c65387",
+      "clickstream-export-runbook": "kp_d7d3cdaf-2434-4359-abe4-04595c0f246b",
+      "clickstream-schema-notes": "kp_8ae59811-e72c-4a9c-8ddb-40a9b6f774d7",
+      "collector-drain-runbook": "kp_a8127ce1-8049-4c2c-af79-f4b78bd3cf50",
+      "consumer-contract-registry": "kp_3d471612-9ecd-41c8-9ab6-746df2a23b15",
+      "duty-manager-matrix": "kp_e886f389-4685-45ab-96f1-50668d8b04be",
+      "duty-manager-rota": "kp_91d610f7-bfc2-4d31-b0d1-3951f0478270",
+      "egress-approval-policy": "kp_37440f44-32eb-41e6-8759-6c908ee477c7",
+      "escalation-ladders": "kp_0f54f751-a7f2-4ae2-91fb-972a2bad8508",
+      "export-delivery-expectations": "kp_b10eba1a-e8e8-44f4-b6b2-24d649b5030a",
+      "export-naming-convention": "kp_9169301d-e768-4720-8b61-f65eed6e4898",
+      "export-rerun-procedure": "kp_87519c83-e55d-4bee-9567-860dadb71771",
+      "incident-communication-guide": "kp_e62c4b47-a7bc-4fd7-aea7-824bd6a947dc",
+      "incident-open-and-close": "kp_3641d73b-bd66-405e-82dd-4a5c8a5b9481",
+      "incident-postmortem-template": "kp_7173be07-1ab8-4386-a5ec-d7041c05adc4",
+      "incident-severity-bands": "kp_4f6468e0-1917-405e-bfcb-36d1fc5057da",
+      "ledger-close-calendar": "kp_1b6eb858-ba7e-4f7f-8ec5-6ba6464dead1",
+      "ledger-extract-delivery": "kp_44bc2d22-4c0d-4218-ae34-04e9f9e548ff",
+      "ledger-reconcile-runbook": "kp_0a7bcc77-3bc6-417c-ac8e-b5b2515a37c6",
+      "night-shift-handover": "kp_889eea77-626d-451f-9387-276dd43ee866",
+      "oncall-rotation-handbook": "kp_cfcc18dc-1ad5-4a05-afc8-72938200e43e",
+      "overnight-failure-review": "kp_5442a6ff-a388-43bb-bfc0-135ae4feaa93",
+      "paging-channel-directory": "kp_5ea4b90b-f242-4a69-b15d-bda703023783",
+      "partition-compaction-notes": "kp_9756a1c5-6a97-4ac9-b96b-3edbd7b07e5d",
+      "platform-glossary": "kp_7d2ed41b-76c3-442a-9acc-5a905e3283d8",
+      "raw-zone-layout": "kp_de34e3ff-ecda-4217-bb0e-583439960f11",
+      "reconcile-break-triage": "kp_bf7a4eaa-98eb-4161-870b-59f643e6f2a6",
+      "reconcile-failure-history": "kp_900d47f6-0551-4655-97f1-ad3fe6ad8ea1",
+      "reconcile-manual-run": "kp_dc5beb20-6167-46a8-8ad9-c4e3f28a810b",
+      "regulated-tier-rules": "kp_615b5308-4deb-4d5f-a824-abad3bf50830",
+      "schema-registry-operations": "kp_24f46fb6-2280-4dfb-86f6-dff1009ff7cd",
+      "sessionization-job-runbook": "kp_83a0a63c-7999-4309-9122-7ebb3717345e",
+      "storage-class-register": "kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1",
+      "stream-deprecation-runbook": "kp_3b896c23-bb0f-4966-997e-64efffce314c",
+      "stream-onboarding-checklist": "kp_8e7b4e12-2cef-42dc-b115-e309ccc5c469",
+      "vacuum-runbook": "kp_7a52cd63-3eb8-457f-a8ff-2c991c9bc3d2",
+      "vacuum-tuning-notes": "kp_7c7db728-8e2f-4b9e-83c6-12cb412ee66b"
+    }
+  },
+  "cells": [
+    {
+      "ID": "gt-d0-vacuum",
+      "Depth": 0,
+      "Prompt": "The nightly warehouse-vacuum job reported an unusually large row-count delta last night. Above what row-count delta does that job page the on-call engineer?",
+      "GateQuery": "warehouse vacuum job row-count delta paging threshold",
+      "Chain": [
+        "vacuum-runbook"
+      ],
+      "Answer": 3400,
+      "Unit": "rows",
+      "Bridges": null
+    },
+    {
+      "ID": "gt-d1-clickstream",
+      "Depth": 1,
+      "Prompt": "How many days does the platform keep a partition of the clickstream-raw export before it is purged?",
+      "GateQuery": "clickstream-raw export how long partitions are kept before purge",
+      "Chain": [
+        "clickstream-export-runbook",
+        "storage-class-register"
+      ],
+      "Answer": 62,
+      "Unit": "days",
+      "Bridges": [
+        "SC-4"
+      ]
+    },
+    {
+      "ID": "gt-d2-billing",
+      "Depth": 2,
+      "Prompt": "We want to add a field to the billing-events stream. How many business days of advance notice do the consumers of that stream have to be given before the change is applied?",
+      "GateQuery": "billing-events stream schema change advance notice for consumers",
+      "Chain": [
+        "billing-events-runbook",
+        "regulated-tier-rules",
+        "change-class-reference"
+      ],
+      "Answer": 9,
+      "Unit": "business days",
+      "Bridges": [
+        "regulated-tier",
+        "CC-3"
+      ]
+    },
+    {
+      "ID": "gt-d3-ledger",
+      "Depth": 3,
+      "Prompt": "The nightly ledger-reconcile job has now failed on three consecutive nights. Once the incident that opens is raised, how many minutes may pass before it has to reach the platform duty manager?",
+      "GateQuery": "ledger-reconcile job failed three consecutive nights incident response",
+      "Chain": [
+        "ledger-reconcile-runbook",
+        "incident-severity-bands",
+        "escalation-ladders",
+        "duty-manager-matrix"
+      ],
+      "Answer": 25,
+      "Unit": "minutes",
+      "Bridges": [
+        "band B",
+        "amber",
+        "second rung"
+      ]
+    }
+  ],
+  "attempts": [
+    {
+      "cell_id": "gt-d0-vacuum",
+      "depth": 0,
+      "replicate": 1,
+      "seq": 1,
+      "email": "bench-agent-001@apikey.local",
+      "prompt": "The nightly warehouse-vacuum job reported an unusually large row-count delta last night. Above what row-count delta does that job page the on-call engineer?",
+      "ground_truth": 3400,
+      "unit": "rows",
+      "wall_ms": 32991,
+      "tool_calls": 2,
+      "reading": {
+        "searches": [
+          "warehouse-vacuum job row-count delta threshold alert page on-call"
+        ],
+        "fetches": [
+          {
+            "reference": "mcp:knowledge_page:kp_7a52cd63-3eb8-457f-a8ff-2c991c9bc3d2",
+            "page_key": "vacuum-runbook",
+            "depth": 0,
+            "provenance": "search"
+          }
+        ],
+        "max_depth_read": 0,
+        "max_traversal_depth": -1,
+        "off_path_fetches": 0,
+        "read_answer_page": true,
+        "fetched_any_reference": true
+      },
+      "outcome": {
+        "final_answer": "3400",
+        "value": 3400,
+        "unavailable": false,
+        "correct": true
+      }
+    },
+    {
+      "cell_id": "gt-d1-clickstream",
+      "depth": 1,
+      "replicate": 1,
+      "seq": 2,
+      "email": "bench-agent-002@apikey.local",
+      "prompt": "How many days does the platform keep a partition of the clickstream-raw export before it is purged?",
+      "ground_truth": 62,
+      "unit": "days",
+      "wall_ms": 36791,
+      "tool_calls": 5,
+      "reading": {
+        "searches": [
+          "clickstream-raw export partition retention policy purge days",
+          "clickstream-raw retention days purge window storage",
+          "partition retention 90 days purge policy configuration"
+        ],
+        "fetches": [
+          {
+            "reference": "mcp:knowledge_page:kp_d7d3cdaf-2434-4359-abe4-04595c0f246b",
+            "page_key": "clickstream-export-runbook",
+            "depth": 0,
+            "provenance": "search"
+          },
+          {
+            "reference": "mcp:knowledge_page:kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1",
+            "page_key": "storage-class-register",
+            "depth": 1,
+            "provenance": "search"
+          }
+        ],
+        "max_depth_read": 1,
+        "max_traversal_depth": -1,
+        "off_path_fetches": 0,
+        "read_answer_page": true,
+        "fetched_any_reference": true
+      },
+      "outcome": {
+        "final_answer": "62",
+        "value": 62,
+        "unavailable": false,
+        "correct": true
+      }
+    },
+    {
+      "cell_id": "gt-d2-billing",
+      "depth": 2,
+      "replicate": 1,
+      "seq": 3,
+      "email": "bench-agent-003@apikey.local",
+      "prompt": "We want to add a field to the billing-events stream. How many business days of advance notice do the consumers of that stream have to be given before the change is applied?",
+      "ground_truth": 9,
+      "unit": "business days",
+      "wall_ms": 40580,
+      "tool_calls": 4,
+      "reading": {
+        "searches": [
+          "advance notice requirement business days for billing-events stream changes consumer notification"
+        ],
+        "fetches": [
+          {
+            "reference": "mcp:knowledge_page:kp_87d093fc-1186-4585-a8de-159194c65387",
+            "page_key": "change-class-reference",
+            "depth": 2,
+            "provenance": "search"
+          },
+          {
+            "reference": "mcp:knowledge_page:kp_c1dd2cc6-a6bf-4eb5-9836-ea73430c7fc4",
+            "page_key": "billing-events-runbook",
+            "depth": 0,
+            "provenance": "search"
+          },
+          {
+            "reference": "mcp:knowledge_page:kp_615b5308-4deb-4d5f-a824-abad3bf50830",
+            "page_key": "regulated-tier-rules",
+            "depth": 1,
+            "provenance": "search"
+          }
+        ],
+        "max_depth_read": 2,
+        "max_traversal_depth": -1,
+        "off_path_fetches": 0,
+        "read_answer_page": true,
+        "fetched_any_reference": true
+      },
+      "outcome": {
+        "final_answer": "9",
+        "value": 9,
+        "unavailable": false,
+        "correct": true
+      }
+    },
+    {
+      "cell_id": "gt-d3-ledger",
+      "depth": 3,
+      "replicate": 1,
+      "seq": 4,
+      "email": "bench-agent-004@apikey.local",
+      "prompt": "The nightly ledger-reconcile job has now failed on three consecutive nights. Once the incident that opens is raised, how many minutes may pass before it has to reach the platform duty manager?",
+      "ground_truth": 25,
+      "unit": "minutes",
+      "wall_ms": 38940,
+      "tool_calls": 5,
+      "reading": {
+        "searches": [
+          "incident response SLA duty manager escalation time minutes ledger reconcile",
+          "fetch"
+        ],
+        "fetches": [
+          {
+            "reference": "mcp:knowledge_page:kp_e886f389-4685-45ab-96f1-50668d8b04be",
+            "page_key": "duty-manager-matrix",
+            "depth": 3,
+            "provenance": "search"
+          },
+          {
+            "reference": "mcp:knowledge_page:kp_4f6468e0-1917-405e-bfcb-36d1fc5057da",
+            "page_key": "incident-severity-bands",
+            "depth": 1,
+            "provenance": "search"
+          },
+          {
+            "reference": "mcp:knowledge_page:kp_0a7bcc77-3bc6-417c-ac8e-b5b2515a37c6",
+            "page_key": "ledger-reconcile-runbook",
+            "depth": 0,
+            "provenance": "search"
+          }
+        ],
+        "max_depth_read": 3,
+        "max_traversal_depth": -1,
+        "off_path_fetches": 0,
+        "read_answer_page": true,
+        "fetched_any_reference": true
+      },
+      "outcome": {
+        "final_answer": "20",
+        "value": 20,
+        "unavailable": false,
+        "correct": false
+      }
+    }
+  ]
+}

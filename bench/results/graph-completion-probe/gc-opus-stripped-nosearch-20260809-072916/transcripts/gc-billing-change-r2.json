@@ -1,0 +1,584 @@
+[
+  {
+    "role": "user",
+    "text": "The operating runbook for the billing-events stream is mcp:knowledge_page:kp_3ff422bf-6ab2-44ee-8d8f-71a9eca81de1.\n\nWe want to add a new field to the billing-events stream's records. Write the complete change plan the stream's owner could execute as written: every step from proposal to the field being live, every approval the change needs, every rule that constrains when it can be applied, and everything the stream's consumers are owed along the way. Completeness matters more than brevity; the plan is the deliverable."
+  },
+  {
+    "role": "assistant",
+    "text": "I'll start by getting the platform documentation and session ID."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01LmPXN5uYRA7dZm3z1UmcKo",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:mcp__bench__platform_info,mcp__bench__fetch,mcp__bench__list_connections"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01LmPXN5uYRA7dZm3z1UmcKo",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01LaML9NriXcniTeEmnnsvSy",
+        "name": "mcp__bench__platform_info",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01LaML9NriXcniTeEmnnsvSy",
+        "text": "{\"name\":\"mcp-data-platform-bench-gt\",\"version\":\"v1.120.0-dirty\",\"session_id\":\"dps_c927ace4464270e616999582984cb4f6\",\"session_expires_at\":\"2026-08-09T22:38:07Z\",\"agent_instructions\":\"SESSION HANDLE: This call issued you session_id \\\"dps_c927ace4464270e616999582984cb4f6\\\". Pass it as the session_id argument on EVERY subsequent tool call. Tool calls without it are refused (SESSION_REQUIRED). Do not call platform_info again unless a call returns SESSION_EXPIRED.\\n\\nHow to operate this platform:\\n- Discover before you act. Call `search` first: one query reveals what is already known across every source you can reach (the data catalog, its context documents, your memory, captured insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and connections). The answer may span several sources, or may not be in the data warehouse at all, so do not assume a backend and do not stop at the first result.\\n- Reuse what is known. Treat `search` results as the starting point and read a result in full with `fetch` (pass the result's `reference`), or drill in with the scoped tool a result points to, rather than re-deriving an answer or re-asking the user for something already recorded.\\n\\nUploaded reference material:\\nResources are human-uploaded inputs an agent uses as-is: report templates, brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated outputs. Knowledge pages are curated facts to search and synthesize. Memory is per-user recall. If it existed before the conversation and the agent should use it verbatim, it is a resource.\\n- Before you format a deliverable, `search` for an applicable template or reference resource and follow it rather than inventing a layout.\\n- When the user names a company file (\\\"our template\\\", \\\"the checklist\\\", \\\"the brand header\\\"), resolve it with `search` and read it in full with `fetch` (pass the result's `reference`) instead of asking them to paste it.\\n- Material attached to a prompt is authoritative: use it as given rather than paraphrasing it or substituting your own.\",\"toolkits\":[\"platform\",\"mcp\",\"api\"],\"toolkit_descriptions\":{\"platform\":\"Core platform tools: deployment info, connection listing, and resource access.\"},\"persona\":{\"name\":\"admin\",\"display_name\":\"Bench Graph Traversal (GT)\"},\"prompts\":[{\"name\":\"knowledge_capture_guidance\",\"description\":\"Guidance on when and how to capture domain knowledge insights\",\"category\":\"toolkit\",\"content\":\"## Knowledge Capture Guidance\\n\\n### Default Behavior: Capture Proactively\\n\\nYou should capture knowledge automatically during normal conversation. Do not wait for the user to say \\\"capture this\\\" or \\\"remember that.\\\" When someone tells you a fact about their data, that is knowledge. Record it.\\n\\nUse memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.\\n\\nThe goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.\\n\\n### When to Capture an Insight\\n\\nUse memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:\\n\\n**Corrections**: The user corrects a column description, table purpose, or data interpretation.\\nExample: \\\"That column isn't actually revenue, it's gross margin before returns.\\\"\\n\\n**Business Context**: The user explains what data means in business terms not captured in metadata.\\nExample: \\\"We only count active subscriptions, not trial accounts, for MRR calculations.\\\"\\n\\n**Data Quality**: The user reports data quality issues or known limitations.\\nExample: \\\"The timestamps before March 2024 are in UTC but after that they switched to America/Chicago.\\\"\\n\\n**Usage Guidance**: The user shares tips on how to query or interpret data correctly.\\nExample: \\\"Always filter by status='active' on that table, otherwise you get duplicates from soft deletes.\\\"\\n\\n**Relationships**: The user explains connections between datasets not captured in lineage.\\nExample: \\\"The customer_id in orders joins to the legacy CRM export, not the new identity table.\\\"\\n\\n**Enhancements**: The user suggests improvements to existing documentation or metadata.\\nExample: \\\"It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT.\\\"\\n\\n### Agent-Discovered Insights\\n\\nYou can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:\\n\\n**source: \\\"agent_discovery\\\"** — Use when you figure something out yourself during exploration:\\n- Discovering what a column actually contains by sampling data (e.g., \\\"column 'amt' appears to be in cents, not dollars, based on value ranges\\\")\\n- Finding join relationships not documented in lineage (e.g., \\\"orders.cust_id matches customers.legacy_id, not customers.id\\\")\\n- Identifying data quality patterns through queries (e.g., \\\"ship_date is NULL for 23% of completed orders since 2024-06\\\")\\n- Determining refresh cadence by observing max timestamps across multiple queries\\n\\n**source: \\\"enrichment_gap\\\"** — Use when flagging metadata gaps that need admin attention:\\n- A table has no description and you cannot determine its purpose from the data alone\\n- Column descriptions are missing or clearly outdated\\n- Lineage is incomplete or contradicts what the data shows\\n- Tags or glossary terms are absent for datasets that clearly belong to a domain\\n\\n**source: \\\"user\\\"** (default) — Use for insights the user explicitly shares with you.\\n\\n### When to Ask the User Instead\\n\\nDo NOT guess when:\\n- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone\\n- Multiple interpretations of a column or table are equally plausible\\n- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)\\n\\nIn these cases, ask the user to clarify before capturing anything.\\n\\n### When NOT to Capture\\n\\nDo NOT capture insights for:\\n- Transient questions or debugging (\\\"why is my query slow?\\\")\\n- Personal preferences (\\\"I prefer using CTEs\\\")\\n- Information already present in the catalog metadata\\n- Vague or unverifiable claims without specific context\\n- Trivial observations that don't add catalog value\\n- Trivially obvious metadata gaps without adding what the data actually means\\n- Speculative interpretations you have not verified by querying the data\\n- The same gap repeatedly within a single session\\n\\n### Best Practices\\n\\n- Include specific entity URNs when the insight relates to known datasets\\n- Suggest concrete actions (add_tag, update_description) when applicable\\n- Set confidence to \\\"high\\\" only when the user is clearly authoritative\\n- For agent discoveries, set confidence based on evidence strength: \\\"high\\\" if verified by querying, \\\"medium\\\" if inferred from patterns, \\\"low\\\" if speculative\\n- Capture the insight promptly while context is fresh\\n- Use markdown formatting when it aids clarity: backticks for `column_name` and `table_name`, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.\"},{\"name\":\"knowledge_apply_guidance\",\"description\":\"How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"category\":\"toolkit\",\"content\":\"## Reviewing Insights into Durable Knowledge\\n\\nYou hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as \\\"review and apply knowledge.\\\") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.\\n\\n### The loop, and why knowledge matters\\n\\n- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.\\n- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.\\n- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.\\n\\nAlways discover before you apply: search existing memory, insights, and knowledge first.\\n\\n### The expert review workflow\\n\\n1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.\\n2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.\\n3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.\\n4. **Route to the right home.**\\n   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.\\n   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.\\n5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:\u003cid\u003e, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).\\n6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).\\n7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.\\n\\n### Structure knowledge as a navigable graph\\n\\nPrefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:\u003cid\u003e references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.\\n\\n### Routing examples\\n\\n- \\\"The amount column excludes returns\\\" applies to DataHub: update_description on that dataset column.\\n- \\\"We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning\\\" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.\\n- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.\\n- A broad \\\"retail operations\\\" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.\"},{\"name\":\"capture-this-as-knowledge\",\"description\":\"Record insights from this conversation for data catalog improvement\",\"category\":\"toolkit\",\"content\":\"Capture the key insights from this conversation as domain knowledge for the data catalog.\\n\\n1. Review our conversation for corrections, business context, data quality observations, or relationships discovered\\n2. Identify which datasets and columns the insights relate to\\n3. Record each insight with appropriate categorization and confidence level\\n4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)\"},{\"name\":\"save-this-as-an-asset\",\"description\":\"Save output from this conversation as a viewable, shareable asset\",\"category\":\"toolkit\",\"content\":\"Save the most recent output or analysis from this conversation as a shareable asset.\\n\\n1. Identify the key output from our conversation (dashboard, report, chart, or analysis)\\n2. Package it with an appropriate name, description, and tags\\n3. Save it as an asset so it can be viewed and shared\\n4. Return the link to the saved asset\"},{\"name\":\"show-my-saved-assets\",\"description\":\"Browse your saved assets\",\"category\":\"toolkit\",\"content\":\"List my saved assets.\\n\\n1. Retrieve all assets I have saved\\n2. Present them with names, descriptions, tags, and creation dates\\n3. Highlight the most recent items\"}],\"features\":{\"semantic_enrichment\":false,\"query_enrichment\":false,\"storage_enrichment\":false,\"audit_logging\":true,\"knowledge_capture\":false,\"managed_resources\":true},\"config_version\":{\"api_version\":\"v1\",\"supported_versions\":[\"v1\"],\"latest_version\":\"v1\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01YLGCJndjsHKCCQBQdYeNrB",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 3,
+          "query": "select:search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01YLGCJndjsHKCCQBQdYeNrB",
+        "text": "No matching deferred tools found",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01NZt9vmiFs21TprTP4iTkDM",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 8,
+          "query": "search discover knowledge catalog"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01NZt9vmiFs21TprTP4iTkDM",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0171NpbMxEGeNbJXwFE2RGkg",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_3ff422bf-6ab2-44ee-8d8f-71a9eca81de1",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0171NpbMxEGeNbJXwFE2RGkg",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_3ff422bf-6ab2-44ee-8d8f-71a9eca81de1\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_3ff422bf-6ab2-44ee-8d8f-71a9eca81de1\",\"source\":\"knowledge_pages\",\"title\":\"Billing Events Stream Runbook\",\"body\":\"# Billing Events Stream Runbook\\n\\nThe `billing-events` stream carries one record per billing state change:\\nsubscription created, plan moved, invoice settled, refund issued. Three services\\nproduce to it and every finance-facing report consumes it, directly or through\\nthe settled-invoice view.\\n\\n## Tiering\\n\\n`billing-events` is a **regulated-tier** stream. Regulated tier is not a\\nproperty of the payload, it is a property of what downstream consumers are\\nobliged to do with it, and it brings its own operating rules\\n(kept with the governance standards). Those rules, not this runbook, decide how a\\nproposed change to the stream is announced and how long producers have to\\nprepare for it.\\n\\n## Replay\\n\\nThe stream retains fourteen days of records and can be replayed from any offset\\ninside that window. A replay is visible to consumers as duplicate keys, so a\\nconsumer that is not idempotent must be paused for the duration. The field\\nmeanings and the enumerations each field accepts are documented in\\nthe field guide.\\n\\n## Adding a producer\\n\\nA new producer is onboarded through the standard stream checklist\\n(maintained centrally); the checklist covers the mechanics, not\\nthe notice a schema change owes its consumers.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01M1jtXTHMsbpC3cqkqMXNQG",
+        "name": "mcp__bench__list_connections",
+        "args": {
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01M1jtXTHMsbpC3cqkqMXNQG",
+        "text": "{\"connections\":[],\"count\":0}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Heg2wWrd922szzA8ic7Dq5",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "+bench"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Heg2wWrd922szzA8ic7Dq5",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01EEH2n6EpiKF236cLYvKrZj",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:ListMcpResourcesTool,ReadMcpResourceTool,ReadMcpResourceDirTool"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01EEH2n6EpiKF236cLYvKrZj",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01FZfZPf29SNxhxNrzQFhyPr",
+        "name": "ListMcpResourcesTool",
+        "args": {
+          "server": "bench"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01FZfZPf29SNxhxNrzQFhyPr",
+        "text": "[{\"name\":\"platform-info\",\"uri\":\"ui://platform-info\",\"description\":\"Interactive UI for platform-info\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"},{\"name\":\"prompt-browser\",\"uri\":\"ui://prompt-browser\",\"description\":\"Interactive UI for prompt-browser\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"}]",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_017xcSSTneDky1ndyDMGqatw",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 25,
+          "query": "knowledge page glossary datahub trino query search insight memory"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_017xcSSTneDky1ndyDMGqatw",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Mfa2kpqincrLxAnwrtjnqB",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 3,
+          "query": "select:mcp__bench__search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Mfa2kpqincrLxAnwrtjnqB",
+        "text": "No matching deferred tools found",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01VYmRGa6wdA8peA6U4Z4xtb",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:governance-standards",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01VYmRGa6wdA8peA6U4Z4xtb",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:governance-standards\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_018kc2x513gHVZK4CchRmLtM",
+        "name": "ReadMcpResourceDirTool",
+        "args": {
+          "server": "bench",
+          "uri": "mcp://"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_018kc2x513gHVZK4CchRmLtM",
+        "text": "Directory listing is not enabled in this build.",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01BbCxnfd1wHzhyZuHNqPYUp",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 25,
+          "query": "discover reuse what is already known across sources snippets pointers"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01BbCxnfd1wHzhyZuHNqPYUp",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_012gNRMBpK3tFXcBGMkyx7hb",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:regulated-tier-operating-rules",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_012gNRMBpK3tFXcBGMkyx7hb",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:regulated-tier-operating-rules\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_013ZvYNtiM5hr674RuvHZZVZ",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:stream-governance-standards",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_013ZvYNtiM5hr674RuvHZZVZ",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:stream-governance-standards\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_019T7vgnGPQDerrv5miDiDRg",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:billing-events-field-guide",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_019T7vgnGPQDerrv5miDiDRg",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:billing-events-field-guide\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01VoLBsN5r5YpWurc2NJtGhv",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:stream-onboarding-checklist",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01VoLBsN5r5YpWurc2NJtGhv",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:stream-onboarding-checklist\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_014XMCDQxD88xDzMnZP5B82K",
+        "name": "ReadMcpResourceTool",
+        "args": {
+          "server": "bench",
+          "uri": "ui://platform-info"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_014XMCDQxD88xDzMnZP5B82K",
+        "text": "\u003cpersisted-output\u003e\nOutput too large (90KB). Full output saved to: /Users/cjimti/.claude/projects/-private-var-folders-k5-nq3d39592blc4lnddt5zf4fh0000gn-T-bench-claudecli-1124958170/7169aa91-7a48-4757-9f2b-9f991649ebaf/tool-results/toolu_014XMCDQxD88xDzMnZP5B82K.txt\n\nPreview (first 2KB):\n{\"contents\":[{\"uri\":\"ui://platform-info\",\"mimeType\":\"text/html;profile=mcp-app\",\"text\":\"\u003c!DOCTYPE html\u003e\\n\u003chtml lang=\\\"en\\\" style=\\\"height: 500px\\\"\u003e\\n\u003chead\u003e\\n    \u003cmeta charset=\\\"UTF-8\\\"\u003e\\n    \u003cmeta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1.0\\\"\u003e\\n    \u003ctitle\u003ePlatform Info\u003c/title\u003e\\n    \u003cscript id=\\\"app-config\\\" type=\\\"application/json\\\"\u003e{}\u003c/script\u003e\\n    \u003cscript\u003e/* marked v15.0.12 | MIT | https://github.com/markedjs/marked */\\n(function(g,f){if(typeof exports==\\\"object\\\"\u0026\u0026typeof module\u003c\\\"u\\\"){module.exports=f()}else if(\\\"function\\\"==typeof define \u0026\u0026 define.amd){define(\\\"marked\\\",f)}else {g[\\\"marked\\\"]=f()}}(typeof globalThis \u003c \\\"u\\\" ? globalThis : typeof self \u003c \\\"u\\\" ? self : this,function(){var exports={};var __exports=exports;var module={exports};\\n\\\"use strict\\\";var H=Object.defineProperty;var be=Object.getOwnPropertyDescriptor;var Te=Object.getOwnPropertyNames;var we=Object.prototype.hasOwnProperty;var ye=(l,e)=\u003e{for(var t in e)H(l,t,{get:e[t],enumerable:!0})},Re=(l,e,t,n)=\u003e{if(e\u0026\u0026typeof e==\\\"object\\\"||typeof e==\\\"function\\\")for(let s of Te(e))!we.call(l,s)\u0026\u0026s!==t\u0026\u0026H(l,s,{get:()=\u003ee[s],enumerable:!(n=be(e,s))||n.enumerable});return l};var Se=l=\u003eRe(H({},\\\"__esModule\\\",{value:!0}),l);var kt={};ye(kt,{Hooks:()=\u003eL,Lexer:()=\u003ex,Marked:()=\u003eE,Parser:()=\u003eb,Renderer:()=\u003e$,TextRenderer:()=\u003e_,Tokenizer:()=\u003eS,defaults:()=\u003ew,getDefaults:()=\u003ez,lexer:()=\u003eht,marked:()=\u003ek,options:()=\u003eit,parse:()=\u003ept,parseInline:()=\u003ect,parser:()=\u003eut,setOptions:()=\u003eot,use:()=\u003elt,walkTokens:()=\u003eat});module.exports=Se(kt);function z(){return{async:!1,breaks:!1,extensions:null,gfm:!0,hooks:null,pedantic:!1,renderer:null,silent:!1,tokenizer:null,walkTokens:null}}var w=z();function N(l){w=l}var I={exec:()=\u003enull};function h(l,e=\\\"\\\"){let t=typeof l==\\\"string\\\"?l:l.source,n={replace:(s,i)=\u003e{let r=typeof i==\\\"string\\\"?i:i.source;return r=r.replace(m.caret,\\\"$1\\\"),t=t.replace(s,r),n},getRegex:()=\u003enew RegExp(t,e)};return n}var m={codeRemoveIndent:/^(?: {1,4}| {0,3}\\\\t)/gm,outputLinkReplace:/\\\n...\n\u003c/persisted-output\u003e",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Bg8kWSWVyDXjBFSmttSQoD",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "urn:li:dataset:(urn:li:dataPlatform:kafka,billing-events,PROD)",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Bg8kWSWVyDXjBFSmttSQoD",
+        "text": "{\"found\":false,\"reference\":\"urn:li:dataset:(urn:li:dataPlatform:kafka,billing-events,PROD)\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01TM6z7ha3bDFnSfLV1JVQ8G",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_3ff422bf-6ab2-44ee-8d8f-71a9eca81de1",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01TM6z7ha3bDFnSfLV1JVQ8G",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_3ff422bf-6ab2-44ee-8d8f-71a9eca81de1\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_3ff422bf-6ab2-44ee-8d8f-71a9eca81de1\",\"source\":\"knowledge_pages\",\"title\":\"Billing Events Stream Runbook\",\"body\":\"# Billing Events Stream Runbook\\n\\nThe `billing-events` stream carries one record per billing state change:\\nsubscription created, plan moved, invoice settled, refund issued. Three services\\nproduce to it and every finance-facing report consumes it, directly or through\\nthe settled-invoice view.\\n\\n## Tiering\\n\\n`billing-events` is a **regulated-tier** stream. Regulated tier is not a\\nproperty of the payload, it is a property of what downstream consumers are\\nobliged to do with it, and it brings its own operating rules\\n(kept with the governance standards). Those rules, not this runbook, decide how a\\nproposed change to the stream is announced and how long producers have to\\nprepare for it.\\n\\n## Replay\\n\\nThe stream retains fourteen days of records and can be replayed from any offset\\ninside that window. A replay is visible to consumers as duplicate keys, so a\\nconsumer that is not idempotent must be paused for the duration. The field\\nmeanings and the enumerations each field accepts are documented in\\nthe field guide.\\n\\n## Adding a producer\\n\\nA new producer is onboarded through the standard stream checklist\\n(maintained centrally); the checklist covers the mechanics, not\\nthe notice a schema change owes its consumers.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_016kLdsZgDArrsuzWS26nFsz",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "urn:li:glossaryTerm:regulated-tier",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_016kLdsZgDArrsuzWS26nFsz",
+        "text": "{\"found\":false,\"reference\":\"urn:li:glossaryTerm:regulated-tier\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01KW5r4jQtB57s7b7rsnEFw2",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "urn:li:tag:regulated-tier",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01KW5r4jQtB57s7b7rsnEFw2",
+        "text": "{\"found\":false,\"reference\":\"urn:li:tag:regulated-tier\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01G6SKk7WRuJvHR4TcoicAFv",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:index",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01G6SKk7WRuJvHR4TcoicAFv",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:index\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01TTZdGjt5RqbjD9dfUzU8gv",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:resource:index",
+          "session_id": "dps_c927ace4464270e616999582984cb4f6"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01TTZdGjt5RqbjD9dfUzU8gv",
+        "text": "{\"found\":false,\"reference\":\"mcp:resource:index\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "# Change Plan — Adding a Field to the `billing-events` Stream\n\n**Stream:** `billing-events` (regulated tier)\n**Change type:** additive schema change (one new field on the record)\n**Owner:** the `billing-events` stream owner (executor of this plan)\n**Plan date:** 2026-08-09\n**Grounding:** Billing Events Stream Runbook (`mcp:knowledge_page:kp_3ff422bf-6ab2-44ee-8d8f-71a9eca81de1`)\n\n---\n\n## 0. Read this first: what this plan can and cannot state\n\nThis plan is written from the operating runbook for `billing-events`. The runbook is deliberately a pointer document for exactly the three things this change depends on most, and it names each of them without linking them:\n\n| Referenced document | What the runbook says it governs | Status |\n|---|---|---|\n| The **governance standards** (regulated-tier operating rules) | \"how a proposed change to the stream is announced and how long producers have to prepare for it\" — explicitly *not* the runbook's job | **Not retrievable in this session** |\n| The **field guide** | \"the field meanings and the enumerations each field accepts\" | **Not retrievable in this session** |\n| The **standard stream checklist** (maintained centrally) | the mechanics of onboarding a producer — explicitly *not* \"the notice a schema change owes its consumers\" | **Not retrievable in this session** |\n\nThe platform tools available here are `platform_info`, `list_connections`, and `fetch`. `list_connections` returns zero connections, no directory listing or resource index is enabled in this build, and no discovery/search tool is exposed — so the only reachable material is the runbook itself, which carries no outbound references to the three documents above. Every attempt to dereference them by constructed identifier returned \"no content found.\"\n\n**Consequence for the executor:** the steps below are complete in *shape* and in every place the runbook actually speaks. Where the governing rule lives in one of the three unreachable documents, the step says so explicitly and names the parameter that must be filled in before that step can be executed. Those are marked **⚠ UNRESOLVED**. Nothing has been supplied from outside the platform's own material — no notice period, no approver list, and no compatibility policy is invented here, because inventing any of them on a regulated-tier stream is precisely the failure mode the runbook's tiering section is written to prevent.\n\n**Blocking gate:** Stages 2, 3, and 5 cannot be executed as written until the governance standards are read. Stages 1, 4, 6, 7, and 8 can be executed now.\n\n---\n\n## 1. Stage 1 — Proposal (executable now)\n\n### 1.1 Write the field specification\n\nThe proposal must define, at minimum:\n\n- **Field name** and **type**.\n- **Whether the field is optional or required on the wire.** Note the asymmetry the runbook implies: the stream carries *one record per billing state change*, and there are four distinct change kinds — subscription created, plan moved, invoice settled, refund issued. A field that is meaningful for only some of these is populated for only some of these. State, per change kind, whether the field is present, and what its absence means.\n- **Its permitted values.** If the field is an enumeration, the set of accepted values is part of the proposal, not an implementation detail — the runbook establishes that \"the enumerations each field accepts\" is documented material for this stream, not producer-local knowledge.\n- **Default / null semantics** for records written before the field existed. Because the stream retains fourteen days and can be replayed from any offset in that window, consumers will see field-absent records for at least fourteen days after the field goes live, and will see them again on any replay that reaches back before the cutover. The proposal must say what a consumer should do with an absent value, and that answer must remain valid for the whole retention window.\n\n### 1.2 Identify the affected surface\n\n- **Producers:** three services produce to `billing-events`. The proposal must name all three and state, for each, whether it will populate the new field, and if so from what source. A field that only one of three producers populates is a field whose absence is ambiguous to consumers — that must be stated deliberately, not discovered later.\n- **Consumers:** the runbook states that *every finance-facing report* consumes this stream, \"directly or through the settled-invoice view.\" The proposal must therefore enumerate two consumer classes:\n  1. direct consumers of the stream, and\n  2. consumers reached through the **settled-invoice view**, which is an intermediate the change has to pass through before those reports see anything.\n\n  **⚠ UNRESOLVED:** the runbook names the settled-invoice view but does not document its schema, its owner, or whether it projects fields through automatically or by explicit column list. Determine this before Stage 3, because it decides whether the view is a passive pass-through or a second change site with its own owner and its own review. Treat it as a second change site until proven otherwise.\n- **A named consumer inventory.** The runbook's \"every finance-facing report\" is a scope statement, not a list. The change cannot be announced to a category; it has to be announced to recipients. Produce the actual list before Stage 3.\n\n### 1.3 Record the proposal\n\nRecord the specification above as the durable proposal artifact for this change, in whatever form the governance standards require.\n\n**⚠ UNRESOLVED:** the required form, location, and required contents of a regulated-tier change proposal are governance-standards material. The list in 1.1–1.2 is the minimum the runbook's own contents imply; it is not certified to be the full required set.\n\n---\n\n## 2. Stage 2 — Approvals (blocked)\n\n**⚠ UNRESOLVED — this entire stage.**\n\nThe runbook is explicit that `billing-events` is a **regulated-tier** stream, that regulated tier \"is a property of what downstream consumers are obliged to do with it,\" and that the tier \"brings its own operating rules (kept with the governance standards).\" It is equally explicit about the division of labour: *those rules, not this runbook, decide how a proposed change to the stream is announced and how long producers have to prepare for it.*\n\nThe runbook therefore establishes that approvals and announcement rules exist and are binding, and deliberately declines to state them. This plan will not substitute a guess. Before this stage can be executed, read the governance standards and extract:\n\n1. **Who approves a schema change on a regulated-tier stream** — the approving role or body, and whether the stream owner's own sign-off is one of them or is assumed.\n2. **Whether an additive field change is in scope for full approval**, or whether the standards carve out additive changes as a lighter path. Do not assume additive means exempt: the runbook grounds the tier in *consumer obligations*, and a new field on a regulated record can create a new obligation for a consumer that was not previously handling it.\n3. **Whether any approval is required from the consumer side** as well as the producer/governance side, given that the tier is defined by what consumers are obliged to do.\n4. **The ordering** — whether approval precedes announcement, or announcement is itself part of seeking approval.\n5. **Whether the settled-invoice view's owner is a separate approver** for changes that reach reports through it.\n\nUntil items 1–5 are answered, no approval step in this plan can be claimed as satisfied, and the change must not proceed to Stage 5.\n\n---\n\n## 3. Stage 3 — Notice to consumers (blocked on the parameters, executable in structure)\n\nThe runbook is unambiguous that consumers are owed notice and that this obligation is not covered anywhere the executor might otherwise look for it: the standard stream checklist \"covers the mechanics, not the notice a schema change owes its consumers.\" So notice is a first-class deliverable of this change, and the checklist will not remind you to do it.\n\n### 3.1 What is owed — the parameters\n\n**⚠ UNRESOLVED:** the governance standards, and only the governance standards, decide:\n\n- **How the change is announced** — the channel, the format, and who the announcement must reach.\n- **How long producers have to prepare for it** — the notice period between announcement and the earliest permitted apply. This is the single most important scheduling input to this plan; **Stage 5 cannot be dated until this number is known.**\n\nNote the runbook's exact framing: the notice period is expressed as time *producers* have to prepare. Whether consumers are granted a separate or longer window is not stated in the runbook and must be read from the standards, not inferred.\n\n### 3.2 What the announcement must contain (derivable from the runbook)\n\nRegardless of the channel the standards prescribe, the announcement should carry the content this change actually creates for consumers:\n\n- The field name, type, and permitted values, with a pointer to the field-guide entry from Stage 4.\n- **Which of the four change kinds carry the field** (subscription created, plan moved, invoice settled, refund issued) and which do not.\n- **Which of the three producers populate it**, and from what date each begins.\n- **The absence semantics**, and the explicit statement that field-absent records will keep arriving from the fourteen-day retention window and from any replay that reaches back before cutover.\n- **Whether the field propagates through the settled-invoice view**, since that determines whether report consumers see it at all (see 1.2).\n- Whether any consumer action is required, or whether the change is transparent to a consumer that ignores unknown fields.\n- The date the field goes live, and the point of contact for questions.\n\n### 3.3 Recipients\n\nSend to the enumerated consumer list from 1.2 — both direct consumers and the reports reached through the settled-invoice view — plus the owner of the settled-invoice view itself.\n\n---\n\n## 4. Stage 4 — Update the field guide (executable now, must land before go-live)\n\nThe runbook states that \"the field meanings and the enumerations each field accepts are documented in the field guide.\" Adding a field to the stream therefore is not complete until the field guide carries it; a live field with no field-guide entry contradicts the runbook's own description of the stream.\n\nUpdate the field guide with:\n\n- the field's meaning in business terms,\n- the enumeration of accepted values, if it is enumerated,\n- its presence rules per change kind,\n- its absence/default semantics, including the retention-window and replay caveat from 1.1.\n\n**⚠ UNRESOLVED:** the field guide could not be retrieved in this session, so this plan cannot state its location, its edit and review process, whether its update requires its own approval, or what house format an entry takes. Resolve these before executing this stage. **Sequencing rule:** the field-guide entry must be published no later than the announcement in Stage 3, so that the announcement can point at it — a consumer told about a field it cannot look up has been notified but not informed.\n\n---\n\n## 5. Stage 5 — Apply the change: producer rollout (blocked on Stages 2 and 3)\n\n### 5.1 Preconditions — all must hold\n\n- Approvals from Stage 2 are recorded and current.\n- The announcement from Stage 3 has been made, **and the full notice period defined by the governance standards has elapsed.** This is the binding timing constraint on the change; the runbook assigns the length of that period to the standards, so the earliest permissible apply date is `announcement date + [⚠ UNRESOLVED period]`.\n- The field-guide entry from Stage 4 is published.\n- The settled-invoice view question from 1.2 is answered, and if the view needs its own change, that change is approved and scheduled coherently with this one.\n\n### 5.2 Order of operations\n\nRoll out **consumer-tolerance first, producer-writes second**:\n\n1. **Confirm every consumer tolerates the unknown field before any producer emits it.** For a consumer that rejects or errors on unrecognized fields, this is a required upgrade, not an optional one, and it must land first.\n2. **Then enable production of the field**, service by service across the three producers, rather than simultaneously. Staging the producers keeps the blast radius of a bad value to one source and makes a rollback a single-service action.\n3. **Then propagate through the settled-invoice view**, if the view requires an explicit change, so that the finance-facing reports downstream of it begin to see the field.\n\n**⚠ UNRESOLVED:** the runbook does not describe a schema registry, a compatibility mode, a versioning convention, or a deployment mechanism for this stream, and the standard stream checklist — which covers \"the mechanics\" — could not be retrieved. The mechanical steps for registering and deploying the new schema must be taken from that checklist. Note the checklist is written for onboarding a *new producer*; whether it also covers a schema change to an existing producer is not stated in the runbook and must be confirmed rather than assumed.\n\n### 5.3 Rollback position\n\nKeep the change reversible at each producer step: a producer that has begun emitting the field can be reverted to not emitting it, which returns consumers to the field-absent case they were already required to handle by 1.1. Do not, as part of rollback, change the *meaning* of the field or reuse the name for something else — the field guide entry is published by this point and consumers may already be reading it.\n\n---\n\n## 6. Stage 6 — Replay and backfill (conditional; rules are grounded)\n\nThe runbook gives replay rules directly, and they are the one operational constraint on this change that is fully documented:\n\n- **The stream retains fourteen days of records and can be replayed from any offset inside that window.** Records older than fourteen days cannot be replayed at all — so no replay-based backfill can populate the new field on records older than the retention window. If the change's purpose requires historical values beyond fourteen days, replay is not the mechanism, and that requirement must be met some other way or dropped from scope.\n- **A replay is visible to consumers as duplicate keys.**\n- **A consumer that is not idempotent must be paused for the duration of the replay.**\n\nIf the owner chooses to replay in order to re-emit recent records carrying the new field, then before the replay:\n\n1. **Determine which consumers are not idempotent** — across both direct consumers and everything downstream of the settled-invoice view. Every finance-facing report is in scope for this question; a non-idempotent finance consumer that sees duplicate keys during a replay will double-count.\n2. **Notify and coordinate a pause window** with each non-idempotent consumer covering the full replay duration.\n3. **Resume them after the replay completes**, and confirm resumption with each.\n\nThe pause obligation is owed to consumers regardless of how small the replay is; the runbook states it unconditionally.\n\n**⚠ UNRESOLVED:** whether a replay for a schema change is itself an announceable event under the regulated-tier rules — with its own notice period — is governance-standards material and is not stated in the runbook. Assume it may be, and check, rather than treating the replay as an internal operation.\n\n**If no replay is performed**, say so explicitly in the Stage 3 announcement, so consumers know the field will simply appear going forward and that no historical record will be reissued with it.\n\n---\n\n## 7. Stage 7 — Verification (executable now, run after Stage 5)\n\nAfter each producer step and after the view propagation:\n\n- Confirm the field appears on the change kinds it is specified to appear on, and does **not** appear on the ones it is not.\n- Confirm every emitted value is inside the declared enumeration, if enumerated.\n- Confirm consumers that were expected to be transparent to the change are in fact unaffected.\n- Confirm the finance-facing reports downstream of the settled-invoice view are unchanged in their existing outputs — an additive field should not move an existing number, and if it does, that is a defect in the view or the report, not an expected consequence.\n- Confirm the field-guide entry matches what is actually on the wire.\n\n---\n\n## 8. Stage 8 — Close out (executable now)\n\n- Confirm to the consumer list that the field is live, and from which date each producer began populating it.\n- Confirm the field-guide entry is final and matches production.\n- Record the completed change wherever the governance standards require change records to be kept. **⚠ UNRESOLVED:** that location and retention requirement is governance-standards material.\n- If the settled-invoice view was changed, confirm its documentation reflects the new field.\n\n---\n\n## 9. Summary: what consumers are owed, end to end\n\nConsolidated from the runbook's own statements:\n\n1. **Advance announcement of the change**, in the manner and with the lead time the regulated-tier operating rules prescribe — an obligation the runbook explicitly assigns to the governance standards, and explicitly notes the standard stream checklist does *not* cover. **⚠ Parameters unresolved.**\n2. **A field-guide entry** giving the field's meaning and its accepted enumerations, published no later than the announcement.\n3. **Clear absence semantics**, valid for at least the full fourteen-day retention window and for any replay inside it.\n4. **A statement of whether the field reaches them**, given that many of them consume through the settled-invoice view rather than the stream directly.\n5. **If a replay is performed:** advance coordination, and a pause window for every non-idempotent consumer covering the replay's full duration.\n6. **Confirmation at go-live**, including which producers populate the field and from when.\n\n---\n\n## 10. Open items blocking execution\n\n| # | Question | Where the answer lives | Blocks |\n|---|---|---|---|\n| 1 | Who approves a schema change on a regulated-tier stream, and is an additive field in scope? | Governance standards (regulated-tier operating rules) | Stage 2, Stage 5 |\n| 2 | How must the change be announced, and how long is the notice period? | Governance standards | Stage 3, Stage 5 timing |\n| 3 | Is a replay for a schema change itself an announceable event? | Governance standards | Stage 6 |\n| 4 | Where change records must be kept | Governance standards | Stage 8 |\n| 5 | Field-guide location, entry format, and edit/review process | Field guide | Stage 4 |\n| 6 | Mechanical steps to register and deploy a new schema version; does the checklist cover schema changes as well as new producers? | Standard stream checklist (maintained centrally) | Stage 5 |\n| 7 | Does the settled-invoice view pass fields through automatically, who owns it, and is its owner a separate approver? | Not documented in the runbook | Stages 1.2, 3, 5, 7 |\n| 8 | The actual named list of finance-facing consumers behind \"every finance-facing report\" | Not documented in the runbook | Stage 3 |\n\nItems 1–6 are answerable from documents the runbook names but that could not be reached with the tools available in this session. Items 7–8 are not addressed by the runbook at all and require the stream owner's own knowledge or a source outside it."
+  }
+]
