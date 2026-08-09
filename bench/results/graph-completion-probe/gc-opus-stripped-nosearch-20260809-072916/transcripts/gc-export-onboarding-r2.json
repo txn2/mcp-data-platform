@@ -1,0 +1,397 @@
+[
+  {
+    "role": "user",
+    "text": "The operating runbook for the clickstream-raw export, the model for the new export, is mcp:knowledge_page:kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654.\n\nWe are standing up a new nightly export, order-refunds, to be operated exactly like the clickstream-raw export. Write the complete onboarding document for it: how the job and its output are named, where the output lands and how that area is organized, how its storage is registered and how long its output lives, when it is expected to land and what happens when it is repeatedly late, how it is re-run safely after a bad night, and what applies if any of its output is ever copied outside the platform. Completeness matters more than brevity; the document is the deliverable."
+  },
+  {
+    "role": "assistant",
+    "text": "I'll start by reading the platform documentation and the model runbook."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_019nJMwn1jViXNuakwbGuAj7",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:mcp__bench__platform_info,mcp__bench__fetch,mcp__bench__list_connections"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_019nJMwn1jViXNuakwbGuAj7",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01QKh8ir1FhtiPUiDrvrJFKa",
+        "name": "mcp__bench__platform_info",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01QKh8ir1FhtiPUiDrvrJFKa",
+        "text": "{\"name\":\"mcp-data-platform-bench-gt\",\"version\":\"v1.120.0-dirty\",\"session_id\":\"dps_e1544223618f0c65cb381069ab690c3a\",\"session_expires_at\":\"2026-08-09T22:45:28Z\",\"agent_instructions\":\"SESSION HANDLE: This call issued you session_id \\\"dps_e1544223618f0c65cb381069ab690c3a\\\". Pass it as the session_id argument on EVERY subsequent tool call. Tool calls without it are refused (SESSION_REQUIRED). Do not call platform_info again unless a call returns SESSION_EXPIRED.\\n\\nHow to operate this platform:\\n- Discover before you act. Call `search` first: one query reveals what is already known across every source you can reach (the data catalog, its context documents, your memory, captured insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and connections). The answer may span several sources, or may not be in the data warehouse at all, so do not assume a backend and do not stop at the first result.\\n- Reuse what is known. Treat `search` results as the starting point and read a result in full with `fetch` (pass the result's `reference`), or drill in with the scoped tool a result points to, rather than re-deriving an answer or re-asking the user for something already recorded.\\n\\nUploaded reference material:\\nResources are human-uploaded inputs an agent uses as-is: report templates, brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated outputs. Knowledge pages are curated facts to search and synthesize. Memory is per-user recall. If it existed before the conversation and the agent should use it verbatim, it is a resource.\\n- Before you format a deliverable, `search` for an applicable template or reference resource and follow it rather than inventing a layout.\\n- When the user names a company file (\\\"our template\\\", \\\"the checklist\\\", \\\"the brand header\\\"), resolve it with `search` and read it in full with `fetch` (pass the result's `reference`) instead of asking them to paste it.\\n- Material attached to a prompt is authoritative: use it as given rather than paraphrasing it or substituting your own.\",\"toolkits\":[\"platform\",\"mcp\",\"api\"],\"toolkit_descriptions\":{\"platform\":\"Core platform tools: deployment info, connection listing, and resource access.\"},\"persona\":{\"name\":\"admin\",\"display_name\":\"Bench Graph Traversal (GT)\"},\"prompts\":[{\"name\":\"knowledge_capture_guidance\",\"description\":\"Guidance on when and how to capture domain knowledge insights\",\"category\":\"toolkit\",\"content\":\"## Knowledge Capture Guidance\\n\\n### Default Behavior: Capture Proactively\\n\\nYou should capture knowledge automatically during normal conversation. Do not wait for the user to say \\\"capture this\\\" or \\\"remember that.\\\" When someone tells you a fact about their data, that is knowledge. Record it.\\n\\nUse memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.\\n\\nThe goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.\\n\\n### When to Capture an Insight\\n\\nUse memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:\\n\\n**Corrections**: The user corrects a column description, table purpose, or data interpretation.\\nExample: \\\"That column isn't actually revenue, it's gross margin before returns.\\\"\\n\\n**Business Context**: The user explains what data means in business terms not captured in metadata.\\nExample: \\\"We only count active subscriptions, not trial accounts, for MRR calculations.\\\"\\n\\n**Data Quality**: The user reports data quality issues or known limitations.\\nExample: \\\"The timestamps before March 2024 are in UTC but after that they switched to America/Chicago.\\\"\\n\\n**Usage Guidance**: The user shares tips on how to query or interpret data correctly.\\nExample: \\\"Always filter by status='active' on that table, otherwise you get duplicates from soft deletes.\\\"\\n\\n**Relationships**: The user explains connections between datasets not captured in lineage.\\nExample: \\\"The customer_id in orders joins to the legacy CRM export, not the new identity table.\\\"\\n\\n**Enhancements**: The user suggests improvements to existing documentation or metadata.\\nExample: \\\"It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT.\\\"\\n\\n### Agent-Discovered Insights\\n\\nYou can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:\\n\\n**source: \\\"agent_discovery\\\"** — Use when you figure something out yourself during exploration:\\n- Discovering what a column actually contains by sampling data (e.g., \\\"column 'amt' appears to be in cents, not dollars, based on value ranges\\\")\\n- Finding join relationships not documented in lineage (e.g., \\\"orders.cust_id matches customers.legacy_id, not customers.id\\\")\\n- Identifying data quality patterns through queries (e.g., \\\"ship_date is NULL for 23% of completed orders since 2024-06\\\")\\n- Determining refresh cadence by observing max timestamps across multiple queries\\n\\n**source: \\\"enrichment_gap\\\"** — Use when flagging metadata gaps that need admin attention:\\n- A table has no description and you cannot determine its purpose from the data alone\\n- Column descriptions are missing or clearly outdated\\n- Lineage is incomplete or contradicts what the data shows\\n- Tags or glossary terms are absent for datasets that clearly belong to a domain\\n\\n**source: \\\"user\\\"** (default) — Use for insights the user explicitly shares with you.\\n\\n### When to Ask the User Instead\\n\\nDo NOT guess when:\\n- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone\\n- Multiple interpretations of a column or table are equally plausible\\n- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)\\n\\nIn these cases, ask the user to clarify before capturing anything.\\n\\n### When NOT to Capture\\n\\nDo NOT capture insights for:\\n- Transient questions or debugging (\\\"why is my query slow?\\\")\\n- Personal preferences (\\\"I prefer using CTEs\\\")\\n- Information already present in the catalog metadata\\n- Vague or unverifiable claims without specific context\\n- Trivial observations that don't add catalog value\\n- Trivially obvious metadata gaps without adding what the data actually means\\n- Speculative interpretations you have not verified by querying the data\\n- The same gap repeatedly within a single session\\n\\n### Best Practices\\n\\n- Include specific entity URNs when the insight relates to known datasets\\n- Suggest concrete actions (add_tag, update_description) when applicable\\n- Set confidence to \\\"high\\\" only when the user is clearly authoritative\\n- For agent discoveries, set confidence based on evidence strength: \\\"high\\\" if verified by querying, \\\"medium\\\" if inferred from patterns, \\\"low\\\" if speculative\\n- Capture the insight promptly while context is fresh\\n- Use markdown formatting when it aids clarity: backticks for `column_name` and `table_name`, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.\"},{\"name\":\"knowledge_apply_guidance\",\"description\":\"How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"category\":\"toolkit\",\"content\":\"## Reviewing Insights into Durable Knowledge\\n\\nYou hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as \\\"review and apply knowledge.\\\") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.\\n\\n### The loop, and why knowledge matters\\n\\n- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.\\n- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.\\n- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.\\n\\nAlways discover before you apply: search existing memory, insights, and knowledge first.\\n\\n### The expert review workflow\\n\\n1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.\\n2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.\\n3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.\\n4. **Route to the right home.**\\n   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.\\n   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.\\n5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:\u003cid\u003e, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).\\n6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).\\n7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.\\n\\n### Structure knowledge as a navigable graph\\n\\nPrefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:\u003cid\u003e references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.\\n\\n### Routing examples\\n\\n- \\\"The amount column excludes returns\\\" applies to DataHub: update_description on that dataset column.\\n- \\\"We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning\\\" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.\\n- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.\\n- A broad \\\"retail operations\\\" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.\"},{\"name\":\"capture-this-as-knowledge\",\"description\":\"Record insights from this conversation for data catalog improvement\",\"category\":\"toolkit\",\"content\":\"Capture the key insights from this conversation as domain knowledge for the data catalog.\\n\\n1. Review our conversation for corrections, business context, data quality observations, or relationships discovered\\n2. Identify which datasets and columns the insights relate to\\n3. Record each insight with appropriate categorization and confidence level\\n4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)\"},{\"name\":\"save-this-as-an-asset\",\"description\":\"Save output from this conversation as a viewable, shareable asset\",\"category\":\"toolkit\",\"content\":\"Save the most recent output or analysis from this conversation as a shareable asset.\\n\\n1. Identify the key output from our conversation (dashboard, report, chart, or analysis)\\n2. Package it with an appropriate name, description, and tags\\n3. Save it as an asset so it can be viewed and shared\\n4. Return the link to the saved asset\"},{\"name\":\"show-my-saved-assets\",\"description\":\"Browse your saved assets\",\"category\":\"toolkit\",\"content\":\"List my saved assets.\\n\\n1. Retrieve all assets I have saved\\n2. Present them with names, descriptions, tags, and creation dates\\n3. Highlight the most recent items\"}],\"features\":{\"semantic_enrichment\":false,\"query_enrichment\":false,\"storage_enrichment\":false,\"audit_logging\":true,\"knowledge_capture\":false,\"managed_resources\":true},\"config_version\":{\"api_version\":\"v1\",\"supported_versions\":[\"v1\"],\"latest_version\":\"v1\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01R8gqE1L2N84HYpkFFazDhr",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 3,
+          "query": "select:search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01R8gqE1L2N84HYpkFFazDhr",
+        "text": "No matching deferred tools found",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0117j7mzGrESKEj27BTpoUyz",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 10,
+          "query": "search discover knowledge catalog"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0117j7mzGrESKEj27BTpoUyz",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01PQC5oK1VTiuewpFF4iZPhf",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654",
+          "session_id": "dps_e1544223618f0c65cb381069ab690c3a"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01PQC5oK1VTiuewpFF4iZPhf",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654\",\"source\":\"knowledge_pages\",\"title\":\"Clickstream Raw Export Runbook\",\"body\":\"# Clickstream Raw Export Runbook\\n\\nThe `clickstream-raw` export writes the previous day's unaggregated event\\nstream to object storage as hourly partitions. It runs once a night, after the\\nevent collectors have drained, and is the source every downstream sessionization\\njob reads from. Its naming and partition layout follow the platform convention\\n(written down once for every export).\\n\\n## Storage registration\\n\\nThe export is registered under **storage class SC-4**. The storage class is what\\ndecides how long a written partition survives and what tier it sits on; the\\nclasses and their windows are maintained centrally in\\na central register. The export itself sets no lifetime of its own,\\nand a request to keep a partition longer than its class allows is a\\nreclassification request, not a change to this job.\\n\\n## Missing drops\\n\\nA missing hourly partition is almost always a collector that has not drained\\nrather than an export failure. Check the collector lag first, then re-run the\\nsingle hour rather than the whole night: the export is idempotent per partition,\\nand the safe way to re-run an hour or a night is written up once for every\\nexport (and applies here unchanged). The hour\\neach nightly drop is expected by, and what happens when one is repeatedly late,\\nis likewise set for every export in one place\\n(rather than per job).\\nField-level questions about what the partitions contain belong in\\nthe schema notes.\\n\\nAnything leaving the platform boundary, including a copy of these partitions to\\na partner bucket, is governed separately (by an approval policy).\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_014XKXzbkTT2qix7nNWAZxvf",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 10,
+          "query": "+search knowledge pages datasets query"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_014XKXzbkTT2qix7nNWAZxvf",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01CCuebqkQrcTxnD64hsG388",
+        "name": "mcp__bench__list_connections",
+        "args": {
+          "session_id": "dps_e1544223618f0c65cb381069ab690c3a"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01CCuebqkQrcTxnD64hsG388",
+        "text": "{\"connections\":[],\"count\":0}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01DHqnNptT4dr5yCAF6TrRNn",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:ListMcpResourcesTool,ReadMcpResourceDirTool,ReadMcpResourceTool"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01DHqnNptT4dr5yCAF6TrRNn",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01GDDBcmpWgmvwiyzitcap8s",
+        "name": "ListMcpResourcesTool",
+        "args": {
+          "server": "bench"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01GDDBcmpWgmvwiyzitcap8s",
+        "text": "[{\"name\":\"platform-info\",\"uri\":\"ui://platform-info\",\"description\":\"Interactive UI for platform-info\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"},{\"name\":\"prompt-browser\",\"uri\":\"ui://prompt-browser\",\"description\":\"Interactive UI for prompt-browser\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"}]",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_018vkUnu3NcY33MjbXFmJfx7",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 15,
+          "query": "trino s3 datahub lineage query describe table list objects"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_018vkUnu3NcY33MjbXFmJfx7",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Bko6Ucg1cy1LPFtKMeSk1K",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654",
+          "session_id": "dps_e1544223618f0c65cb381069ab690c3a"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Bko6Ucg1cy1LPFtKMeSk1K",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654\",\"source\":\"knowledge_pages\",\"title\":\"Clickstream Raw Export Runbook\",\"body\":\"# Clickstream Raw Export Runbook\\n\\nThe `clickstream-raw` export writes the previous day's unaggregated event\\nstream to object storage as hourly partitions. It runs once a night, after the\\nevent collectors have drained, and is the source every downstream sessionization\\njob reads from. Its naming and partition layout follow the platform convention\\n(written down once for every export).\\n\\n## Storage registration\\n\\nThe export is registered under **storage class SC-4**. The storage class is what\\ndecides how long a written partition survives and what tier it sits on; the\\nclasses and their windows are maintained centrally in\\na central register. The export itself sets no lifetime of its own,\\nand a request to keep a partition longer than its class allows is a\\nreclassification request, not a change to this job.\\n\\n## Missing drops\\n\\nA missing hourly partition is almost always a collector that has not drained\\nrather than an export failure. Check the collector lag first, then re-run the\\nsingle hour rather than the whole night: the export is idempotent per partition,\\nand the safe way to re-run an hour or a night is written up once for every\\nexport (and applies here unchanged). The hour\\neach nightly drop is expected by, and what happens when one is repeatedly late,\\nis likewise set for every export in one place\\n(rather than per job).\\nField-level questions about what the partitions contain belong in\\nthe schema notes.\\n\\nAnything leaving the platform boundary, including a copy of these partitions to\\na partner bucket, is governed separately (by an approval policy).\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01KNnPX91p3nVnq7rGR9rwaL",
+        "name": "ReadMcpResourceDirTool",
+        "args": {
+          "server": "bench",
+          "uri": "mcp://knowledge_pages"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01KNnPX91p3nVnq7rGR9rwaL",
+        "text": "Directory listing is not enabled in this build.",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0112ag4PpGaaA7J1zToRfGr1",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:nightly-exports",
+          "session_id": "dps_e1544223618f0c65cb381069ab690c3a"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0112ag4PpGaaA7J1zToRfGr1",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:nightly-exports\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01GKWr9CPzpfmzpdB3WdpzQD",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:export-naming-convention",
+          "session_id": "dps_e1544223618f0c65cb381069ab690c3a"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01GKWr9CPzpfmzpdB3WdpzQD",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:export-naming-convention\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01H6XUQNvRomGu3otcwUe2Ub",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:storage-classes",
+          "session_id": "dps_e1544223618f0c65cb381069ab690c3a"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01H6XUQNvRomGu3otcwUe2Ub",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:storage-classes\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01F6Lq96HFBbGL9UpDnEEeZC",
+        "name": "ReadMcpResourceTool",
+        "args": {
+          "server": "bench",
+          "uri": "mcp://knowledge_page/kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654"
+        }
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01CsqdhNq51odpxrStf6Fd3F",
+        "name": "ListMcpResourcesTool",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01CsqdhNq51odpxrStf6Fd3F",
+        "text": "[{\"name\":\"platform-info\",\"uri\":\"ui://platform-info\",\"description\":\"Interactive UI for platform-info\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"},{\"name\":\"prompt-browser\",\"uri\":\"ui://prompt-browser\",\"description\":\"Interactive UI for prompt-browser\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"}]",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01F6Lq96HFBbGL9UpDnEEeZC",
+        "text": "Resource not found: mcp://knowledge_page/kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654 — it may have been deleted or the URI is stale. Re-run ListMcpResourcesTool to refresh.",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "I read the platform documentation and the model runbook, then tried every discovery route this deployment exposes (connection listing, MCP resource listing, directory listing, and direct dereferencing) to reach the documents the clickstream runbook delegates to. The runbook names those policies in prose but carries no resolvable references to them, and this build has no `search` tool and no directory listing, so their contents are not reachable from here. The document below is grounded in what the clickstream-raw runbook actually says, and marks each unreachable policy explicitly rather than filling it in.\n\n---\n\n# Order-Refunds Nightly Export — Onboarding Document\n\n**Status:** onboarding draft, pending resolution of the open items in §9\n**Model:** [Clickstream Raw Export Runbook](mcp:knowledge_page:kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654) (`mcp:knowledge_page:kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654`)\n**Date:** 2026-08-09\n\n## 1. Purpose and operating premise\n\n`order-refunds` is a new nightly export. The instruction for this onboarding is that it be operated **exactly like the `clickstream-raw` export**. That is the organizing principle of this document: wherever the clickstream-raw runbook states a rule, that rule is restated here as applying to `order-refunds` unchanged.\n\nThe single most important structural fact carried over from the model runbook is this: **the clickstream-raw runbook itself contains almost no clickstream-specific operating rules.** Naming, partition layout, landing-time expectations, late-drop escalation, re-run procedure, retention, and external-copy approval are all explicitly described there as written down *once, centrally, for every export* — not per job. The runbook's own words are that these things are \"written down once for every export,\" \"maintained centrally,\" \"set for every export in one place (rather than per job),\" and \"governed separately.\"\n\nThe practical consequence for `order-refunds`:\n\n- There is **no per-job policy to author** for naming, landing time, lateness escalation, re-run procedure, retention window, or egress. `order-refunds` inherits the platform-wide documents by virtue of being an export.\n- The only genuinely per-job decisions are (a) which storage class it is registered under, (b) its schema notes, and (c) the upstream-readiness signal its operators check when a drop is missing.\n- Onboarding this job therefore means **registering it against the central documents**, not copying them.\n\nA caveat stated plainly up front, because it affects most sections below: the central documents the clickstream-raw runbook points to are named in its prose but are not reachable from this platform session. Each section marks exactly what is inherited and what could not be read.\n\n## 2. How the job and its output are named\n\n**Rule inherited from the model:** the model runbook states that clickstream-raw's \"naming and partition layout follow the platform convention,\" and that this convention is \"written down once for every export.\" The same convention governs `order-refunds`. Naming is not a choice made by this job.\n\n**What that means operationally:** the job name and the name of its output are derived from the platform export-naming convention, not invented at onboarding. `order-refunds` is the export's identifier in the same sense that `clickstream-raw` is the model export's identifier — a lowercase, hyphenated export name — and the job and its output are named from that identifier by whatever rule the convention specifies.\n\n**Gap — the naming convention document could not be read.** The clickstream-raw runbook refers to the platform naming and partition-layout convention only as prose (\"the platform convention (written down once for every export)\"). It carries no reference to that document, and no equivalent document is reachable through this platform's discovery tools. **This document therefore cannot state the literal job-name pattern, the output-object name pattern, or any suffixing/versioning rule.** Do not infer them from the string `clickstream-raw` — infer them from the convention document itself.\n\n**Action:** before the first run, read the platform export-naming and partition-layout convention and record here the exact rendered job name and output name for `order-refunds`. Until then, treat the names as unfixed.\n\n## 3. Where the output lands and how that area is organized\n\n**Rule inherited from the model:** partition layout is part of the same platform-wide convention as naming — one document, applying to every export. `order-refunds` uses it unchanged.\n\n**What the model export does, for orientation:** `clickstream-raw` \"writes the previous day's unaggregated event stream to object storage as hourly partitions.\" So the shape of the model is: output goes to **object storage**, organized into **partitions**, one nightly run covering the **previous day**, with the previous day subdivided **hourly**.\n\n**What carries over and what does not:**\n\n- **Object storage as the destination, and partitioned organization** — carries over. This is the platform convention, not a clickstream property.\n- **Previous-day scope for a nightly run** — carries over as the model's cadence: one nightly run writes the prior day.\n- **Hourly partition granularity** — **does not automatically carry over, and is not recorded for `order-refunds`.** Hourly partitioning suits an event stream that arrives continuously through the day. Whether refund records are partitioned hourly, or at day granularity, is a property of this export that the available material does not state. This matters well beyond cosmetics: §6's re-run procedure depends on partition granularity, because the model's whole recovery posture is \"re-run the single partition, not the night.\"\n\n**Gap:** the concrete bucket, prefix structure, and partition-key format are specified in the platform partition-layout convention, which is not reachable here. This document cannot state the literal path layout.\n\n**Action:** (a) read the partition-layout convention and record the resolved output location and prefix structure for `order-refunds`; (b) decide and record the partition granularity for this export, since the material is silent on it and §6 depends on it.\n\n## 4. How its storage is registered, and how long its output lives\n\n**The mechanism, inherited from the model:** an export is **registered under a storage class**. The storage class — not the job — \"decides how long a written partition survives and what tier it sits on.\" The classes and their retention windows \"are maintained centrally in a central register.\"\n\nTwo rules follow directly from the model runbook and apply to `order-refunds` verbatim:\n\n1. **The export sets no lifetime of its own.** There is no retention setting inside this job. Do not add one. Retention for `order-refunds` output is whatever its storage class specifies in the central register, and it changes when the register changes.\n2. **A request to keep a partition longer than its class allows is a reclassification request, not a change to this job.** If someone asks for `order-refunds` output to be held longer, that request goes to the storage-class register as a reclassification of this export. It is never satisfied by editing the job, by copying partitions aside, or by a one-off hold. This is the rule the model states most emphatically, and it is the one most likely to be tested by a refund-related retention or audit request.\n\n**Which class `order-refunds` is registered under — not recorded.** `clickstream-raw` is registered under **storage class SC-4**. The material does not state a class for `order-refunds`, and storage-class assignment is precisely the kind of per-export registration decision that the \"operate it exactly like clickstream-raw\" instruction cannot settle by itself. Reading SC-4 across is the literal reading of the instruction, but it is an inference, not something the platform records, and it carries a real consequence: the class determines how long refund output survives.\n\n**Gap:** the central storage-class register is not reachable from this session. This document therefore cannot state what SC-4's retention window or storage tier actually is, and cannot state whether SC-4 is an appropriate class for refund data.\n\n**Action, before the first run:** confirm the storage class for `order-refunds` with whoever owns the register, and record it here as an explicit registration (`order-refunds → SC-\u003cn\u003e`), together with the window and tier that class carries. If the answer is \"same as clickstream-raw,\" record that as a decision that was made, not as an assumption this document made.\n\n## 5. When it is expected to land, and what happens when it is repeatedly late\n\n**Rule inherited from the model, stated unusually clearly there:** \"The hour each nightly drop is expected by, and what happens when one is repeatedly late, is likewise set for every export in one place (rather than per job).\"\n\nBoth halves of this section are therefore inherited wholesale:\n\n- **Expected landing hour** — `order-refunds` is expected by the hour the central document sets for nightly exports. This job does not define its own deadline, and this onboarding does not get to negotiate one.\n- **Repeated lateness** — the escalation path for an export that is repeatedly late is defined in that same central document and applies to `order-refunds` unchanged. There is no `order-refunds`-specific escalation to author, and no separate paging arrangement to stand up.\n\n**One scheduling constraint that is job-specific.** The model runbook notes that `clickstream-raw` \"runs once a night, after the event collectors have drained.\" The *pattern* carries over — a nightly export runs after its upstream is complete — but the specific upstream is not the same. `order-refunds` does not read from event collectors, and **the material does not record what upstream `order-refunds` waits on.** Its run time has to be positioned after that upstream is complete and still early enough to meet the central landing hour.\n\n**Gap:** the central landing-time and late-drop-escalation document is not reachable here. This document cannot state the expected landing hour, the lateness threshold, how many late nights constitute \"repeatedly late,\" or who is notified.\n\n**Action:** read the central landing-time/escalation document and record the resolved expected-by hour for `order-refunds`; separately, identify and record the upstream completion signal this export waits on, since §6 depends on it.\n\n## 6. How it is re-run safely after a bad night\n\n**Rule inherited from the model:** \"the safe way to re-run an hour or a night is written up once for every export (and applies here unchanged).\" That sentence is written about `clickstream-raw`, and by the same logic it applies to `order-refunds` unchanged. There is no bespoke `order-refunds` re-run procedure to write.\n\n**The diagnostic posture, carried over.** The model runbook's guidance on a missing drop is a two-step discipline worth carrying over exactly:\n\n1. **Suspect the upstream before the export.** For `clickstream-raw`, \"a missing hourly partition is almost always a collector that has not drained rather than an export failure. Check the collector lag first.\" The transferable rule for `order-refunds` is: **check upstream completeness first**, and only treat it as an export failure once the upstream is confirmed complete. What \"the collector lag\" translates to for refunds is the upstream signal identified in §5 — and that signal is **not recorded in the available material**, which is the single biggest gap in this section. An operator cannot follow step 1 until it is filled in.\n2. **Re-run the smallest unit, not the night.** \"Re-run the single hour rather than the whole night.\" For `order-refunds`, re-run the single affected partition rather than the whole night, at whatever granularity §3 settles on.\n\n**What makes the narrow re-run safe.** The model states the reason plainly: \"the export is idempotent per partition.\" That property is what makes re-running one partition a safe repair rather than a source of duplicates. **For `order-refunds`, per-partition idempotence is a requirement, not an observed fact.** Nothing in the available material establishes that this new export is idempotent per partition. Operating it exactly like `clickstream-raw` means the re-run procedure will assume idempotence, so a re-run that instead appends or double-writes would corrupt a partition of refund records.\n\n**Action:** verify per-partition idempotence of `order-refunds` — a repeated write of the same partition must produce the same partition contents — before the job is placed under the standard re-run procedure. Record the verification. If it is not idempotent, the correct response is to make it idempotent, not to write a custom re-run procedure for this job; a custom procedure would break the \"operated exactly like clickstream-raw\" premise the whole design rests on.\n\n**Gap:** the central re-run procedure is not reachable here. This document cannot state its concrete steps, the mechanics of invoking a single-partition re-run, whether a re-run requires a prior cleanup of the bad partition, or whether re-runs need approval or announcement.\n\n## 7. Field-level questions about the output\n\nThe model runbook routes these away from the runbook: \"Field-level questions about what the partitions contain belong in the schema notes.\" The same routing applies to `order-refunds` — questions about columns, types, semantics, nullability, or how a refund is represented belong in this export's schema notes, not here.\n\n**Gap:** the clickstream schema notes are not reachable from this session, and **no schema notes for `order-refunds` exist in the available material** — expected, since the export is new. Standing them up is part of onboarding.\n\n**Action:** create schema notes for `order-refunds` in the same place `clickstream-raw`'s live, and link them from this document once they exist.\n\n## 8. If any of its output is ever copied outside the platform\n\n**Rule inherited from the model, and stated broadly there:** \"Anything leaving the platform boundary, including a copy of these partitions to a partner bucket, is governed separately (by an approval policy).\"\n\nFor `order-refunds` this reads unchanged, and note how wide the model's own phrasing is — **\"anything leaving the platform boundary.\"** It is not limited to partner buckets; the partner-bucket case is offered as an example. Any copy of `order-refunds` output to a destination outside the platform is in scope: a partner bucket, a vendor transfer, an extract handed to another system, or a local copy taken off-platform.\n\nTwo consequences carry over:\n\n- **The approval policy governs, not this runbook and not the storage class.** External copies are outside the retention mechanism in §4. A copy that leaves the platform is not covered by the class's window, which is a further reason §4's rule holds: an approved external copy is not a substitute for reclassification, and reclassification is not a substitute for egress approval.\n- **Approval is obtained under that policy before the copy is made,** as a separate governance step from anything in this document.\n\n**Gap:** the egress approval policy is not reachable from this session. This document cannot state who approves, what the request contains, whether refund data attracts additional controls beyond the baseline, or whether any standing approvals exist. Note that this is the one delegated policy where the subject matter differs most sharply between the two exports — refund records are not clickstream events — so the *existence* of the policy carries over cleanly, but nothing about how it treats this particular data does.\n\n**Action:** read the egress approval policy before any external copy of `order-refunds` output is contemplated, and record here whether refund output falls under any additional handling requirement.\n\n## 9. Open items to resolve before go-live\n\nEverything this document could not ground, consolidated. Items 1–5 block a first run; items 6–7 block specific operations.\n\n| # | Open item | Why it matters | Section |\n|---|---|---|---|\n| 1 | Read the platform export-naming and partition-layout convention; record the resolved job name and output name | Names are set by convention, not chosen here; they are currently unfixed | §2 |\n| 2 | Record the resolved output location and prefix structure from the same convention | Operators cannot find the output without it | §3 |\n| 3 | Decide and record partition granularity for `order-refunds` (the model is hourly; refunds may not be) | The re-run procedure operates on a single partition, so granularity defines the blast radius of a repair | §3, §6 |\n| 4 | Confirm and record the storage class registration (`order-refunds → SC-?`); read that class's window and tier from the central register | Determines how long refund output survives; SC-4 is clickstream-raw's class, not a recorded fact about this export | §4 |\n| 5 | Identify and record the upstream completion signal `order-refunds` waits on | It is both the scheduling constraint and the first diagnostic step for a missing drop; the collector-lag check does not translate directly | §5, §6 |\n| 6 | Verify per-partition idempotence and record the result | The inherited re-run procedure assumes it; without it, a re-run can corrupt a partition of refund data | §6 |\n| 7 | Create schema notes for `order-refunds` and link them here | Field-level questions are routed out of this document by design | §7 |\n| 8 | Read the central landing-time / late-drop escalation document and record the expected-by hour | The deadline and escalation are inherited, but their values are unknown here | §5 |\n| 9 | Read the egress approval policy and record any additional handling that applies to refund data | Any copy off-platform is governed by it, and refund data differs materially from clickstream data | §8 |\n\n## 10. Source material and reachability\n\nThis document is grounded in one source:\n\n- **Clickstream Raw Export Runbook** — `mcp:knowledge_page:kp_4b9b2e8b-8509-4ca3-8cfb-f853786cc654` — read in full.\n\nThe clickstream-raw runbook delegates six topics to central documents, naming them in prose: the export naming and partition-layout convention; the central storage-class register; the central landing-time and late-drop escalation policy; the central re-run procedure; the clickstream schema notes; and the platform-boundary egress approval policy. **None of these are reachable from this platform session** — the runbook carries no resolvable references to them, and this deployment exposes no search or directory-listing capability (connection listing returns none, and resource listing exposes only UI resources). Their contents were not read and are not reproduced or reconstructed anywhere above.\n\nEvery section marked *Gap* above is a gap in reachable material, not a gap in the policy. In each case the governing rule is known and inherited — `order-refunds` is subject to the same central document as `clickstream-raw` — and only its concrete values are missing. This document should be revised in place, not re-derived, once those documents are read."
+  }
+]

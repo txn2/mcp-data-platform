@@ -1,0 +1,301 @@
+[
+  {
+    "role": "user",
+    "text": "How many days does the platform keep a partition of the clickstream-raw export before it is purged?"
+  },
+  {
+    "role": "assistant",
+    "text": "I'll help you find information about the clickstream-raw export partition retention policy. Let me start by getting the platform info and then searching for this configuration."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_017V1jRTwfBM3M526b6eJzAG",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:mcp__bench__platform_info,mcp__bench__search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_017V1jRTwfBM3M526b6eJzAG",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_016REbnBvZ4sNcbjzcB4KiY9",
+        "name": "mcp__bench__platform_info",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_016REbnBvZ4sNcbjzcB4KiY9",
+        "text": "{\"name\":\"mcp-data-platform-bench-gt\",\"version\":\"v1.120.0-dirty\",\"session_id\":\"dps_40a20ad54b77da08b8b8719761179462\",\"session_expires_at\":\"2026-08-09T16:30:42Z\",\"agent_instructions\":\"SESSION HANDLE: This call issued you session_id \\\"dps_40a20ad54b77da08b8b8719761179462\\\". Pass it as the session_id argument on EVERY subsequent tool call. Tool calls without it are refused (SESSION_REQUIRED). Do not call platform_info again unless a call returns SESSION_EXPIRED.\\n\\nHow to operate this platform:\\n- Discover before you act. Call `search` first: one query reveals what is already known across every source you can reach (the data catalog, its context documents, your memory, captured insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and connections). The answer may span several sources, or may not be in the data warehouse at all, so do not assume a backend and do not stop at the first result.\\n- Reuse what is known. Treat `search` results as the starting point and read a result in full with `fetch` (pass the result's `reference`), or drill in with the scoped tool a result points to, rather than re-deriving an answer or re-asking the user for something already recorded.\\n\\nUploaded reference material:\\nResources are human-uploaded inputs an agent uses as-is: report templates, brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated outputs. Knowledge pages are curated facts to search and synthesize. Memory is per-user recall. If it existed before the conversation and the agent should use it verbatim, it is a resource.\\n- Before you format a deliverable, `search` for an applicable template or reference resource and follow it rather than inventing a layout.\\n- When the user names a company file (\\\"our template\\\", \\\"the checklist\\\", \\\"the brand header\\\"), resolve it with `search` and read it in full with `fetch` (pass the result's `reference`) instead of asking them to paste it.\\n- Material attached to a prompt is authoritative: use it as given rather than paraphrasing it or substituting your own.\",\"toolkits\":[\"platform\",\"mcp\",\"api\"],\"toolkit_descriptions\":{\"platform\":\"Core platform tools: deployment info, connection listing, and resource access.\"},\"persona\":{\"name\":\"admin\",\"display_name\":\"Bench Graph Traversal (GT)\"},\"prompts\":[{\"name\":\"knowledge_capture_guidance\",\"description\":\"Guidance on when and how to capture domain knowledge insights\",\"category\":\"toolkit\",\"content\":\"## Knowledge Capture Guidance\\n\\n### Default Behavior: Capture Proactively\\n\\nYou should capture knowledge automatically during normal conversation. Do not wait for the user to say \\\"capture this\\\" or \\\"remember that.\\\" When someone tells you a fact about their data, that is knowledge. Record it.\\n\\nUse memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.\\n\\nThe goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.\\n\\n### When to Capture an Insight\\n\\nUse memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:\\n\\n**Corrections**: The user corrects a column description, table purpose, or data interpretation.\\nExample: \\\"That column isn't actually revenue, it's gross margin before returns.\\\"\\n\\n**Business Context**: The user explains what data means in business terms not captured in metadata.\\nExample: \\\"We only count active subscriptions, not trial accounts, for MRR calculations.\\\"\\n\\n**Data Quality**: The user reports data quality issues or known limitations.\\nExample: \\\"The timestamps before March 2024 are in UTC but after that they switched to America/Chicago.\\\"\\n\\n**Usage Guidance**: The user shares tips on how to query or interpret data correctly.\\nExample: \\\"Always filter by status='active' on that table, otherwise you get duplicates from soft deletes.\\\"\\n\\n**Relationships**: The user explains connections between datasets not captured in lineage.\\nExample: \\\"The customer_id in orders joins to the legacy CRM export, not the new identity table.\\\"\\n\\n**Enhancements**: The user suggests improvements to existing documentation or metadata.\\nExample: \\\"It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT.\\\"\\n\\n### Agent-Discovered Insights\\n\\nYou can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:\\n\\n**source: \\\"agent_discovery\\\"** — Use when you figure something out yourself during exploration:\\n- Discovering what a column actually contains by sampling data (e.g., \\\"column 'amt' appears to be in cents, not dollars, based on value ranges\\\")\\n- Finding join relationships not documented in lineage (e.g., \\\"orders.cust_id matches customers.legacy_id, not customers.id\\\")\\n- Identifying data quality patterns through queries (e.g., \\\"ship_date is NULL for 23% of completed orders since 2024-06\\\")\\n- Determining refresh cadence by observing max timestamps across multiple queries\\n\\n**source: \\\"enrichment_gap\\\"** — Use when flagging metadata gaps that need admin attention:\\n- A table has no description and you cannot determine its purpose from the data alone\\n- Column descriptions are missing or clearly outdated\\n- Lineage is incomplete or contradicts what the data shows\\n- Tags or glossary terms are absent for datasets that clearly belong to a domain\\n\\n**source: \\\"user\\\"** (default) — Use for insights the user explicitly shares with you.\\n\\n### When to Ask the User Instead\\n\\nDo NOT guess when:\\n- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone\\n- Multiple interpretations of a column or table are equally plausible\\n- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)\\n\\nIn these cases, ask the user to clarify before capturing anything.\\n\\n### When NOT to Capture\\n\\nDo NOT capture insights for:\\n- Transient questions or debugging (\\\"why is my query slow?\\\")\\n- Personal preferences (\\\"I prefer using CTEs\\\")\\n- Information already present in the catalog metadata\\n- Vague or unverifiable claims without specific context\\n- Trivial observations that don't add catalog value\\n- Trivially obvious metadata gaps without adding what the data actually means\\n- Speculative interpretations you have not verified by querying the data\\n- The same gap repeatedly within a single session\\n\\n### Best Practices\\n\\n- Include specific entity URNs when the insight relates to known datasets\\n- Suggest concrete actions (add_tag, update_description) when applicable\\n- Set confidence to \\\"high\\\" only when the user is clearly authoritative\\n- For agent discoveries, set confidence based on evidence strength: \\\"high\\\" if verified by querying, \\\"medium\\\" if inferred from patterns, \\\"low\\\" if speculative\\n- Capture the insight promptly while context is fresh\\n- Use markdown formatting when it aids clarity: backticks for `column_name` and `table_name`, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.\"},{\"name\":\"knowledge_apply_guidance\",\"description\":\"How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"category\":\"toolkit\",\"content\":\"## Reviewing Insights into Durable Knowledge\\n\\nYou hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as \\\"review and apply knowledge.\\\") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.\\n\\n### The loop, and why knowledge matters\\n\\n- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.\\n- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.\\n- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.\\n\\nAlways discover before you apply: search existing memory, insights, and knowledge first.\\n\\n### The expert review workflow\\n\\n1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.\\n2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.\\n3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.\\n4. **Route to the right home.**\\n   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.\\n   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.\\n5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:\u003cid\u003e, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).\\n6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).\\n7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.\\n\\n### Structure knowledge as a navigable graph\\n\\nPrefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:\u003cid\u003e references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.\\n\\n### Routing examples\\n\\n- \\\"The amount column excludes returns\\\" applies to DataHub: update_description on that dataset column.\\n- \\\"We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning\\\" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.\\n- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.\\n- A broad \\\"retail operations\\\" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.\"},{\"name\":\"capture-this-as-knowledge\",\"description\":\"Record insights from this conversation for data catalog improvement\",\"category\":\"toolkit\",\"content\":\"Capture the key insights from this conversation as domain knowledge for the data catalog.\\n\\n1. Review our conversation for corrections, business context, data quality observations, or relationships discovered\\n2. Identify which datasets and columns the insights relate to\\n3. Record each insight with appropriate categorization and confidence level\\n4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)\"},{\"name\":\"save-this-as-an-asset\",\"description\":\"Save output from this conversation as a viewable, shareable asset\",\"category\":\"toolkit\",\"content\":\"Save the most recent output or analysis from this conversation as a shareable asset.\\n\\n1. Identify the key output from our conversation (dashboard, report, chart, or analysis)\\n2. Package it with an appropriate name, description, and tags\\n3. Save it as an asset so it can be viewed and shared\\n4. Return the link to the saved asset\"},{\"name\":\"show-my-saved-assets\",\"description\":\"Browse your saved assets\",\"category\":\"toolkit\",\"content\":\"List my saved assets.\\n\\n1. Retrieve all assets I have saved\\n2. Present them with names, descriptions, tags, and creation dates\\n3. Highlight the most recent items\"}],\"features\":{\"semantic_enrichment\":false,\"query_enrichment\":false,\"storage_enrichment\":false,\"audit_logging\":true,\"knowledge_capture\":false,\"managed_resources\":true},\"config_version\":{\"api_version\":\"v1\",\"supported_versions\":[\"v1\"],\"latest_version\":\"v1\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Wr7s11V87hva4uBLNLXb1d",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "clickstream-raw export partition retention policy purge days",
+          "limit": 20,
+          "session_id": "dps_40a20ad54b77da08b8b8719761179462"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Wr7s11V87hva4uBLNLXb1d",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Clickstream Raw Export Runbook\\nOperating notes for the clickstream-raw export: what it writes, where it lands, how it is registered for storage, and who to call when a nightly drop is missing.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d7d3cdaf-2434-4359-abe4-04595c0f246b\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_d7d3cdaf-2434-4359-abe4-04595c0f246b\"},{\"text\":\"Event Collector Drain Runbook\\nHow the event collectors drain before the clickstream-raw export runs: the drain signal, the lag metric, and what to do when a collector will not drain.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a8127ce1-8049-4c2c-af79-f4b78bd3cf50\",\"score\":0.7622097847277272,\"reference\":\"mcp:knowledge_page:kp_a8127ce1-8049-4c2c-af79-f4b78bd3cf50\"},{\"text\":\"Export Re-run Procedure\\nHow to re-run a nightly export safely: single-hour re-runs, whole-night re-runs, what a re-run overwrites, and what has to be told downstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_87519c83-e55d-4bee-9567-860dadb71771\",\"score\":0.5581360269113984,\"reference\":\"mcp:knowledge_page:kp_87519c83-e55d-4bee-9567-860dadb71771\"},{\"text\":\"Export Delivery Expectations\\nWhen each nightly export is expected to land, how lateness is measured, and who is told when an export misses its expected hour.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b10eba1a-e8e8-44f4-b6b2-24d649b5030a\",\"score\":0.5496824151067953,\"reference\":\"mcp:knowledge_page:kp_b10eba1a-e8e8-44f4-b6b2-24d649b5030a\"},{\"text\":\"Storage Class Register\\nThe central register of platform storage classes: the tier each class writes to, the window after which its objects are removed, and the review cadence for reclassification requests.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1\",\"score\":0.49077921876028585,\"reference\":\"mcp:knowledge_page:kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1\"},{\"text\":\"Stream Deprecation Runbook\\nHow a stream is retired: consumer discovery, the parallel period, the read-only phase and the final removal of the billing-events style streams.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3b896c23-bb0f-4966-997e-64efffce314c\",\"score\":0.4834344883844175,\"reference\":\"mcp:knowledge_page:kp_3b896c23-bb0f-4966-997e-64efffce314c\"},{\"text\":\"Partition Compaction Notes\\nHow written partitions are compacted: the file-count trigger, what compaction rewrites, and why a compacted partition keeps its original write date.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9756a1c5-6a97-4ac9-b96b-3edbd7b07e5d\",\"score\":0.4828033656157958,\"reference\":\"mcp:knowledge_page:kp_9756a1c5-6a97-4ac9-b96b-3edbd7b07e5d\"},{\"text\":\"Raw Zone Layout\\nWhere the nightly raw exports land: the bucket per environment, the prefix per export, the partition columns, and the rule against writing outside an export's own prefix.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_de34e3ff-ecda-4217-bb0e-583439960f11\",\"score\":0.47029380188138054,\"reference\":\"mcp:knowledge_page:kp_de34e3ff-ecda-4217-bb0e-583439960f11\"},{\"text\":\"Sessionization Job Runbook\\nOperating notes for the sessionization job that reads the clickstream-raw partitions: its window, its idempotency, and how a late partition is picked up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_83a0a63c-7999-4309-9122-7ebb3717345e\",\"score\":0.46695509345367237,\"reference\":\"mcp:knowledge_page:kp_83a0a63c-7999-4309-9122-7ebb3717345e\"},{\"text\":\"Clickstream Schema Notes\\nWhat the clickstream-raw partitions contain: the event envelope, the properties map, the identity fields and the known gaps in older partitions.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8ae59811-e72c-4a9c-8ddb-40a9b6f774d7\",\"score\":0.41063142588318485,\"reference\":\"mcp:knowledge_page:kp_8ae59811-e72c-4a9c-8ddb-40a9b6f774d7\"},{\"text\":\"Export Job Naming Convention\\nHow export jobs and their output paths are named: the segment order, the partition layout, and the rules for renaming an existing export.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9169301d-e768-4720-8b61-f65eed6e4898\",\"score\":0.33826781118296056,\"reference\":\"mcp:knowledge_page:kp_9169301d-e768-4720-8b61-f65eed6e4898\"},{\"text\":\"Regulated Tier Operating Rules\\nWhat operating in the regulated tier obliges a stream owner to do: retention floors, access review, producer attestation and the change class regulated streams are governed by.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_615b5308-4deb-4d5f-a824-abad3bf50830\",\"score\":0.33115810110151106,\"reference\":\"mcp:knowledge_page:kp_615b5308-4deb-4d5f-a824-abad3bf50830\"},{\"text\":\"Stream Onboarding Checklist\\nThe steps for putting a new producer onto an existing stream: contract registration, throughput declaration, dead-letter wiring and the first-week watch.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8e7b4e12-2cef-42dc-b115-e309ccc5c469\",\"score\":0.3196862384377292,\"reference\":\"mcp:knowledge_page:kp_8e7b4e12-2cef-42dc-b115-e309ccc5c469\"},{\"text\":\"Ledger Extract Delivery Runbook\\nHow the nightly general-ledger extract is delivered, how a missing or truncated extract is recognised, and who is contacted upstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_44bc2d22-4c0d-4218-ae34-04e9f9e548ff\",\"score\":0.20418734659636417,\"reference\":\"mcp:knowledge_page:kp_44bc2d22-4c0d-4218-ae34-04e9f9e548ff\"},{\"text\":\"Billing Events Replay Guide\\nHow to replay the billing-events stream safely: choosing the offset, pausing non-idempotent consumers, and confirming the replay landed.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_5ca13cd2-1ec9-4e6e-a592-6fc4426017ec\",\"score\":0.19729192136934876,\"reference\":\"mcp:knowledge_page:kp_5ca13cd2-1ec9-4e6e-a592-6fc4426017ec\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":1,\"reference\":\"mcp:prompt:3df82930-a126-4170-8c28-65b54ca5aa96\"},{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":0.4812481827249045,\"reference\":\"mcp:prompt:c7b2c5c0-0778-47fd-91ff-d9f38a661ffe\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.47926106467640833,\"reference\":\"mcp:prompt:2b57f7b7-195f-49ab-a6d8-88f00257c591\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0.04751541744226655,\"reference\":\"mcp:prompt:d9516124-3aa4-4675-a939-18ea08713782\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0,\"reference\":\"mcp:prompt:740bce94-67e7-43a7-9110-63b2f60f0a85\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":15},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":20,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01QZ4UJ6QRuFEDmJupJRqkeZ",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 1,
+          "query": "select:ReadMcpResourceTool"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01QZ4UJ6QRuFEDmJupJRqkeZ",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0155U1gCYnF9Bk9m6dAHr1Ad",
+        "name": "ReadMcpResourceTool",
+        "args": {
+          "server": "bench",
+          "uri": "knowledge_page/kp_d7d3cdaf-2434-4359-abe4-04595c0f246b"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0155U1gCYnF9Bk9m6dAHr1Ad",
+        "text": "Resource not found: knowledge_page/kp_d7d3cdaf-2434-4359-abe4-04595c0f246b — it may have been deleted or the URI is stale. Re-run ListMcpResourcesTool to refresh.",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "Let me search more specifically for retention or purge policy information related to clickstream-raw:"
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_016QMviPqcwpj3jJkokRH1z8",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "clickstream-raw retention days purge window storage",
+          "limit": 25,
+          "session_id": "dps_40a20ad54b77da08b8b8719761179462"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_016QMviPqcwpj3jJkokRH1z8",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Clickstream Raw Export Runbook\\nOperating notes for the clickstream-raw export: what it writes, where it lands, how it is registered for storage, and who to call when a nightly drop is missing.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d7d3cdaf-2434-4359-abe4-04595c0f246b\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_d7d3cdaf-2434-4359-abe4-04595c0f246b\"},{\"text\":\"Event Collector Drain Runbook\\nHow the event collectors drain before the clickstream-raw export runs: the drain signal, the lag metric, and what to do when a collector will not drain.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a8127ce1-8049-4c2c-af79-f4b78bd3cf50\",\"score\":0.7958047981515676,\"reference\":\"mcp:knowledge_page:kp_a8127ce1-8049-4c2c-af79-f4b78bd3cf50\"},{\"text\":\"Storage Class Register\\nThe central register of platform storage classes: the tier each class writes to, the window after which its objects are removed, and the review cadence for reclassification requests.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1\",\"score\":0.7238769521753317,\"reference\":\"mcp:knowledge_page:kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1\"},{\"text\":\"Clickstream Schema Notes\\nWhat the clickstream-raw partitions contain: the event envelope, the properties map, the identity fields and the known gaps in older partitions.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8ae59811-e72c-4a9c-8ddb-40a9b6f774d7\",\"score\":0.6100956578182929,\"reference\":\"mcp:knowledge_page:kp_8ae59811-e72c-4a9c-8ddb-40a9b6f774d7\"},{\"text\":\"Stream Deprecation Runbook\\nHow a stream is retired: consumer discovery, the parallel period, the read-only phase and the final removal of the billing-events style streams.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3b896c23-bb0f-4966-997e-64efffce314c\",\"score\":0.6056103219778214,\"reference\":\"mcp:knowledge_page:kp_3b896c23-bb0f-4966-997e-64efffce314c\"},{\"text\":\"Sessionization Job Runbook\\nOperating notes for the sessionization job that reads the clickstream-raw partitions: its window, its idempotency, and how a late partition is picked up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_83a0a63c-7999-4309-9122-7ebb3717345e\",\"score\":0.5522521125358055,\"reference\":\"mcp:knowledge_page:kp_83a0a63c-7999-4309-9122-7ebb3717345e\"},{\"text\":\"Regulated Tier Operating Rules\\nWhat operating in the regulated tier obliges a stream owner to do: retention floors, access review, producer attestation and the change class regulated streams are governed by.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_615b5308-4deb-4d5f-a824-abad3bf50830\",\"score\":0.3526243471276277,\"reference\":\"mcp:knowledge_page:kp_615b5308-4deb-4d5f-a824-abad3bf50830\"},{\"text\":\"Billing Events Replay Guide\\nHow to replay the billing-events stream safely: choosing the offset, pausing non-idempotent consumers, and confirming the replay landed.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_5ca13cd2-1ec9-4e6e-a592-6fc4426017ec\",\"score\":0.3461678831539499,\"reference\":\"mcp:knowledge_page:kp_5ca13cd2-1ec9-4e6e-a592-6fc4426017ec\"},{\"text\":\"Stream Onboarding Checklist\\nThe steps for putting a new producer onto an existing stream: contract registration, throughput declaration, dead-letter wiring and the first-week watch.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8e7b4e12-2cef-42dc-b115-e309ccc5c469\",\"score\":0.31722511551014365,\"reference\":\"mcp:knowledge_page:kp_8e7b4e12-2cef-42dc-b115-e309ccc5c469\"},{\"text\":\"Export Delivery Expectations\\nWhen each nightly export is expected to land, how lateness is measured, and who is told when an export misses its expected hour.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b10eba1a-e8e8-44f4-b6b2-24d649b5030a\",\"score\":0.28109617553533073,\"reference\":\"mcp:knowledge_page:kp_b10eba1a-e8e8-44f4-b6b2-24d649b5030a\"},{\"text\":\"Consumer Contract Registry\\nWhat the consumer contract registry records for each stream: who reads it, which schema version they pinned, and who is notified when it changes.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3d471612-9ecd-41c8-9ab6-746df2a23b15\",\"score\":0.2770482792533488,\"reference\":\"mcp:knowledge_page:kp_3d471612-9ecd-41c8-9ab6-746df2a23b15\"},{\"text\":\"Partition Compaction Notes\\nHow written partitions are compacted: the file-count trigger, what compaction rewrites, and why a compacted partition keeps its original write date.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9756a1c5-6a97-4ac9-b96b-3edbd7b07e5d\",\"score\":0.2656139764580199,\"reference\":\"mcp:knowledge_page:kp_9756a1c5-6a97-4ac9-b96b-3edbd7b07e5d\"},{\"text\":\"Billing Events Stream Runbook\\nOperating notes for the billing-events stream: its producers, its tiering, its replay behaviour, and how a proposed change to it is handled.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_c1dd2cc6-a6bf-4eb5-9836-ea73430c7fc4\",\"score\":0.25441271733472676,\"reference\":\"mcp:knowledge_page:kp_c1dd2cc6-a6bf-4eb5-9836-ea73430c7fc4\"},{\"text\":\"Nightly Batch Window Calendar\\nThe overnight maintenance and batch windows: which jobs own which slot, how the windows are ordered, and how a window move is requested.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f012fa98-1327-4afc-8aaf-18dc84438396\",\"score\":0.23606684800713387,\"reference\":\"mcp:knowledge_page:kp_f012fa98-1327-4afc-8aaf-18dc84438396\"},{\"text\":\"Raw Zone Layout\\nWhere the nightly raw exports land: the bucket per environment, the prefix per export, the partition columns, and the rule against writing outside an export's own prefix.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_de34e3ff-ecda-4217-bb0e-583439960f11\",\"score\":0.1891039611191752,\"reference\":\"mcp:knowledge_page:kp_de34e3ff-ecda-4217-bb0e-583439960f11\"},{\"text\":\"Export Re-run Procedure\\nHow to re-run a nightly export safely: single-hour re-runs, whole-night re-runs, what a re-run overwrites, and what has to be told downstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_87519c83-e55d-4bee-9567-860dadb71771\",\"score\":0.18593424412007672,\"reference\":\"mcp:knowledge_page:kp_87519c83-e55d-4bee-9567-860dadb71771\"},{\"text\":\"Warehouse Vacuum Job Runbook\\nOperating notes for the nightly warehouse-vacuum job: what it reclaims, when it runs, how its row-count delta is reviewed and when it wakes the on-call engineer.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_7a52cd63-3eb8-457f-a8ff-2c991c9bc3d2\",\"score\":0.14452104045203307,\"reference\":\"mcp:knowledge_page:kp_7a52cd63-3eb8-457f-a8ff-2c991c9bc3d2\"},{\"text\":\"Paging Channel Directory\\nHow each role is reached out of hours: the primary channel, the fallback, and the confirmation an unacknowledged page falls through to.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_5ea4b90b-f242-4a69-b15d-bda703023783\",\"score\":0.13970764348391096,\"reference\":\"mcp:knowledge_page:kp_5ea4b90b-f242-4a69-b15d-bda703023783\"},{\"text\":\"Ledger Close Calendar\\nWhen each ledger extract is due, how the close periods are dated, and what the freeze around a close means for platform changes.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1b6eb858-ba7e-4f7f-8ec5-6ba6464dead1\",\"score\":0.12710826674155237,\"reference\":\"mcp:knowledge_page:kp_1b6eb858-ba7e-4f7f-8ec5-6ba6464dead1\"},{\"text\":\"Reconcile Failure History\\nThe record of past ledger-reconcile failures: how often the job has failed, what the causes were, and which nights required a manual run.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_900d47f6-0551-4655-97f1-ad3fe6ad8ea1\",\"score\":0.09993957364867112,\"reference\":\"mcp:knowledge_page:kp_900d47f6-0551-4655-97f1-ad3fe6ad8ea1\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":1,\"reference\":\"mcp:prompt:2b57f7b7-195f-49ab-a6d8-88f00257c591\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.4655471412921342,\"reference\":\"mcp:prompt:740bce94-67e7-43a7-9110-63b2f60f0a85\"},{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":0.3722459210230141,\"reference\":\"mcp:prompt:3df82930-a126-4170-8c28-65b54ca5aa96\"},{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":0.19345478791270052,\"reference\":\"mcp:prompt:c7b2c5c0-0778-47fd-91ff-d9f38a661ffe\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0,\"reference\":\"mcp:prompt:d9516124-3aa4-4675-a939-18ea08713782\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":20},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":25,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01LvHBHWZZZ36KhoQWekHYwU",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 1,
+          "query": "select:ListMcpResourcesTool"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01LvHBHWZZZ36KhoQWekHYwU",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Rfg2idjKq7bC8WjUdWY6aT",
+        "name": "ListMcpResourcesTool",
+        "args": {
+          "server": "bench"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Rfg2idjKq7bC8WjUdWY6aT",
+        "text": "[{\"name\":\"platform-info\",\"uri\":\"ui://platform-info\",\"description\":\"Interactive UI for platform-info\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"},{\"name\":\"prompt-browser\",\"uri\":\"ui://prompt-browser\",\"description\":\"Interactive UI for prompt-browser\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"}]",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "Let me search for more specific information about the retention configuration:"
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01AsRQYaLnzdTxvnYkC43kdP",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "partition retention 90 days purge policy configuration",
+          "limit": 20,
+          "session_id": "dps_40a20ad54b77da08b8b8719761179462",
+          "sources": [
+            "knowledge_pages",
+            "context_documents"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01AsRQYaLnzdTxvnYkC43kdP",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Storage Class Register\\nThe central register of platform storage classes: the tier each class writes to, the window after which its objects are removed, and the review cadence for reclassification requests.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1\"},{\"text\":\"Partition Compaction Notes\\nHow written partitions are compacted: the file-count trigger, what compaction rewrites, and why a compacted partition keeps its original write date.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9756a1c5-6a97-4ac9-b96b-3edbd7b07e5d\",\"score\":0.7495745918203125,\"reference\":\"mcp:knowledge_page:kp_9756a1c5-6a97-4ac9-b96b-3edbd7b07e5d\"},{\"text\":\"Event Collector Drain Runbook\\nHow the event collectors drain before the clickstream-raw export runs: the drain signal, the lag metric, and what to do when a collector will not drain.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a8127ce1-8049-4c2c-af79-f4b78bd3cf50\",\"score\":0.4684229872433289,\"reference\":\"mcp:knowledge_page:kp_a8127ce1-8049-4c2c-af79-f4b78bd3cf50\"},{\"text\":\"Reconcile Failure History\\nThe record of past ledger-reconcile failures: how often the job has failed, what the causes were, and which nights required a manual run.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_900d47f6-0551-4655-97f1-ad3fe6ad8ea1\",\"score\":0.41236897214275214,\"reference\":\"mcp:knowledge_page:kp_900d47f6-0551-4655-97f1-ad3fe6ad8ea1\"},{\"text\":\"Data Egress Approval Policy\\nWhen data may leave the platform boundary, who approves it, and what an approved egress route is obliged to record.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_37440f44-32eb-41e6-8759-6c908ee477c7\",\"score\":0.4102795863463547,\"reference\":\"mcp:knowledge_page:kp_37440f44-32eb-41e6-8759-6c908ee477c7\"},{\"text\":\"Export Re-run Procedure\\nHow to re-run a nightly export safely: single-hour re-runs, whole-night re-runs, what a re-run overwrites, and what has to be told downstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_87519c83-e55d-4bee-9567-860dadb71771\",\"score\":0.3848370510490639,\"reference\":\"mcp:knowledge_page:kp_87519c83-e55d-4bee-9567-860dadb71771\"},{\"text\":\"Clickstream Raw Export Runbook\\nOperating notes for the clickstream-raw export: what it writes, where it lands, how it is registered for storage, and who to call when a nightly drop is missing.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d7d3cdaf-2434-4359-abe4-04595c0f246b\",\"score\":0.3693847528261808,\"reference\":\"mcp:knowledge_page:kp_d7d3cdaf-2434-4359-abe4-04595c0f246b\"},{\"text\":\"Regulated Tier Operating Rules\\nWhat operating in the regulated tier obliges a stream owner to do: retention floors, access review, producer attestation and the change class regulated streams are governed by.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_615b5308-4deb-4d5f-a824-abad3bf50830\",\"score\":0.32933592265302036,\"reference\":\"mcp:knowledge_page:kp_615b5308-4deb-4d5f-a824-abad3bf50830\"},{\"text\":\"Raw Zone Layout\\nWhere the nightly raw exports land: the bucket per environment, the prefix per export, the partition columns, and the rule against writing outside an export's own prefix.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_de34e3ff-ecda-4217-bb0e-583439960f11\",\"score\":0.2872147976361616,\"reference\":\"mcp:knowledge_page:kp_de34e3ff-ecda-4217-bb0e-583439960f11\"},{\"text\":\"Stream Deprecation Runbook\\nHow a stream is retired: consumer discovery, the parallel period, the read-only phase and the final removal of the billing-events style streams.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3b896c23-bb0f-4966-997e-64efffce314c\",\"score\":0.27893994145442647,\"reference\":\"mcp:knowledge_page:kp_3b896c23-bb0f-4966-997e-64efffce314c\"},{\"text\":\"Warehouse Vacuum Job Runbook\\nOperating notes for the nightly warehouse-vacuum job: what it reclaims, when it runs, how its row-count delta is reviewed and when it wakes the on-call engineer.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_7a52cd63-3eb8-457f-a8ff-2c991c9bc3d2\",\"score\":0.2298251782404962,\"reference\":\"mcp:knowledge_page:kp_7a52cd63-3eb8-457f-a8ff-2c991c9bc3d2\"},{\"text\":\"Ledger Close Calendar\\nWhen each ledger extract is due, how the close periods are dated, and what the freeze around a close means for platform changes.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1b6eb858-ba7e-4f7f-8ec5-6ba6464dead1\",\"score\":0.2297777030127744,\"reference\":\"mcp:knowledge_page:kp_1b6eb858-ba7e-4f7f-8ec5-6ba6464dead1\"},{\"text\":\"Sessionization Job Runbook\\nOperating notes for the sessionization job that reads the clickstream-raw partitions: its window, its idempotency, and how a late partition is picked up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_83a0a63c-7999-4309-9122-7ebb3717345e\",\"score\":0.22185969592749746,\"reference\":\"mcp:knowledge_page:kp_83a0a63c-7999-4309-9122-7ebb3717345e\"},{\"text\":\"Vacuum Tuning Notes\\nParameters for the warehouse vacuum: parallelism, statistics sample rate, and the observed cost of each setting on the current cluster.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_7c7db728-8e2f-4b9e-83c6-12cb412ee66b\",\"score\":0.18537476013731752,\"reference\":\"mcp:knowledge_page:kp_7c7db728-8e2f-4b9e-83c6-12cb412ee66b\"},{\"text\":\"Platform Glossary\\nTerms used across the platform handbook: break, drop, window, rung, partition, and the difference between a job failing and a job reporting a problem.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_7d2ed41b-76c3-442a-9acc-5a905e3283d8\",\"score\":0.1597747092202339,\"reference\":\"mcp:knowledge_page:kp_7d2ed41b-76c3-442a-9acc-5a905e3283d8\"},{\"text\":\"Reconcile Manual Run Procedure\\nHow to run the ledger reconciliation by hand for a named business date after a failed night, and what a manual run does and does not settle.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_dc5beb20-6167-46a8-8ad9-c4e3f28a810b\",\"score\":0.14305259266735226,\"reference\":\"mcp:knowledge_page:kp_dc5beb20-6167-46a8-8ad9-c4e3f28a810b\"},{\"text\":\"Consumer Contract Registry\\nWhat the consumer contract registry records for each stream: who reads it, which schema version they pinned, and who is notified when it changes.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3d471612-9ecd-41c8-9ab6-746df2a23b15\",\"score\":0.13363401148035117,\"reference\":\"mcp:knowledge_page:kp_3d471612-9ecd-41c8-9ab6-746df2a23b15\"},{\"text\":\"Reconcile Break Triage Guide\\nHow to work the breaks the nightly reconciliation writes: the break categories, which ones self-clear, and when a break becomes an accounting question.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_bf7a4eaa-98eb-4161-870b-59f643e6f2a6\",\"score\":0.12887684999529042,\"reference\":\"mcp:knowledge_page:kp_bf7a4eaa-98eb-4161-870b-59f643e6f2a6\"},{\"text\":\"Export Delivery Expectations\\nWhen each nightly export is expected to land, how lateness is measured, and who is told when an export misses its expected hour.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b10eba1a-e8e8-44f4-b6b2-24d649b5030a\",\"score\":0.12202022358391015,\"reference\":\"mcp:knowledge_page:kp_b10eba1a-e8e8-44f4-b6b2-24d649b5030a\"},{\"text\":\"Billing Events Replay Guide\\nHow to replay the billing-events stream safely: choosing the offset, pausing non-idempotent consumers, and confirming the replay landed.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_5ca13cd2-1ec9-4e6e-a592-6fc4426017ec\",\"score\":0.10987757676557665,\"reference\":\"mcp:knowledge_page:kp_5ca13cd2-1ec9-4e6e-a592-6fc4426017ec\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":20}],\"count\":20,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01TjmurweQLWLVWXCZnf6uhA",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 1,
+          "query": "select:mcp__bench__fetch"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01TjmurweQLWLVWXCZnf6uhA",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01KqbbdfM3hdQsm1xb9j5DoZ",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_d7d3cdaf-2434-4359-abe4-04595c0f246b",
+          "session_id": "dps_40a20ad54b77da08b8b8719761179462"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01KqbbdfM3hdQsm1xb9j5DoZ",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_d7d3cdaf-2434-4359-abe4-04595c0f246b\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_d7d3cdaf-2434-4359-abe4-04595c0f246b\",\"source\":\"knowledge_pages\",\"title\":\"Clickstream Raw Export Runbook\",\"body\":\"# Clickstream Raw Export Runbook\\n\\nThe `clickstream-raw` export writes the previous day's unaggregated event\\nstream to object storage as hourly partitions. It runs once a night, after the\\nevent collectors have drained, and is the source every downstream sessionization\\njob reads from. Its naming and partition layout follow the platform convention\\n(mcp:knowledge_page:kp_9169301d-e768-4720-8b61-f65eed6e4898).\\n\\n## Storage registration\\n\\nThe export is registered under **storage class SC-4**. The storage class is what\\ndecides how long a written partition survives and what tier it sits on; the\\nclasses and their windows are maintained centrally in\\nmcp:knowledge_page:kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1. The export itself sets no lifetime of its own,\\nand a request to keep a partition longer than its class allows is a\\nreclassification request, not a change to this job.\\n\\n## Missing drops\\n\\nA missing hourly partition is almost always a collector that has not drained\\nrather than an export failure. Check the collector lag first, then re-run the\\nsingle hour rather than the whole night: the export is idempotent per partition.\\nField-level questions about what the partitions contain belong in\\nmcp:knowledge_page:kp_8ae59811-e72c-4a9c-8ddb-40a9b6f774d7.\\n\\nAnything leaving the platform boundary, including a copy of these partitions to\\na partner bucket, is governed separately (mcp:knowledge_page:kp_37440f44-32eb-41e6-8759-6c908ee477c7).\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_37440f44-32eb-41e6-8759-6c908ee477c7\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_8ae59811-e72c-4a9c-8ddb-40a9b6f774d7\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_9169301d-e768-4720-8b61-f65eed6e4898\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01GkLuCFuvnKxf3TYs2PmT7H",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1",
+          "session_id": "dps_40a20ad54b77da08b8b8719761179462"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01GkLuCFuvnKxf3TYs2PmT7H",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_1c940fa9-c8c1-4bb3-b588-00b37c71bbd1\",\"source\":\"knowledge_pages\",\"title\":\"Storage Class Register\",\"body\":\"# Storage Class Register\\n\\nEvery dataset the platform writes is registered under one storage class. The\\nclass fixes the tier the bytes land on and the window after which they are\\npurged. Nothing else sets a lifetime: a job that wants its output kept longer is\\nasking to be reclassified.\\n\\n## Classes\\n\\n| Class | Tier | Purge window |\\n| --- | --- | --- |\\n| SC-1 | hot | 7 days |\\n| SC-2 | hot | 30 days |\\n| SC-3 | warm | 45 days |\\n| SC-4 | warm | 62 days |\\n| SC-5 | cold | 400 days |\\n| SC-6 | archive | held indefinitely |\\n\\nThe purge runs daily and removes whole objects once their write date is older\\nthan the window. An object is never partially removed, so a window that falls\\ninside one keeps the whole object until the next boundary.\\n\\n## Reclassification\\n\\nReclassification requests are reviewed monthly. A move up the tiers (cold to\\nwarm, warm to hot) needs a stated reason for the extra cost; a move down needs\\nconfirmation from the owning team that nothing reads the older partitions. A\\nclass is never changed in place for a single dataset without updating this\\nregister, because the purge reads the register and not the request.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "FINAL ANSWER: 62"
+  }
+]

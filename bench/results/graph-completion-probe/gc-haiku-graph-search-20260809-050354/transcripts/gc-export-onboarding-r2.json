@@ -1,0 +1,547 @@
+[
+  {
+    "role": "user",
+    "text": "We are standing up a new nightly export, order-refunds, to be operated exactly like the clickstream-raw export. Write the complete onboarding document for it: how the job and its output are named, where the output lands and how that area is organized, how its storage is registered and how long its output lives, when it is expected to land and what happens when it is repeatedly late, how it is re-run safely after a bad night, and what applies if any of its output is ever copied outside the platform. Completeness matters more than brevity; the document is the deliverable."
+  },
+  {
+    "role": "assistant",
+    "text": "I'll query the platform to understand how clickstream-raw is currently operated, then generate the order-refunds onboarding document based on that pattern."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01DRvXeHeAa5AUu4yKUbXcWb",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:mcp__bench__platform_info,mcp__bench__search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01DRvXeHeAa5AUu4yKUbXcWb",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01WqbLKDcnnFiKAFWii1AYKP",
+        "name": "mcp__bench__platform_info",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01WqbLKDcnnFiKAFWii1AYKP",
+        "text": "{\"name\":\"mcp-data-platform-bench-gt\",\"version\":\"v1.120.0-dirty\",\"session_id\":\"dps_aa2c59c3230c5b9b793e3aa14682f54c\",\"session_expires_at\":\"2026-08-09T20:11:32Z\",\"agent_instructions\":\"SESSION HANDLE: This call issued you session_id \\\"dps_aa2c59c3230c5b9b793e3aa14682f54c\\\". Pass it as the session_id argument on EVERY subsequent tool call. Tool calls without it are refused (SESSION_REQUIRED). Do not call platform_info again unless a call returns SESSION_EXPIRED.\\n\\nHow to operate this platform:\\n- Discover before you act. Call `search` first: one query reveals what is already known across every source you can reach (the data catalog, its context documents, your memory, captured insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and connections). The answer may span several sources, or may not be in the data warehouse at all, so do not assume a backend and do not stop at the first result.\\n- Reuse what is known. Treat `search` results as the starting point and read a result in full with `fetch` (pass the result's `reference`), or drill in with the scoped tool a result points to, rather than re-deriving an answer or re-asking the user for something already recorded.\\n\\nUploaded reference material:\\nResources are human-uploaded inputs an agent uses as-is: report templates, brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated outputs. Knowledge pages are curated facts to search and synthesize. Memory is per-user recall. If it existed before the conversation and the agent should use it verbatim, it is a resource.\\n- Before you format a deliverable, `search` for an applicable template or reference resource and follow it rather than inventing a layout.\\n- When the user names a company file (\\\"our template\\\", \\\"the checklist\\\", \\\"the brand header\\\"), resolve it with `search` and read it in full with `fetch` (pass the result's `reference`) instead of asking them to paste it.\\n- Material attached to a prompt is authoritative: use it as given rather than paraphrasing it or substituting your own.\",\"toolkits\":[\"platform\",\"api\",\"mcp\"],\"toolkit_descriptions\":{\"platform\":\"Core platform tools: deployment info, connection listing, and resource access.\"},\"persona\":{\"name\":\"admin\",\"display_name\":\"Bench Graph Traversal (GT)\"},\"prompts\":[{\"name\":\"knowledge_capture_guidance\",\"description\":\"Guidance on when and how to capture domain knowledge insights\",\"category\":\"toolkit\",\"content\":\"## Knowledge Capture Guidance\\n\\n### Default Behavior: Capture Proactively\\n\\nYou should capture knowledge automatically during normal conversation. Do not wait for the user to say \\\"capture this\\\" or \\\"remember that.\\\" When someone tells you a fact about their data, that is knowledge. Record it.\\n\\nUse memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.\\n\\nThe goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.\\n\\n### When to Capture an Insight\\n\\nUse memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:\\n\\n**Corrections**: The user corrects a column description, table purpose, or data interpretation.\\nExample: \\\"That column isn't actually revenue, it's gross margin before returns.\\\"\\n\\n**Business Context**: The user explains what data means in business terms not captured in metadata.\\nExample: \\\"We only count active subscriptions, not trial accounts, for MRR calculations.\\\"\\n\\n**Data Quality**: The user reports data quality issues or known limitations.\\nExample: \\\"The timestamps before March 2024 are in UTC but after that they switched to America/Chicago.\\\"\\n\\n**Usage Guidance**: The user shares tips on how to query or interpret data correctly.\\nExample: \\\"Always filter by status='active' on that table, otherwise you get duplicates from soft deletes.\\\"\\n\\n**Relationships**: The user explains connections between datasets not captured in lineage.\\nExample: \\\"The customer_id in orders joins to the legacy CRM export, not the new identity table.\\\"\\n\\n**Enhancements**: The user suggests improvements to existing documentation or metadata.\\nExample: \\\"It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT.\\\"\\n\\n### Agent-Discovered Insights\\n\\nYou can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:\\n\\n**source: \\\"agent_discovery\\\"** — Use when you figure something out yourself during exploration:\\n- Discovering what a column actually contains by sampling data (e.g., \\\"column 'amt' appears to be in cents, not dollars, based on value ranges\\\")\\n- Finding join relationships not documented in lineage (e.g., \\\"orders.cust_id matches customers.legacy_id, not customers.id\\\")\\n- Identifying data quality patterns through queries (e.g., \\\"ship_date is NULL for 23% of completed orders since 2024-06\\\")\\n- Determining refresh cadence by observing max timestamps across multiple queries\\n\\n**source: \\\"enrichment_gap\\\"** — Use when flagging metadata gaps that need admin attention:\\n- A table has no description and you cannot determine its purpose from the data alone\\n- Column descriptions are missing or clearly outdated\\n- Lineage is incomplete or contradicts what the data shows\\n- Tags or glossary terms are absent for datasets that clearly belong to a domain\\n\\n**source: \\\"user\\\"** (default) — Use for insights the user explicitly shares with you.\\n\\n### When to Ask the User Instead\\n\\nDo NOT guess when:\\n- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone\\n- Multiple interpretations of a column or table are equally plausible\\n- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)\\n\\nIn these cases, ask the user to clarify before capturing anything.\\n\\n### When NOT to Capture\\n\\nDo NOT capture insights for:\\n- Transient questions or debugging (\\\"why is my query slow?\\\")\\n- Personal preferences (\\\"I prefer using CTEs\\\")\\n- Information already present in the catalog metadata\\n- Vague or unverifiable claims without specific context\\n- Trivial observations that don't add catalog value\\n- Trivially obvious metadata gaps without adding what the data actually means\\n- Speculative interpretations you have not verified by querying the data\\n- The same gap repeatedly within a single session\\n\\n### Best Practices\\n\\n- Include specific entity URNs when the insight relates to known datasets\\n- Suggest concrete actions (add_tag, update_description) when applicable\\n- Set confidence to \\\"high\\\" only when the user is clearly authoritative\\n- For agent discoveries, set confidence based on evidence strength: \\\"high\\\" if verified by querying, \\\"medium\\\" if inferred from patterns, \\\"low\\\" if speculative\\n- Capture the insight promptly while context is fresh\\n- Use markdown formatting when it aids clarity: backticks for `column_name` and `table_name`, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.\"},{\"name\":\"knowledge_apply_guidance\",\"description\":\"How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"category\":\"toolkit\",\"content\":\"## Reviewing Insights into Durable Knowledge\\n\\nYou hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as \\\"review and apply knowledge.\\\") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.\\n\\n### The loop, and why knowledge matters\\n\\n- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.\\n- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.\\n- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.\\n\\nAlways discover before you apply: search existing memory, insights, and knowledge first.\\n\\n### The expert review workflow\\n\\n1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.\\n2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.\\n3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.\\n4. **Route to the right home.**\\n   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.\\n   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.\\n5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:\u003cid\u003e, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).\\n6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).\\n7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.\\n\\n### Structure knowledge as a navigable graph\\n\\nPrefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:\u003cid\u003e references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.\\n\\n### Routing examples\\n\\n- \\\"The amount column excludes returns\\\" applies to DataHub: update_description on that dataset column.\\n- \\\"We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning\\\" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.\\n- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.\\n- A broad \\\"retail operations\\\" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.\"},{\"name\":\"capture-this-as-knowledge\",\"description\":\"Record insights from this conversation for data catalog improvement\",\"category\":\"toolkit\",\"content\":\"Capture the key insights from this conversation as domain knowledge for the data catalog.\\n\\n1. Review our conversation for corrections, business context, data quality observations, or relationships discovered\\n2. Identify which datasets and columns the insights relate to\\n3. Record each insight with appropriate categorization and confidence level\\n4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)\"},{\"name\":\"save-this-as-an-asset\",\"description\":\"Save output from this conversation as a viewable, shareable asset\",\"category\":\"toolkit\",\"content\":\"Save the most recent output or analysis from this conversation as a shareable asset.\\n\\n1. Identify the key output from our conversation (dashboard, report, chart, or analysis)\\n2. Package it with an appropriate name, description, and tags\\n3. Save it as an asset so it can be viewed and shared\\n4. Return the link to the saved asset\"},{\"name\":\"show-my-saved-assets\",\"description\":\"Browse your saved assets\",\"category\":\"toolkit\",\"content\":\"List my saved assets.\\n\\n1. Retrieve all assets I have saved\\n2. Present them with names, descriptions, tags, and creation dates\\n3. Highlight the most recent items\"}],\"features\":{\"semantic_enrichment\":false,\"query_enrichment\":false,\"storage_enrichment\":false,\"audit_logging\":true,\"knowledge_capture\":false,\"managed_resources\":true},\"config_version\":{\"api_version\":\"v1\",\"supported_versions\":[\"v1\"],\"latest_version\":\"v1\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01VM3YnxNkLTya4Yi2gvXyZQ",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "clickstream-raw export operations setup nightly job output naming storage retention schedule",
+          "limit": 20,
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01VM3YnxNkLTya4Yi2gvXyZQ",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Clickstream Raw Export Runbook\\nOperating notes for the clickstream-raw export: what it writes, where it lands, how it is registered for storage, and who to call when a nightly drop is missing.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_6bf06bc2-d319-4474-a775-4942fb96c971\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_6bf06bc2-d319-4474-a775-4942fb96c971\"},{\"text\":\"Export Delivery Expectations\\nWhen each nightly export is expected to land, how lateness is measured, and who is told when an export misses its expected hour.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3ec266dc-aa0a-4725-9991-73c89bdedda2\",\"score\":0.6684204421311041,\"reference\":\"mcp:knowledge_page:kp_3ec266dc-aa0a-4725-9991-73c89bdedda2\"},{\"text\":\"Sessionization Job Runbook\\nOperating notes for the sessionization job that reads the clickstream-raw partitions: its window, its idempotency, and how a late partition is picked up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a3c496d9-a677-451c-8cae-23c1be307d23\",\"score\":0.6444914995710779,\"reference\":\"mcp:knowledge_page:kp_a3c496d9-a677-451c-8cae-23c1be307d23\"},{\"text\":\"Export Job Naming Convention\\nHow export jobs and their output paths are named: the segment order, the partition layout, and the rules for renaming an existing export.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_23d53964-5525-4247-bb9f-e97167fa8bee\",\"score\":0.5789128215850464,\"reference\":\"mcp:knowledge_page:kp_23d53964-5525-4247-bb9f-e97167fa8bee\"},{\"text\":\"Event Collector Drain Runbook\\nHow the event collectors drain before the clickstream-raw export runs: the drain signal, the lag metric, and what to do when a collector will not drain.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_08a5dca5-1dfe-47e3-8806-aa7a885e2116\",\"score\":0.5770034730773498,\"reference\":\"mcp:knowledge_page:kp_08a5dca5-1dfe-47e3-8806-aa7a885e2116\"},{\"text\":\"Export Re-run Procedure\\nHow to re-run a nightly export safely: single-hour re-runs, whole-night re-runs, what a re-run overwrites, and what has to be told downstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c\",\"score\":0.4780245927521667,\"reference\":\"mcp:knowledge_page:kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c\"},{\"text\":\"Clickstream Schema Notes\\nWhat the clickstream-raw partitions contain: the event envelope, the properties map, the identity fields and the known gaps in older partitions.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d16797b6-085c-4d96-b19b-f18920f12d67\",\"score\":0.4505333272522407,\"reference\":\"mcp:knowledge_page:kp_d16797b6-085c-4d96-b19b-f18920f12d67\"},{\"text\":\"Nightly Batch Window Calendar\\nThe overnight maintenance and batch windows: which jobs own which slot, how the windows are ordered, and how a window move is requested.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9\",\"score\":0.41595632878622657,\"reference\":\"mcp:knowledge_page:kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9\"},{\"text\":\"Stream Onboarding Checklist\\nThe steps for putting a new producer onto an existing stream: contract registration, throughput declaration, dead-letter wiring and the first-week watch.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d17373be-a7c0-480c-b4d5-ab43f9870250\",\"score\":0.30486670964876705,\"reference\":\"mcp:knowledge_page:kp_d17373be-a7c0-480c-b4d5-ab43f9870250\"},{\"text\":\"Raw Zone Layout\\nWhere the nightly raw exports land: the bucket per environment, how each export's area is laid out, and the rule against writing into another export's area.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_2c5ef198-291e-4779-b170-34159398a118\",\"score\":0.29284276992055314,\"reference\":\"mcp:knowledge_page:kp_2c5ef198-291e-4779-b170-34159398a118\"},{\"text\":\"Warehouse Vacuum Job Runbook\\nOperating notes for the nightly warehouse-vacuum job: what it reclaims, when it runs, how its row-count delta is reviewed and when it wakes the on-call engineer.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_fc1d9175-14af-47bb-8144-e1bf5ac86707\",\"score\":0.2416061856202398,\"reference\":\"mcp:knowledge_page:kp_fc1d9175-14af-47bb-8144-e1bf5ac86707\"},{\"text\":\"Stream Deprecation Runbook\\nHow a stream is retired: consumer discovery, the parallel period, the read-only phase and the final removal of the billing-events style streams.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b209333f-4878-4362-a21f-44a45b752c21\",\"score\":0.2322901833694617,\"reference\":\"mcp:knowledge_page:kp_b209333f-4878-4362-a21f-44a45b752c21\"},{\"text\":\"Night Shift Handover Notes\\nWhat the overnight shift hands to the morning: which jobs ran, which failed, what was left running, and what the morning review is expected to pick up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b5199742-f300-4ac5-8eb5-b73de53c767a\",\"score\":0.1340551675193963,\"reference\":\"mcp:knowledge_page:kp_b5199742-f300-4ac5-8eb5-b73de53c767a\"},{\"text\":\"Billing Events Stream Runbook\\nOperating notes for the billing-events stream: its producers, its tiering, its replay behavior, and how a proposed change to it is handled.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_ecee26d9-1caf-441a-a4e2-80b789337129\",\"score\":0.11956274259649147,\"reference\":\"mcp:knowledge_page:kp_ecee26d9-1caf-441a-a4e2-80b789337129\"},{\"text\":\"Ledger Close Calendar\\nWhen each ledger extract is due, how the close periods are dated, and what a close period means for platform changes.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\",\"score\":0.11032369245540595,\"reference\":\"mcp:knowledge_page:kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":1,\"reference\":\"mcp:prompt:26b58ce1-719a-446b-aef9-d81fa23427f8\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.575769137367779,\"reference\":\"mcp:prompt:e515599a-968a-4f4a-8e12-940cc4739a12\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.5131460136872021,\"reference\":\"mcp:prompt:5c2321d2-757b-4852-a41d-5ea7cbb11a08\"},{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":0.395963001363376,\"reference\":\"mcp:prompt:59791e2f-db90-44d4-8db9-2add79c0e41e\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0,\"reference\":\"mcp:prompt:0717ada8-5b79-473e-924a-7942081a10f6\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":15},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":20,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01HMR24HGBRGmYJncBuCVvfP",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 1,
+          "query": "select:ReadMcpResourceTool"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01HMR24HGBRGmYJncBuCVvfP",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01B1Y8JJpdsyvERxp1yDF8gm",
+        "name": "ReadMcpResourceTool",
+        "args": {
+          "server": "bench",
+          "uri": "mcp:knowledge_page:kp_6bf06bc2-d319-4474-a775-4942fb96c971"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01B1Y8JJpdsyvERxp1yDF8gm",
+        "text": "Resource not found: mcp:knowledge_page:kp_6bf06bc2-d319-4474-a775-4942fb96c971 — it may have been deleted or the URI is stale. Re-run ListMcpResourcesTool to refresh.",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01HaEg1yKE6w2zHFNLDU3mqV",
+        "name": "ReadMcpResourceTool",
+        "args": {
+          "server": "bench",
+          "uri": "mcp:knowledge_page:kp_3ec266dc-aa0a-4725-9991-73c89bdedda2"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01HaEg1yKE6w2zHFNLDU3mqV",
+        "text": "Resource not found: mcp:knowledge_page:kp_3ec266dc-aa0a-4725-9991-73c89bdedda2 — it may have been deleted or the URI is stale. Re-run ListMcpResourcesTool to refresh.",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01DKyp8oMFDQduJZsg1NohKe",
+        "name": "ReadMcpResourceTool",
+        "args": {
+          "server": "bench",
+          "uri": "mcp:knowledge_page:kp_23d53964-5525-4247-bb9f-e97167fa8bee"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01DKyp8oMFDQduJZsg1NohKe",
+        "text": "Resource not found: mcp:knowledge_page:kp_23d53964-5525-4247-bb9f-e97167fa8bee — it may have been deleted or the URI is stale. Re-run ListMcpResourcesTool to refresh.",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01VZsTCg9tARYNa8QivPHWWU",
+        "name": "ReadMcpResourceTool",
+        "args": {
+          "server": "bench",
+          "uri": "mcp:knowledge_page:kp_2c5ef198-291e-4779-b170-34159398a118"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01VZsTCg9tARYNa8QivPHWWU",
+        "text": "Resource not found: mcp:knowledge_page:kp_2c5ef198-291e-4779-b170-34159398a118 — it may have been deleted or the URI is stale. Re-run ListMcpResourcesTool to refresh.",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01E5wSNyBvAdvmF8wovikwbR",
+        "name": "ReadMcpResourceTool",
+        "args": {
+          "server": "bench",
+          "uri": "mcp:knowledge_page:kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01E5wSNyBvAdvmF8wovikwbR",
+        "text": "Resource not found: mcp:knowledge_page:kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c — it may have been deleted or the URI is stale. Re-run ListMcpResourcesTool to refresh.",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01CDgb5ohmciaMZoewEM26iL",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 1,
+          "query": "select:ListMcpResourcesTool"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01CDgb5ohmciaMZoewEM26iL",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01KZQLJ2qojSuQAawxSYVJLK",
+        "name": "ListMcpResourcesTool",
+        "args": {
+          "server": "bench"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01KZQLJ2qojSuQAawxSYVJLK",
+        "text": "[{\"name\":\"platform-info\",\"uri\":\"ui://platform-info\",\"description\":\"Interactive UI for platform-info\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"},{\"name\":\"prompt-browser\",\"uri\":\"ui://prompt-browser\",\"description\":\"Interactive UI for prompt-browser\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"}]",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01M6PnvN8ZKhzq5abAcP9uyN",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "clickstream-raw export job configuration dataset output path storage registration retention period",
+          "limit": 30,
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c",
+          "sources": [
+            "context_documents",
+            "catalog"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01M6PnvN8ZKhzq5abAcP9uyN",
+        "text": "{\"groups\":[],\"coverage\":[],\"count\":0,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_012eGADG8Usskf4uJfHMp6sR",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "nightly export output naming convention late delivery re-run procedure storage retention",
+          "limit": 40,
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_012eGADG8Usskf4uJfHMp6sR",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Export Delivery Expectations\\nWhen each nightly export is expected to land, how lateness is measured, and who is told when an export misses its expected hour.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3ec266dc-aa0a-4725-9991-73c89bdedda2\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_3ec266dc-aa0a-4725-9991-73c89bdedda2\"},{\"text\":\"Export Re-run Procedure\\nHow to re-run a nightly export safely: single-hour re-runs, whole-night re-runs, what a re-run overwrites, and what has to be told downstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c\",\"score\":0.9661744992788438,\"reference\":\"mcp:knowledge_page:kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c\"},{\"text\":\"Export Job Naming Convention\\nHow export jobs and their output paths are named: the segment order, the partition layout, and the rules for renaming an existing export.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_23d53964-5525-4247-bb9f-e97167fa8bee\",\"score\":0.6447303061059914,\"reference\":\"mcp:knowledge_page:kp_23d53964-5525-4247-bb9f-e97167fa8bee\"},{\"text\":\"Nightly Batch Window Calendar\\nThe overnight maintenance and batch windows: which jobs own which slot, how the windows are ordered, and how a window move is requested.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9\",\"score\":0.46483732558127466,\"reference\":\"mcp:knowledge_page:kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9\"},{\"text\":\"Clickstream Raw Export Runbook\\nOperating notes for the clickstream-raw export: what it writes, where it lands, how it is registered for storage, and who to call when a nightly drop is missing.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_6bf06bc2-d319-4474-a775-4942fb96c971\",\"score\":0.4571467440480011,\"reference\":\"mcp:knowledge_page:kp_6bf06bc2-d319-4474-a775-4942fb96c971\"},{\"text\":\"Sessionization Job Runbook\\nOperating notes for the sessionization job that reads the clickstream-raw partitions: its window, its idempotency, and how a late partition is picked up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a3c496d9-a677-451c-8cae-23c1be307d23\",\"score\":0.4557212856196206,\"reference\":\"mcp:knowledge_page:kp_a3c496d9-a677-451c-8cae-23c1be307d23\"},{\"text\":\"Event Collector Drain Runbook\\nHow the event collectors drain before the clickstream-raw export runs: the drain signal, the lag metric, and what to do when a collector will not drain.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_08a5dca5-1dfe-47e3-8806-aa7a885e2116\",\"score\":0.4184101216974975,\"reference\":\"mcp:knowledge_page:kp_08a5dca5-1dfe-47e3-8806-aa7a885e2116\"},{\"text\":\"Ledger Extract Delivery Runbook\\nHow the nightly general-ledger extract is delivered, how a missing or truncated extract is recognized, and who is contacted upstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d0675db0-612e-4c03-b608-f1d4b85e49f2\",\"score\":0.4112837341904641,\"reference\":\"mcp:knowledge_page:kp_d0675db0-612e-4c03-b608-f1d4b85e49f2\"},{\"text\":\"Warehouse Vacuum Job Runbook\\nOperating notes for the nightly warehouse-vacuum job: what it reclaims, when it runs, how its row-count delta is reviewed and when it wakes the on-call engineer.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_fc1d9175-14af-47bb-8144-e1bf5ac86707\",\"score\":0.3136594455911376,\"reference\":\"mcp:knowledge_page:kp_fc1d9175-14af-47bb-8144-e1bf5ac86707\"},{\"text\":\"Reconcile Failure History\\nThe record of past ledger-reconcile failures: how often the job has failed, what the causes were, and which nights required a manual run.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_73b4f3da-db42-4811-90a8-c225e78f4eaf\",\"score\":0.2622267359982033,\"reference\":\"mcp:knowledge_page:kp_73b4f3da-db42-4811-90a8-c225e78f4eaf\"},{\"text\":\"Platform Glossary\\nTerms used across the platform handbook: break, drop, window, rung, partition, and the difference between a job failing and a job reporting a problem.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9725eb69-62da-47e3-a0eb-68cd4dfaa298\",\"score\":0.26076507530667703,\"reference\":\"mcp:knowledge_page:kp_9725eb69-62da-47e3-a0eb-68cd4dfaa298\"},{\"text\":\"Ledger Close Calendar\\nWhen each ledger extract is due, how the close periods are dated, and what a close period means for platform changes.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\",\"score\":0.2388266180972376,\"reference\":\"mcp:knowledge_page:kp_1f725023-9a89-4b6a-84ff-b1bf73f05733\"},{\"text\":\"Partition Compaction Notes\\nHow written partitions are compacted: the file-count trigger, what compaction rewrites, and why compaction never extends a partition's life.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d66c4cac-57db-4647-9563-5eb8d512c162\",\"score\":0.21902797608434288,\"reference\":\"mcp:knowledge_page:kp_d66c4cac-57db-4647-9563-5eb8d512c162\"},{\"text\":\"Night Shift Handover Notes\\nWhat the overnight shift hands to the morning: which jobs ran, which failed, what was left running, and what the morning review is expected to pick up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b5199742-f300-4ac5-8eb5-b73de53c767a\",\"score\":0.20005812763547207,\"reference\":\"mcp:knowledge_page:kp_b5199742-f300-4ac5-8eb5-b73de53c767a\"},{\"text\":\"Overnight Failure Review\\nThe morning review of overnight job failures: what is reviewed, how a repeat failure is recognized across nights, and what the review hands on.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_7ab37f76-ea1b-4031-a098-68d95a74e29f\",\"score\":0.19237869545293942,\"reference\":\"mcp:knowledge_page:kp_7ab37f76-ea1b-4031-a098-68d95a74e29f\"},{\"text\":\"Storage Class Register\\nThe central register of platform storage classes: the tier each class writes to, the window after which its objects are removed, and the review cadence for reclassification requests.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_88dc7a06-7399-4beb-b24e-b1d0f784b236\",\"score\":0.16843513646061659,\"reference\":\"mcp:knowledge_page:kp_88dc7a06-7399-4beb-b24e-b1d0f784b236\"},{\"text\":\"Stream Deprecation Runbook\\nHow a stream is retired: consumer discovery, the parallel period, the read-only phase and the final removal of the billing-events style streams.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b209333f-4878-4362-a21f-44a45b752c21\",\"score\":0.12840374897088436,\"reference\":\"mcp:knowledge_page:kp_b209333f-4878-4362-a21f-44a45b752c21\"},{\"text\":\"Raw Zone Layout\\nWhere the nightly raw exports land: the bucket per environment, how each export's area is laid out, and the rule against writing into another export's area.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_2c5ef198-291e-4779-b170-34159398a118\",\"score\":0.1008792477479015,\"reference\":\"mcp:knowledge_page:kp_2c5ef198-291e-4779-b170-34159398a118\"},{\"text\":\"Duty Manager Response Matrix\\nThe clocks each escalation route runs to: how long a rung may hold before it climbs, what a doubled overnight clock means, and what is written when a clock runs out.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8883d7f9-4dfd-42d6-9691-f887a075c444\",\"score\":0.09845760825076087,\"reference\":\"mcp:knowledge_page:kp_8883d7f9-4dfd-42d6-9691-f887a075c444\"},{\"text\":\"Ledger Reconcile Job Runbook\\nOperating notes for the nightly ledger-reconcile job: what it compares, what a break means, and what a run of consecutive failures opens.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_ea61a64a-58a8-4d3f-879b-9b7842c545e7\",\"score\":0.08632328229385203,\"reference\":\"mcp:knowledge_page:kp_ea61a64a-58a8-4d3f-879b-9b7842c545e7\"},{\"text\":\"Billing Events Replay Guide\\nHow to replay the billing-events stream safely: choosing the offset, pausing non-idempotent consumers, and confirming the replay landed.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1f4e6bd9-05cf-49a1-b85a-3c81b9a4e468\",\"score\":0.06985800016422472,\"reference\":\"mcp:knowledge_page:kp_1f4e6bd9-05cf-49a1-b85a-3c81b9a4e468\"},{\"text\":\"Reconcile Manual Run Procedure\\nHow to run the ledger reconciliation by hand for a named business date after a failed night, and what a manual run does and does not settle.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3a9d0a11-c3ef-4e0d-8aaa-242c632d1c7e\",\"score\":0.04636667867703836,\"reference\":\"mcp:knowledge_page:kp_3a9d0a11-c3ef-4e0d-8aaa-242c632d1c7e\"},{\"text\":\"Duty Manager Rota\\nWho holds the platform duty manager role and when: the rota shape, the handover, the standing delegation, and how the rota is corrected when someone is unavailable.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8724ca47-3fab-4753-8f1b-51c80ec9fd9b\",\"score\":0.02177997059033522,\"reference\":\"mcp:knowledge_page:kp_8724ca47-3fab-4753-8f1b-51c80ec9fd9b\"},{\"text\":\"Data Egress Approval Policy\\nWhen data may leave the platform boundary, who approves it, and what an approved egress route is obliged to record.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_572f2125-c69e-4760-a935-0544033ec651\",\"score\":0.010822573818334584,\"reference\":\"mcp:knowledge_page:kp_572f2125-c69e-4760-a935-0544033ec651\"},{\"text\":\"Billing Events Stream Runbook\\nOperating notes for the billing-events stream: its producers, its tiering, its replay behavior, and how a proposed change to it is handled.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_ecee26d9-1caf-441a-a4e2-80b789337129\",\"score\":0,\"reference\":\"mcp:knowledge_page:kp_ecee26d9-1caf-441a-a4e2-80b789337129\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":1,\"reference\":\"mcp:prompt:26b58ce1-719a-446b-aef9-d81fa23427f8\"},{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":0.5114588274076864,\"reference\":\"mcp:prompt:59791e2f-db90-44d4-8db9-2add79c0e41e\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.46830730459312214,\"reference\":\"mcp:prompt:5c2321d2-757b-4852-a41d-5ea7cbb11a08\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.30507862987408685,\"reference\":\"mcp:prompt:e515599a-968a-4f4a-8e12-940cc4739a12\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0,\"reference\":\"mcp:prompt:0717ada8-5b79-473e-924a-7942081a10f6\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":25},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":30,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01JUrxDihi4gsLDd6MsBKsGk",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "clickstream-raw export storage bucket path partition layout",
+          "limit": 20,
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01JUrxDihi4gsLDd6MsBKsGk",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Clickstream Raw Export Runbook\\nOperating notes for the clickstream-raw export: what it writes, where it lands, how it is registered for storage, and who to call when a nightly drop is missing.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_6bf06bc2-d319-4474-a775-4942fb96c971\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_6bf06bc2-d319-4474-a775-4942fb96c971\"},{\"text\":\"Raw Zone Layout\\nWhere the nightly raw exports land: the bucket per environment, how each export's area is laid out, and the rule against writing into another export's area.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_2c5ef198-291e-4779-b170-34159398a118\",\"score\":0.882933933764043,\"reference\":\"mcp:knowledge_page:kp_2c5ef198-291e-4779-b170-34159398a118\"},{\"text\":\"Event Collector Drain Runbook\\nHow the event collectors drain before the clickstream-raw export runs: the drain signal, the lag metric, and what to do when a collector will not drain.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_08a5dca5-1dfe-47e3-8806-aa7a885e2116\",\"score\":0.6024834161461955,\"reference\":\"mcp:knowledge_page:kp_08a5dca5-1dfe-47e3-8806-aa7a885e2116\"},{\"text\":\"Clickstream Schema Notes\\nWhat the clickstream-raw partitions contain: the event envelope, the properties map, the identity fields and the known gaps in older partitions.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d16797b6-085c-4d96-b19b-f18920f12d67\",\"score\":0.5194431894007827,\"reference\":\"mcp:knowledge_page:kp_d16797b6-085c-4d96-b19b-f18920f12d67\"},{\"text\":\"Export Job Naming Convention\\nHow export jobs and their output paths are named: the segment order, the partition layout, and the rules for renaming an existing export.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_23d53964-5525-4247-bb9f-e97167fa8bee\",\"score\":0.5098416119155605,\"reference\":\"mcp:knowledge_page:kp_23d53964-5525-4247-bb9f-e97167fa8bee\"},{\"text\":\"Sessionization Job Runbook\\nOperating notes for the sessionization job that reads the clickstream-raw partitions: its window, its idempotency, and how a late partition is picked up.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a3c496d9-a677-451c-8cae-23c1be307d23\",\"score\":0.4432683923190763,\"reference\":\"mcp:knowledge_page:kp_a3c496d9-a677-451c-8cae-23c1be307d23\"},{\"text\":\"Stream Onboarding Checklist\\nThe steps for putting a new producer onto an existing stream: contract registration, throughput declaration, dead-letter wiring and the first-week watch.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d17373be-a7c0-480c-b4d5-ab43f9870250\",\"score\":0.4025875510791944,\"reference\":\"mcp:knowledge_page:kp_d17373be-a7c0-480c-b4d5-ab43f9870250\"},{\"text\":\"Export Delivery Expectations\\nWhen each nightly export is expected to land, how lateness is measured, and who is told when an export misses its expected hour.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3ec266dc-aa0a-4725-9991-73c89bdedda2\",\"score\":0.3962232973147952,\"reference\":\"mcp:knowledge_page:kp_3ec266dc-aa0a-4725-9991-73c89bdedda2\"},{\"text\":\"Partition Compaction Notes\\nHow written partitions are compacted: the file-count trigger, what compaction rewrites, and why compaction never extends a partition's life.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d66c4cac-57db-4647-9563-5eb8d512c162\",\"score\":0.384220962973146,\"reference\":\"mcp:knowledge_page:kp_d66c4cac-57db-4647-9563-5eb8d512c162\"},{\"text\":\"Export Re-run Procedure\\nHow to re-run a nightly export safely: single-hour re-runs, whole-night re-runs, what a re-run overwrites, and what has to be told downstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c\",\"score\":0.31014949887086163,\"reference\":\"mcp:knowledge_page:kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c\"},{\"text\":\"Ledger Extract Delivery Runbook\\nHow the nightly general-ledger extract is delivered, how a missing or truncated extract is recognized, and who is contacted upstream.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d0675db0-612e-4c03-b608-f1d4b85e49f2\",\"score\":0.2697650160578709,\"reference\":\"mcp:knowledge_page:kp_d0675db0-612e-4c03-b608-f1d4b85e49f2\"},{\"text\":\"Stream Deprecation Runbook\\nHow a stream is retired: consumer discovery, the parallel period, the read-only phase and the final removal of the billing-events style streams.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b209333f-4878-4362-a21f-44a45b752c21\",\"score\":0.2232757973377039,\"reference\":\"mcp:knowledge_page:kp_b209333f-4878-4362-a21f-44a45b752c21\"},{\"text\":\"Storage Class Register\\nThe central register of platform storage classes: the tier each class writes to, the window after which its objects are removed, and the review cadence for reclassification requests.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_88dc7a06-7399-4beb-b24e-b1d0f784b236\",\"score\":0.196850979542977,\"reference\":\"mcp:knowledge_page:kp_88dc7a06-7399-4beb-b24e-b1d0f784b236\"},{\"text\":\"Billing Events Stream Runbook\\nOperating notes for the billing-events stream: its producers, its tiering, its replay behavior, and how a proposed change to it is handled.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_ecee26d9-1caf-441a-a4e2-80b789337129\",\"score\":0.19666314932794876,\"reference\":\"mcp:knowledge_page:kp_ecee26d9-1caf-441a-a4e2-80b789337129\"},{\"text\":\"Paging Channel Directory\\nHow each role is reached out of hours: the primary channel, the fallback, and what a silent page falls through to.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_e4294a2c-a0e7-45c8-a9fb-3b97ce018e2a\",\"score\":0.19280797945154263,\"reference\":\"mcp:knowledge_page:kp_e4294a2c-a0e7-45c8-a9fb-3b97ce018e2a\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":1,\"reference\":\"mcp:prompt:26b58ce1-719a-446b-aef9-d81fa23427f8\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0.2691699480210165,\"reference\":\"mcp:prompt:0717ada8-5b79-473e-924a-7942081a10f6\"},{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":0.11885507349786528,\"reference\":\"mcp:prompt:59791e2f-db90-44d4-8db9-2add79c0e41e\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.007117016251156414,\"reference\":\"mcp:prompt:5c2321d2-757b-4852-a41d-5ea7cbb11a08\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0,\"reference\":\"mcp:prompt:e515599a-968a-4f4a-8e12-940cc4739a12\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":15},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":20,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01JEitn619UpfGeE8NhbaKRX",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 1,
+          "query": "select:mcp__bench__fetch"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01JEitn619UpfGeE8NhbaKRX",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Ucivcsuso8Rb1wdHwi5bSV",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_6bf06bc2-d319-4474-a775-4942fb96c971",
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Ucivcsuso8Rb1wdHwi5bSV",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_6bf06bc2-d319-4474-a775-4942fb96c971\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_6bf06bc2-d319-4474-a775-4942fb96c971\",\"source\":\"knowledge_pages\",\"title\":\"Clickstream Raw Export Runbook\",\"body\":\"# Clickstream Raw Export Runbook\\n\\nThe `clickstream-raw` export writes the previous day's unaggregated event\\nstream to object storage as hourly partitions. It runs once a night, after the\\nevent collectors have drained, and is the source every downstream sessionization\\njob reads from. Its naming and partition layout follow the platform convention\\n(mcp:knowledge_page:kp_23d53964-5525-4247-bb9f-e97167fa8bee).\\n\\n## Storage registration\\n\\nThe export is registered under **storage class SC-4**. The storage class is what\\ndecides how long a written partition survives and what tier it sits on; the\\nclasses and their windows are maintained centrally in\\nmcp:knowledge_page:kp_88dc7a06-7399-4beb-b24e-b1d0f784b236. The export itself sets no lifetime of its own,\\nand a request to keep a partition longer than its class allows is a\\nreclassification request, not a change to this job.\\n\\n## Missing drops\\n\\nA missing hourly partition is almost always a collector that has not drained\\nrather than an export failure. Check the collector lag first, then re-run the\\nsingle hour rather than the whole night: the export is idempotent per partition,\\nand the safe way to re-run an hour or a night is written up once for every\\nexport (mcp:knowledge_page:kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c). The hour\\neach nightly drop is expected by, and what happens when one is repeatedly late,\\nis likewise set for every export in one place\\n(mcp:knowledge_page:kp_3ec266dc-aa0a-4725-9991-73c89bdedda2).\\nField-level questions about what the partitions contain belong in\\nmcp:knowledge_page:kp_d16797b6-085c-4d96-b19b-f18920f12d67.\\n\\nAnything leaving the platform boundary, including a copy of these partitions to\\na partner bucket, is governed separately (mcp:knowledge_page:kp_572f2125-c69e-4760-a935-0544033ec651).\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_3ec266dc-aa0a-4725-9991-73c89bdedda2\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_88dc7a06-7399-4beb-b24e-b1d0f784b236\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_572f2125-c69e-4760-a935-0544033ec651\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_d16797b6-085c-4d96-b19b-f18920f12d67\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_23d53964-5525-4247-bb9f-e97167fa8bee\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01PdqUVyWAwEN77qe24aZEZQ",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_3ec266dc-aa0a-4725-9991-73c89bdedda2",
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01PdqUVyWAwEN77qe24aZEZQ",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_3ec266dc-aa0a-4725-9991-73c89bdedda2\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_3ec266dc-aa0a-4725-9991-73c89bdedda2\",\"source\":\"knowledge_pages\",\"title\":\"Export Delivery Expectations\",\"body\":\"# Export Delivery Expectations\\n\\nEach nightly export has an expected landing hour, measured at the moment its\\nlast partition is written rather than when the job starts.\\n\\n| Export | Expected by |\\n| --- | --- |\\n| clickstream-raw | 02:00 |\\n| order-events | 02:30 |\\n| ledger-extract | 03:40 |\\n\\nLateness is counted in whole hours past the expected time and is reported in the\\nmorning run review. An export that is late three mornings in a row is raised\\nwith its owning team, because at that point the expectation is wrong or the job\\nis.\\n\\nNothing here says how long a delivered export is kept: landing and lifetime are\\nseparate concerns with separate owners.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01B8GZQx8WbGAukHbQg7ZtjT",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_23d53964-5525-4247-bb9f-e97167fa8bee",
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01B8GZQx8WbGAukHbQg7ZtjT",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_23d53964-5525-4247-bb9f-e97167fa8bee\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_23d53964-5525-4247-bb9f-e97167fa8bee\",\"source\":\"knowledge_pages\",\"title\":\"Export Job Naming Convention\",\"body\":\"# Export Job Naming Convention\\n\\nAn export job is named `\u003csubject\u003e-\u003cgrain\u003e`, lower case, hyphen separated, with\\nno environment segment: the environment is a property of the deployment, not of\\nthe job. The output path repeats the job name and then the partition columns in\\ndeclaration order, and lands inside the raw zone, whose layout is fixed for\\nevery export (mcp:knowledge_page:kp_2c5ef198-291e-4779-b170-34159398a118).\\n\\nRenaming an existing export is a two-step change. The new name is created as an\\nalias first and both names are written for one full window, then the old name is\\nretired once no consumer has read it for a week. A rename that skips the alias\\nstep breaks every consumer that resolves the path by string rather than by\\ncatalog lookup, which in practice is most of them.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_2c5ef198-291e-4779-b170-34159398a118\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01QTVCQRTkHyGh6ce9YvoYtb",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_2c5ef198-291e-4779-b170-34159398a118",
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01QTVCQRTkHyGh6ce9YvoYtb",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_2c5ef198-291e-4779-b170-34159398a118\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_2c5ef198-291e-4779-b170-34159398a118\",\"source\":\"knowledge_pages\",\"title\":\"Raw Zone Layout\",\"body\":\"# Raw Zone Layout\\n\\nThe raw zone holds one bucket per environment and one prefix per export.\\nUnderneath the prefix, partitions are laid out by the export's declared\\npartition columns in declaration order, so the same path shape works for every\\nexport in the zone.\\n\\nNothing writes outside its own prefix. A job that needs to read another export's\\noutput reads it in place; copying it under a second prefix produces two datasets\\nthat drift apart and are both believed.\\n\\nThe zone is not browsable by hand at any useful scale. Use the catalog entry for\\nan export to find its prefix rather than listing the bucket, which on the larger\\nexports takes minutes and returns tens of thousands of keys.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_012iDzFZ2838byTcXj85GQSX",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c",
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_012iDzFZ2838byTcXj85GQSX",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_5caa4210-bed6-41c4-b891-6541e7b8ff1c\",\"source\":\"knowledge_pages\",\"title\":\"Export Re-run Procedure\",\"body\":\"# Export Re-run Procedure\\n\\nA re-run replaces what it writes. Exports here are idempotent per partition, so\\nre-running one hour rewrites that hour and leaves the rest of the night alone.\\n\\n**Single hour.** The usual case, after a collector was late. Re-run the hour and\\ntell the downstream jobs that read it; the sessionization job needs a re-run of\\nthe whole business date, not of the hour.\\n\\n**Whole night.** Only when the export ran against the wrong business date. A\\nwhole-night re-run writes every hour again and is safe, but it does not remove\\npartitions written under the wrong date: those are removed by hand, and until\\nthey are, both dates look complete.\\n\\nA re-run never changes an object's original write date, so it does not extend\\nanything's life in the raw zone.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01UAxf1Cf5bYHNkFgVDkdJTg",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_88dc7a06-7399-4beb-b24e-b1d0f784b236",
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01UAxf1Cf5bYHNkFgVDkdJTg",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_88dc7a06-7399-4beb-b24e-b1d0f784b236\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_88dc7a06-7399-4beb-b24e-b1d0f784b236\",\"source\":\"knowledge_pages\",\"title\":\"Storage Class Register\",\"body\":\"# Storage Class Register\\n\\nEvery dataset the platform writes is registered under one storage class. The\\nclass fixes the tier the bytes land on and the window after which they are\\npurged. Nothing else sets a lifetime: a job that wants its output kept longer is\\nasking to be reclassified.\\n\\n## Classes\\n\\n| Class | Tier | Purge window |\\n| --- | --- | --- |\\n| SC-1 | hot | 7 days |\\n| SC-2 | hot | 30 days |\\n| SC-3 | warm | 45 days |\\n| SC-4 | warm | 62 days |\\n| SC-5 | cold | 400 days |\\n| SC-6 | archive | held indefinitely |\\n\\nThe purge runs daily and removes whole objects once their write date is older\\nthan the window. An object is never partially removed, so a window that falls\\ninside one keeps the whole object until the next boundary.\\n\\n## Reclassification\\n\\nReclassification requests are reviewed monthly. A move up the tiers (cold to\\nwarm, warm to hot) needs a stated reason for the extra cost; a move down needs\\nconfirmation from the owning team that nothing reads the older partitions. A\\nclass is never changed in place for a single dataset without updating this\\nregister, because the purge reads the register and not the request.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01VKX8Z8sgUdrsrCLGp9RuBp",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_572f2125-c69e-4760-a935-0544033ec651",
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01VKX8Z8sgUdrsrCLGp9RuBp",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_572f2125-c69e-4760-a935-0544033ec651\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_572f2125-c69e-4760-a935-0544033ec651\",\"source\":\"knowledge_pages\",\"title\":\"Data Egress Approval Policy\",\"body\":\"# Data Egress Approval Policy\\n\\nAny route that writes platform data to a destination the platform does not\\noperate is an egress, whether it runs once or nightly. An egress needs a named\\nrecipient, a stated purpose and an end date before it is approved.\\n\\nApproval sits with the data governance group. A route without an end date is not\\napproved; a route whose end date has passed is disabled automatically rather\\nthan reviewed, and re-enabling it is a new request.\\n\\nEvery approved route records, per run, what it sent and how much of it. The\\nrecord is the point of the approval: an egress nobody can describe afterwards is\\nindistinguishable from one that was never approved.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01D5xWHbUhXUCmRAqGPDRFE6",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9",
+          "session_id": "dps_aa2c59c3230c5b9b793e3aa14682f54c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01D5xWHbUhXUCmRAqGPDRFE6",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_550d8b13-d702-47cf-9f09-80f21c6e7ee9\",\"source\":\"knowledge_pages\",\"title\":\"Nightly Batch Window Calendar\",\"body\":\"# Nightly Batch Window Calendar\\n\\nThe overnight schedule is divided into windows, each owned by one job family. A\\njob that overruns its window is not killed, but the window behind it starts late\\nand the delay accumulates across the night.\\n\\n| Window | Owner |\\n| --- | --- |\\n| 22:00 - 23:15 | collector drain |\\n| 23:15 - 00:45 | raw exports |\\n| 00:45 - 02:00 | maintenance and vacuum |\\n| 02:00 - 04:00 | aggregation |\\n| 04:00 - 05:30 | reconciliation |\\n\\nMoving a window is a scheduling change, not a job change: the request goes to the\\nplatform group with the reason and the earliest night it can take effect. A move\\nthat pushes any window past 05:30 needs the aggregation owner's agreement,\\nbecause the morning reports read what aggregation writes.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "# Order-Refunds Export Onboarding\n\nThis document establishes the operational footprint for the new `order-refunds` nightly export. It will be operated identically to the `clickstream-raw` export: same partition layout, same storage tier, same re-run protocol, and same escalation path when things go wrong. This document specifies which piece of shared infrastructure order-refunds occupies and what the boundaries are.\n\n## Job and Output Naming\n\nThe export job is named `order-refunds` (subject: order, grain: refunds), lower case, hyphen separated. There is no environment segment in the job name; environment is a deployment property.\n\nThe output path repeats the job name and then the partition columns in declaration order: `order-refunds/dt=YYYY-MM-DD/hour=HH`. The full path lands inside the raw zone under its own prefix specific to this export.\n\n## Storage Location and Organization\n\nThe raw zone holds one bucket per environment. Within that bucket, `order-refunds` occupies its own prefix, separate from every other export's prefix. Under the prefix, partitions are laid out by declared partition columns in order (business date `dt`, then hour `hour`), so the same path structure works uniformly across every export.\n\nNothing writes outside the `order-refunds` prefix. Any job that needs to read this export's output reads it in place. Copying output under a second prefix creates two datasets that drift apart and are both believed to be authoritative, which is the root cause of many data incidents. Do not copy to a second prefix.\n\nThe raw zone bucket is not browsable by hand at useful scale on the larger exports. To find the `order-refunds` prefix, use the catalog entry for the export, not a bucket listing.\n\n## Storage Registration and Retention\n\nThe `order-refunds` export is registered under **storage class SC-4**. This storage class means:\n\n- **Tier:** Warm (standard availability, slightly longer latency than hot)\n- **Purge window:** 62 days\n\nObjects are purged daily once their write date is older than the 62-day window. Whole objects are purged atomically; if a purge window boundary falls inside an object's retention period, that object is kept until the next daily purge. The export itself sets no lifetime of its own; the storage class is the only thing that determines how long a partition lives.\n\nIf order-refunds needs to keep output longer than 62 days, that is a reclassification request, not a change to the export job or this document. Reclassification requests are reviewed monthly. A move to a colder tier (less cost) requires confirmation from consuming teams that nothing reads older partitions. A move to a hotter tier (more cost) requires a stated justification. The request goes to the data governance group; approval updates the central storage class register, and the daily purge job reads that register to enforce the new window.\n\n## Expected Landing Time and Lateness Escalation\n\nThe `order-refunds` export is expected to complete by **02:00** (measured at the moment the last partition is written). This slot aligns with other raw exports in the nightly batch window:\n\n| Window | Owner |\n| --- | --- |\n| 22:00 - 23:15 | collector drain |\n| 23:15 - 00:45 | raw exports ← order-refunds runs here |\n| 00:45 - 02:00 | maintenance and vacuum |\n| 02:00 - 04:00 | aggregation |\n| 04:00 - 05:30 | reconciliation |\n\nThe export should finish well before 00:45 to avoid delaying the maintenance window that follows. If the batch window is ever found to be too tight, moving it is a scheduling change that goes to the platform group with the reason and the earliest night it can take effect.\n\n### Lateness and Escalation\n\nLateness is counted in whole hours past the expected time and is reported in the morning run review. An export that is late on three mornings in a row is automatically raised with its owning team, because at that point either the expectation is wrong (the window is too tight) or the job is broken (something changed in the upstream data).\n\nA missing hourly partition is almost always a collector that has not drained rather than an export failure. The first diagnostic step is to check collector lag. If a collector is indeed late, re-run only that single hour rather than the whole night; the export is idempotent per partition and re-running one hour rewrites that hour and leaves the rest of the night alone.\n\n## Safe Re-run After a Bad Night\n\nThe export is idempotent per partition, meaning a partition can be written multiple times and the end result is the same. Re-runs are governed by what went wrong and what action is safe.\n\n### Single-Hour Re-run\n\nThis is the common case: a collector did not drain by the time the export read from it, so one hour's partition is incomplete or missing. To recover:\n\n1. Verify the collector has drained (check the collector lag metric for that collector)\n2. Re-run only that single hour using the export job's re-run interface\n3. Notify any downstream job that reads `order-refunds` partitions that this hour was re-run, because the downstream job may have already read the incomplete partition and cached it. The sessionization job, if it reads order-refunds, needs a re-run of the whole business date, not just the hour.\n\nRe-running a single hour does not change the object's original write date in object storage, so it does not extend the object's life in the raw zone beyond what SC-4 allows.\n\n### Whole-Night Re-run\n\nA whole-night re-run should only happen when the export ran against the wrong business date (e.g., it wrote 2026-08-08 partitions when it should have written 2026-08-09). A whole-night re-run is safe: it writes every hour again and is idempotent.\n\nHowever, a whole-night re-run does not remove partitions written under the wrong date. Those partitions must be removed by hand. Until they are removed, both the wrong date and the correct date look complete to downstream consumers, and the wrong date may be read instead. Coordinate with the data governance group before removing old partitions; they need to know what is being deleted.\n\nIn all cases, a re-run never changes an object's original write date, so nothing's life in the raw zone is extended.\n\n## Data Copied Outside the Platform\n\nAny route that writes `order-refunds` data to a destination the platform does not operate (an external partner bucket, a data warehouse, a reporting tool) is an egress and must be approved in advance.\n\nAn egress approval requires:\n- **Named recipient:** The team or company receiving the data\n- **Stated purpose:** What the data is used for\n- **End date:** When the egress terminates (no indefinite egresses)\n\nApproval sits with the data governance group. A route whose end date has passed is disabled automatically rather than reviewed, and re-enabling it is a new approval request.\n\nEvery approved egress route records, per run, what data it sent and how much. This record is the point of approval: an egress nobody can describe afterwards is indistinguishable from one that was never approved. The sender is responsible for maintaining that record.\n\nApproval does not happen in the export job configuration; it is a separate gate. The job can be configured to write to an approved destination, but the approval must already exist.\n\n---\n\n**To summarize:** order-refunds follows the `clickstream-raw` pattern exactly: it uses the export job naming convention, lands in the raw zone under its own prefix, is registered under SC-4 for 62-day retention, is expected by 02:00 each night, escalates after three consecutive late mornings, is re-run safely using the idempotent-per-partition protocol, and any egress of its data requires prior approval."
+  }
+]

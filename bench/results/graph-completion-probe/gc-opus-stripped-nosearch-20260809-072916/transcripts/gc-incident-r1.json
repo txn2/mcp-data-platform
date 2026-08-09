@@ -1,0 +1,377 @@
+[
+  {
+    "role": "user",
+    "text": "The operating runbook for the nightly ledger-reconcile job is mcp:knowledge_page:kp_3936d884-a19e-471b-9671-a173824c1578.\n\nThe nightly ledger-reconcile job has now failed on three consecutive nights. Write the complete incident-handling document for this situation, one the on-shift engineer could follow as written: what is opened and at what severity, who has to be told, how the escalation proceeds and on what clocks when nobody acknowledges, what is communicated while it is open, what has to be true before it can be closed, and what record it has to leave behind. Completeness matters more than brevity; the document is the deliverable."
+  },
+  {
+    "role": "assistant",
+    "text": "I'll start by reading the platform documentation and the runbook."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01PWufRDXMsGR1TrU5xukkzu",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:mcp__bench__platform_info,mcp__bench__fetch,mcp__bench__list_connections"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01PWufRDXMsGR1TrU5xukkzu",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0125AoiJShQTC3H2TWtQFthj",
+        "name": "mcp__bench__platform_info",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0125AoiJShQTC3H2TWtQFthj",
+        "text": "{\"name\":\"mcp-data-platform-bench-gt\",\"version\":\"v1.120.0-dirty\",\"session_id\":\"dps_89ee00a378de3f302c0060e17c67f3a3\",\"session_expires_at\":\"2026-08-09T22:32:28Z\",\"agent_instructions\":\"SESSION HANDLE: This call issued you session_id \\\"dps_89ee00a378de3f302c0060e17c67f3a3\\\". Pass it as the session_id argument on EVERY subsequent tool call. Tool calls without it are refused (SESSION_REQUIRED). Do not call platform_info again unless a call returns SESSION_EXPIRED.\\n\\nHow to operate this platform:\\n- Discover before you act. Call `search` first: one query reveals what is already known across every source you can reach (the data catalog, its context documents, your memory, captured insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and connections). The answer may span several sources, or may not be in the data warehouse at all, so do not assume a backend and do not stop at the first result.\\n- Reuse what is known. Treat `search` results as the starting point and read a result in full with `fetch` (pass the result's `reference`), or drill in with the scoped tool a result points to, rather than re-deriving an answer or re-asking the user for something already recorded.\\n\\nUploaded reference material:\\nResources are human-uploaded inputs an agent uses as-is: report templates, brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated outputs. Knowledge pages are curated facts to search and synthesize. Memory is per-user recall. If it existed before the conversation and the agent should use it verbatim, it is a resource.\\n- Before you format a deliverable, `search` for an applicable template or reference resource and follow it rather than inventing a layout.\\n- When the user names a company file (\\\"our template\\\", \\\"the checklist\\\", \\\"the brand header\\\"), resolve it with `search` and read it in full with `fetch` (pass the result's `reference`) instead of asking them to paste it.\\n- Material attached to a prompt is authoritative: use it as given rather than paraphrasing it or substituting your own.\",\"toolkits\":[\"platform\",\"mcp\",\"api\"],\"toolkit_descriptions\":{\"platform\":\"Core platform tools: deployment info, connection listing, and resource access.\"},\"persona\":{\"name\":\"admin\",\"display_name\":\"Bench Graph Traversal (GT)\"},\"prompts\":[{\"name\":\"knowledge_capture_guidance\",\"description\":\"Guidance on when and how to capture domain knowledge insights\",\"category\":\"toolkit\",\"content\":\"## Knowledge Capture Guidance\\n\\n### Default Behavior: Capture Proactively\\n\\nYou should capture knowledge automatically during normal conversation. Do not wait for the user to say \\\"capture this\\\" or \\\"remember that.\\\" When someone tells you a fact about their data, that is knowledge. Record it.\\n\\nUse memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.\\n\\nThe goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.\\n\\n### When to Capture an Insight\\n\\nUse memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:\\n\\n**Corrections**: The user corrects a column description, table purpose, or data interpretation.\\nExample: \\\"That column isn't actually revenue, it's gross margin before returns.\\\"\\n\\n**Business Context**: The user explains what data means in business terms not captured in metadata.\\nExample: \\\"We only count active subscriptions, not trial accounts, for MRR calculations.\\\"\\n\\n**Data Quality**: The user reports data quality issues or known limitations.\\nExample: \\\"The timestamps before March 2024 are in UTC but after that they switched to America/Chicago.\\\"\\n\\n**Usage Guidance**: The user shares tips on how to query or interpret data correctly.\\nExample: \\\"Always filter by status='active' on that table, otherwise you get duplicates from soft deletes.\\\"\\n\\n**Relationships**: The user explains connections between datasets not captured in lineage.\\nExample: \\\"The customer_id in orders joins to the legacy CRM export, not the new identity table.\\\"\\n\\n**Enhancements**: The user suggests improvements to existing documentation or metadata.\\nExample: \\\"It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT.\\\"\\n\\n### Agent-Discovered Insights\\n\\nYou can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:\\n\\n**source: \\\"agent_discovery\\\"** — Use when you figure something out yourself during exploration:\\n- Discovering what a column actually contains by sampling data (e.g., \\\"column 'amt' appears to be in cents, not dollars, based on value ranges\\\")\\n- Finding join relationships not documented in lineage (e.g., \\\"orders.cust_id matches customers.legacy_id, not customers.id\\\")\\n- Identifying data quality patterns through queries (e.g., \\\"ship_date is NULL for 23% of completed orders since 2024-06\\\")\\n- Determining refresh cadence by observing max timestamps across multiple queries\\n\\n**source: \\\"enrichment_gap\\\"** — Use when flagging metadata gaps that need admin attention:\\n- A table has no description and you cannot determine its purpose from the data alone\\n- Column descriptions are missing or clearly outdated\\n- Lineage is incomplete or contradicts what the data shows\\n- Tags or glossary terms are absent for datasets that clearly belong to a domain\\n\\n**source: \\\"user\\\"** (default) — Use for insights the user explicitly shares with you.\\n\\n### When to Ask the User Instead\\n\\nDo NOT guess when:\\n- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone\\n- Multiple interpretations of a column or table are equally plausible\\n- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)\\n\\nIn these cases, ask the user to clarify before capturing anything.\\n\\n### When NOT to Capture\\n\\nDo NOT capture insights for:\\n- Transient questions or debugging (\\\"why is my query slow?\\\")\\n- Personal preferences (\\\"I prefer using CTEs\\\")\\n- Information already present in the catalog metadata\\n- Vague or unverifiable claims without specific context\\n- Trivial observations that don't add catalog value\\n- Trivially obvious metadata gaps without adding what the data actually means\\n- Speculative interpretations you have not verified by querying the data\\n- The same gap repeatedly within a single session\\n\\n### Best Practices\\n\\n- Include specific entity URNs when the insight relates to known datasets\\n- Suggest concrete actions (add_tag, update_description) when applicable\\n- Set confidence to \\\"high\\\" only when the user is clearly authoritative\\n- For agent discoveries, set confidence based on evidence strength: \\\"high\\\" if verified by querying, \\\"medium\\\" if inferred from patterns, \\\"low\\\" if speculative\\n- Capture the insight promptly while context is fresh\\n- Use markdown formatting when it aids clarity: backticks for `column_name` and `table_name`, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.\"},{\"name\":\"knowledge_apply_guidance\",\"description\":\"How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"category\":\"toolkit\",\"content\":\"## Reviewing Insights into Durable Knowledge\\n\\nYou hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as \\\"review and apply knowledge.\\\") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.\\n\\n### The loop, and why knowledge matters\\n\\n- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.\\n- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.\\n- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.\\n\\nAlways discover before you apply: search existing memory, insights, and knowledge first.\\n\\n### The expert review workflow\\n\\n1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.\\n2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.\\n3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.\\n4. **Route to the right home.**\\n   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.\\n   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.\\n5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:\u003cid\u003e, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).\\n6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).\\n7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.\\n\\n### Structure knowledge as a navigable graph\\n\\nPrefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:\u003cid\u003e references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.\\n\\n### Routing examples\\n\\n- \\\"The amount column excludes returns\\\" applies to DataHub: update_description on that dataset column.\\n- \\\"We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning\\\" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.\\n- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.\\n- A broad \\\"retail operations\\\" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.\"},{\"name\":\"capture-this-as-knowledge\",\"description\":\"Record insights from this conversation for data catalog improvement\",\"category\":\"toolkit\",\"content\":\"Capture the key insights from this conversation as domain knowledge for the data catalog.\\n\\n1. Review our conversation for corrections, business context, data quality observations, or relationships discovered\\n2. Identify which datasets and columns the insights relate to\\n3. Record each insight with appropriate categorization and confidence level\\n4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)\"},{\"name\":\"save-this-as-an-asset\",\"description\":\"Save output from this conversation as a viewable, shareable asset\",\"category\":\"toolkit\",\"content\":\"Save the most recent output or analysis from this conversation as a shareable asset.\\n\\n1. Identify the key output from our conversation (dashboard, report, chart, or analysis)\\n2. Package it with an appropriate name, description, and tags\\n3. Save it as an asset so it can be viewed and shared\\n4. Return the link to the saved asset\"},{\"name\":\"show-my-saved-assets\",\"description\":\"Browse your saved assets\",\"category\":\"toolkit\",\"content\":\"List my saved assets.\\n\\n1. Retrieve all assets I have saved\\n2. Present them with names, descriptions, tags, and creation dates\\n3. Highlight the most recent items\"}],\"features\":{\"semantic_enrichment\":false,\"query_enrichment\":false,\"storage_enrichment\":false,\"audit_logging\":true,\"knowledge_capture\":false,\"managed_resources\":true},\"config_version\":{\"api_version\":\"v1\",\"supported_versions\":[\"v1\"],\"latest_version\":\"v1\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01L3HK8uC6LEuiKpEBfcW4QA",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_3936d884-a19e-471b-9671-a173824c1578",
+          "session_id": "dps_89ee00a378de3f302c0060e17c67f3a3"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01L3HK8uC6LEuiKpEBfcW4QA",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_3936d884-a19e-471b-9671-a173824c1578\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_3936d884-a19e-471b-9671-a173824c1578\",\"source\":\"knowledge_pages\",\"title\":\"Ledger Reconcile Job Runbook\",\"body\":\"# Ledger Reconcile Job Runbook\\n\\nThe nightly `ledger-reconcile` job compares the settled-invoice view against\\nthe general ledger extract and writes one row per discrepancy. A discrepancy is\\ncalled a break. Breaks are expected in small numbers and are worked the next\\nmorning (per the triage guide).\\n\\n## Failure of the job itself\\n\\nA failed run is different from a break. The job fails when it cannot read one of\\nits two inputs, which usually means the ledger extract has not landed; the close\\ncalendar says when each extract is due (maintained beside the close periods).\\n\\nA single failure is retried automatically on the next schedule. **Failures on\\nthree consecutive nights open a severity band B incident**, because at that point\\nthe reconciliation has not been proved for a full accounting period and the\\nquestion is no longer whether the job runs. What a band obliges, and how quickly,\\nis set centrally in the severity standard rather than here.\\n\\n## Manual runs\\n\\nThe job can be run by hand against a named business date once the missing input\\nhas landed. A manual run does not clear an open incident; the incident closes on\\nthe evidence that the scheduled run has recovered, not on a successful manual\\none.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Xabyb4gUniirRtjpgjFBDx",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Xabyb4gUniirRtjpgjFBDx",
+        "text": "No matching deferred tools found",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_019mZPs6PTM2XydSEtpKMTMp",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 10,
+          "query": "search knowledge catalog discovery"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_019mZPs6PTM2XydSEtpKMTMp",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01MQ6oTpFZ5U66Tkc9rC9j8B",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:ListMcpResourcesTool,ReadMcpResourceDirTool,ReadMcpResourceTool"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01MQ6oTpFZ5U66Tkc9rC9j8B",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_013XxJKB4yQZj6oPQWiLdVZ4",
+        "name": "ListMcpResourcesTool",
+        "args": {
+          "server": "bench"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_013XxJKB4yQZj6oPQWiLdVZ4",
+        "text": "[{\"name\":\"platform-info\",\"uri\":\"ui://platform-info\",\"description\":\"Interactive UI for platform-info\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"},{\"name\":\"prompt-browser\",\"uri\":\"ui://prompt-browser\",\"description\":\"Interactive UI for prompt-browser\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"}]",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_013isavWFKx15tToWNVvrU7B",
+        "name": "mcp__bench__list_connections",
+        "args": {
+          "session_id": "dps_89ee00a378de3f302c0060e17c67f3a3"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_013isavWFKx15tToWNVvrU7B",
+        "text": "{\"connections\":[],\"count\":0}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0172QzkidPWcxAMtdtvAqrn7",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 20,
+          "query": "+bench"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0172QzkidPWcxAMtdtvAqrn7",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0117HziMiStPPynRRiPoWjdw",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:severity-standard",
+          "session_id": "dps_89ee00a378de3f302c0060e17c67f3a3"
+        }
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01UHUS4hWbaGaP15XKw33nCP",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:ledger-reconcile-job-runbook",
+          "session_id": "dps_89ee00a378de3f302c0060e17c67f3a3"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0117HziMiStPPynRRiPoWjdw",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:severity-standard\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01UHUS4hWbaGaP15XKw33nCP",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:ledger-reconcile-job-runbook\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01BeCEXDWfgH51EWWY8CzohK",
+        "name": "ReadMcpResourceDirTool",
+        "args": {
+          "server": "bench",
+          "uri": "mcp://knowledge_page/"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01BeCEXDWfgH51EWWY8CzohK",
+        "text": "Directory listing is not enabled in this build.",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_018Xhys9SsjbC88FXoLeVKoQ",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_3936d884-a19e-471b-9671-a173824c1578#references",
+          "session_id": "dps_89ee00a378de3f302c0060e17c67f3a3"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_018Xhys9SsjbC88FXoLeVKoQ",
+        "text": "{\"found\":false,\"reference\":\"mcp:knowledge_page:kp_3936d884-a19e-471b-9671-a173824c1578#references\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01LFNQm4LYegPNeBr5KjwLpP",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "urn:li:tag:ledger-reconcile",
+          "session_id": "dps_89ee00a378de3f302c0060e17c67f3a3"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01LFNQm4LYegPNeBr5KjwLpP",
+        "text": "{\"found\":false,\"reference\":\"urn:li:tag:ledger-reconcile\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01SrCLuc9ytC7cfcobgjvga6",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "urn:li:domain:finance",
+          "session_id": "dps_89ee00a378de3f302c0060e17c67f3a3"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01SrCLuc9ytC7cfcobgjvga6",
+        "text": "{\"found\":false,\"reference\":\"urn:li:domain:finance\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_016wE9jcBK51eQnU2GAPRqu3",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "urn:li:glossaryTerm:break",
+          "session_id": "dps_89ee00a378de3f302c0060e17c67f3a3"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_016wE9jcBK51eQnU2GAPRqu3",
+        "text": "{\"found\":false,\"reference\":\"urn:li:glossaryTerm:break\",\"message\":\"no content found for this reference; it may be stale, not a recognized reference form, or outside what you can access\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "I read the runbook in full, then tried to reach the three documents it defers to (the severity standard, the triage guide, and the close calendar). This platform exposes only `platform_info`, `fetch`, and `list_connections` in this session — there is no search tool, `list_connections` returns nothing, and the runbook page carries no outbound references, so those documents could not be resolved from any reference I hold. The document below is grounded in the runbook and marks every point where the recorded material is silent rather than filling it in.\n\n---\n\n# Incident Handling Document — `ledger-reconcile` Nightly Job, Three Consecutive Failures\n\n**Applies to:** the nightly `ledger-reconcile` job\n**Trigger condition:** the scheduled run has failed on three consecutive nights\n**Source of authority:** Ledger Reconcile Job Runbook (`mcp:knowledge_page:kp_3936d884-a19e-471b-9671-a173824c1578`)\n**Audience:** the on-shift engineer holding the nightly batch shift\n**Status of this document:** executable for the parts the runbook governs; incomplete where the runbook delegates to documents not reachable from this platform (see §9)\n\n---\n\n## 1. What has happened, in the runbook's terms\n\nThe `ledger-reconcile` job compares the settled-invoice view against the general ledger extract and writes one row per discrepancy. A discrepancy is called a **break**.\n\nTwo distinct things can be wrong, and this document concerns only the second:\n\n| | What it is | How it is handled |\n|---|---|---|\n| **Break** | The job ran successfully and found a discrepancy between the two inputs | Expected in small numbers. Worked the next morning per the triage guide. **Not an incident.** |\n| **Failed run** | The job could not read one of its two inputs and did not complete | One failure retries automatically on the next schedule. Three consecutive failures open an incident. |\n\nDo not treat a run that produced many breaks as the trigger for this document. The trigger is three consecutive **failures of the job itself**.\n\nThe runbook states the usual cause of a failed run: **the ledger extract has not landed.** The close calendar — maintained beside the close periods — records when each extract is due.\n\n---\n\n## 2. What is opened, and at what severity\n\n**Open one incident, at severity band B.**\n\nThis is stated directly by the runbook: *\"Failures on three consecutive nights open a severity band B incident.\"*\n\nThe runbook also states *why* the band is B, and the reason should be carried into the incident description because it shapes the whole response: at three consecutive nights, **the reconciliation has not been proved for a full accounting period**, and the question is no longer whether the job runs. The incident is about unproved reconciliation coverage, not about a flaky scheduler.\n\n**Open exactly one incident** covering the three-night sequence, not one per failed night. The individual failures are the evidence; the incident is the unproved period.\n\n### Facts to establish and record at open time\n\nGather these before or immediately after opening — they are the working set for everything downstream:\n\n- The three business dates whose scheduled runs failed.\n- Which of the two inputs the job could not read on each night: the settled-invoice view, or the general ledger extract.\n- If the ledger extract is the missing input (the usual case per the runbook): what the close calendar gives as its due time, and how far past due it now is.\n- Whether the input has since landed — this determines whether a manual run is even possible (§5).\n- The accounting period the three dates fall in, and whether the period is still open.\n\n### Severity band B obligations\n\n\u003e **NOT RECORDED IN AVAILABLE MATERIAL.** The runbook is explicit that it does not define this: *\"What a band obliges, and how quickly, is set centrally in the severity standard rather than here.\"* The severity standard could not be retrieved through this platform. **Before acting on §3, §4, §6 or §8, obtain the severity standard and read band B's obligations from it.** Everything a band governs — response time targets, notification lists, escalation clocks, communication cadence, and required records — is defined there, and this document deliberately does not guess at any of it.\n\n---\n\n## 3. Who has to be told\n\n\u003e **NOT RECORDED IN AVAILABLE MATERIAL.** The notification list for a severity band B incident is part of what the severity standard sets centrally. The runbook names no roles, no rotas, and no distribution lists, and nothing else reachable from this platform supplies them.\n\nWhat the runbook does let the on-shift engineer establish about the *audience*, as input to reading the severity standard correctly:\n\n- The failure is a **finance-close-adjacent** condition, not merely a pipeline condition. The job compares against a general ledger extract, the close calendar sits beside the close periods, and the stated reason for band B is unproved reconciliation across an accounting period. Whoever owns the close is a materially affected party.\n- The **triage guide** owns the next-morning break-working process. Three nights with no successful run means no break rows were produced for those dates, so whoever works breaks each morning has been receiving nothing and needs to know why.\n- If the ledger extract is the missing input, its **producer** is the party who can actually clear the condition. The runbook does not name that producer; the close calendar records when the extract is due and is the closest recorded pointer to it.\n\n**Do not improvise a notification list.** Read it from the severity standard. If the severity standard cannot be reached at the moment of the incident, notify the close owner and the break-triage owner as an interim measure, record that you did so and that you did it without the standard, and correct the distribution as soon as the standard is available.\n\n---\n\n## 4. Escalation, and the clocks that run when nobody acknowledges\n\n\u003e **NOT RECORDED IN AVAILABLE MATERIAL.** This is the sharpest gap. The runbook sets the band and states that timing is *not* its concern — *\"what a band obliges, and how quickly, is set centrally in the severity standard.\"* Therefore:\n\u003e\n\u003e - the acknowledgement window for a band B incident,\n\u003e - the escalation path when that window passes unacknowledged,\n\u003e - each subsequent tier and the clock attached to it,\n\u003e - whether the clock is wall-clock or business-hours, and against which calendar,\n\u003e - and whether band B is ever auto-promoted to a higher band on repeated non-acknowledgement,\n\u003e\n\u003e are all defined in the severity standard and **must be read from it verbatim**. No timing figure appears anywhere in the available material, and none is supplied here.\n\nTwo things the on-shift engineer can hold as true while waiting on the standard:\n\n1. **The condition escalates on its own terms regardless of the clock.** Each further night without a successful scheduled run extends the unproved window that made this band B in the first place. If the incident is still open at the next scheduled run and that run also fails, that is new material information and belongs in the incident record and in the next update (§6) whether or not an escalation tier has been reached.\n2. **Escalation is not satisfied by a manual run.** Running the job by hand can make the data available, but it does not close the incident (§5, §7) and therefore does not stop an escalation clock. Do not treat \"I ran it manually and it worked\" as an acknowledgement or a resolution.\n\n---\n\n## 5. Working the incident while it is open\n\n### 5.1 Establish which input is missing\n\nThe job fails when it cannot read one of its two inputs. Determine which — the settled-invoice view or the general ledger extract — for each of the three nights. The runbook's stated usual case is that the ledger extract has not landed.\n\n### 5.2 Check the input against the close calendar\n\nIf the ledger extract is missing, consult the close calendar, maintained beside the close periods, for when that extract is due. This distinguishes an extract that is late from one that was never scheduled to land on those dates.\n\n\u003e **NOT RECORDED IN AVAILABLE MATERIAL.** The close calendar itself could not be retrieved through this platform, so this document cannot state the extract's due time or the close-period boundaries. Read them from the calendar at the time of the incident.\n\n### 5.3 Manual runs\n\nOnce the missing input has landed, **the job can be run by hand against a named business date.** Run it for each business date that the failed scheduled runs did not cover, so that the break rows for those dates exist and can be worked.\n\nThree constraints the runbook places on manual runs:\n\n- A manual run is scoped to **a named business date**. It is not a catch-up for a range; name each date.\n- A manual run requires the missing input to **have landed first**. Do not attempt one before then.\n- **A manual run does not clear an open incident.** This is stated explicitly. Do not close on the strength of a successful manual run.\n\n\u003e **NOT RECORDED IN AVAILABLE MATERIAL.** The runbook gives no command, entry point, parameter syntax, or authorization requirement for a manual run, and no guidance on running more than one business date concurrently or on re-running a date that has already produced rows. Obtain the invocation procedure from the job's operational tooling before running.\n\n### 5.4 Breaks produced by manual runs\n\nManual runs against the missed business dates will produce break rows. Breaks are worked the next morning per the triage guide — that path is unchanged by the incident, and this document does not alter it.\n\n\u003e **NOT RECORDED IN AVAILABLE MATERIAL.** The triage guide could not be retrieved. It is silent here whether a backlog of breaks arriving all at once from several backfilled dates is handled any differently from an ordinary morning's breaks, and whether break volume above some threshold is itself an escalation trigger. Confirm with the triage guide.\n\n---\n\n## 6. What is communicated while the incident is open\n\n\u003e **NOT RECORDED IN AVAILABLE MATERIAL.** Update cadence, format, and audience for a severity band B incident are part of what the severity standard sets centrally. Read them from it.\n\nWhat the recorded material determines the *content* of each update must cover, whatever the cadence turns out to be:\n\n- **Which business dates are unreconciled**, and therefore what span of the accounting period remains unproved. This is the substance of the incident and the reason for the band.\n- **Which input is missing** and, if it is the ledger extract, how it stands against its due time in the close calendar.\n- **Whether the missing input has landed yet**, since that gates every remedial step.\n- **Which missed business dates have been covered by manual runs**, stated explicitly as manual coverage — a reader must not be able to mistake a manual run for a recovered schedule.\n- **The state of the most recent scheduled run**, which is the only thing that can close the incident (§7).\n- **Whether break rows for the covered dates have reached the morning triage path.**\n\nA single distinction should be maintained in every communication, because the runbook turns on it: *the data being available* and *the schedule being recovered* are two different states, and only the second ends the incident.\n\n---\n\n## 7. What has to be true before it can be closed\n\nThe runbook gives one closure condition, and it is restrictive:\n\n\u003e **The incident closes on the evidence that the scheduled run has recovered — not on a successful manual one.**\n\nSo, to close:\n\n1. **A scheduled run of `ledger-reconcile` has completed successfully.** Not a manual run against a named business date, however many of those have succeeded.\n2. **That success is evidenced**, not asserted — the run record for the scheduled execution is attached to or cited by the incident.\n3. **The manual runs stand separately in the record.** They are remediation of the data gap; they are not the closure evidence, and the incident record must not present them as such.\n\n**Do not close** on any of the following, all of which the runbook rules out or leaves unproven:\n- a successful manual run for one or all of the missed business dates;\n- the missing input having landed, without a subsequent successful scheduled run;\n- break rows for the missed dates having been worked;\n- the accounting period having closed by other means.\n\n\u003e **NOT RECORDED IN AVAILABLE MATERIAL.** The runbook says \"the scheduled run has recovered\" without stating **how many** consecutive successful scheduled runs constitute recovery — one night, or several. Given that three consecutive failures are what opened it, a single green night is the minimum reading and may not be the intended one. **Resolve this against the severity standard or the job's owner before closing.** If it cannot be resolved at the time, hold the incident open until a second consecutive scheduled run succeeds and record that you applied the stricter reading and why.\n\n\u003e **NOT RECORDED IN AVAILABLE MATERIAL.** The runbook also does not state whether every missed business date must be reconciled — by manual run — before closure, or whether a recovered schedule alone suffices while the backfill continues under the morning triage path. The band's stated rationale (reconciliation unproved for a full accounting period) argues for completing the backfill before closure. Confirm this with the severity standard or the close owner; if unresolved, complete the backfill first and note the assumption in the record.\n\n\u003e **NOT RECORDED IN AVAILABLE MATERIAL.** Who is authorized to close a band B incident, and whether closure requires a sign-off distinct from the on-shift engineer, is not stated in the runbook.\n\n---\n\n## 8. What record the incident has to leave behind\n\n\u003e **NOT RECORDED IN AVAILABLE MATERIAL.** The required artifacts for a severity band B incident — whether a written review is mandatory, on what deadline, in what format, and who must sign it — are governed by the severity standard, which sets what a band obliges. The runbook does not enumerate them.\n\nThe recorded material nonetheless fixes what the record must be able to answer, and the on-shift engineer should capture the following as the incident runs rather than reconstructing it afterwards:\n\n- **The trigger, evidenced.** The three consecutive failed scheduled runs, with their dates and, for each, which of the two inputs could not be read.\n- **The band and its basis.** Severity band B, opened under the runbook's three-consecutive-nights rule, with the rationale that reconciliation was unproved for a full accounting period.\n- **The unproved span.** The exact business dates left without a reconciliation, and the accounting period they belong to.\n- **The cause.** Which input was missing, and — where the ledger extract was the missing input — how its actual landing time compared with the due time in the close calendar.\n- **Remediation, itemized and labelled as manual.** Each manual run, the named business date it covered, when it was run, and its outcome. These must be distinguishable in the record from scheduled runs.\n- **Closure evidence.** The successful **scheduled** run relied on for closure, identified specifically enough to be re-checked later.\n- **Break disposition.** That break rows for the recovered dates reached the morning triage path per the triage guide, and any unusual volume arising from batched backfill.\n- **Notifications and escalations actually performed**, with times — including, if applicable, that they were performed without the severity standard in hand and were later reconciled against it.\n- **Any assumption applied where this document is marked NOT RECORDED**, stated as an assumption, so the gap is visible to whoever reviews the incident and can be closed permanently.\n\n---\n\n## 9. Gaps that must be closed before this document is fully executable\n\nThis document is complete on the runbook's own subject matter and deliberately empty where the runbook defers elsewhere. Three referenced documents could not be retrieved from this platform, and they carry the following:\n\n| Referenced document | What it governs here | Sections blocked |\n|---|---|---|\n| **The severity standard** (named by the runbook as the central definition of what a band obliges and how quickly) | Response and acknowledgement times, notification list, escalation tiers and clocks, communication cadence and format, required record artifacts, closure authority | §2 (obligations), §3, §4, §6 (cadence), §7 (number of green runs), §8 |\n| **The close calendar** (maintained beside the close periods) | When each extract is due; close-period boundaries | §5.2, §6 (due-time reporting) |\n| **The triage guide** | How breaks are worked the next morning, including any backfilled batch | §5.4 |\n\nRetrieve all three and fold their content into the marked sections. Until the severity standard in particular is in hand, the on-shift engineer can correctly **open** the incident at band B and correctly **close** it on scheduled-run evidence, but cannot execute the notification, escalation, communication, or record-keeping obligations as written — those are not this runbook's to state, and none of them have been invented here."
+  }
+]

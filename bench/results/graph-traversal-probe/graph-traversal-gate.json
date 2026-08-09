@@ -1,0 +1,78 @@
+{
+  "ran_at": "2026-08-09T09:28:09.502808Z",
+  "results": [
+    {
+      "cell_id": "gt-d0-vacuum",
+      "depth": 0,
+      "query": "warehouse vacuum job row-count delta paging threshold",
+      "entry_surfaced": true,
+      "entry_rank": 1,
+      "answer_surfaced": true,
+      "answer_rank": 1,
+      "answer_in_hit_text": false,
+      "hits": [
+        "vacuum-runbook",
+        "vacuum-tuning-notes",
+        "paging-channel-directory",
+        "duty-manager-rota",
+        "duty-manager-matrix"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gt-d1-clickstream",
+      "depth": 1,
+      "query": "clickstream-raw export how long partitions are kept before purge",
+      "entry_surfaced": true,
+      "entry_rank": 1,
+      "answer_surfaced": false,
+      "answer_rank": 0,
+      "answer_in_hit_text": false,
+      "hits": [
+        "clickstream-export-runbook",
+        "collector-drain-runbook",
+        "export-delivery-expectations",
+        "raw-zone-layout",
+        "export-rerun-procedure"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gt-d2-billing",
+      "depth": 2,
+      "query": "billing-events stream schema change advance notice for consumers",
+      "entry_surfaced": true,
+      "entry_rank": 1,
+      "answer_surfaced": false,
+      "answer_rank": 0,
+      "answer_in_hit_text": false,
+      "hits": [
+        "billing-events-runbook",
+        "clickstream-schema-notes",
+        "change-announcement-channels",
+        "stream-onboarding-checklist",
+        "billing-events-field-guide"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gt-d3-ledger",
+      "depth": 3,
+      "query": "ledger-reconcile job failed three consecutive nights incident response",
+      "entry_surfaced": true,
+      "entry_rank": 2,
+      "answer_surfaced": false,
+      "answer_rank": 0,
+      "answer_in_hit_text": false,
+      "hits": [
+        "reconcile-failure-history",
+        "ledger-reconcile-runbook",
+        "overnight-failure-review",
+        "reconcile-manual-run",
+        "reconcile-break-triage"
+      ],
+      "pass": true
+    }
+  ],
+  "pass": true
+}

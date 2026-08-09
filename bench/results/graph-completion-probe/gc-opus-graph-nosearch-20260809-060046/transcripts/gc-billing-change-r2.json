@@ -1,0 +1,309 @@
+[
+  {
+    "role": "user",
+    "text": "The operating runbook for the billing-events stream is mcp:knowledge_page:kp_ecee26d9-1caf-441a-a4e2-80b789337129.\n\nWe want to add a new field to the billing-events stream's records. Write the complete change plan the stream's owner could execute as written: every step from proposal to the field being live, every approval the change needs, every rule that constrains when it can be applied, and everything the stream's consumers are owed along the way. Completeness matters more than brevity; the plan is the deliverable."
+  },
+  {
+    "role": "assistant",
+    "text": "I'll start by getting oriented on the platform, then read the runbook."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01G6fY514QzzXJaRMF4R6SDR",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:mcp__bench__platform_info,mcp__bench__list_connections,mcp__bench__fetch"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01G6fY514QzzXJaRMF4R6SDR",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01EtC5y6dmRuUBsziS7nnug1",
+        "name": "mcp__bench__platform_info",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01EtC5y6dmRuUBsziS7nnug1",
+        "text": "{\"name\":\"mcp-data-platform-bench-gt\",\"version\":\"v1.120.0-dirty\",\"session_id\":\"dps_64e3dcc242f94246ee55405c59ba90f7\",\"session_expires_at\":\"2026-08-09T21:08:21Z\",\"agent_instructions\":\"SESSION HANDLE: This call issued you session_id \\\"dps_64e3dcc242f94246ee55405c59ba90f7\\\". Pass it as the session_id argument on EVERY subsequent tool call. Tool calls without it are refused (SESSION_REQUIRED). Do not call platform_info again unless a call returns SESSION_EXPIRED.\\n\\nHow to operate this platform:\\n- Discover before you act. Call `search` first: one query reveals what is already known across every source you can reach (the data catalog, its context documents, your memory, captured insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and connections). The answer may span several sources, or may not be in the data warehouse at all, so do not assume a backend and do not stop at the first result.\\n- Reuse what is known. Treat `search` results as the starting point and read a result in full with `fetch` (pass the result's `reference`), or drill in with the scoped tool a result points to, rather than re-deriving an answer or re-asking the user for something already recorded.\\n\\nUploaded reference material:\\nResources are human-uploaded inputs an agent uses as-is: report templates, brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated outputs. Knowledge pages are curated facts to search and synthesize. Memory is per-user recall. If it existed before the conversation and the agent should use it verbatim, it is a resource.\\n- Before you format a deliverable, `search` for an applicable template or reference resource and follow it rather than inventing a layout.\\n- When the user names a company file (\\\"our template\\\", \\\"the checklist\\\", \\\"the brand header\\\"), resolve it with `search` and read it in full with `fetch` (pass the result's `reference`) instead of asking them to paste it.\\n- Material attached to a prompt is authoritative: use it as given rather than paraphrasing it or substituting your own.\",\"toolkits\":[\"platform\",\"mcp\",\"api\"],\"toolkit_descriptions\":{\"platform\":\"Core platform tools: deployment info, connection listing, and resource access.\"},\"persona\":{\"name\":\"admin\",\"display_name\":\"Bench Graph Traversal (GT)\"},\"prompts\":[{\"name\":\"knowledge_capture_guidance\",\"description\":\"Guidance on when and how to capture domain knowledge insights\",\"category\":\"toolkit\",\"content\":\"## Knowledge Capture Guidance\\n\\n### Default Behavior: Capture Proactively\\n\\nYou should capture knowledge automatically during normal conversation. Do not wait for the user to say \\\"capture this\\\" or \\\"remember that.\\\" When someone tells you a fact about their data, that is knowledge. Record it.\\n\\nUse memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.\\n\\nThe goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.\\n\\n### When to Capture an Insight\\n\\nUse memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:\\n\\n**Corrections**: The user corrects a column description, table purpose, or data interpretation.\\nExample: \\\"That column isn't actually revenue, it's gross margin before returns.\\\"\\n\\n**Business Context**: The user explains what data means in business terms not captured in metadata.\\nExample: \\\"We only count active subscriptions, not trial accounts, for MRR calculations.\\\"\\n\\n**Data Quality**: The user reports data quality issues or known limitations.\\nExample: \\\"The timestamps before March 2024 are in UTC but after that they switched to America/Chicago.\\\"\\n\\n**Usage Guidance**: The user shares tips on how to query or interpret data correctly.\\nExample: \\\"Always filter by status='active' on that table, otherwise you get duplicates from soft deletes.\\\"\\n\\n**Relationships**: The user explains connections between datasets not captured in lineage.\\nExample: \\\"The customer_id in orders joins to the legacy CRM export, not the new identity table.\\\"\\n\\n**Enhancements**: The user suggests improvements to existing documentation or metadata.\\nExample: \\\"It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT.\\\"\\n\\n### Agent-Discovered Insights\\n\\nYou can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:\\n\\n**source: \\\"agent_discovery\\\"** — Use when you figure something out yourself during exploration:\\n- Discovering what a column actually contains by sampling data (e.g., \\\"column 'amt' appears to be in cents, not dollars, based on value ranges\\\")\\n- Finding join relationships not documented in lineage (e.g., \\\"orders.cust_id matches customers.legacy_id, not customers.id\\\")\\n- Identifying data quality patterns through queries (e.g., \\\"ship_date is NULL for 23% of completed orders since 2024-06\\\")\\n- Determining refresh cadence by observing max timestamps across multiple queries\\n\\n**source: \\\"enrichment_gap\\\"** — Use when flagging metadata gaps that need admin attention:\\n- A table has no description and you cannot determine its purpose from the data alone\\n- Column descriptions are missing or clearly outdated\\n- Lineage is incomplete or contradicts what the data shows\\n- Tags or glossary terms are absent for datasets that clearly belong to a domain\\n\\n**source: \\\"user\\\"** (default) — Use for insights the user explicitly shares with you.\\n\\n### When to Ask the User Instead\\n\\nDo NOT guess when:\\n- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone\\n- Multiple interpretations of a column or table are equally plausible\\n- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)\\n\\nIn these cases, ask the user to clarify before capturing anything.\\n\\n### When NOT to Capture\\n\\nDo NOT capture insights for:\\n- Transient questions or debugging (\\\"why is my query slow?\\\")\\n- Personal preferences (\\\"I prefer using CTEs\\\")\\n- Information already present in the catalog metadata\\n- Vague or unverifiable claims without specific context\\n- Trivial observations that don't add catalog value\\n- Trivially obvious metadata gaps without adding what the data actually means\\n- Speculative interpretations you have not verified by querying the data\\n- The same gap repeatedly within a single session\\n\\n### Best Practices\\n\\n- Include specific entity URNs when the insight relates to known datasets\\n- Suggest concrete actions (add_tag, update_description) when applicable\\n- Set confidence to \\\"high\\\" only when the user is clearly authoritative\\n- For agent discoveries, set confidence based on evidence strength: \\\"high\\\" if verified by querying, \\\"medium\\\" if inferred from patterns, \\\"low\\\" if speculative\\n- Capture the insight promptly while context is fresh\\n- Use markdown formatting when it aids clarity: backticks for `column_name` and `table_name`, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.\"},{\"name\":\"knowledge_apply_guidance\",\"description\":\"How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"category\":\"toolkit\",\"content\":\"## Reviewing Insights into Durable Knowledge\\n\\nYou hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as \\\"review and apply knowledge.\\\") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.\\n\\n### The loop, and why knowledge matters\\n\\n- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.\\n- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.\\n- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.\\n\\nAlways discover before you apply: search existing memory, insights, and knowledge first.\\n\\n### The expert review workflow\\n\\n1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.\\n2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.\\n3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.\\n4. **Route to the right home.**\\n   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.\\n   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.\\n5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:\u003cid\u003e, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).\\n6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).\\n7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.\\n\\n### Structure knowledge as a navigable graph\\n\\nPrefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:\u003cid\u003e references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.\\n\\n### Routing examples\\n\\n- \\\"The amount column excludes returns\\\" applies to DataHub: update_description on that dataset column.\\n- \\\"We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning\\\" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.\\n- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.\\n- A broad \\\"retail operations\\\" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.\"},{\"name\":\"capture-this-as-knowledge\",\"description\":\"Record insights from this conversation for data catalog improvement\",\"category\":\"toolkit\",\"content\":\"Capture the key insights from this conversation as domain knowledge for the data catalog.\\n\\n1. Review our conversation for corrections, business context, data quality observations, or relationships discovered\\n2. Identify which datasets and columns the insights relate to\\n3. Record each insight with appropriate categorization and confidence level\\n4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)\"},{\"name\":\"save-this-as-an-asset\",\"description\":\"Save output from this conversation as a viewable, shareable asset\",\"category\":\"toolkit\",\"content\":\"Save the most recent output or analysis from this conversation as a shareable asset.\\n\\n1. Identify the key output from our conversation (dashboard, report, chart, or analysis)\\n2. Package it with an appropriate name, description, and tags\\n3. Save it as an asset so it can be viewed and shared\\n4. Return the link to the saved asset\"},{\"name\":\"show-my-saved-assets\",\"description\":\"Browse your saved assets\",\"category\":\"toolkit\",\"content\":\"List my saved assets.\\n\\n1. Retrieve all assets I have saved\\n2. Present them with names, descriptions, tags, and creation dates\\n3. Highlight the most recent items\"}],\"features\":{\"semantic_enrichment\":false,\"query_enrichment\":false,\"storage_enrichment\":false,\"audit_logging\":true,\"knowledge_capture\":false,\"managed_resources\":true},\"config_version\":{\"api_version\":\"v1\",\"supported_versions\":[\"v1\"],\"latest_version\":\"v1\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01L4og8n2RYX2mHaFbkUrnZG",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 3,
+          "query": "select:mcp__bench__search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01L4og8n2RYX2mHaFbkUrnZG",
+        "text": "No matching deferred tools found",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01FRBSj31fFncZzDHBUgFexU",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 10,
+          "query": "search discover knowledge pages catalog"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01FRBSj31fFncZzDHBUgFexU",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_017z9eR3wXPP5dsXHKPttGDX",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_ecee26d9-1caf-441a-a4e2-80b789337129",
+          "session_id": "dps_64e3dcc242f94246ee55405c59ba90f7"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_017z9eR3wXPP5dsXHKPttGDX",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_ecee26d9-1caf-441a-a4e2-80b789337129\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_ecee26d9-1caf-441a-a4e2-80b789337129\",\"source\":\"knowledge_pages\",\"title\":\"Billing Events Stream Runbook\",\"body\":\"# Billing Events Stream Runbook\\n\\nThe `billing-events` stream carries one record per billing state change:\\nsubscription created, plan moved, invoice settled, refund issued. Three services\\nproduce to it and every finance-facing report consumes it, directly or through\\nthe settled-invoice view.\\n\\n## Tiering\\n\\n`billing-events` is a **regulated-tier** stream. Regulated tier is not a\\nproperty of the payload, it is a property of what downstream consumers are\\nobliged to do with it, and it brings its own operating rules\\n(mcp:knowledge_page:kp_3ca1897f-da19-4659-9ca1-5dfecf17b34d). Those rules, not this runbook, decide how a\\nproposed change to the stream is announced and how long producers have to\\nprepare for it.\\n\\n## Replay\\n\\nThe stream retains fourteen days of records and can be replayed from any offset\\ninside that window. A replay is visible to consumers as duplicate keys, so a\\nconsumer that is not idempotent must be paused for the duration. The field\\nmeanings and the enumerations each field accepts are documented in\\nmcp:knowledge_page:kp_1e4d735a-d16d-4468-b297-b61ff566e20b.\\n\\n## Adding a producer\\n\\nA new producer is onboarded through the standard stream checklist\\n(mcp:knowledge_page:kp_d17373be-a7c0-480c-b4d5-ab43f9870250); the checklist covers the mechanics, not\\nthe notice a schema change owes its consumers.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_1e4d735a-d16d-4468-b297-b61ff566e20b\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_3ca1897f-da19-4659-9ca1-5dfecf17b34d\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_d17373be-a7c0-480c-b4d5-ab43f9870250\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0152tgd56hAQKcbxtyMzcrPe",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_3ca1897f-da19-4659-9ca1-5dfecf17b34d",
+          "session_id": "dps_64e3dcc242f94246ee55405c59ba90f7"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0152tgd56hAQKcbxtyMzcrPe",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_3ca1897f-da19-4659-9ca1-5dfecf17b34d\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_3ca1897f-da19-4659-9ca1-5dfecf17b34d\",\"source\":\"knowledge_pages\",\"title\":\"Regulated Tier Operating Rules\",\"body\":\"# Regulated Tier Operating Rules\\n\\nA stream enters the regulated tier when a downstream consumer is obliged to\\nreproduce its contents on demand. The tier is assigned by the data governance\\ngroup and reviewed annually.\\n\\n## What the tier obliges\\n\\n- **Retention floor.** A regulated stream keeps at least fourteen days of\\n  replayable records, regardless of the volume that implies.\\n- **Access review.** Every principal with read access is re-confirmed each\\n  quarter; an unconfirmed principal loses access at the review date rather than\\n  at a grace period after it.\\n- **Producer attestation.** Each producing service names an owner who attests,\\n  at onboarding and after any change, that the records it writes are complete.\\n\\n## Changes\\n\\n**Every regulated-tier stream is governed by change class CC-3.** The change\\nclass fixes how a proposed change is announced, who signs it off and how much\\nadvance notice consumers are owed; the classes are defined in\\nmcp:knowledge_page:kp_fb51a148-2fa5-4db6-a76b-217f70795075. A change that a stream owner believes needs\\nless notice than its class requires is a request to reclassify the stream, and\\nis handled by the governance group rather than by the owner.\\n\\nSchema mechanics, including how a compatible change is registered and how an\\nincompatible one is staged, are separate from the notice question and live in\\nmcp:knowledge_page:kp_e9d7352a-d775-4f9d-b325-c49b8d57ca2c.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_fb51a148-2fa5-4db6-a76b-217f70795075\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_e9d7352a-d775-4f9d-b325-c49b8d57ca2c\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01WuhyqbiXLXg25Jmve36sXs",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_d17373be-a7c0-480c-b4d5-ab43f9870250",
+          "session_id": "dps_64e3dcc242f94246ee55405c59ba90f7"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01WuhyqbiXLXg25Jmve36sXs",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_d17373be-a7c0-480c-b4d5-ab43f9870250\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_d17373be-a7c0-480c-b4d5-ab43f9870250\",\"source\":\"knowledge_pages\",\"title\":\"Stream Onboarding Checklist\",\"body\":\"# Stream Onboarding Checklist\\n\\n1. Register the producer's contract against the stream's current schema version.\\n2. Declare an expected throughput. The declaration sizes the partitions; a\\n   producer that exceeds its declaration by an order of magnitude is throttled\\n   rather than allowed to starve the others.\\n3. Wire a dead-letter destination. A producer with nowhere to put a rejected\\n   record will retry it forever.\\n4. Name an owner who can be paged.\\n5. Watch the first week. Most contract mismatches appear on the first weekend,\\n   when the traffic mix changes and fields that were always present stop being\\n   present.\\n\\nThe checklist covers putting a producer on a stream. It does not cover changing\\nwhat the stream carries.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01HsDQ45j3WJMd28XB5N7cAj",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_1e4d735a-d16d-4468-b297-b61ff566e20b",
+          "session_id": "dps_64e3dcc242f94246ee55405c59ba90f7"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01HsDQ45j3WJMd28XB5N7cAj",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_1e4d735a-d16d-4468-b297-b61ff566e20b\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_1e4d735a-d16d-4468-b297-b61ff566e20b\",\"source\":\"knowledge_pages\",\"title\":\"Billing Events Field Guide\",\"body\":\"# Billing Events Field Guide\\n\\n## State\\n\\nThe state field takes one of five values: created, activated, moved, settled,\\nrefunded. States are not ordered: a subscription can move several times between\\nactivation and settlement, and a refund can follow a settlement by months.\\n\\n## Money\\n\\nTwo money fields travel on each record, both integers in minor units, both in the\\naccount's own currency. There is no converted amount on the record; conversion is\\na reporting concern and is done against the rate table for the settlement date.\\n\\n## Refund-only fields\\n\\nThe reason code and the original reference are populated only on refunded\\nrecords. Treating an absent reason code as \\\"no reason given\\\" therefore\\nmisreports every non-refund record as a refund without a reason.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_019oswkC9LiboehVMZRMSkhJ",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_fb51a148-2fa5-4db6-a76b-217f70795075",
+          "session_id": "dps_64e3dcc242f94246ee55405c59ba90f7"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_019oswkC9LiboehVMZRMSkhJ",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_fb51a148-2fa5-4db6-a76b-217f70795075\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_fb51a148-2fa5-4db6-a76b-217f70795075\",\"source\":\"knowledge_pages\",\"title\":\"Change Class Reference\",\"body\":\"# Change Class Reference\\n\\nEvery interface the platform publishes carries a change class. The class is what\\ndecides the paperwork and the notice, so a change is planned from its class\\nrather than from its size.\\n\\n## Classes\\n\\n**CC-1 — local.** No published interface changes. The owning team signs it off\\nand no notice is owed.\\n\\n**CC-2 — additive.** A compatible addition to a published interface. The owning\\nteam signs it off and consumers are given two business days of advance notice.\\n\\n**CC-3 — governed.** A change to an interface whose consumers carry an\\nobligation of their own. Sign-off is the governance group's, and consumers are\\nowed **9 business days of advance notice** before the change is applied.\\n\\n**CC-4 — breaking.** A change that invalidates a published contract. Sign-off is\\nthe governance group's, consumers are owed a full quarter of notice, and the old\\ncontract runs in parallel until the last consumer has moved.\\n\\n**CC-5 — emergency.** A change applied ahead of its notice because leaving the\\ndefect in place is worse. Sign-off is the duty manager's and the notice is\\nreconstructed afterwards, with the reason recorded.\\n\\n## Counting the notice\\n\\nNotice is counted in business days from the announcement to the change window\\nopening, excluding the announcement day itself. A notice period that would end\\ninside a change freeze runs to the first business day after the freeze lifts.\\n\\nWhere an announcement goes out, and what it has to contain, is a channel\\nquestion rather than a class question (mcp:knowledge_page:kp_84131291-ec94-4399-8b06-1572353a474b).\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_84131291-ec94-4399-8b06-1572353a474b\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01AQP8Q9xtobuoPGs4sKb7NY",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_e9d7352a-d775-4f9d-b325-c49b8d57ca2c",
+          "session_id": "dps_64e3dcc242f94246ee55405c59ba90f7"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01AQP8Q9xtobuoPGs4sKb7NY",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_e9d7352a-d775-4f9d-b325-c49b8d57ca2c\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_e9d7352a-d775-4f9d-b325-c49b8d57ca2c\",\"source\":\"knowledge_pages\",\"title\":\"Schema Registry Operations\",\"body\":\"# Schema Registry Operations\\n\\nA schema version is registered before a producer writes it, and the registry\\nrefuses a version that is incompatible with the stream's declared compatibility\\nmode.\\n\\n## Staging an incompatible version\\n\\nAn incompatible version is staged rather than registered: the new version is\\nwritten to a shadow subject, consumers are moved across one at a time, and the\\nsubject is promoted once the last consumer reads the new version cleanly. The\\nstaging mechanics say nothing about when the change may happen; that is the\\nchange class's business.\\n\\n## Rollback\\n\\nA registered version is never deleted, only superseded. Rolling back means\\nregistering the previous definition as a new version, so the history reads\\nforward and a consumer that pinned a version still resolves it.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_014NgnDDrEbPu5aAzc8QDUo4",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_84131291-ec94-4399-8b06-1572353a474b",
+          "session_id": "dps_64e3dcc242f94246ee55405c59ba90f7"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_014NgnDDrEbPu5aAzc8QDUo4",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_84131291-ec94-4399-8b06-1572353a474b\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_84131291-ec94-4399-8b06-1572353a474b\",\"source\":\"knowledge_pages\",\"title\":\"Change Announcement Channels\",\"body\":\"# Change Announcement Channels\\n\\nAn announcement goes to three places at once: the platform mailing list, the\\nplatform channel, and the registry entry for the interface being changed. The\\nregistry entry is the authoritative one, because it is the only channel a\\nconsumer onboarded after the announcement will still see. Who the mailing\\nreaches is decided by the contracts registered against the interface\\n(mcp:knowledge_page:kp_1d8c460d-54fe-4272-bf5b-755fb6cc4afe).\\n\\nAn announcement contains what is changing, the window it will be applied in, who\\nsigned it off, and how a consumer says it is not ready. It does not contain a\\njustification: consumers act on the change, not on the reason for it.\\n\\nHow far ahead of the window an announcement has to go out is not a channel\\nquestion and is not set here.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_1d8c460d-54fe-4272-bf5b-755fb6cc4afe\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01QReEEXbZirypTefZJciGWj",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_1d8c460d-54fe-4272-bf5b-755fb6cc4afe",
+          "session_id": "dps_64e3dcc242f94246ee55405c59ba90f7"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01QReEEXbZirypTefZJciGWj",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_1d8c460d-54fe-4272-bf5b-755fb6cc4afe\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_1d8c460d-54fe-4272-bf5b-755fb6cc4afe\",\"source\":\"knowledge_pages\",\"title\":\"Consumer Contract Registry\",\"body\":\"# Consumer Contract Registry\\n\\nEvery consumer of a published stream registers a contract. The contract records\\nthe consuming service, the schema version it reads, an owner who can be reached,\\nand whether the consumer is idempotent.\\n\\nThe registry is what an announcement is sent to. A consumer that never\\nregistered is not announced to, which is the reason the registration is a\\ncondition of read access rather than a courtesy.\\n\\nContracts are re-confirmed when a consumer changes the version it reads.\\nA contract that has not been confirmed for a year is flagged in the quarterly\\nreview as a probable orphan; flagged contracts are confirmed or removed, never\\nleft flagged.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01VSMB4xx7GmUyKsh2N6h699",
+        "name": "mcp__bench__list_connections",
+        "args": {
+          "session_id": "dps_64e3dcc242f94246ee55405c59ba90f7"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01VSMB4xx7GmUyKsh2N6h699",
+        "text": "{\"connections\":[],\"count\":0}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "# Change Plan — Adding a Field to the `billing-events` Stream\n\n**Prepared for:** the `billing-events` stream owner\n**Grounded in:** Billing Events Stream Runbook (mcp:knowledge_page:kp_ecee26d9-1caf-441a-a4e2-80b789337129), Regulated Tier Operating Rules (mcp:knowledge_page:kp_3ca1897f-da19-4659-9ca1-5dfecf17b34d), Change Class Reference (mcp:knowledge_page:kp_fb51a148-2fa5-4db6-a76b-217f70795075), Change Announcement Channels (mcp:knowledge_page:kp_84131291-ec94-4399-8b06-1572353a474b), Consumer Contract Registry (mcp:knowledge_page:kp_1d8c460d-54fe-4272-bf5b-755fb6cc4afe), Schema Registry Operations (mcp:knowledge_page:kp_e9d7352a-d775-4f9d-b325-c49b8d57ca2c), Billing Events Field Guide (mcp:knowledge_page:kp_1e4d735a-d16d-4468-b297-b61ff566e20b), Stream Onboarding Checklist (mcp:knowledge_page:kp_d17373be-a7c0-480c-b4d5-ab43f9870250)\n\n---\n\n## 1. Classification — decide this first, because it fixes everything else\n\nPlan the change from its class, not from its size (Change Class Reference).\n\n`billing-events` is a **regulated-tier** stream (Runbook). **Every regulated-tier stream is governed by change class CC-3** (Regulated Tier Operating Rules). That is unconditional — it is a property of the stream, not of the change. So:\n\n| | |\n|---|---|\n| **Change class** | **CC-3 — governed** |\n| **Sign-off** | The **governance group's**. Not the owning team's. |\n| **Notice owed to consumers** | **9 business days** of advance notice before the change is applied |\n\n**Do not classify this as CC-2 (additive).** Adding a compatible field is materially an additive change, and CC-2 would allow the owning team to sign it off with two business days' notice — but CC-2 is not available to this stream. Regulated tier assigns CC-3 to every change to the stream. Regulated tier exists because downstream consumers are obliged to reproduce the stream's contents on demand; the notice protects that obligation regardless of how small the schema delta is.\n\n**If 9 business days is too long for you.** A change the owner believes needs less notice than its class requires is *a request to reclassify the stream*, and it is handled by the governance group, not by the owner (Regulated Tier Operating Rules). You cannot shorten the notice yourself, and you cannot shorten it by re-describing the change.\n\n**CC-5 (emergency) is not a route for this.** CC-5 covers a change applied ahead of its notice *because leaving the defect in place is worse* — it is signed off by the duty manager and the notice is reconstructed afterwards with the reason recorded. Adding a new field is not a defect being left in place. Do not plan for CC-5; if a genuine defect later forces it, that is a different change with a different sign-off.\n\n---\n\n## 2. Approvals the change needs\n\nThere are three distinct sign-off/attestation obligations. They are not interchangeable.\n\n1. **Governance group sign-off on the change (CC-3).** Required before the change is applied, and the signer must be named in the announcement (Change Announcement Channels). This is the approval that authorises the change.\n2. **Governance group decision, only if you are seeking different notice.** Any request for less notice than CC-3 requires is a reclassification request handled by the governance group.\n3. **Producer attestation, from each producing service, after the change.** Regulated tier requires each producing service to name an owner who attests, at onboarding **and after any change**, that the records it writes are complete. The Runbook records that **three services produce to `billing-events`**, so this change requires **three attestations** — one per producing service — covering the post-change record shape. The Runbook does not name the three services; identify them from the registered producer contracts before you start.\n\nThe available material does not record how a governance-group sign-off is requested, who sits on the group, what the group's turnaround is, or whether the attestations gate the change window or follow it. Treat those as things to confirm with the governance group before you set a date — they are not answerable from what is recorded here.\n\n---\n\n## 3. What the consumers are owed\n\n### 3.1 Notice — 9 business days, counted precisely\n\n- Notice is counted **in business days, from the announcement to the change window opening, excluding the announcement day itself** (Change Class Reference).\n- **A notice period that would end inside a change freeze runs to the first business day after the freeze lifts.** Check the freeze calendar before committing to a window. The available material states this rule but does not record the freeze calendar itself, so the concrete freeze dates must be obtained separately — this plan cannot compute a final date without them.\n- Worked example, subject to the freeze check: an announcement issued **Monday 10 August 2026** counts Tue 11, Wed 12, Thu 13, Fri 14, Mon 17, Tue 18, Wed 19, Thu 20, **Fri 21 August** as its nine business days. Whether the window may open on Fri 21 (the ninth counted day) or must wait for Mon 24 August (nine full business days having elapsed) is not settled by the rule as written; the conservative reading is **Monday 24 August 2026** at the earliest. The material also does not record a public-holiday calendar, so verify that none of those nine days is a non-business day.\n\n### 3.2 The announcement itself\n\nSend it to **three places at once** (Change Announcement Channels):\n\n1. The platform mailing list\n2. The platform channel\n3. **The registry entry for `billing-events`** — this is the **authoritative** channel, because it is the only one a consumer onboarded *after* the announcement will still see. Do not treat the mail and the channel post as sufficient on their own.\n\nWho the mailing reaches is decided by the contracts registered against the interface (Consumer Contract Registry). A consumer that never registered a contract is not announced to — that is by design and is why registration is a condition of read access. You are not obliged to hunt for unregistered readers, and you should not delay the change to accommodate one.\n\n**The announcement must contain exactly four things:**\n\n- What is changing\n- The window it will be applied in\n- Who signed it off\n- How a consumer says it is not ready\n\n**It must not contain a justification.** Consumers act on the change, not on the reason for it (Change Announcement Channels). Keep the business rationale in the governance sign-off material, out of the announcement.\n\nThe material does not record what happens *after* a consumer says it is not ready — whether that pauses the window, escalates to the governance group, or is simply logged. Agree that handling with the governance group when you obtain sign-off, and make sure the \"how to say you are not ready\" line in the announcement points at a route that actually exists.\n\n### 3.3 Documentation the consumers are owed\n\nThe new field must be documented the way the existing fields are, in the **Billing Events Field Guide** (mcp:knowledge_page:kp_1e4d735a-d16d-4468-b297-b61ff566e20b), which is the page the Runbook points consumers to for field meanings and the enumerations each field accepts. Before the change goes live, the guide must state:\n\n- The field's meaning and type.\n- Its enumeration, if it takes a fixed set of values.\n- **Which records populate it.** This is the highest-value item. The Field Guide's existing warning is that the reason code and original reference are populated only on `refunded` records, and that reading an absent reason code as \"no reason given\" misreports every non-refund record as a refund without a reason. If the new field is populated only on some of the five states (`created`, `activated`, `moved`, `settled`, `refunded`), say so explicitly and say what absence means — otherwise you reproduce exactly that class of misreport.\n- If the field carries money: the Field Guide records that money fields are integers in minor units in the account's own currency, with **no converted amount on the record** (conversion is a reporting concern, done against the rate table for the settlement date). A new money field must follow that convention, or the departure must be called out loudly.\n- Note that states are **not ordered** — a subscription can move several times between activation and settlement, and a refund can follow a settlement by months. If the new field's population depends on state sequence, that assumption is unsafe.\n\n---\n\n## 4. Schema mechanics\n\nSchema mechanics are separate from the notice question (Regulated Tier Operating Rules) and live in Schema Registry Operations. The mechanics say nothing about *when* the change may happen — that is the change class's business. Run them inside the approved window, not before it.\n\n**Rule that binds regardless of path:** a schema version is **registered before a producer writes it**. No producer may emit the new field ahead of registration.\n\n**Which path applies depends on the stream's declared compatibility mode.** The registry refuses a version that is incompatible with that mode. The available material does not record `billing-events`'s declared compatibility mode, so this plan cannot tell you in advance which path you are on. Look it up in the registry before you plan the window, because the two paths have very different shapes.\n\n**Path A — the new version is compatible with the declared mode.**\n1. Register the new schema version against the stream's subject.\n2. Producers move to the new version and begin writing the field.\n\n**Path B — the new version is incompatible with the declared mode.** It is **staged, not registered**:\n1. Write the new version to a **shadow subject**.\n2. Move consumers across **one at a time**.\n3. Promote the subject once the **last consumer reads the new version cleanly**.\n\nPath B's duration is driven by consumer readiness, not by your window; plan the window as the point staging *begins*, and expect promotion to trail it. Note also that a contract is re-confirmed when a consumer changes the version it reads (Consumer Contract Registry) — so every consumer you move in Path B owes a contract re-confirmation, and you should track that as the progress measure for \"the last consumer\".\n\n**Producer contracts.** The Stream Onboarding Checklist's step 1 — register the producer's contract against the stream's current schema version — is written for onboarding a producer, and the checklist explicitly does **not** cover changing what the stream carries. It therefore does not govern this change. But each of the three existing producers is on a contract registered against a schema version, so each producer's contract needs to be moved to the new version as part of the cutover, alongside its completeness attestation (§2.3).\n\n---\n\n## 5. Rollback\n\n**A registered version is never deleted, only superseded** (Schema Registry Operations). Rolling back means **registering the previous definition as a new version**, so the history reads forward and a consumer that pinned a version still resolves it.\n\nConsequences to build into the plan:\n\n- The rollback artefact is a *new* schema version containing the *old* definition. Have that definition captured and ready before the window opens.\n- Producers must stop writing the new field as part of the rollback; a rolled-back schema with producers still emitting the field leaves records the registered version does not describe.\n- Under Path B, rollback before promotion is cheaper: abandon the shadow subject and leave the live subject untouched.\n- The material does not state whether a rollback is itself a CC-classified change requiring its own notice. Confirm this with the governance group at sign-off rather than discovering it mid-incident. CC-5 (emergency, duty-manager sign-off, notice reconstructed afterwards with the reason recorded) is the shape that would fit a defect-driven rollback, but the material does not say so directly.\n\n---\n\n## 6. Backfill and replay — read this before promising historical coverage\n\nThe stream retains **fourteen days** of records and can be replayed from any offset inside that window (Runbook). Fourteen days is also the regulated-tier **retention floor** — at least fourteen days of replayable records, regardless of the volume that implies (Regulated Tier Operating Rules).\n\nIf anyone expects the new field to appear on records written before the change:\n\n- **A replay is visible to consumers as duplicate keys, and a consumer that is not idempotent must be paused for the duration** (Runbook). The Consumer Contract Registry records, per consumer, **whether the consumer is idempotent** — that field is how you build the pause list. Every non-idempotent consumer's named owner must be contacted and the consumer paused for the replay window.\n- Nothing in the available material describes a mechanism for adding a field to *already-written* records. Replay re-delivers existing records; it does not rewrite them. **Unless a producer re-emits corrected records, the new field will be absent on everything written before the cutover, and that absence is permanent beyond the fourteen-day window.** State this in the change proposal so no downstream report is built on an assumption of historical coverage, and make sure the Field Guide's \"what absence means\" wording covers pre-cutover records as well as records where the field legitimately does not apply.\n\n---\n\n## 7. Execution sequence\n\n| # | Step | Owner | Gate |\n|---|---|---|---|\n| 1 | Draft the field definition: name, type, meaning, enumeration, which of the five states populate it, what absence means, minor-units/currency convention if it is money. | Stream owner | — |\n| 2 | Look up the stream's **declared compatibility mode** in the schema registry; determine Path A or Path B (§4). | Stream owner | Determines window shape |\n| 3 | Pull the **consumer contract registry** for `billing-events`: consuming services, schema versions read, reachable owners, idempotency flags. This is the announcement audience and, for Path B, the migration list. | Stream owner | — |\n| 4 | Identify the **three producing services** and their named owners from the producer contracts. | Stream owner | Needed for §2.3 |\n| 5 | Check the **change freeze calendar** and the business-day calendar. | Stream owner | Determines the earliest window |\n| 6 | Take the change to the **governance group for CC-3 sign-off**, with the definition, the intended window, the compatibility path, and the rollback definition. | Governance group | **Blocking** |\n| 7 | **Issue the announcement** to all three channels simultaneously — mailing list, platform channel, and the registry entry for `billing-events`. Contents: what is changing, the window, who signed it off, how to say you are not ready. No justification. | Stream owner | Starts the notice clock |\n| 8 | Serve **9 business days** of notice, excluding the announcement day; extend past any freeze to the first business day after it lifts. Handle \"not ready\" responses through whatever route the announcement named. | — | **Blocking** |\n| 9 | Publish the updated **Billing Events Field Guide** entry so it is live no later than the change window. | Stream owner | — |\n| 10 | In the window: **Path A** — register the new schema version, then move producers onto it. **Path B** — write the new version to a shadow subject, move consumers across one at a time (re-confirming each contract as it changes version), promote when the last consumer reads it cleanly. | Stream owner | Registration precedes any producer write |\n| 11 | Collect the **producer attestation from each of the three producing services**, confirming the records it writes are complete under the new shape. | Producer owners | Regulated-tier requirement |\n| 12 | If a backfill/replay is in scope: pause every non-idempotent consumer per the registry, replay inside the fourteen-day window, resume. | Stream owner | See §6 caveats |\n| 13 | Confirm consumer contracts reflect the version each consumer now reads; feed any long-unconfirmed contracts into the quarterly review as probable orphans (confirmed or removed, never left flagged). | Stream owner | — |\n| 14 | Update the **Runbook** and the **Field Guide** to reflect the live state. | Stream owner | — |\n\n---\n\n## 8. Standing constraints that apply throughout\n\n- **Retention floor.** The stream must keep at least fourteen days of replayable records throughout, regardless of the volume the new field implies. Do not let a larger record shape erode retention.\n- **Quarterly access review.** Every principal with read access is re-confirmed each quarter, and an **unconfirmed principal loses access at the review date, not at a grace period after it**. If a review date falls inside your change window, a consumer you are mid-migration with can lose access on that date. Check the review calendar against your window.\n- **Contract registration is a condition of read access.** No exceptions for the duration of the change.\n- **Tier assignment.** Regulated tier is assigned by the data governance group and reviewed annually. It is not something this change alters or can route around.\n\n---\n\n## 9. What the available material does not answer\n\nThese are open, not omitted. Each needs an answer from outside the recorded material before the plan can be executed end to end:\n\n1. **The change freeze calendar and the business-day/holiday calendar.** The rule for freezes is recorded; the dates are not. Without them, no final window date can be fixed.\n2. **The stream's declared compatibility mode.** Determines Path A vs Path B in §4, and therefore the shape and duration of the whole cutover.\n3. **Whether the window may open on the ninth counted business day or the day after.** The counting rule does not settle the boundary; §3.1 takes the conservative reading.\n4. **How a governance-group CC-3 sign-off is requested, by whom it is granted, and how long it takes.** Not recorded anywhere in the material.\n5. **What happens when a consumer says it is not ready.** The announcement is required to say how a consumer raises this; the material does not say what the raise triggers.\n6. **The identities of the three producing services and the current consumer roster.** The Runbook states there are three producers and that every finance-facing report consumes the stream, directly or through the settled-invoice view; it names none of them. The producer and consumer contract registries are the source.\n7. **Whether producer attestations gate the change or follow it.** The tier rule says attestation happens \"after any change\" but does not make it a gate.\n8. **Whether a rollback carries its own change class and notice.**\n9. **Any mechanism for populating the new field on historical records.** Nothing in the material provides one; §6 assumes none exists.\n10. **Whether the settled-invoice view (named in the Runbook as an indirect consumption path) is itself a registered consumer or a separate interface with its own change class.** If it is a separate published interface, adding a field may require its own classification — that question is not resolved by any page read here."
+  }
+]

@@ -1099,6 +1099,104 @@ bench-pk-down:
 	done
 	@$(MAKE) e2e-down
 
+# --- Graph-traversal premise probe (issue #1241) -------------------------
+# One arm (bench/config/platform.bench.gt.yaml) and one seeded page corpus,
+# planted through the platform's own knowledge-page API by bench/graphprobe.
+# Its own database (mcp_bench_gt) keeps the corpus off every other study's
+# stack. Needs `ollama serve` with nomic-embed-text: page content is embedded
+# in chunks and search ranks a page by its best-matching chunk, so a run
+# without the provider would be reading a lexical-only search.
+BENCH_GT_CONFIG := bench/config/platform.bench.gt.yaml
+BENCH_GT_PLANT := build/bench-results/graph-completion-plant.json
+BENCH_GT_GATE := build/bench-results/graph-completion-gate.json
+BENCH_GT_KEYS ?= 64
+
+## bench-gt-up: Start Postgres + the platform on the graph-traversal probe arm (#1241)
+bench-gt-up:
+	@if [ "$(BENCH_PG)" = "skip" ]; then \
+		echo "Using external Postgres on 5432 (BENCH_PG=skip)..."; \
+	else \
+		echo "Starting Postgres..."; \
+		$(BENCH_COMPOSE) up -d postgres; \
+		for i in $$(seq 1 30); do \
+			if docker exec e2e-postgres pg_isready -U platform -d mcp_platform -q 2>/dev/null; then break; fi; \
+			sleep 1; \
+		done; \
+		docker exec e2e-postgres pg_isready -U platform -d mcp_platform -q || { echo "ERROR: Postgres not ready"; exit 1; }; \
+	fi
+	@docker exec $(BENCH_PG_CONTAINER) psql -U platform -d postgres -tc \
+		"SELECT 1 FROM pg_database WHERE datname='mcp_bench_gt'" 2>/dev/null | grep -q 1 \
+		|| docker exec $(BENCH_PG_CONTAINER) psql -U platform -d postgres -c "CREATE DATABASE mcp_bench_gt OWNER platform"
+	@echo "Building binaries..."
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-bench $(CMD_DIR)
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-graphprobe ./graphprobe
+	@if [ -f $(BENCH_PID) ]; then \
+		kill $$(cat $(BENCH_PID)) 2>/dev/null || true; \
+		while kill -0 $$(cat $(BENCH_PID)) 2>/dev/null; do sleep 1; done; \
+		rm -f $(BENCH_PID); \
+	fi
+	@if curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1; then \
+		echo "ERROR: something else is already serving $(BENCH_URL); run 'make bench-gt-down' first"; exit 1; fi
+	@echo "Starting platform ($(BENCH_GT_CONFIG)) on $(BENCH_ADDR)..."
+	@API_KEY_ADMIN=$(BENCH_KEY) LOG_LEVEL=info OTEL_METRICS_ADDR=$(BENCH_METRICS_ADDR) \
+		$(BUILD_DIR)/$(BINARY_NAME)-bench --config $(BENCH_GT_CONFIG) --transport http --address $(BENCH_ADDR) \
+		> $(BENCH_LOG) 2>&1 & echo $$! > $(BENCH_PID)
+	@for i in $$(seq 1 30); do \
+		if curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1; then break; fi; \
+		sleep 1; \
+	done; \
+	curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1 \
+		|| { echo "ERROR: platform did not become ready; see $(BENCH_LOG)"; tail -20 $(BENCH_LOG); exit 1; }
+	@echo "Graph-traversal probe stack ready."
+
+## bench-gt-plant: Plant the page corpus through the platform's knowledge-page API (#1241; STRIP=1 for the stripped arm)
+bench-gt-plant:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-graphprobe ./graphprobe
+	$(BUILD_DIR)/bench-graphprobe -mode plant -url $(BENCH_URL) -credential $(BENCH_KEY) -plant $(BENCH_GT_PLANT) \
+		$(if $(STRIP),-strip,)
+
+## bench-gt-reset: Delete the planted corpus so the other arm can be planted (#1241)
+bench-gt-reset:
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-graphprobe ./graphprobe
+	$(BUILD_DIR)/bench-graphprobe -mode reset -url $(BENCH_URL) -credential $(BENCH_KEY) -plant $(BENCH_GT_PLANT)
+
+## bench-gt-gate: Run the pre-stated sweep gate over search; non-zero on a leak (#1241)
+bench-gt-gate:
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-graphprobe ./graphprobe
+	$(BUILD_DIR)/bench-graphprobe -mode gate -url $(BENCH_URL) -credential $(BENCH_KEY) \
+		-plant $(BENCH_GT_PLANT) -gate $(BENCH_GT_GATE) -identity-keys $(BENCH_GT_KEYS)
+
+## bench-gt-run: Run the completion cells into a fresh per-run dir under build/bench-results/ (#1241; K=, MODEL=, NOSEARCH=1)
+bench-gt-run:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-graphprobe ./graphprobe
+	@arm=$$(grep -q '"stripped": true' $(BENCH_GT_PLANT) && echo stripped || echo graph); \
+	search=$(if $(NOSEARCH),nosearch,search); \
+	dir="build/bench-results/gc-$(if $(MODEL),$(MODEL),sonnet)-$$arm-$$search-$$(date +%Y%m%d-%H%M%S)"; \
+	mkdir -p $$dir; \
+	echo "Results dir: $$dir"; \
+	$(BUILD_DIR)/bench-graphprobe -mode run \
+		-url $(BENCH_URL) \
+		-credential $(BENCH_KEY) \
+		-plant $(BENCH_GT_PLANT) \
+		-gate $(BENCH_GT_GATE) \
+		-identity-keys $(BENCH_GT_KEYS) \
+		-git-commit $$(git rev-parse HEAD) \
+		-out $$dir \
+		$(if $(NOSEARCH),-no-search,) \
+		$(if $(K),-k $(K),) \
+		$(if $(MODEL),-model $(MODEL),)
+
+## bench-gt-down: Stop the graph-traversal probe stack (platform, compose)
+bench-gt-down:
+	@if [ -f $(BENCH_PID) ]; then \
+		kill $$(cat $(BENCH_PID)) 2>/dev/null || true; \
+		rm -f $(BENCH_PID); \
+	fi
+	@$(MAKE) e2e-down
+
 ## bench-api-down: Stop the API study stack (platform, epmcp, fixture service, compose)
 bench-api-down:
 	@for pid in $(BENCH_PID) $(BENCH_EPMCP_PID) $(BENCH_APISVC_PID); do \

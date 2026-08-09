@@ -1,0 +1,392 @@
+[gc-driver 04:58:06] stack up
+Starting Postgres...
+ Container e2e-postgres Running 
+Building binaries...
+go build -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=v1.120.0-dirty" -o ./build/mcp-data-platform-bench ./cmd/mcp-data-platform
+Starting platform (bench/config/platform.bench.gt.yaml) on :8098...
+Graph-traversal probe stack ready.
+[gc-driver 04:58:09] plant: graph arm
+./build/bench-graphprobe -mode plant -url http://localhost:8098 -credential bench-admin-key -plant build/bench-results/graph-completion-plant.json \
+		
+graphprobe: graphprobe: the knowledge store already holds 42 page(s); plant into an empty store so an episode cannot read a corpus from an earlier run
+make: *** [bench-gt-plant] Error 1
+[gc-driver 04:58:37] stack up
+Starting Postgres...
+ Container e2e-postgres Running 
+Building binaries...
+go build -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=v1.120.0-dirty" -o ./build/mcp-data-platform-bench ./cmd/mcp-data-platform
+Starting platform (bench/config/platform.bench.gt.yaml) on :8098...
+Graph-traversal probe stack ready.
+[gc-driver 04:58:41] plant: graph arm
+./build/bench-graphprobe -mode plant -url http://localhost:8098 -credential bench-admin-key -plant build/bench-results/graph-completion-plant.json \
+		
+planted 42 pages (graph arm); record written to build/bench-results/graph-completion-plant.json
+[gc-driver 04:58:42] waiting for 42 pages to embed (reconciler sweeps every 5 minutes)
+[gc-driver 04:58:42] embeddings ready (84 pages)
+[gc-driver 04:58:42] gate: graph arm
+./build/bench-graphprobe -mode gate -url http://localhost:8098 -credential bench-admin-key \
+		-plant build/bench-results/graph-completion-plant.json -gate build/bench-results/graph-completion-gate.json -identity-keys 64
+cell                   limit   entry  leaks   pass  constraint pages surfaced
+gc-billing-change          5       -      0   true  -
+                               query: billing-events stream add a field change plan
+gc-billing-change         25       -      0   true  -
+                               query: billing-events stream add a field change plan
+gc-billing-change        100       -      0   true  -
+                               query: billing-events stream add a field change plan
+gc-billing-change          5       -      0   true  -
+                               query: how is a change to a stream announced and approved
+gc-billing-change         25       -      0   true  -
+                               query: how is a change to a stream announced and approved
+gc-billing-change        100       -      0   true  -
+                               query: how is a change to a stream announced and approved
+gc-billing-change          5       -      0   true  -
+                               query: stream schema change process and what consumers are owed
+gc-billing-change         25       -      0   true  -
+                               query: stream schema change process and what consumers are owed
+gc-billing-change        100       -      0   true  -
+                               query: stream schema change process and what consumers are owed
+gc-incident                5       -      0   true  -
+                               query: ledger-reconcile job failed three consecutive nights what happens
+gc-incident               25       -      0   true  -
+                               query: ledger-reconcile job failed three consecutive nights what happens
+gc-incident              100       -      0   true  -
+                               query: ledger-reconcile job failed three consecutive nights what happens
+gc-incident                5       -      0   true  -
+                               query: incident severity and escalation process
+gc-incident               25       -      0   true  -
+                               query: incident severity and escalation process
+gc-incident              100       -      0   true  -
+                               query: incident severity and escalation process
+gc-incident                5       -      0   true  -
+                               query: how are incidents handled communicated and closed
+gc-incident               25       -      0   true  -
+                               query: how are incidents handled communicated and closed
+gc-incident              100       -      0   true  -
+                               query: how are incidents handled communicated and closed
+gc-export-onboarding       5       -      0   true  -
+                               query: new nightly export onboarding naming storage delivery
+gc-export-onboarding      25       -      0   true  -
+                               query: new nightly export onboarding naming storage delivery
+gc-export-onboarding     100       -      0   true  -
+                               query: new nightly export onboarding naming storage delivery
+gc-export-onboarding       5       -      0   true  -
+                               query: how are nightly exports operated and registered
+gc-export-onboarding      25       -      0   true  -
+                               query: how are nightly exports operated and registered
+gc-export-onboarding     100       -      0   true  -
+                               query: how are nightly exports operated and registered
+gc-export-onboarding       5       -      0   true  -
+                               query: export output lifetime and delivery expectations
+gc-export-onboarding      25       -      0   true  -
+                               query: export output lifetime and delivery expectations
+gc-export-onboarding     100       -      0   true  -
+                               query: export output lifetime and delivery expectations
+
+gate report written to build/bench-results/graph-completion-gate.json
+graphprobe: the sweep gate did not pass; re-author the leaking cell before running episodes
+make: *** [bench-gt-gate] Error 1
+[gc-driver 05:00:18] waiting for 42 live pages to embed (reconciler sweeps every 5 minutes)
+[gc-driver 05:03:51] embeddings ready (42 live pages)
+[gc-driver 05:03:51] gate: graph arm
+./build/bench-graphprobe -mode gate -url http://localhost:8098 -credential bench-admin-key \
+		-plant build/bench-results/graph-completion-plant.json -gate build/bench-results/graph-completion-gate.json -identity-keys 64
+cell                   limit   entry  leaks   pass  constraint pages surfaced
+gc-billing-change          5      #1      0   true  billing-events-runbook#1
+                               query: billing-events stream add a field change plan
+gc-billing-change         25      #1      0   true  billing-events-runbook#1 change-announcement-channels#3 change-class-reference#6 regulated-tier-rules#9 consumer-contract-registry#10 ledger-close-calendar#13
+                               query: billing-events stream add a field change plan
+gc-billing-change        100      #1      0   true  billing-events-runbook#1 change-announcement-channels#3 change-class-reference#6 regulated-tier-rules#9 consumer-contract-registry#10 ledger-close-calendar#13 schema-registry-operations#25
+                               query: billing-events stream add a field change plan
+gc-billing-change          5       -      0   true  change-announcement-channels#1 regulated-tier-rules#3
+                               query: how is a change to a stream announced and approved
+gc-billing-change         25      #5      0   true  change-announcement-channels#1 regulated-tier-rules#3 billing-events-runbook#5 change-class-reference#6 schema-registry-operations#8 consumer-contract-registry#9 ledger-close-calendar#19
+                               query: how is a change to a stream announced and approved
+gc-billing-change        100      #5      0   true  change-announcement-channels#1 regulated-tier-rules#3 billing-events-runbook#5 change-class-reference#6 schema-registry-operations#8 consumer-contract-registry#9 ledger-close-calendar#19
+                               query: how is a change to a stream announced and approved
+gc-billing-change          5       -      0   true  schema-registry-operations#1 consumer-contract-registry#2 change-class-reference#3
+                               query: stream schema change process and what consumers are owed
+gc-billing-change         25      #4      0   true  schema-registry-operations#1 consumer-contract-registry#2 change-class-reference#3 billing-events-runbook#4 change-announcement-channels#6 regulated-tier-rules#7
+                               query: stream schema change process and what consumers are owed
+gc-billing-change        100      #4      0   true  schema-registry-operations#1 consumer-contract-registry#2 change-class-reference#3 billing-events-runbook#4 change-announcement-channels#6 regulated-tier-rules#7 ledger-close-calendar#25
+                               query: stream schema change process and what consumers are owed
+gc-incident                5      #2      0   true  ledger-reconcile-runbook#2
+                               query: ledger-reconcile job failed three consecutive nights what happens
+gc-incident               25      #2      0   true  ledger-reconcile-runbook#2 reconcile-manual-run#4 duty-manager-matrix#11 incident-severity-bands#16 incident-open-and-close#17
+                               query: ledger-reconcile job failed three consecutive nights what happens
+gc-incident              100      #2      0   true  ledger-reconcile-runbook#2 reconcile-manual-run#4 duty-manager-matrix#11 incident-severity-bands#16 incident-open-and-close#17 escalation-ladders#21
+                               query: ledger-reconcile job failed three consecutive nights what happens
+gc-incident                5       -      0   true  incident-severity-bands#1 escalation-ladders#2 incident-communication-guide#3
+                               query: incident severity and escalation process
+gc-incident               25       -      0   true  incident-severity-bands#1 escalation-ladders#2 incident-communication-guide#3 incident-open-and-close#4 incident-postmortem-template#5 duty-manager-matrix#6 reconcile-manual-run#17 paging-channel-directory#20
+                               query: incident severity and escalation process
+gc-incident              100     #23      0   true  incident-severity-bands#1 escalation-ladders#2 incident-communication-guide#3 incident-open-and-close#4 incident-postmortem-template#5 duty-manager-matrix#6 reconcile-manual-run#17 paging-channel-directory#20 ledger-reconcile-runbook#23
+                               query: incident severity and escalation process
+gc-incident                5       -      0   true  incident-communication-guide#1 incident-open-and-close#2
+                               query: how are incidents handled communicated and closed
+gc-incident               25       -      0   true  incident-communication-guide#1 incident-open-and-close#2 incident-postmortem-template#3 incident-severity-bands#4 duty-manager-matrix#6 escalation-ladders#8 reconcile-manual-run#14 paging-channel-directory#15
+                               query: how are incidents handled communicated and closed
+gc-incident              100       -      0   true  incident-communication-guide#1 incident-open-and-close#2 incident-postmortem-template#3 incident-severity-bands#4 duty-manager-matrix#6 escalation-ladders#8 reconcile-manual-run#14 paging-channel-directory#15
+                               query: how are incidents handled communicated and closed
+gc-export-onboarding       5       -      0   true  export-naming-convention#1 export-delivery-expectations#2 export-rerun-procedure#3
+                               query: new nightly export onboarding naming storage delivery
+gc-export-onboarding      25      #5      0   true  export-naming-convention#1 export-delivery-expectations#2 export-rerun-procedure#3 batch-window-calendar#4 clickstream-export-runbook#5 raw-zone-layout#8 partition-compaction-notes#10 storage-class-register#14 collector-drain-runbook#17
+                               query: new nightly export onboarding naming storage delivery
+gc-export-onboarding     100      #5      0   true  export-naming-convention#1 export-delivery-expectations#2 export-rerun-procedure#3 batch-window-calendar#4 clickstream-export-runbook#5 raw-zone-layout#8 partition-compaction-notes#10 storage-class-register#14 collector-drain-runbook#17 egress-approval-policy#21 clickstream-schema-notes#24
+                               query: new nightly export onboarding naming storage delivery
+gc-export-onboarding       5       -      0   true  export-delivery-expectations#1 export-rerun-procedure#2 batch-window-calendar#3
+                               query: how are nightly exports operated and registered
+gc-export-onboarding      25      #5      0   true  export-delivery-expectations#1 export-rerun-procedure#2 batch-window-calendar#3 export-naming-convention#4 clickstream-export-runbook#5 collector-drain-runbook#14 raw-zone-layout#18
+                               query: how are nightly exports operated and registered
+gc-export-onboarding     100      #5      0   true  export-delivery-expectations#1 export-rerun-procedure#2 batch-window-calendar#3 export-naming-convention#4 clickstream-export-runbook#5 collector-drain-runbook#14 raw-zone-layout#18 egress-approval-policy#22
+                               query: how are nightly exports operated and registered
+gc-export-onboarding       5       -      0   true  export-delivery-expectations#1 export-rerun-procedure#2
+                               query: export output lifetime and delivery expectations
+gc-export-onboarding      25      #5      0   true  export-delivery-expectations#1 export-rerun-procedure#2 export-naming-convention#3 collector-drain-runbook#4 clickstream-export-runbook#5 raw-zone-layout#7 egress-approval-policy#8 partition-compaction-notes#12
+                               query: export output lifetime and delivery expectations
+gc-export-onboarding     100      #5      0   true  export-delivery-expectations#1 export-rerun-procedure#2 export-naming-convention#3 collector-drain-runbook#4 clickstream-export-runbook#5 raw-zone-layout#7 egress-approval-policy#8 partition-compaction-notes#12 clickstream-schema-notes#23
+                               query: export output lifetime and delivery expectations
+
+gate report written to build/bench-results/graph-completion-gate.json
+[gc-driver 05:03:54] runs: graph x search x haiku
+Results dir: build/bench-results/gc-haiku-graph-search-20260809-050354
+2026/08/09 05:03:55 INFO cell attempt cell=gc-billing-change arm=graph search=true replicate=1 seq=1
+2026/08/09 05:05:45 INFO cell attempt cell=gc-incident arm=graph search=true replicate=1 seq=2
+2026/08/09 05:06:42 INFO cell attempt cell=gc-export-onboarding arm=graph search=true replicate=1 seq=3
+2026/08/09 05:07:55 INFO cell attempt cell=gc-billing-change arm=graph search=true replicate=2 seq=4
+2026/08/09 05:09:17 INFO cell attempt cell=gc-incident arm=graph search=true replicate=2 seq=5
+2026/08/09 05:11:25 INFO cell attempt cell=gc-export-onboarding arm=graph search=true replicate=2 seq=6
+2026/08/09 05:12:45 INFO cell attempt cell=gc-billing-change arm=graph search=true replicate=3 seq=7
+2026/08/09 05:14:28 INFO cell attempt cell=gc-incident arm=graph search=true replicate=3 seq=8
+2026/08/09 05:16:44 INFO cell attempt cell=gc-export-onboarding arm=graph search=true replicate=3 seq=9
+
+arm=graph search=true model=haiku
+cell                     n   off-cov  off-grnd  unread   entry  searches   fetches  max-read max-trav  failed
+gc-billing-change        3      0.33      0.21       3    1.00        11         6         4       -1       0
+gc-incident              3      0.33      0.33       0    0.67        15         8         3       -1       0
+gc-export-onboarding     3      0.38      0.33       1    0.33        20         8         2       -1       0
+
+archive: build/bench-results/gc-haiku-graph-search-20260809-050354
+[gc-driver 05:18:16] runs: graph x search x opus
+Results dir: build/bench-results/gc-opus-graph-search-20260809-051816
+2026/08/09 05:18:16 INFO cell attempt cell=gc-billing-change arm=graph search=true replicate=1 seq=1
+2026/08/09 05:23:07 INFO cell attempt cell=gc-incident arm=graph search=true replicate=1 seq=2
+2026/08/09 05:26:39 INFO cell attempt cell=gc-export-onboarding arm=graph search=true replicate=1 seq=3
+2026/08/09 05:30:00 INFO cell attempt cell=gc-billing-change arm=graph search=true replicate=2 seq=4
+2026/08/09 05:33:20 INFO cell attempt cell=gc-incident arm=graph search=true replicate=2 seq=5
+2026/08/09 05:36:45 INFO cell attempt cell=gc-export-onboarding arm=graph search=true replicate=2 seq=6
+2026/08/09 05:40:18 INFO cell attempt cell=gc-billing-change arm=graph search=true replicate=3 seq=7
+2026/08/09 05:43:53 INFO cell attempt cell=gc-incident arm=graph search=true replicate=3 seq=8
+2026/08/09 05:48:00 INFO cell attempt cell=gc-export-onboarding arm=graph search=true replicate=3 seq=9
+
+arm=graph search=true model=opus
+cell                     n   off-cov  off-grnd  unread   entry  searches   fetches  max-read max-trav  failed
+gc-billing-change        3      1.00      1.00       0    1.00        16        56         4       -1       0
+gc-incident              3      1.00      1.00       0    1.00        10        57         3       -1       0
+gc-export-onboarding     3      0.95      0.95       0    1.00        13        58         2        1       0
+
+archive: build/bench-results/gc-opus-graph-search-20260809-051816
+[gc-driver 05:51:12] runs: graph x nosearch x haiku
+Results dir: build/bench-results/gc-haiku-graph-nosearch-20260809-055113
+2026/08/09 05:51:13 INFO cell attempt cell=gc-billing-change arm=graph search=false replicate=1 seq=1
+2026/08/09 05:52:36 INFO cell attempt cell=gc-incident arm=graph search=false replicate=1 seq=2
+2026/08/09 05:53:36 INFO cell attempt cell=gc-export-onboarding arm=graph search=false replicate=1 seq=3
+2026/08/09 05:54:17 INFO cell attempt cell=gc-billing-change arm=graph search=false replicate=2 seq=4
+2026/08/09 05:54:47 INFO cell attempt cell=gc-incident arm=graph search=false replicate=2 seq=5
+2026/08/09 05:56:17 INFO cell attempt cell=gc-export-onboarding arm=graph search=false replicate=2 seq=6
+2026/08/09 05:57:02 INFO cell attempt cell=gc-billing-change arm=graph search=false replicate=3 seq=7
+2026/08/09 05:57:28 INFO cell attempt cell=gc-incident arm=graph search=false replicate=3 seq=8
+2026/08/09 05:59:37 INFO cell attempt cell=gc-export-onboarding arm=graph search=false replicate=3 seq=9
+
+arm=graph search=false model=haiku
+cell                     n   off-cov  off-grnd  unread   entry  searches   fetches  max-read max-trav  failed
+gc-billing-change        3      0.25      0.25       0    0.33         0         8         4        4       0
+gc-incident              3      0.67      0.67       0    0.67         0        25         3        3       0
+gc-export-onboarding     3      0.33      0.33       0    0.17         0         8         2        2       0
+
+archive: build/bench-results/gc-haiku-graph-nosearch-20260809-055113
+[gc-driver 06:00:46] runs: graph x nosearch x opus
+Results dir: build/bench-results/gc-opus-graph-nosearch-20260809-060046
+2026/08/09 06:00:46 INFO cell attempt cell=gc-billing-change arm=graph search=false replicate=1 seq=1
+2026/08/09 06:03:19 INFO cell attempt cell=gc-incident arm=graph search=false replicate=1 seq=2
+2026/08/09 06:06:04 INFO cell attempt cell=gc-export-onboarding arm=graph search=false replicate=1 seq=3
+2026/08/09 06:08:15 INFO cell attempt cell=gc-billing-change arm=graph search=false replicate=2 seq=4
+2026/08/09 06:10:37 INFO cell attempt cell=gc-incident arm=graph search=false replicate=2 seq=5
+2026/08/09 06:13:51 INFO cell attempt cell=gc-export-onboarding arm=graph search=false replicate=2 seq=6
+2026/08/09 06:16:25 INFO cell attempt cell=gc-billing-change arm=graph search=false replicate=3 seq=7
+2026/08/09 06:18:50 INFO cell attempt cell=gc-incident arm=graph search=false replicate=3 seq=8
+2026/08/09 06:21:34 INFO cell attempt cell=gc-export-onboarding arm=graph search=false replicate=3 seq=9
+
+arm=graph search=false model=opus
+cell                     n   off-cov  off-grnd  unread   entry  searches   fetches  max-read max-trav  failed
+gc-billing-change        3      1.00      1.00       0    1.00         0        24         4        4       0
+gc-incident              3      0.96      0.96       0    1.00         0        33         3        3       0
+gc-export-onboarding     3      0.90      0.90       0    1.00         0        24         2        2       0
+
+archive: build/bench-results/gc-opus-graph-nosearch-20260809-060046
+[gc-driver 06:23:42] reset and replant: stripped arm
+./build/bench-graphprobe -mode reset -url http://localhost:8098 -credential bench-admin-key -plant build/bench-results/graph-completion-plant.json
+deleted 42 pages (graph arm)
+./build/bench-graphprobe -mode plant -url http://localhost:8098 -credential bench-admin-key -plant build/bench-results/graph-completion-plant.json \
+		-strip
+planted 42 pages (stripped arm); record written to build/bench-results/graph-completion-plant.json
+[gc-driver 06:23:43] waiting for 42 live pages to embed (reconciler sweeps every 5 minutes)
+[gc-driver 06:28:47] embeddings ready (42 live pages)
+[gc-driver 06:28:47] gate: stripped arm
+./build/bench-graphprobe -mode gate -url http://localhost:8098 -credential bench-admin-key \
+		-plant build/bench-results/graph-completion-plant.json -gate build/bench-results/graph-completion-gate.json -identity-keys 64
+cell                   limit   entry  leaks   pass  constraint pages surfaced
+gc-billing-change          5      #1      0   true  billing-events-runbook#1
+                               query: billing-events stream add a field change plan
+gc-billing-change         25      #1      0   true  billing-events-runbook#1 change-announcement-channels#3 change-class-reference#6 regulated-tier-rules#9 consumer-contract-registry#10 ledger-close-calendar#13
+                               query: billing-events stream add a field change plan
+gc-billing-change        100      #1      0   true  billing-events-runbook#1 change-announcement-channels#3 change-class-reference#6 regulated-tier-rules#9 consumer-contract-registry#10 ledger-close-calendar#13 schema-registry-operations#25
+                               query: billing-events stream add a field change plan
+gc-billing-change          5       -      0   true  change-announcement-channels#1 regulated-tier-rules#3
+                               query: how is a change to a stream announced and approved
+gc-billing-change         25      #5      0   true  change-announcement-channels#1 regulated-tier-rules#3 billing-events-runbook#5 change-class-reference#6 schema-registry-operations#8 consumer-contract-registry#9 ledger-close-calendar#20
+                               query: how is a change to a stream announced and approved
+gc-billing-change        100      #5      0   true  change-announcement-channels#1 regulated-tier-rules#3 billing-events-runbook#5 change-class-reference#6 schema-registry-operations#8 consumer-contract-registry#9 ledger-close-calendar#20
+                               query: how is a change to a stream announced and approved
+gc-billing-change          5       -      0   true  schema-registry-operations#1 consumer-contract-registry#2 change-class-reference#3
+                               query: stream schema change process and what consumers are owed
+gc-billing-change         25      #5      0   true  schema-registry-operations#1 consumer-contract-registry#2 change-class-reference#3 change-announcement-channels#4 billing-events-runbook#5 regulated-tier-rules#7
+                               query: stream schema change process and what consumers are owed
+gc-billing-change        100      #5      0   true  schema-registry-operations#1 consumer-contract-registry#2 change-class-reference#3 change-announcement-channels#4 billing-events-runbook#5 regulated-tier-rules#7
+                               query: stream schema change process and what consumers are owed
+gc-incident                5      #2      0   true  ledger-reconcile-runbook#2
+                               query: ledger-reconcile job failed three consecutive nights what happens
+gc-incident               25      #2      0   true  ledger-reconcile-runbook#2 reconcile-manual-run#4 duty-manager-matrix#10 incident-severity-bands#16 incident-open-and-close#17 escalation-ladders#19
+                               query: ledger-reconcile job failed three consecutive nights what happens
+gc-incident              100      #2      0   true  ledger-reconcile-runbook#2 reconcile-manual-run#4 duty-manager-matrix#10 incident-severity-bands#16 incident-open-and-close#17 escalation-ladders#19
+                               query: ledger-reconcile job failed three consecutive nights what happens
+gc-incident                5       -      0   true  incident-severity-bands#1 escalation-ladders#2 incident-communication-guide#3
+                               query: incident severity and escalation process
+gc-incident               25       -      0   true  incident-severity-bands#1 escalation-ladders#2 incident-communication-guide#3 incident-open-and-close#4 incident-postmortem-template#5 duty-manager-matrix#6 reconcile-manual-run#16 paging-channel-directory#20
+                               query: incident severity and escalation process
+gc-incident              100     #21      0   true  incident-severity-bands#1 escalation-ladders#2 incident-communication-guide#3 incident-open-and-close#4 incident-postmortem-template#5 duty-manager-matrix#6 reconcile-manual-run#16 paging-channel-directory#20 ledger-reconcile-runbook#21
+                               query: incident severity and escalation process
+gc-incident                5       -      0   true  incident-communication-guide#1 incident-open-and-close#2
+                               query: how are incidents handled communicated and closed
+gc-incident               25       -      0   true  incident-communication-guide#1 incident-open-and-close#2 incident-severity-bands#3 incident-postmortem-template#4 duty-manager-matrix#6 escalation-ladders#7 reconcile-manual-run#14 paging-channel-directory#15
+                               query: how are incidents handled communicated and closed
+gc-incident              100     #23      0   true  incident-communication-guide#1 incident-open-and-close#2 incident-severity-bands#3 incident-postmortem-template#4 duty-manager-matrix#6 escalation-ladders#7 reconcile-manual-run#14 paging-channel-directory#15 ledger-reconcile-runbook#23
+                               query: how are incidents handled communicated and closed
+gc-export-onboarding       5       -      0   true  export-naming-convention#1 export-delivery-expectations#2 export-rerun-procedure#3
+                               query: new nightly export onboarding naming storage delivery
+gc-export-onboarding      25      #4      0   true  export-naming-convention#1 export-delivery-expectations#2 export-rerun-procedure#3 clickstream-export-runbook#4 batch-window-calendar#5 raw-zone-layout#8 partition-compaction-notes#10 storage-class-register#14 collector-drain-runbook#17
+                               query: new nightly export onboarding naming storage delivery
+gc-export-onboarding     100      #4      0   true  export-naming-convention#1 export-delivery-expectations#2 export-rerun-procedure#3 clickstream-export-runbook#4 batch-window-calendar#5 raw-zone-layout#8 partition-compaction-notes#10 storage-class-register#14 collector-drain-runbook#17 egress-approval-policy#21
+                               query: new nightly export onboarding naming storage delivery
+gc-export-onboarding       5       -      0   true  export-delivery-expectations#1 export-rerun-procedure#2 batch-window-calendar#3
+                               query: how are nightly exports operated and registered
+gc-export-onboarding      25      #4      0   true  export-delivery-expectations#1 export-rerun-procedure#2 batch-window-calendar#3 clickstream-export-runbook#4 export-naming-convention#5 collector-drain-runbook#16 raw-zone-layout#18
+                               query: how are nightly exports operated and registered
+gc-export-onboarding     100      #4      0   true  export-delivery-expectations#1 export-rerun-procedure#2 batch-window-calendar#3 clickstream-export-runbook#4 export-naming-convention#5 collector-drain-runbook#16 raw-zone-layout#18 egress-approval-policy#22
+                               query: how are nightly exports operated and registered
+gc-export-onboarding       5       -      0   true  export-delivery-expectations#1 export-rerun-procedure#2
+                               query: export output lifetime and delivery expectations
+gc-export-onboarding      25      #4      0   true  export-delivery-expectations#1 export-rerun-procedure#2 export-naming-convention#3 clickstream-export-runbook#4 collector-drain-runbook#5 raw-zone-layout#7 egress-approval-policy#8 partition-compaction-notes#12
+                               query: export output lifetime and delivery expectations
+gc-export-onboarding     100      #4      0   true  export-delivery-expectations#1 export-rerun-procedure#2 export-naming-convention#3 clickstream-export-runbook#4 collector-drain-runbook#5 raw-zone-layout#7 egress-approval-policy#8 partition-compaction-notes#12 clickstream-schema-notes#25
+                               query: export output lifetime and delivery expectations
+
+gate report written to build/bench-results/graph-completion-gate.json
+[gc-driver 06:28:51] runs: stripped x search x haiku
+Results dir: build/bench-results/gc-haiku-stripped-search-20260809-062851
+2026/08/09 06:28:51 INFO cell attempt cell=gc-billing-change arm=stripped search=true replicate=1 seq=1
+2026/08/09 06:30:31 INFO cell attempt cell=gc-incident arm=stripped search=true replicate=1 seq=2
+2026/08/09 06:31:20 INFO cell attempt cell=gc-export-onboarding arm=stripped search=true replicate=1 seq=3
+2026/08/09 06:32:39 INFO cell attempt cell=gc-billing-change arm=stripped search=true replicate=2 seq=4
+2026/08/09 06:33:37 INFO cell attempt cell=gc-incident arm=stripped search=true replicate=2 seq=5
+2026/08/09 06:35:35 INFO cell attempt cell=gc-export-onboarding arm=stripped search=true replicate=2 seq=6
+2026/08/09 06:36:49 INFO cell attempt cell=gc-billing-change arm=stripped search=true replicate=3 seq=7
+2026/08/09 06:38:43 INFO cell attempt cell=gc-incident arm=stripped search=true replicate=3 seq=8
+2026/08/09 06:40:56 INFO cell attempt cell=gc-export-onboarding arm=stripped search=true replicate=3 seq=9
+
+arm=stripped search=true model=haiku
+cell                     n   off-cov  off-grnd  unread   entry  searches   fetches  max-read max-trav  failed
+gc-billing-change        3      0.00      0.00       0    1.00        22         0        -1       -1       0
+gc-incident              3      0.04      0.00       1    0.17        15         0        -1       -1       0
+gc-export-onboarding     3      0.43      0.33       2    0.33        19         9         2       -1       0
+
+archive: build/bench-results/gc-haiku-stripped-search-20260809-062851
+[gc-driver 06:42:24] runs: stripped x search x opus
+Results dir: build/bench-results/gc-opus-stripped-search-20260809-064224
+2026/08/09 06:42:24 INFO cell attempt cell=gc-billing-change arm=stripped search=true replicate=1 seq=1
+2026/08/09 06:47:34 INFO cell attempt cell=gc-incident arm=stripped search=true replicate=1 seq=2
+2026/08/09 06:51:56 INFO cell attempt cell=gc-export-onboarding arm=stripped search=true replicate=1 seq=3
+2026/08/09 06:55:58 INFO cell attempt cell=gc-billing-change arm=stripped search=true replicate=2 seq=4
+2026/08/09 07:01:07 INFO cell attempt cell=gc-incident arm=stripped search=true replicate=2 seq=5
+2026/08/09 07:04:49 INFO cell attempt cell=gc-export-onboarding arm=stripped search=true replicate=2 seq=6
+2026/08/09 07:08:34 INFO cell attempt cell=gc-billing-change arm=stripped search=true replicate=3 seq=7
+2026/08/09 07:13:27 INFO cell attempt cell=gc-incident arm=stripped search=true replicate=3 seq=8
+2026/08/09 07:16:13 INFO cell attempt cell=gc-export-onboarding arm=stripped search=true replicate=3 seq=9
+
+arm=stripped search=true model=opus
+cell                     n   off-cov  off-grnd  unread   entry  searches   fetches  max-read max-trav  failed
+gc-billing-change        3      1.00      1.00       0    1.00        16        70         4       -1       0
+gc-incident              3      1.00      1.00       0    1.00        14        57         3       -1       0
+gc-export-onboarding     3      1.00      1.00       0    1.00        14        63         2       -1       0
+
+archive: build/bench-results/gc-opus-stripped-search-20260809-064224
+[gc-driver 07:19:18] runs: stripped x nosearch x haiku
+Results dir: build/bench-results/gc-haiku-stripped-nosearch-20260809-071918
+2026/08/09 07:19:18 INFO cell attempt cell=gc-billing-change arm=stripped search=false replicate=1 seq=1
+2026/08/09 07:19:53 INFO cell attempt cell=gc-incident arm=stripped search=false replicate=1 seq=2
+2026/08/09 07:20:27 INFO cell attempt cell=gc-export-onboarding arm=stripped search=false replicate=1 seq=3
+2026/08/09 07:21:37 INFO cell attempt cell=gc-billing-change arm=stripped search=false replicate=2 seq=4
+2026/08/09 07:22:48 INFO cell attempt cell=gc-incident arm=stripped search=false replicate=2 seq=5
+2026/08/09 07:24:18 INFO cell attempt cell=gc-export-onboarding arm=stripped search=false replicate=2 seq=6
+2026/08/09 07:25:48 INFO cell attempt cell=gc-billing-change arm=stripped search=false replicate=3 seq=7
+2026/08/09 07:26:38 INFO cell attempt cell=gc-incident arm=stripped search=false replicate=3 seq=8
+2026/08/09 07:28:13 INFO cell attempt cell=gc-export-onboarding arm=stripped search=false replicate=3 seq=9
+
+arm=stripped search=false model=haiku
+cell                     n   off-cov  off-grnd  unread   entry  searches   fetches  max-read max-trav  failed
+gc-billing-change        3      0.00      0.00       0    0.67         0         3         0        0       0
+gc-incident              3      0.00      0.00       0    0.17         0         0        -1       -1       0
+gc-export-onboarding     3      0.05      0.00       1    0.50         0         3         0       -1       0
+
+archive: build/bench-results/gc-haiku-stripped-nosearch-20260809-071918
+[gc-driver 07:29:16] runs: stripped x nosearch x opus
+Results dir: build/bench-results/gc-opus-stripped-nosearch-20260809-072916
+2026/08/09 07:29:16 INFO cell attempt cell=gc-billing-change arm=stripped search=false replicate=1 seq=1
+2026/08/09 07:32:22 INFO cell attempt cell=gc-incident arm=stripped search=false replicate=1 seq=2
+2026/08/09 07:34:47 INFO cell attempt cell=gc-export-onboarding arm=stripped search=false replicate=1 seq=3
+2026/08/09 07:38:03 INFO cell attempt cell=gc-billing-change arm=stripped search=false replicate=2 seq=4
+2026/08/09 07:42:01 INFO cell attempt cell=gc-incident arm=stripped search=false replicate=2 seq=5
+2026/08/09 07:45:24 INFO cell attempt cell=gc-export-onboarding arm=stripped search=false replicate=2 seq=6
+2026/08/09 07:48:17 INFO cell attempt cell=gc-billing-change arm=stripped search=false replicate=3 seq=7
+2026/08/09 07:51:34 INFO cell attempt cell=gc-incident arm=stripped search=false replicate=3 seq=8
+2026/08/09 07:54:44 INFO cell attempt cell=gc-export-onboarding arm=stripped search=false replicate=3 seq=9
+
+arm=stripped search=false model=opus
+cell                     n   off-cov  off-grnd  unread   entry  searches   fetches  max-read max-trav  failed
+gc-billing-change        3      0.12      0.00       3    1.00         0        23         0        0       0
+gc-incident              3      0.12      0.00       3    1.00         0        17         0        0       0
+gc-export-onboarding     3      0.33      0.00       7    0.83         0        14         0        0       0
+
+archive: build/bench-results/gc-opus-stripped-nosearch-20260809-072916
+[gc-driver 07:58:09] stack down
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+ Container e2e-postgres Stopping 
+ Container e2e-trino Stopping 
+ Container e2e-seaweedfs Stopping 
+ Container e2e-postgres Stopped 
+ Container e2e-postgres Removing 
+ Container e2e-postgres Removed 
+ Container e2e-trino Stopped 
+ Container e2e-trino Removing 
+ Container e2e-trino Removed 
+ Container e2e-seaweedfs Stopped 
+ Container e2e-seaweedfs Removing 
+ Container e2e-seaweedfs Removed 
+ Volume mcp-data-platform-1027_postgres_data Removing 
+ Network mcp-data-platform-1027_e2e-network Removing 
+ Volume mcp-data-platform-1027_seaweedfs_data Removing 
+ Network mcp-data-platform-1027_e2e-network Removed 
+ Volume mcp-data-platform-1027_postgres_data Removed 
+ Volume mcp-data-platform-1027_seaweedfs_data Removed 
+E2E environment stopped.
+[gc-driver 07:58:12] DONE: all eight runs archived under build/bench-results/

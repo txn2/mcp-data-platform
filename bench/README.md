@@ -180,6 +180,28 @@ reachability have been read back; both refuse rather than report a state they
 could not verify. Planting writes to the stack, so run it against a database a
 measured run will not reuse without a reset.
 
+**Graph-completion probe** ([design](results/graph-completion-probe/graph-completion-design.md),
+[lookup-era archive](results/graph-traversal-probe/)) — a seeded page corpus
+on its own database, no Trino, DataHub, S3 or API fixture. Completion cells
+against a 2x2 of corpus arm (graph edges vs stripped prose mentions) and
+search condition (available vs client-disallowed). Needs `ollama serve` with
+`nomic-embed-text`, because page content is embedded in chunks and search
+ranks a page by its best-matching chunk:
+
+```bash
+make bench-gt-up                            # Postgres + platform on the gt arm
+make bench-gt-plant                         # plant the graph arm (STRIP=1 for the stripped arm)
+make bench-gt-gate                          # the pre-stated sweep gate; non-zero on a leak
+make bench-gt-run K=3 MODEL=opus            # search arm episodes
+make bench-gt-run K=3 MODEL=opus NOSEARCH=1 # no-search arm episodes
+make bench-gt-reset                         # delete the plant so the other arm can go in
+make bench-gt-down
+```
+
+`cd bench && go run ./graphprobe -mode table` prints the fixture with no stack
+at all, and `-mode reread -out <run dir>` recomputes an archived run's readings
+from its transcripts offline (both completion and lookup-era archives).
+
 Every run writes into its own timestamped directory under
 `build/bench-results/`, and the runners refuse an output path that already
 exists, so a re-run can never overwrite paid-for results.
@@ -240,7 +262,8 @@ bench/
 ├── pkcorpus/            capture-corpus runner CLI (knowledge use, stage 1)
 ├── pkrun/               cell runner CLI (knowledge use)
 ├── pollutionplant/      plant / remediate / attribution-table CLI (knowledge pollution)
-├── config/              arm profiles (a0/a1/a2/a3 and the pk profile)
+├── graphprobe/          fixture / plant / gate / run / reread CLI (graph-completion probe)
+├── config/              arm profiles (a0/a1/a2/a3, the pk profile, the gt probe profile)
 ├── seed/                generated seed artifacts (committed; bench-gen)
 ├── specs/               generated fixture OpenAPI specs + world/fixture data (committed; bench-api-gen)
 ├── tasks/               generated task YAML + smoke script (committed)
@@ -262,6 +285,8 @@ bench/
     ├── pkcell/          cells, derived correct behavior, ground truths, deterministic grading
     ├── pkrun/           cell runner: plant, move the world, ask, grade
     ├── pollutionplant/  knowledge pollution: treatments, cells, plant, remediation drivers
+    ├── graphfix/        graph-completion probe: the seeded page corpus, its completion cells, and their invariants
+    ├── graphprobe/      graph-completion probe: plant, sweep gate, episode runner, reading and coverage grading
     ├── task/            task schema, loader, task-set hash
     ├── protocol/        S5 lifecycle protocol schema, loader, protocol-set hash
     ├── curriculum/      cold-start curriculum schema, loader, curriculum-set hash
