@@ -234,9 +234,8 @@ func (c CompletionCell) checkSignature(k Constraint, raw string, re *regexp.Rege
 	if err := c.checkSignatureHolders(k, raw, re); err != nil {
 		return err
 	}
-	handed := slices.ContainsFunc(append([]string{c.Prompt, c.EntryIntro}, c.GateQueries...),
-		func(text string) bool { return re.MatchString(normalize(text)) })
-	if handed {
+	matches := func(text string) bool { return re.MatchString(normalize(text)) }
+	if matches(c.Prompt) || matches(c.EntryIntro) || slices.ContainsFunc(c.GateQueries, matches) {
 		return fmt.Errorf("graphfix: cell %q constraint %q pattern %q appears in the cell's own prompt, intro or gate queries", c.ID, k.ID, raw)
 	}
 	return nil
