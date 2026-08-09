@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/pkg/query"
 )
 
 // ErrNotFound is the fetch contract's sentinel for a reference that resolves to
@@ -50,6 +52,12 @@ type Document struct {
 	// EntityURNs are the catalog entities this content is about, when the source
 	// links any (a context document's related assets, a dataset's own URN).
 	EntityURNs []string `json:"entity_urns,omitempty"`
+	// Verifiable names the queryable table this content's claim could be settled
+	// against, when one of its linked entities resolves through a query provider
+	// (#1220). It is the fetched record's copy of the same marker search puts on a
+	// Hit, so a claim read in full is no less checkable than its snippet was. Nil
+	// whenever nothing resolved.
+	Verifiable *query.Verifiable `json:"verifiable,omitempty"`
 	// References are the outbound links this content declares: the other pages and
 	// entities it points to, as citable references a caller can fetch in turn (#705).
 	// A knowledge page populates these from its tracked entity references, so an agent

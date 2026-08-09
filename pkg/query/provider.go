@@ -27,6 +27,23 @@ type Provider interface {
 	Close() error
 }
 
+// LocationResolver is the optional capability of a Provider to answer WHERE a
+// catalog entity is queryable without also measuring HOW MUCH is in it.
+//
+// GetTableAvailability fills EstimatedRows with a COUNT(*) when the provider is
+// configured for it, which is unbounded work against the warehouse. A caller
+// that only needs the table and connection behind a URN — naming the query that
+// would settle a claim, rather than comparing a number against one — asks
+// through this instead, so an advisory answer on a request path never costs a
+// full scan. A provider that does not implement it is asked the ordinary way.
+type LocationResolver interface {
+	// ResolveLocation reports whether the entity is queryable and where, with
+	// EstimatedRows always nil. Its contract is otherwise GetTableAvailability's:
+	// an entity that cannot be resolved comes back Available=false with Error
+	// set, not as an error.
+	ResolveLocation(ctx context.Context, urn string) (*TableAvailability, error)
+}
+
 // Executor can execute queries against the query engine.
 type Executor interface {
 	// Execute runs a query and returns results.

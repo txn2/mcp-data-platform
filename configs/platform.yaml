@@ -431,6 +431,14 @@ tuning:
 #                                  # promotion to shared knowledge, so nothing touches live catalog
 #                                  # state directly, and are gated by the persona's memory_capture
 #                                  # grant. Set false to disable auto-capture entirely.
+#   verifiable_insights: true      # Mark a delivered insight as checkable (#1220). Default on. When
+#                                  # the catalog entity a claim is about resolves through the query
+#                                  # provider to an available table, every delivery surface (search
+#                                  # insight hits, fetch of mcp:insight:<id>, and the memory_context
+#                                  # enrichment block) carries a verifiable block naming that table
+#                                  # and its connection, so the claim arrives with the one query
+#                                  # that would settle it. Additive and absent whenever nothing
+#                                  # resolves; inert with no query provider. Set false to opt out.
 
 # Portal UI and branding
 # portal:

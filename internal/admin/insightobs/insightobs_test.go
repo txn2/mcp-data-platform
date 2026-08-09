@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/tableavail"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -193,11 +194,14 @@ func TestAnnotateObservesARepeatedEntityOnce(t *testing.T) {
 
 // One read must not turn a full page of insights into hundreds of describe and
 // count queries at once. The answered entities are remembered, so the next read
-// starts where this one stopped.
+// starts where this one stopped. The bound itself is tableavail's; what this
+// asserts is that the review path inherits it and that a partially resolved page
+// still annotates the insights that did resolve.
 func TestAnnotateBoundsLookupsPerRequest(t *testing.T) {
-	byURN := make(map[string]*query.TableAvailability, maxLookupsPerRequest*2)
-	insights := make([]knowledge.Insight, 0, maxLookupsPerRequest*2)
-	for i := range maxLookupsPerRequest * 2 {
+	const entities = 128
+	byURN := make(map[string]*query.TableAvailability, entities)
+	insights := make([]knowledge.Insight, 0, entities)
+	for i := range entities {
 		urn := fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.t%d,PROD)", i)
 		byURN[urn] = available(fmt.Sprintf("iceberg.retail.t%d", i), nil)
 		insights = append(insights, pending("claim", urn))
@@ -205,8 +209,6 @@ func TestAnnotateBoundsLookupsPerRequest(t *testing.T) {
 	p := &fakeProvider{byURN: byURN}
 	o := New(p)
 
-	first := o.Annotate(context.Background(), insights)
-	assert.Equal(t, int32(maxLookupsPerRequest), p.calls.Load())
 	observed := func(got [][]Observation) int {
 		n := 0
 		for _, entry := range got {
@@ -214,11 +216,14 @@ func TestAnnotateBoundsLookupsPerRequest(t *testing.T) {
 		}
 		return n
 	}
-	assert.Equal(t, maxLookupsPerRequest, observed(first))
+
+	first := o.Annotate(context.Background(), insights)
+	firstCalls := p.calls.Load()
+	assert.Less(t, firstCalls, int32(entities), "one read does not ask about the whole page")
+	assert.Equal(t, int(firstCalls), observed(first))
 
 	second := o.Annotate(context.Background(), insights)
-	assert.Equal(t, int32(maxLookupsPerRequest*2), p.calls.Load(), "the next read continues from the remembered answers")
-	assert.Equal(t, maxLookupsPerRequest*2, observed(second), "the page fills in over a refresh")
+	assert.Equal(t, entities, observed(second), "the page fills in over a refresh")
 }
 
 func TestAnnotateOrdersObservationsAsTheInsightCarriesThem(t *testing.T) {
@@ -241,8 +246,7 @@ func TestAnnotateExpiredBudgetObservesNothing(t *testing.T) {
 		byURN: map[string]*query.TableAvailability{ordersURN: available("iceberg.retail.orders", rows(1200))},
 		delay: time.Second,
 	}
-	o := New(p)
-	o.timeout = 5 * time.Millisecond
+	o := &Observer{avail: tableavail.NewWithOptions(p, tableavail.Options{Timeout: 5 * time.Millisecond})}
 
 	got := o.Annotate(context.Background(), []knowledge.Insight{pending("1140 rows", ordersURN)})
 
@@ -293,9 +297,6 @@ func TestAnnotateRemembersAnswersForTheTTL(t *testing.T) {
 
 			assert.Equal(t, tt.wantCalls, tt.provider.calls.Load())
 			assert.Equal(t, first[0], second[0], "a remembered answer reads the same as a fresh one")
-			if tt.remembers {
-				assert.Len(t, o.cache, 1)
-			}
 		})
 	}
 }
@@ -304,31 +305,20 @@ func TestAnnotateReAsksAfterTheTTL(t *testing.T) {
 	p := &fakeProvider{byURN: map[string]*query.TableAvailability{
 		ordersURN: available("iceberg.retail.orders", rows(1200)),
 	}}
+	const ttl = time.Minute
 	clock := time.Now()
-	o := New(p)
-	o.now = func() time.Time { return clock }
+	o := &Observer{avail: tableavail.NewWithOptions(p, tableavail.Options{
+		TTL: ttl,
+		Now: func() time.Time { return clock },
+	})}
 
 	insights := []knowledge.Insight{pending("claim", ordersURN)}
 	o.Annotate(context.Background(), insights)
-	clock = clock.Add(observeTTL + time.Second)
+	clock = clock.Add(ttl + time.Second)
 	got := o.Annotate(context.Background(), insights)
 
 	assert.Equal(t, int32(2), p.calls.Load(), "a stale answer is asked again")
 	assert.Len(t, got[0], 1)
-}
-
-func TestRememberStaysWithinItsBound(t *testing.T) {
-	o := New(&fakeProvider{})
-	answers := make(map[string]*query.TableAvailability, observeCacheMax)
-	for i := range observeCacheMax {
-		answers[fmt.Sprintf("urn-%d", i)] = nil
-	}
-
-	o.remember(answers)
-	require.Len(t, o.cache, observeCacheMax)
-	o.remember(map[string]*query.TableAvailability{"urn-overflow": nil})
-
-	assert.Len(t, o.cache, 1, "over the bound the cache is emptied, not grown")
 }
 
 func TestConflictMarker(t *testing.T) {

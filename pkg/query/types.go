@@ -28,6 +28,22 @@ type TableAvailability struct {
 	Error         string `json:"error,omitempty"`
 }
 
+// Verifiable is the queryable identity behind a delivered claim: the table one
+// query would settle the claim against, and the connection that table lives on.
+//
+// It is the delivery-side projection of TableAvailability, carrying only what a
+// consumer needs to check a claim for itself rather than take it on trust. URN
+// names which of a record's entities resolved, so a claim linked to several
+// entities is unambiguous about the one it can be checked against.
+//
+// It is only ever produced for an entity a query provider reported as available,
+// so its presence means "this can be checked here", not "this was checked".
+type Verifiable struct {
+	URN        string `json:"urn" example:"urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.orders,PROD)"`
+	QueryTable string `json:"query_table" example:"iceberg.retail.orders"`
+	Connection string `json:"connection,omitempty" example:"primary"`
+}
+
 // Example provides a sample query for a table.
 type Example struct {
 	Description string `json:"description"`

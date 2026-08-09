@@ -17,6 +17,31 @@ type Snippet struct {
 	Category   string    `json:"category"`
 	Confidence string    `json:"confidence"`
 	CreatedAt  time.Time `json:"created_at"`
+	// EntityURNs are the catalog entities the record is linked to. The recall is
+	// keyed by one entity at a time, but a record may name several, and the
+	// enrichment path resolves them to say which table would settle a pushed
+	// claim (#1220).
+	EntityURNs []string `json:"entity_urns,omitempty"`
+	// InsightStatus is the record's explicit review marker, empty when it
+	// carries none. The enrichment path reads it to decide whether the record
+	// can be handed out as a citable insight reference: only an applied insight
+	// is organization knowledge every identified caller may dereference.
+	InsightStatus string `json:"insight_status,omitempty"`
+}
+
+// InsightStatusOf returns a record's explicit review marker, or empty when it
+// carries none. insight_status is authoritative and legacy_status (migration
+// 000031) is its fallback, matching the precedence the entity-lookup gate
+// applies in SQL. A record with neither marker is deliberately NOT resolved to
+// the insight lens's "pending" default here: callers of this function ask what
+// the record explicitly claims about itself, not what a lens would assume.
+func InsightStatusOf(r Record) string {
+	for _, key := range []string{MetaKeyInsightStatus, MetaKeyLegacyStatus} {
+		if s, ok := r.Metadata[key].(string); ok && s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // MiddlewareAdapter implements memory recall for the cross-enrichment middleware.
@@ -54,12 +79,14 @@ func (a *MiddlewareAdapter) RecallForEntities(ctx context.Context, urns []string
 			}
 			seen[r.ID] = true
 			snippets = append(snippets, Snippet{
-				ID:         r.ID,
-				Content:    r.Content,
-				Dimension:  r.Dimension,
-				Category:   r.Category,
-				Confidence: r.Confidence,
-				CreatedAt:  r.CreatedAt,
+				ID:            r.ID,
+				Content:       r.Content,
+				Dimension:     r.Dimension,
+				Category:      r.Category,
+				Confidence:    r.Confidence,
+				CreatedAt:     r.CreatedAt,
+				EntityURNs:    r.EntityURNs,
+				InsightStatus: InsightStatusOf(r),
 			})
 			if len(snippets) >= limit {
 				return snippets, nil

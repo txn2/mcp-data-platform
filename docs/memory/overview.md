@@ -141,6 +141,10 @@ The existing bidirectional enrichment middleware automatically attaches relevant
 
 No explicit recall call is needed for this; it happens transparently on every enriched tool response.
 
+Each rendered record carries the canonical reference the agent fetches the full record by, in the namespace `fetch` actually resolves it from: `mcp:memory:<id>` for a memory, `mcp:insight:<id>` for a knowledge-dimension record. Because this push path is persona-scoped rather than caller-scoped, it delivers other people's records and cannot know whose, so only an *applied* insight is given a reference — `fetch` serves an insight to its capturer or, once applied, to everyone, and a record that fits neither case is delivered with no reference rather than one that answers not-found.
+
+An insight entry additionally carries a `verifiable` block naming the table and connection one query would settle its claim against, whenever the entity it is about resolves through the query provider — see [Knowledge: delivered insights say when they are checkable](../knowledge/overview.md#delivered-insights-say-when-they-are-checkable).
+
 ## Staleness Detection
 
 A background watcher periodically checks active memories against DataHub entity state. When a referenced entity is deprecated or its schema changes, the memory is flagged as `stale` with a reason. Stale memories are excluded from default recall and surfaced via `memory_manage(command='review_stale')` for admin curation.

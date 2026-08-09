@@ -19,6 +19,7 @@ internal/admin/connoauthapi -> pkg/pkcestore
 internal/admin/connoauthapi -> pkg/platform
 internal/admin/connoauthapi -> pkg/toolkits/apigateway
 internal/admin/connoauthapi -> pkg/toolkits/gateway
+internal/admin/insightobs -> internal/tableavail
 internal/admin/insightobs -> pkg/query
 internal/admin/insightobs -> pkg/toolkits/knowledge
 internal/admin/notifyapi -> internal/httpjson
@@ -159,6 +160,7 @@ internal/platform/memorylayer -> pkg/memory
 internal/platform/memorylayer -> pkg/middleware
 internal/platform/memorylayer -> pkg/portal/knowledgepage
 internal/platform/memorylayer -> pkg/semantic
+internal/platform/memorylayer -> pkg/toolkits/knowledge
 internal/platform/memorylayer -> pkg/toolkits/memory
 internal/platform/notifydelivery -> internal/logsan
 internal/platform/notifydelivery -> internal/notification/notifyprefs
@@ -212,6 +214,7 @@ internal/platform/reviewalert -> pkg/notification
 internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona
+internal/platform/searchfed -> internal/tableavail
 internal/platform/searchfed -> pkg/embedding
 internal/platform/searchfed -> pkg/knowledge
 internal/platform/searchfed -> pkg/knowledge/federation
@@ -219,6 +222,7 @@ internal/platform/searchfed -> pkg/memory
 internal/platform/searchfed -> pkg/portal
 internal/platform/searchfed -> pkg/portal/knowledgepage
 internal/platform/searchfed -> pkg/prompt
+internal/platform/searchfed -> pkg/query
 internal/platform/searchfed -> pkg/registry
 internal/platform/searchfed -> pkg/resource
 internal/platform/searchfed -> pkg/semantic
@@ -261,6 +265,7 @@ internal/portal/sharecache -> pkg/blobserve
 internal/portal/sharecache -> pkg/portal/shareaccess
 internal/portal/viewerlimit -> pkg/ratelimit
 internal/server -> pkg/platform
+internal/tableavail -> pkg/query
 pkg/admin -> internal/admin/auditapi
 pkg/admin -> internal/admin/catalogapi
 pkg/admin -> internal/admin/connoauthapi
@@ -322,6 +327,7 @@ pkg/connview -> pkg/portal/knowledgepage
 pkg/connview -> pkg/registry
 pkg/connview -> pkg/toolkit
 pkg/indexjobs -> pkg/embedding
+pkg/knowledge -> internal/tableavail
 pkg/knowledge -> pkg/contenttype
 pkg/knowledge -> pkg/embedding
 pkg/knowledge -> pkg/memory
@@ -329,6 +335,7 @@ pkg/knowledge -> pkg/portal
 pkg/knowledge -> pkg/portal/knowledgepage
 pkg/knowledge -> pkg/portal/threads
 pkg/knowledge -> pkg/prompt
+pkg/knowledge -> pkg/query
 pkg/knowledge -> pkg/resource
 pkg/knowledge -> pkg/semantic
 pkg/knowledge -> pkg/toolkits/knowledge
@@ -338,6 +345,7 @@ pkg/knowledge/federation -> pkg/toolkit
 pkg/knowledge/federation -> pkg/toolkits/apigateway
 pkg/memory -> pkg/semantic
 pkg/memory -> pkg/urnbuild
+pkg/middleware -> internal/tableavail
 pkg/middleware -> pkg/audit
 pkg/middleware -> pkg/contenttype
 pkg/middleware -> pkg/mcpcontext

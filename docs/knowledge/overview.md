@@ -112,6 +112,31 @@ Two properties follow from this:
 - No insight is public. Reaching applied insights requires an identified caller, so an anonymous visitor to a shared portal link never sees them.
 - Discovery does not depend on the sink. Before this boundary existed, an applied fact reached other people only if it happened to land on a knowledge page, or if a tool result named the dataset it hung off; a fact applied to the DataHub catalog on a table the agent was not already looking at had no search-time route to anyone but its capturer.
 
+### Delivered insights say when they are checkable
+
+An insight is a claim, and a delivered claim removes the consumer's reason to check it. When the platform can query the subject of a claim for itself, it says so: an insight whose linked catalog entity resolves to an available table is delivered with a `verifiable` block naming that table and the connection it lives on.
+
+```json
+{
+  "source": "insights",
+  "ref": "i-9f2c",
+  "text": "The orders table holds 1,140 rows for FY25.",
+  "reference": "mcp:insight:i-9f2c",
+  "entity_urns": ["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.orders,PROD)"],
+  "verifiable": {
+    "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.orders,PROD)",
+    "query_table": "iceberg.retail.orders",
+    "connection": "primary"
+  }
+}
+```
+
+The block appears on every surface that delivers an insight: `search` insight hits, the record `fetch` returns for `mcp:insight:<id>`, and the insight entries of the `memory_context` enrichment block pushed onto tool results. It says the claim's subject is one query away, not that the claim was checked — a claim linked to several entities names the first one that resolves.
+
+It is additive and absent whenever nothing resolves: an insight linked to no entity, an entity the query provider cannot see, and a deployment with no query provider all deliver exactly the payload they always did. A plain memory record never carries it — a note is not a claim about the warehouse. Turn it off with `knowledge.verifiable_insights: false`.
+
+The block is also topology, so it honors the persona connection boundary: an insight about a dataset on a connection your persona may not reach is still delivered (a colleague's conclusion about a warehouse you cannot query is exactly what shared knowledge is for), but with no `verifiable` block, and the platform never probes that connection on your behalf. Resolution asks only where an entity is queryable, never how many rows it holds, so the marker costs a catalog lookup rather than a `COUNT(*)` even where `enrichment.estimate_row_counts` is on; answers are remembered briefly, and a lookup that timed out or came back negative is retried much sooner than a positive one is refreshed.
+
 ### How much of a page is searchable
 
 All of it, at any size. A knowledge page's content (title, body, and tags) is embedded as a set of chunks rather than a single vector, each chunk sized to the embedding provider's per-text input budget (`memory.embedding.ollama.max_input_bytes`, default 6,000 bytes) and split on the page's own markdown section boundaries where it has them. Search ranks those chunks and scores each page by its best-matching one, so results stay page-granular while a fact buried at the end of a long runbook ranks its page exactly as a fact in the opening paragraph would. The same set of chunks backs the create-time near-duplicate gate, so a large page is compared in full rather than by its opening.
@@ -174,6 +199,7 @@ knowledge:
 | `knowledge.apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back |
 | `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
 | `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
+| `knowledge.verifiable_insights` | bool | `true` | Deliver a `verifiable` block on an insight whose linked entity resolves to a queryable table, on every delivery surface. Inert without a query provider; set `false` to deliver insights with no marker |
 
 !!! note "Prerequisites"
     Knowledge capture requires `database.dsn` to be configured for PostgreSQL storage. Because capture now lives in the memory toolkit (`memory_capture`), it also requires the memory layer enabled. Memory defaults on when a database is configured; setting `memory.enabled: false` disables capture. The `apply_knowledge` tool requires the admin persona.

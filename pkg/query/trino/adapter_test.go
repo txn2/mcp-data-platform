@@ -279,6 +279,62 @@ func TestGetTableAvailability_RowCountsDisabled(t *testing.T) {
 	}
 }
 
+// ResolveLocation answers where an entity is queryable without ever measuring
+// it, even on an adapter configured to estimate row counts. A request-path
+// caller that reads only the table and connection would otherwise pay for a
+// COUNT(*) full scan per entity and throw the number away (#1220).
+func TestResolveLocation_NeverCounts(t *testing.T) {
+	ctx := context.Background()
+	queryCalled := false
+	mock := &mockTrinoClient{
+		describeTableFunc: func(_ context.Context, _, _, _ string) (*trinoclient.TableInfo, error) {
+			return &trinoclient.TableInfo{Name: "test_table"}, nil
+		},
+		queryFunc: func(_ context.Context, _ string, _ trinoclient.QueryOptions) (*trinoclient.QueryResult, error) {
+			queryCalled = true
+			return &trinoclient.QueryResult{
+				Rows: []map[string]any{{"_col0": int64(adapterTestRowCount100)}},
+			}, nil
+		},
+	}
+	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test", EstimateRowCounts: true}, mock)
+
+	result, err := adapter.ResolveLocation(ctx, "urn:li:dataset:(urn:li:dataPlatform:trino,schema.table,PROD)")
+	if err != nil {
+		t.Fatalf(adapterTestUnexpectedErr, err)
+	}
+	if !result.Available || result.QueryTable == "" || result.Connection != "test" {
+		t.Errorf("expected a located table, got %+v", result)
+	}
+	if result.EstimatedRows != nil {
+		t.Errorf("expected no row estimate, got %d", *result.EstimatedRows)
+	}
+	if queryCalled {
+		t.Error("ResolveLocation must not run COUNT(*), even with EstimateRowCounts enabled")
+	}
+}
+
+// A table the adapter cannot resolve is an unavailable answer on this path too,
+// not an error — the contract tableavail relies on to tell "not available" from
+// "no answer".
+func TestResolveLocation_NotExists(t *testing.T) {
+	mock := &mockTrinoClient{
+		describeTableFunc: func(_ context.Context, _, _, _ string) (*trinoclient.TableInfo, error) {
+			return nil, errors.New("table not found")
+		},
+	}
+	adapter, _ := NewWithClient(Config{Catalog: "hive", ConnectionName: "test"}, mock)
+
+	result, err := adapter.ResolveLocation(context.Background(),
+		"urn:li:dataset:(urn:li:dataPlatform:trino,schema.gone,PROD)")
+	if err != nil {
+		t.Fatalf(adapterTestUnexpectedErr, err)
+	}
+	if result.Available || result.Error == "" {
+		t.Errorf("expected an unavailable answer carrying the reason, got %+v", result)
+	}
+}
+
 func TestGetTableAvailability_NotExists(t *testing.T) {
 	ctx := context.Background()
 	mock := &mockTrinoClient{

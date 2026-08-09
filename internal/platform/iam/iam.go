@@ -1,6 +1,8 @@
 // Package iam builds the platform's authentication and authorization identity
-// layer: the authenticator chain (NewIdentity) and the persona authorizer
-// (NewAuthorizer).
+// layer: the authenticator chain (NewIdentity), the persona authorizer
+// (NewAuthorizer), and the role-to-persona membership resolver
+// (PersonasForRoles) that persona-scoped surfaces read a caller's memberships
+// through.
 //
 // Constructors take an explicit Input rather than the platform config, so the
 // layer can be built and tested on its own. The package must not import
@@ -10,11 +12,31 @@ package iam
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
+
+// PersonasForRoles returns the resolver that answers which personas a caller
+// BELONGS TO, given their roles. It is distinct from the single resolved persona
+// a request acts as: surfaces whose visibility rule is membership (managed
+// resources, prompt completion, discovery) scope on this set.
+func PersonasForRoles(pr *persona.Registry) middleware.PersonasForRoles {
+	return func(roles []string) []string {
+		var names []string
+		for _, per := range pr.All() {
+			for _, r := range per.Roles {
+				if slices.Contains(roles, r) {
+					names = append(names, per.Name)
+					break
+				}
+			}
+		}
+		return names
+	}
+}
 
 // Input holds the values NewIdentity and NewAuthorizer need. Callers build it
 // from their own config, keeping platform config types out of this package.

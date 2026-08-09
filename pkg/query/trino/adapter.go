@@ -175,8 +175,24 @@ func (a *Adapter) ResolveTable(_ context.Context, urn string) (*query.TableIdent
 	}
 }
 
-// GetTableAvailability checks if a table is queryable.
+// GetTableAvailability checks if a table is queryable, estimating its row count
+// when the adapter is configured to.
 func (a *Adapter) GetTableAvailability(ctx context.Context, urn string) (*query.TableAvailability, error) {
+	return a.availability(ctx, urn, a.cfg.EstimateRowCounts)
+}
+
+// ResolveLocation checks if a table is queryable without ever estimating its row
+// count, implementing query.LocationResolver for callers that need only the
+// table and connection behind a URN (an advisory marker on a request path) and
+// must not pay for a COUNT(*) to get them.
+func (a *Adapter) ResolveLocation(ctx context.Context, urn string) (*query.TableAvailability, error) {
+	return a.availability(ctx, urn, false)
+}
+
+// availability resolves and verifies the table behind urn, optionally measuring
+// it. A resolve or describe failure means "not available", not a system
+// failure, so it comes back as an unavailable answer rather than an error.
+func (a *Adapter) availability(ctx context.Context, urn string, estimate bool) (*query.TableAvailability, error) {
 	table, err := a.ResolveTable(ctx, urn)
 	if err != nil {
 		return &query.TableAvailability{ //nolint:nilerr // availability check: resolve errors mean "not available", not a system failure
@@ -197,7 +213,7 @@ func (a *Adapter) GetTableAvailability(ctx context.Context, urn string) (*query.
 	// Optionally estimate row count via COUNT(*). Disabled by default
 	// because COUNT(*) can trigger full table scans on large tables.
 	var estimatedRows *int64
-	if a.cfg.EstimateRowCounts {
+	if estimate {
 		estimatedRows = a.estimateRowCount(ctx, table)
 	}
 

@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/tableavail"
+	"github.com/txn2/mcp-data-platform/pkg/query"
 )
 
 // defaultMemoryEnrichmentLimit is the number of memories to inject per tool call.
@@ -28,6 +31,16 @@ type MemoryProvider interface {
 	RecallForEntities(ctx context.Context, urns []string, persona string, limit int) ([]MemorySnippet, error)
 }
 
+// EntityVerifier resolves entity URNs to the queryable table behind them, so a
+// pushed insight can name the one query that would settle its claim (#1220). It
+// is declared here (rather than imported) so the middleware depends on the
+// capability, not on the query provider or the cache in front of it.
+type EntityVerifier interface {
+	// Verifiables returns the queryable identity of each URN that resolves,
+	// keyed by URN. URNs that do not resolve are absent from the result.
+	Verifiables(ctx context.Context, urns []string) map[string]query.Verifiable
+}
+
 // MemorySnippet is a lightweight memory representation for cross-enrichment.
 type MemorySnippet struct {
 	ID string `json:"id"`
@@ -41,6 +54,15 @@ type MemorySnippet struct {
 	Category   string    `json:"category"`
 	Confidence string    `json:"confidence"`
 	CreatedAt  time.Time `json:"created_at"`
+	// EntityURNs are the catalog entities this record is about. They are what a
+	// checkable record is resolved against, so the enrichment can say which table
+	// would settle its claim (#1220).
+	EntityURNs []string `json:"entity_urns,omitempty"`
+	// Insight marks a record that is a captured insight rather than a plain
+	// memory: a reviewed claim about the warehouse, which is the delivery the
+	// verification marker is for. The provider decides it (it knows the record's
+	// dimension), so this layer needs no dimension vocabulary of its own.
+	Insight bool `json:"insight,omitempty"`
 }
 
 // memoryStub is the reference-only form of a budget-omitted record: enough for
@@ -65,6 +87,11 @@ type renderedMemory struct {
 	Category   string    `json:"category,omitempty"`
 	Confidence string    `json:"confidence,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
+	// Verifiable names the table an insight's claim could be settled against,
+	// when its entity resolves through the query provider (#1220). A pushed claim
+	// otherwise reads as something to accept; this says it is one query away. Nil
+	// for plain memory records, and whenever nothing resolved.
+	Verifiable *query.Verifiable `json:"verifiable,omitempty"`
 }
 
 // enrichWithMemories appends memory context to a tool call result.
@@ -96,7 +123,30 @@ func enrichWithMemories(ctx context.Context, mp MemoryProvider, result *mcp.Call
 		return result
 	}
 
-	return appendMemoryContextBlock(result, memories, cfg)
+	return appendMemoryContextBlock(result, memories, verifiablesFor(ctx, cfg.InsightVerifier, memories), cfg)
+}
+
+// verifiablesFor resolves, in one pass for the whole recalled set, the queryable
+// table behind each entity a recalled insight is linked to (#1220). Only insight
+// records are resolved: a plain memory is a note, not a claim about the
+// warehouse that a query would settle. A nil verifier (no query provider, or the
+// operator opted out) resolves nothing, leaving every rendered record unchanged.
+func verifiablesFor(ctx context.Context, v EntityVerifier, memories []MemorySnippet) map[string]query.Verifiable {
+	if v == nil {
+		return nil
+	}
+	sets := make([][]string, 0, len(memories))
+	for _, m := range memories {
+		if !m.Insight {
+			continue
+		}
+		sets = append(sets, m.EntityURNs)
+	}
+	urns := tableavail.Distinct(sets...)
+	if len(urns) == 0 {
+		return nil
+	}
+	return v.Verifiables(ctx, urns)
 }
 
 // appendMemoryContextBlock renders recalled memories summary-first and appends
@@ -104,8 +154,13 @@ func enrichWithMemories(ctx context.Context, mp MemoryProvider, result *mcp.Call
 // records) to result. Returns result unchanged if nothing is rendered or the
 // block fails to marshal. Split out of enrichWithMemories to keep each function
 // under the cyclomatic-complexity ceiling.
-func appendMemoryContextBlock(result *mcp.CallToolResult, memories []MemorySnippet, cfg EnrichmentConfig) *mcp.CallToolResult {
-	rendered, omitted := renderMemoryContext(memories, cfg.MemorySummaryBytes, cfg.MemoryContextBudgetBytes)
+func appendMemoryContextBlock(
+	result *mcp.CallToolResult,
+	memories []MemorySnippet,
+	verifiables map[string]query.Verifiable,
+	cfg EnrichmentConfig,
+) *mcp.CallToolResult {
+	rendered, omitted := renderMemoryContext(memories, verifiables, cfg.MemorySummaryBytes, cfg.MemoryContextBudgetBytes)
 	if len(rendered) == 0 {
 		return result
 	}
@@ -143,7 +198,11 @@ func appendMemoryContextBlock(result *mcp.CallToolResult, memories []MemorySnipp
 // The budget bounds the rendered summaries only; the small, memory_limit-bounded
 // stub list and the note deliberately sit outside it so the budget can be set
 // low without making any recalled record unretrievable.
-func renderMemoryContext(memories []MemorySnippet, summaryBytes, budgetBytes int) (rendered []renderedMemory, omitted []memoryStub) {
+func renderMemoryContext(
+	memories []MemorySnippet,
+	verifiables map[string]query.Verifiable,
+	summaryBytes, budgetBytes int,
+) (rendered []renderedMemory, omitted []memoryStub) {
 	seen := make(map[string]bool, len(memories))
 	total := 0
 
@@ -168,6 +227,7 @@ func renderMemoryContext(memories []MemorySnippet, summaryBytes, budgetBytes int
 			Category:   m.Category,
 			Confidence: m.Confidence,
 			CreatedAt:  m.CreatedAt,
+			Verifiable: verifiableFor(m, verifiables),
 		}
 
 		size := recordSizeEstimate(rec)
@@ -181,6 +241,22 @@ func renderMemoryContext(memories []MemorySnippet, summaryBytes, budgetBytes int
 	}
 
 	return rendered, omitted
+}
+
+// verifiableFor returns the queryable identity of the first of a record's
+// entities that resolved, in the order the record carries them. A record linked
+// to several entities names one table to check rather than a list to choose
+// from: the first linked entity is the record's own primary subject.
+func verifiableFor(m MemorySnippet, resolved map[string]query.Verifiable) *query.Verifiable {
+	if !m.Insight || len(resolved) == 0 {
+		return nil
+	}
+	for _, urn := range m.EntityURNs {
+		if v, ok := resolved[urn]; ok {
+			return &v
+		}
+	}
+	return nil
 }
 
 // summarizeMemory reduces a memory record's content to a summary-first excerpt:
@@ -221,7 +297,22 @@ func dedupKey(text string) string {
 func recordSizeEstimate(rec renderedMemory) int {
 	const fixedKeyOverhead = 120
 	return len(rec.ID) + len(rec.Reference) + len(rec.Summary) +
-		len(rec.Dimension) + len(rec.Category) + len(rec.Confidence) + fixedKeyOverhead
+		len(rec.Dimension) + len(rec.Category) + len(rec.Confidence) +
+		verifiableSizeEstimate(rec.Verifiable) + fixedKeyOverhead
+}
+
+// verifiableSizeEstimate is the serialized cost of a record's verification
+// marker, zero when it carries none. A URN is long enough (a real DataHub
+// dataset URN runs past 80 bytes) that leaving the block out of the budget
+// arithmetic would let a page of marked insights overshoot the operator's cap
+// by half again as much as they asked for.
+func verifiableSizeEstimate(v *query.Verifiable) int {
+	if v == nil {
+		return 0
+	}
+	// The keys, quoting, and braces of {"urn":…,"query_table":…,"connection":…}.
+	const verifiableKeyOverhead = 60
+	return len(v.URN) + len(v.QueryTable) + len(v.Connection) + verifiableKeyOverhead
 }
 
 // extractEntityURNsFromResult scans result content for DataHub URNs.
