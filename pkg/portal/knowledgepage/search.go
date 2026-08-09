@@ -46,6 +46,39 @@ const ftsExpr = `portal_knowledge_page_fts(title, body, tags)`
 // vector parameter on that path). The hybrid arms inline the tsquery at $2.
 const ftsQueryLexical = "plainto_tsquery('english', $1)"
 
+// chunkTable holds one vector per embeddable chunk of a page (#1242). A page's
+// content is embedded as a SET of chunks, each within the provider's input
+// budget, so no part of a large page is trimmed away before it is embedded.
+const chunkTable = "portal_knowledge_page_embedding_chunks"
+
+// bestChunkScore is the page-level semantic score: the similarity of the page's
+// best-matching chunk. Used by the lexical arm, which starts from a page and
+// needs its semantic score, unlike the vector arm which starts from the chunks.
+// Correlated per page and bounded by that page's chunk count, so it costs a few
+// rows per lexical hit rather than a scan.
+const bestChunkScore = "COALESCE((SELECT MAX(1 - (c.embedding <=> $1)) FROM " + chunkTable +
+	" c WHERE c.page_id = portal_knowledge_pages.id), 0)"
+
+// chunkFanout multiplies the requested page limit to size the vector arm's chunk
+// scan. The ANN scan ranks CHUNKS, and several chunks of one page can occupy the
+// top of that ordering, so scanning exactly `limit` chunks could return fewer
+// than `limit` distinct pages. Over-scanning by this factor keeps the arm a plain
+// index-backed `ORDER BY ... LIMIT` (a per-page DISTINCT ON would forfeit the
+// hnsw index) while leaving room for a page's chunks to collapse into one hit.
+const chunkFanout = 4
+
+// nearestChunkPages is the ANN half of a vector read: the pages owning the
+// chunks nearest the query vector ($1). It is a plain `ORDER BY <=> LIMIT` over
+// the chunk table so the hnsw index serves it. Soft-deleted pages are filtered by
+// the enclosing query rather than joined in here, which keeps this a pure index
+// scan; the chunkFanout over-scan absorbs the few slots a recently deleted page's
+// chunks can occupy.
+func nearestChunkPages(limit int) string {
+	// #nosec G201 -- table name is a constant and the limit is a sanitized int.
+	return fmt.Sprintf("SELECT page_id FROM %s ORDER BY embedding <=> $1 LIMIT %d",
+		chunkTable, limit*chunkFanout)
+}
+
 // Search ranks non-deleted knowledge pages by relevance. A non-nil
 // q.Embedding selects hybrid (semantic + lexical) ranking; a nil embedding
 // selects the lexical-only fallback. Body content is indexed, so a query matches
@@ -60,25 +93,27 @@ func (s *postgresStore) Search(ctx context.Context, q SearchQuery) ([]ScoredPage
 // searchPagesHybrid runs an index-backed vector arm and lexical arm and fuses in
 // Go, mirroring the asset hybrid search: the hnsw index only accelerates a pure
 // vector ORDER BY and the GIN index only accelerates the tsquery, so a single
-// blended ORDER BY would forfeit both.
+// blended ORDER BY would forfeit both. The vector arm ranks CHUNKS and returns
+// their pages scored by the best-matching chunk, so results stay page-granular
+// while a match anywhere in a large page counts (#1242).
 func (s *postgresStore) searchPagesHybrid(ctx context.Context, q SearchQuery) ([]ScoredPage, error) {
 	limit := q.EffectiveLimit()
 	// nosemgrep: semgrep.unbounded-make-slice-capacity -- fixed 2-element query-arg slice, not a make() with user-controlled capacity
 	args := []any{pgvector.NewVector(q.Embedding), q.QueryText}
 
-	// #nosec G201 -- column list and FTS expr are constants; the predicate uses
-	// only parameterized placeholders ($1 vector, $2 text); limit is a sanitized
-	// int. No user input is concatenated into the SQL.
+	// #nosec G201 -- column list, chunk table and FTS expr are constants; the
+	// predicate uses only parameterized placeholders ($1 vector, $2 text); limit
+	// is a sanitized int. No user input is concatenated into the SQL.
 	vecArm := fmt.Sprintf(
-		"SELECT %s, 1 - (embedding <=> $1) AS vec_score, (%s @@ plainto_tsquery('english', $2)) AS lex_match "+
-			"FROM portal_knowledge_pages WHERE embedding IS NOT NULL AND deleted_at IS NULL "+
-			"ORDER BY embedding <=> $1 LIMIT %d",
-		pageColumns, ftsExpr, limit)
+		"SELECT %s, %s AS vec_score, (%s @@ plainto_tsquery('english', $2)) AS lex_match "+
+			"FROM portal_knowledge_pages WHERE deleted_at IS NULL AND id IN (%s) "+
+			"ORDER BY vec_score DESC LIMIT %d",
+		pageColumns, bestChunkScore, ftsExpr, nearestChunkPages(limit), limit)
 	lexArm := fmt.Sprintf(
-		"SELECT %s, CASE WHEN embedding IS NOT NULL THEN 1 - (embedding <=> $1) ELSE 0 END AS vec_score, TRUE AS lex_match "+
+		"SELECT %s, %s AS vec_score, TRUE AS lex_match "+
 			"FROM portal_knowledge_pages WHERE deleted_at IS NULL AND %s @@ plainto_tsquery('english', $2) "+
 			"ORDER BY ts_rank_cd(%s, plainto_tsquery('english', $2)) DESC LIMIT %d",
-		pageColumns, ftsExpr, ftsExpr, limit)
+		pageColumns, bestChunkScore, ftsExpr, ftsExpr, limit)
 	// #nosec G202 -- both arms are assembled from constant column/expression
 	// strings with parameterized placeholders; no user input is concatenated.
 	sqlStr := "(" + vecArm + ") UNION ALL (" + lexArm + ")"
@@ -139,7 +174,10 @@ func collectHybridPages(rows *sql.Rows, limit int) ([]ScoredPage, error) {
 
 // SemanticSearch ranks non-deleted pages purely by embedding cosine similarity,
 // with NO lexical arm and NO score fusion, returning the raw cosine in [0,1] as the
-// score (#705). The dedup gate uses this rather than Search so its threshold is a
+// score (#705). A page scores as its best-matching chunk, so a page whose tail
+// matches ranks on that tail (#1242).
+//
+// The dedup gate uses this rather than Search so its threshold is a
 // true cosine similarity: Search returns fuseHybridScore (0.6*semantic + 0.4*binary
 // lexical match), on which a near-duplicate paraphrase with no shared keywords caps
 // below the threshold while two distinct pages sharing common words can exceed it.
@@ -148,13 +186,15 @@ func (s *postgresStore) SemanticSearch(ctx context.Context, embedding []float32,
 	if len(embedding) == 0 {
 		return nil, nil
 	}
-	// #nosec G201 -- column list is a constant; the vector is a parameterized
-	// placeholder ($1); limit is a sanitized int. No user input is concatenated.
+	effective := clampSearchLimit(limit)
+	// #nosec G201 -- column list and chunk table are constants; the vector is a
+	// parameterized placeholder ($1); limit is a sanitized int. No user input is
+	// concatenated.
 	query := fmt.Sprintf(
-		"SELECT %s, 1 - (embedding <=> $1) AS cos "+
-			"FROM portal_knowledge_pages WHERE embedding IS NOT NULL AND deleted_at IS NULL "+
-			"ORDER BY embedding <=> $1 LIMIT %d",
-		pageColumns, clampSearchLimit(limit))
+		"SELECT %s, %s AS cos "+
+			"FROM portal_knowledge_pages WHERE deleted_at IS NULL AND id IN (%s) "+
+			"ORDER BY cos DESC LIMIT %d",
+		pageColumns, bestChunkScore, nearestChunkPages(effective), effective)
 
 	rows, err := s.db.QueryContext(ctx, query, pgvector.NewVector(embedding))
 	if err != nil {

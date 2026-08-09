@@ -90,6 +90,57 @@ func EmbedForSearch(ctx context.Context, p Provider, query string) []float32 {
 	return emb
 }
 
+// EmbedChunksForSearch returns one query embedding per text, or nil to signal
+// that the caller should fall back to lexical-only ranking. It is EmbedForSearch
+// for a caller whose query is itself too large to embed in one call (the
+// knowledge-page dedup probe embeds a candidate page, which can exceed the
+// provider's input budget), so the caller splits it and probes with every piece.
+// The whole set is discarded on any failure: a probe run on a subset of the
+// candidate is exactly the partial-coverage defect chunking exists to remove, so
+// degrading to lexical is the honest outcome. An empty texts slice returns nil.
+func EmbedChunksForSearch(ctx context.Context, p Provider, texts []string) [][]float32 {
+	if !IsConfigured(p) || len(texts) == 0 {
+		return nil
+	}
+	embs, err := p.EmbedBatch(ctx, texts)
+	if err != nil {
+		slog.Warn("search embedding failed; falling back to lexical ranking", "error", err)
+		return nil
+	}
+	out := make([][]float32, 0, len(embs))
+	for _, emb := range embs {
+		if len(emb) == 0 || IsZeroVector(emb) {
+			return nil
+		}
+		out = append(out, emb)
+	}
+	return out
+}
+
+// inputCapped is the optional interface a concrete provider implements to
+// expose the byte budget it trims each input to. Kept off the Provider
+// interface for the same reason as modelNamed: a provider that does not cap
+// input has no meaningful value to report.
+type inputCapped interface {
+	MaxInputBytes() int
+}
+
+// MaxInputBytes returns the per-text byte budget p trims input to, or
+// DefaultMaxInputBytes when the concrete provider does not expose one (or
+// reports a non-positive budget). Callers that must not be trimmed — the
+// knowledge-page chunker, which sizes each chunk so the whole page reaches the
+// model — size their text from this rather than from the constant, so raising
+// embedding.ollama.max_input_bytes for a larger-context model widens the chunks
+// with it.
+func MaxInputBytes(p Provider) int {
+	if c, ok := p.(inputCapped); ok {
+		if n := c.MaxInputBytes(); n > 0 {
+			return n
+		}
+	}
+	return DefaultMaxInputBytes
+}
+
 // modelNamed is the optional interface a concrete provider implements
 // to expose its underlying model identifier (e.g. "nomic-embed-text").
 // It is kept off the Provider interface because not every provider has

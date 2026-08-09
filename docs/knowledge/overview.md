@@ -112,6 +112,12 @@ Two properties follow from this:
 - No insight is public. Reaching applied insights requires an identified caller, so an anonymous visitor to a shared portal link never sees them.
 - Discovery does not depend on the sink. Before this boundary existed, an applied fact reached other people only if it happened to land on a knowledge page, or if a tool result named the dataset it hung off; a fact applied to the DataHub catalog on a table the agent was not already looking at had no search-time route to anyone but its capturer.
 
+### How much of a page is searchable
+
+All of it, at any size. A knowledge page's content (title, body, and tags) is embedded as a set of chunks rather than a single vector, each chunk sized to the embedding provider's per-text input budget (`memory.embedding.ollama.max_input_bytes`, default 6,000 bytes) and split on the page's own markdown section boundaries where it has them. Search ranks those chunks and scores each page by its best-matching one, so results stay page-granular while a fact buried at the end of a long runbook ranks its page exactly as a fact in the opening paragraph would. The same set of chunks backs the create-time near-duplicate gate, so a large page is compared in full rather than by its opening.
+
+This is why the split suggestion (`knowledge.pages.oversize_bytes`) is a nudge and not a limit: splitting a sprawling page into focused, cross-linked pages is good for the reader and for progressive revelation, but leaving it whole costs no semantic reach.
+
 ## Governance Workflow
 
 Capture to catalog update:

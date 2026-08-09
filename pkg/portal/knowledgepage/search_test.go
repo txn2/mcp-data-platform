@@ -46,7 +46,9 @@ func TestSearch_Hybrid(t *testing.T) {
 		"created_by", "created_email", "updated_by", "current_version",
 		"created_at", "updated_at", "deleted_at",
 	}, "vec_score", "lex_match")
-	mock.ExpectQuery("UNION ALL").
+	// The vector arm ranks the CHUNK table and scores each page by its best
+	// chunk, so a match in the tail of a large page counts (#1242).
+	mock.ExpectQuery("portal_knowledge_page_embedding_chunks").
 		WillReturnRows(sqlmock.NewRows(cols).
 			AddRow("kp1", "", "Revenue model", "", "body", []byte(`[]`),
 				"", "", "", 1, time.Now(), time.Now(), nil, 0.9, true))
@@ -73,8 +75,9 @@ func TestSemanticSearch(t *testing.T) {
 		"created_by", "created_email", "updated_by", "current_version",
 		"created_at", "updated_at", "deleted_at",
 	}, "cos")
-	// Pure cosine arm: no FTS, no UNION; the raw cosine is the score.
-	mock.ExpectQuery("ORDER BY embedding").
+	// Pure cosine arm: no FTS, no UNION; the raw cosine of the page's best
+	// chunk is the score.
+	mock.ExpectQuery("portal_knowledge_page_embedding_chunks").
 		WillReturnRows(sqlmock.NewRows(cols).
 			AddRow("kp1", "return-policy", "Return Policy", "", "body", []byte(`[]`),
 				"", "", "", 1, time.Now(), time.Now(), nil, 0.91))
@@ -103,7 +106,7 @@ func TestSemanticSearch_Error(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 	store := &postgresStore{db: db}
-	mock.ExpectQuery("ORDER BY embedding").WillReturnError(errBoom)
+	mock.ExpectQuery("portal_knowledge_page_embedding_chunks").WillReturnError(errBoom)
 	_, err = store.SemanticSearch(context.Background(), []float32{0.1}, 5)
 	require.Error(t, err)
 }

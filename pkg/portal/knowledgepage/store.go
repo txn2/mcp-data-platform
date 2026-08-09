@@ -378,8 +378,12 @@ type pageUpdateRow struct {
 	indexedChanged bool
 }
 
-// applyPageUpdate writes the merged content back to the page row, clearing the
-// embedding when the indexed text changed so the reconciler re-embeds.
+// applyPageUpdate writes the merged content back to the page row and, when the
+// indexed text changed, drops the page's embedding chunks and clears the
+// set-level index marker so the reconciler re-embeds. Deleting the chunks in the
+// SAME transaction as the content change is what keeps a stale vector from
+// outliving the text it was computed from: until the re-embed lands the page
+// ranks lexically, never semantically on its old content (#1242).
 func applyPageUpdate(ctx context.Context, tx *sql.Tx, u pageUpdateRow) error {
 	setQB := psq.Update("portal_knowledge_pages").
 		Set("title", u.content.title).Set("summary", u.content.summary).Set("body", u.content.body).Set("tags", u.content.tagsJSON).
@@ -388,7 +392,7 @@ func applyPageUpdate(ctx context.Context, tx *sql.Tx, u pageUpdateRow) error {
 		setQB = setQB.Set("slug", nullableSlug(*u.slug))
 	}
 	if u.indexedChanged {
-		setQB = setQB.Set("embedding", nil).Set("embedding_model", "").Set("embedding_text_hash", nil)
+		setQB = setQB.Set("embedding_model", "")
 	}
 	query, args, err := setQB.Where(sq.Eq{"id": u.id}).ToSql()
 	if err != nil {
@@ -396,6 +400,13 @@ func applyPageUpdate(ctx context.Context, tx *sql.Tx, u pageUpdateRow) error {
 	}
 	if _, err := tx.ExecContext(ctx, query, args...); err != nil { // #nosec G701 -- builder-generated query
 		return fmt.Errorf("updating knowledge page: %w", err)
+	}
+	if !u.indexedChanged {
+		return nil
+	}
+	const dropChunks = `DELETE FROM portal_knowledge_page_embedding_chunks WHERE page_id = $1`
+	if _, err := tx.ExecContext(ctx, dropChunks, u.id); err != nil {
+		return fmt.Errorf("clearing knowledge page embedding chunks: %w", err)
 	}
 	return nil
 }

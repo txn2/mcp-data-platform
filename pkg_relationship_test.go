@@ -328,8 +328,8 @@ func cohesionAllowlist() map[string]cohesionExemption {
 			exit: "share one vocabulary package with pkg/memory rather than duplicating it here; the toolkit cluster is separately oversized and is covered by the LOC budget.",
 		},
 		"pkg/portal/knowledgepage": {
-			why:  "2 clusters: the page store with its dedup and search surface (117 decls), and PageGuardsConfig with its oversize/dedup threshold resolution (8), which the store never references.",
-			exit: "fold the guard thresholds into the platform config seam that supplies them, or extract pkg/portal/knowledgepage/guards.",
+			why:  "3 clusters: the page store with its dedup and search surface (126 decls); the text-shape functions that compose, split and measure a page's indexed text (15) — IndexText, IndexChunks and the oversize signal, which the store calls into only through exported entry points its consumers use; and PageGuardsConfig with its oversize/dedup threshold resolution (8), which the store never references.",
+			exit: "extract pkg/portal/knowledgepage/pagetext for the text-shape cluster, and fold the guard thresholds into the platform config seam that supplies them (or extract .../guards).",
 		},
 		"pkg/toolkits/apigateway/catalog": {
 			why:  "3 clusters: the catalog store (71 decls), remote spec fetching with its SSRF guards (25), and spec parsing/validation (19). Fetch and parse are a pipeline the store only consumes the output of.",

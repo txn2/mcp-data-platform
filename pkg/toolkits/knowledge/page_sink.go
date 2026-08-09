@@ -10,7 +10,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -248,9 +247,11 @@ func (t *Toolkit) duplicateCandidates(ctx context.Context, page pagePromotionInp
 	if page.ForceNew || t.pageGuards.DedupThreshold <= 0 || existing != nil {
 		return nil, nil
 	}
-	// Embed the candidate over IndexText (title+body+tags), the same composition the
-	// stored page embeddings use, so the query vector lives in the same space (#705).
-	emb := embedding.EmbedForSearch(ctx, t.embeddingProv, knowledgepage.IndexText(page.Title, page.Body, page.Tags))
+	// Embed the candidate over IndexChunks (title+body+tags, split to the provider's
+	// input budget), the same composition the stored page chunks use, so the query
+	// vectors live in the same space (#705) and a candidate larger than the budget is
+	// compared in full rather than by its head alone (#1242).
+	emb := knowledgepage.CandidateEmbeddings(ctx, t.embeddingProv, page.Title, page.Body, page.Tags)
 	candidates, err := knowledgepage.NearDuplicatePages(ctx, t.pageWriter, emb, t.pageGuards.DedupThreshold)
 	if err != nil {
 		return nil, fmt.Errorf("checking for duplicate pages: %w", err)

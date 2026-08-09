@@ -339,8 +339,18 @@ func (e kpEmbedder) Embed(context.Context, string) ([]float32, error) {
 	return []float32{0.1, 0.2}, nil
 }
 
-func (kpEmbedder) EmbedBatch(_ context.Context, t []string) ([][]float32, error) {
-	return make([][]float32, len(t)), nil
+// EmbedBatch returns one non-zero vector per input, as a real provider does. A
+// zero-length or zero-valued vector is the noop provider's signature, which
+// callers treat as "embedding unavailable", so a stub must not emit one.
+func (e kpEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	if e.err != nil {
+		return nil, e.err
+	}
+	out := make([][]float32, len(texts))
+	for i := range out {
+		out[i] = []float32{0.1, 0.2}
+	}
+	return out, nil
 }
 func (kpEmbedder) Dimension() int { return 2 }
 func (kpEmbedder) Kind() string   { return "stub" }
