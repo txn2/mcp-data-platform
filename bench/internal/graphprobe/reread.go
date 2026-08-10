@@ -82,12 +82,23 @@ func RereadLookup(dir string) ([]LookupAttempt, error) {
 	return out, nil
 }
 
-// RereadCompletion recomputes a completion archive's readings and coverage
-// from its transcripts and archived final documents, using the current
-// classifier and grader.
+// RereadCompletion recomputes a completion archive's readings, coverage and
+// (for an eliciting run) completeness claims from its transcripts and
+// archived final documents, using the current classifier and grader.
+//
+// Rereads run over the compiled-in fixture corpus, and the archive must
+// actually have been produced from it: with generated corpora in play
+// (#1250), silently regrading a study archive over the wrong reference graph
+// would print coverage that contradicts the run's own numbers. A study
+// archive's manifest will carry its generator spec and reread will
+// regenerate that corpus instead (#1251).
 func RereadCompletion(dir string) (*CompletionResults, error) {
 	var res CompletionResults
 	if err := readArchiveJSON(dir, &res); err != nil {
+		return nil, err
+	}
+	corpus := graphfix.Default()
+	if err := rereadCorpusMatches(res, corpus); err != nil {
 		return nil, err
 	}
 	byID := map[string]graphfix.CompletionCell{}
@@ -95,21 +106,52 @@ func RereadCompletion(dir string) (*CompletionResults, error) {
 		byID[c.ID] = c
 	}
 	for i := range res.Attempts {
-		a := &res.Attempts[i]
-		cell, ok := byID[a.CellID]
-		if !ok {
-			return nil, fmt.Errorf("graphprobe: archive names cell %q, which its own cell list does not define", a.CellID)
-		}
-		transcript, err := readTranscript(dir, a.CellID, a.Replicate, a.Error)
-		if err != nil {
+		if err := rereadAttempt(dir, &res, &res.Attempts[i], corpus, byID); err != nil {
 			return nil, err
-		}
-		if transcript != nil {
-			a.Reading = ReadCompletion(transcript, cell, res.Planted)
-			a.Coverage = GradeCoverage(a.FinalDoc, cell, a.Reading)
 		}
 	}
 	return &res, nil
+}
+
+// rereadCorpusMatches refuses an archive the fixture corpus cannot vouch
+// for: the page count must match the plant and every archived cell must be a
+// fixture cell with its fixture entry page.
+func rereadCorpusMatches(res CompletionResults, corpus graphfix.Corpus) error {
+	if len(res.Planted.Pages) != len(corpus.Pages) {
+		return fmt.Errorf("graphprobe: archive planted %d pages but the fixture corpus holds %d; this archive was not produced from the compiled-in fixture and cannot be reread against it", len(res.Planted.Pages), len(corpus.Pages))
+	}
+	for _, cell := range res.Cells {
+		fixture, ok := corpus.CellByID(cell.ID)
+		if !ok || fixture.EntryKey != cell.EntryKey {
+			return fmt.Errorf("graphprobe: archive cell %q is not the fixture's cell of that id; this archive was not produced from the compiled-in fixture", cell.ID)
+		}
+	}
+	return nil
+}
+
+// rereadAttempt recomputes one attempt in place.
+func rereadAttempt(dir string, res *CompletionResults, a *CompletionAttempt,
+	corpus graphfix.Corpus, byID map[string]graphfix.CompletionCell,
+) error {
+	cell, ok := byID[a.CellID]
+	if !ok {
+		return fmt.Errorf("graphprobe: archive names cell %q, which its own cell list does not define", a.CellID)
+	}
+	transcript, err := readTranscript(dir, a.CellID, a.Replicate, a.Error)
+	if err != nil {
+		return err
+	}
+	if transcript == nil {
+		return nil
+	}
+	a.Reading = ReadCompletion(transcript, corpus, cell, res.Planted)
+	a.Coverage = GradeCoverage(a.FinalDoc, cell, a.Reading)
+	if res.Manifest.ElicitCompleteness {
+		claim := ReadCompletenessClaim(a.FinalDoc)
+		a.Claim = &claim
+		a.Overclaim = Overclaim(a.Coverage, claim)
+	}
+	return nil
 }
 
 // readArchiveJSON decodes a run directory's results.json.

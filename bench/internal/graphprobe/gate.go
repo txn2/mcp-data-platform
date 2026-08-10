@@ -44,6 +44,12 @@ type GateResult struct {
 	// hit's rendered text. A leak is a fact search delivers without any read,
 	// and it fails the gate.
 	Leaks []string `json:"leaks,omitempty"`
+	// DiscontinuityHits maps each discontinuity source page that surfaced to
+	// its 1-based rank. For the probe fixture this is always empty (it
+	// declares no discontinuity constraints); for a study corpus any entry
+	// here fails the gate, because a discontinuity constraint search can rank
+	// is an authoring failure, not a manipulation (#1250).
+	DiscontinuityHits map[string]int `json:"discontinuity_hits,omitempty"`
 	// Hits is every knowledge-page hit in rank order, as fixture keys; a hit
 	// outside the fixture is recorded by its reference.
 	Hits []string `json:"hits"`
@@ -67,16 +73,19 @@ type GateReport struct {
 // `search` tool as a fresh pool identity, so what the gate sees is what an
 // episode sees.
 //
-// Two conditions gate a run. No off-entry constraint signature may appear in
-// any hit's rendered text at any swept combination, or grounded coverage
-// stops meaning anything. And each cell's entry page must surface for its
+// Three conditions gate a run. No off-entry constraint signature may appear
+// in any hit's rendered text at any swept combination, or grounded coverage
+// stops meaning anything. Each cell's entry page must surface for its
 // prompt-derived query at the modal episode limit, or the search arms have no
-// entry point. Constraint pages surfacing is recorded as the enumeration
+// entry point. And no discontinuity constraint's source page may surface at
+// any swept combination: for those constraints absence-from-search is the
+// manipulation itself, so the sweep is a requirement rather than a recording
+// (#1250). Other constraint pages surfacing is recorded as the enumeration
 // profile rather than failed on.
-func Gate(ctx context.Context, t target.Target, identityKeys int, planted Planted, timeout time.Duration) (GateReport, error) {
+func Gate(ctx context.Context, t target.Target, identityKeys int, corpus graphfix.Corpus, planted Planted, timeout time.Duration) (GateReport, error) {
 	report := GateReport{RanAt: time.Now().UTC(), Stripped: planted.Stripped, Limits: slices.Clone(GateLimits), Pass: true}
 	seq := 0
-	for _, cell := range graphfix.CompletionCells() {
+	for _, cell := range corpus.Cells {
 		if err := gateCell(ctx, t, identityKeys, planted, cell, &seq, &report, timeout); err != nil {
 			return report, err
 		}
@@ -148,7 +157,8 @@ func gateSearch(ctx context.Context, t target.Target, identityKeys int,
 	return hits, nil
 }
 
-// read records what one sweep query returned and applies the leak condition.
+// read records what one sweep query returned and applies the leak and
+// discontinuity conditions.
 func (r *GateResult) read(hits []searchHit, cell graphfix.CompletionCell, planted Planted) {
 	setPages := cell.AllConstraintPages()
 	leaks := map[string]bool{}
@@ -159,7 +169,15 @@ func (r *GateResult) read(hits []searchHit, cell graphfix.CompletionCell, plante
 		r.Leaks = append(r.Leaks, id)
 	}
 	slices.Sort(r.Leaks)
-	r.Pass = len(r.Leaks) == 0
+	for _, key := range cell.DiscontinuityPages() {
+		if rank, hit := r.PageRanks[key]; hit {
+			if r.DiscontinuityHits == nil {
+				r.DiscontinuityHits = map[string]int{}
+			}
+			r.DiscontinuityHits[key] = rank
+		}
+	}
+	r.Pass = len(r.Leaks) == 0 && len(r.DiscontinuityHits) == 0
 }
 
 // readHit folds one ranked hit into the reading.

@@ -1,14 +1,21 @@
 // Package graphfix is the seeded knowledge-page corpus and cell set for the
-// graph-completion premise probe (#1241).
+// graph-completion premise probe (#1241), and the corpus contract every
+// graph-completion instrument runs against.
 //
-// The corpus is a small wiki of operations pages, the shape a live deployment
-// of this platform holds (tens of pages, not a Wikipedia snapshot). Three
-// completion cells ask for a complete operational document whose constraint
-// set is spread across pages the prompt does not name, at reference depths
-// 0-4 from the cell's entry page. The corpus renders in two arms from the one
-// source: graph (references become fetchable tokens) and stripped (references
-// become the prose fallback authored beside them), so the arm contrast is a
-// machine-followable edge against a mention, with page meaning held constant.
+// The probe's corpus is a small wiki of operations pages, the shape a live
+// deployment of this platform holds (tens of pages, not a Wikipedia snapshot).
+// Three completion cells ask for a complete operational document whose
+// constraint set is spread across pages the prompt does not name, at reference
+// depths 0-4 from the cell's entry page. The corpus renders in two arms from
+// the one source: graph (references become fetchable tokens) and stripped
+// (references become the prose fallback authored beside them), so the arm
+// contrast is a machine-followable edge against a mention, with page meaning
+// held constant.
+//
+// The Corpus type carries that contract for any page set, not only the
+// compiled-in probe fixture: the stage-3 study (#1250) generates corpora at
+// controlled scale and validates them against this exact battery, because the
+// battery is what makes a coverage reading interpretable.
 //
 // Two rules govern the content and both are load-bearing:
 //
@@ -49,12 +56,12 @@ var strayPlaceholder = regexp.MustCompile(`\{\{`)
 // for its outbound references; the reference set is derived from the body rather
 // than declared separately, so the two can never disagree.
 type Page struct {
-	Key     string
-	Slug    string
-	Title   string
-	Summary string
-	Body    string
-	Tags    []string
+	Key     string   `json:"key"`
+	Slug    string   `json:"slug"`
+	Title   string   `json:"title"`
+	Summary string   `json:"summary"`
+	Body    string   `json:"body"`
+	Tags    []string `json:"tags"`
 }
 
 // Refs returns the fixture keys this page references, in first-appearance order.
@@ -151,17 +158,31 @@ func (c Cell) DepthOf(key string) int {
 	return -1
 }
 
-// Pages returns the corpus in a deterministic order (fixture key ascending).
-func Pages() []Page {
-	out := make([]Page, len(corpus))
-	copy(out, corpus)
+// Corpus is one plantable page set with its completion cells. The probe's
+// compiled-in fixture is Default(); the stage-3 generator builds these at
+// controlled scale. Every instrument (planter, sweep gate, transcript
+// classifier, grader) reads pages and cells through this type, so the probe
+// fixture and a generated corpus run under one implementation.
+type Corpus struct {
+	Pages []Page           `json:"pages"`
+	Cells []CompletionCell `json:"cells"`
+}
+
+// Default returns the probe's compiled-in fixture corpus (#1241).
+func Default() Corpus {
+	return Corpus{Pages: slices.Clone(corpus), Cells: slices.Clone(completionCells)}
+}
+
+// Sorted returns the corpus pages in a deterministic order (key ascending).
+func (c Corpus) Sorted() []Page {
+	out := slices.Clone(c.Pages)
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
 }
 
-// PageByKey returns one corpus page.
-func PageByKey(key string) (Page, bool) {
-	for _, p := range corpus {
+// ByKey returns one corpus page.
+func (c Corpus) ByKey(key string) (Page, bool) {
+	for _, p := range c.Pages {
 		if p.Key == key {
 			return p, true
 		}
@@ -169,19 +190,22 @@ func PageByKey(key string) (Page, bool) {
 	return Page{}, false
 }
 
-// CompletionCells returns the completion cells in fixture order.
-func CompletionCells() []CompletionCell {
-	out := make([]CompletionCell, len(completionCells))
-	copy(out, completionCells)
-	return out
+// CellByID returns one completion cell.
+func (c Corpus) CellByID(id string) (CompletionCell, bool) {
+	for _, cell := range c.Cells {
+		if cell.ID == id {
+			return cell, true
+		}
+	}
+	return CompletionCell{}, false
 }
 
 // PlantOrder returns the corpus keys in an order that plants every page after
 // the pages it references, so each body can be resolved when it is written.
 // It fails on a cycle rather than emitting a partial order.
-func PlantOrder() ([]string, error) {
-	state := make(map[string]int, len(corpus)) // 0 unvisited, 1 in progress, 2 done
-	order := make([]string, 0, len(corpus))
+func (c Corpus) PlantOrder() ([]string, error) {
+	state := make(map[string]int, len(c.Pages)) // 0 unvisited, 1 in progress, 2 done
+	order := make([]string, 0, len(c.Pages))
 	var visit func(key string, trail []string) error
 	visit = func(key string, trail []string) error {
 		switch state[key] {
@@ -190,7 +214,7 @@ func PlantOrder() ([]string, error) {
 		case 1:
 			return fmt.Errorf("graphfix: reference cycle through %s", strings.Join(append(trail, key), " -> "))
 		}
-		page, ok := PageByKey(key)
+		page, ok := c.ByKey(key)
 		if !ok {
 			return fmt.Errorf("graphfix: page %q referenced but not defined", key)
 		}
@@ -204,7 +228,7 @@ func PlantOrder() ([]string, error) {
 		order = append(order, key)
 		return nil
 	}
-	for _, p := range Pages() {
+	for _, p := range c.Sorted() {
 		if err := visit(p.Key, nil); err != nil {
 			return nil, err
 		}
@@ -212,34 +236,35 @@ func PlantOrder() ([]string, error) {
 	return order, nil
 }
 
-// Validate checks the invariants a run's interpretation depends on. It is
-// called by the CLI before any plant and by the package's own test, so a
-// fixture edit that breaks a cell fails at build time rather than after a paid
-// run.
-func Validate() error {
+// Validate checks the invariants a run's interpretation depends on: page
+// identity and shape, cell shape and reachability, signature discipline,
+// non-disclosure, and an acyclic plantable reference graph. It is called
+// before any plant and by the package's own test, so a corpus edit that
+// breaks a cell fails at build time rather than after a paid run.
+func (c Corpus) Validate() error {
 	for _, check := range []func() error{
-		validatePages, validateCompletionCells, validateSignatures, validateDisclosure,
+		c.validatePages, c.validateCells, c.validateSignatures, c.validateDisclosure,
 	} {
 		if err := check(); err != nil {
 			return err
 		}
 	}
-	_, err := PlantOrder()
+	_, err := c.PlantOrder()
 	return err
 }
 
 // validatePages checks page identity and shape, then that every reference
 // names a page the corpus defines.
-func validatePages() error {
+func (c Corpus) validatePages() error {
 	seen := pageIdentities{
 		keys: map[string]bool{}, slugs: map[string]bool{}, titles: map[string]bool{},
 	}
-	for _, p := range corpus {
+	for _, p := range c.Pages {
 		if err := seen.check(p); err != nil {
 			return err
 		}
 	}
-	for _, p := range corpus {
+	for _, p := range c.Pages {
 		for _, ref := range p.Refs() {
 			if !seen.keys[ref] {
 				return fmt.Errorf("graphfix: page %q references undefined page %q", p.Key, ref)
@@ -304,8 +329,8 @@ var disclosureTerms = []string{
 // name itself, and must not instruct the reader to do the thing being
 // measured. Both arm renderings are scanned, so a fallback cannot smuggle in
 // what a body may not say.
-func validateDisclosure() error {
-	for _, p := range corpus {
+func (c Corpus) validateDisclosure() error {
+	for _, p := range c.Pages {
 		text := strings.ToLower(p.Title + "\n" + p.Summary + "\n" + p.Body + "\n" + p.StrippedBody())
 		for _, term := range disclosureTerms {
 			if strings.Contains(text, term) {
@@ -313,13 +338,30 @@ func validateDisclosure() error {
 			}
 		}
 	}
-	for _, c := range completionCells {
-		text := strings.ToLower(c.Prompt + "\n" + c.EntryIntro + "\n" + strings.Join(c.GateQueries, "\n"))
+	for _, cell := range c.Cells {
+		text := strings.ToLower(cell.Prompt + "\n" + cell.EntryIntro + "\n" + strings.Join(cell.GateQueries, "\n"))
 		for _, term := range disclosureTerms {
 			if strings.Contains(text, term) {
-				return fmt.Errorf("graphfix: cell %q contains the disclosing term %q", c.ID, term)
+				return fmt.Errorf("graphfix: cell %q contains the disclosing term %q", cell.ID, term)
 			}
 		}
 	}
 	return nil
 }
+
+// Pages returns the probe fixture corpus in a deterministic order.
+func Pages() []Page { return Default().Sorted() }
+
+// PageByKey returns one probe fixture page.
+func PageByKey(key string) (Page, bool) { return Default().ByKey(key) }
+
+// CompletionCells returns the probe fixture's completion cells in fixture order.
+func CompletionCells() []CompletionCell {
+	return slices.Clone(completionCells)
+}
+
+// PlantOrder returns the probe fixture's plant order.
+func PlantOrder() ([]string, error) { return Default().PlantOrder() }
+
+// Validate checks the probe fixture's invariants.
+func Validate() error { return Default().Validate() }

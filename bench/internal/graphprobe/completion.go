@@ -77,10 +77,12 @@ type Coverage struct {
 // ReadCompletion reconstructs what one completion episode read, in call
 // order, classifying every dereference by where its reference could first
 // have been learned (the same one-pass provenance walk as the lookup
-// classifier: a call is classified against what was known before it).
-func ReadCompletion(transcript []llm.Message, cell graphfix.CompletionCell, planted Planted) CompletionReading {
+// classifier: a call is classified against what was known before it). The
+// corpus supplies the reference graph the cell's depths are read over, so the
+// probe fixture and a generated corpus grade under one classifier.
+func ReadCompletion(transcript []llm.Message, corpus graphfix.Corpus, cell graphfix.CompletionCell, planted Planted) CompletionReading {
 	r := CompletionReading{MaxDepthRead: -1, MaxTraversalDepth: -1}
-	depths := cell.Depths()
+	depths := corpus.Depths(cell)
 	setPages := cell.AllConstraintPages()
 	firstSeen := map[string]string{}
 	results := resultIndex(transcript)

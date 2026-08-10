@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -72,7 +74,7 @@ func TestReadCompletionCreditsPageProvenanceOnlyForReferencesSearchDidNotHand(t 
 		call("f2", "mcp__bench__fetch", map[string]any{"reference": ref("incident-severity-bands")}),
 		result("f2", `{"document":{"references":[{"reference":"`+ref("escalation-ladders")+`"}]}}`),
 	}
-	got := ReadCompletion(transcript, cell, testPlanted())
+	got := ReadCompletion(transcript, graphfix.Default(), cell, testPlanted())
 	if len(got.Fetches) != 2 {
 		t.Fatalf("recorded %d fetches, want 2", len(got.Fetches))
 	}
@@ -106,7 +108,7 @@ func TestReadCompletionDoesNotCreditAReferenceTheSameCallReturned(t *testing.T) 
 		call("f1", "mcp__bench__fetch", map[string]any{"reference": ref("clickstream-export-runbook")}),
 		result("f1", `{"document":{"references":[{"reference":"`+ref("clickstream-export-runbook")+`"}]}}`),
 	}
-	got := ReadCompletion(transcript, cell, testPlanted())
+	got := ReadCompletion(transcript, graphfix.Default(), cell, testPlanted())
 	if got.Fetches[0].Provenance != ProvenanceUnseen {
 		t.Errorf("provenance = %s, want %s: nothing had returned that reference before the call",
 			got.Fetches[0].Provenance, ProvenanceUnseen)
@@ -125,7 +127,7 @@ func TestReadCompletionTrimsReferencePunctuation(t *testing.T) {
 		call("f2", "mcp__bench__fetch", map[string]any{"reference": ref("storage-class-register") + "."}),
 		result("f2", "{}"),
 	}
-	got := ReadCompletion(transcript, cell, testPlanted())
+	got := ReadCompletion(transcript, graphfix.Default(), cell, testPlanted())
 	if got.Fetches[1].Provenance != ProvenancePage {
 		t.Errorf("provenance = %s, want %s", got.Fetches[1].Provenance, ProvenancePage)
 	}
@@ -151,7 +153,7 @@ func TestReadCompletionCountsOffSetAndIgnoresFailedAndForeign(t *testing.T) {
 		call("f3", "mcp__bench__fetch", map[string]any{"reference": "mcp:insight:abc"}),
 		result("f3", "{}"),
 	}
-	got := ReadCompletion(transcript, cell, testPlanted())
+	got := ReadCompletion(transcript, graphfix.Default(), cell, testPlanted())
 	if got.OffSetFetches != 1 {
 		t.Errorf("OffSetFetches = %d, want 1 (the glossary)", got.OffSetFetches)
 	}
@@ -261,6 +263,37 @@ func TestGateResultReadAppliesTheLeakCondition(t *testing.T) {
 	})
 }
 
+// TestGateResultReadFailsASurfacedDiscontinuityPage covers the study's flip
+// of the sweep from recording to requirement (#1250): a discontinuity
+// constraint's source page appearing anywhere in a hit list fails the
+// reading with the page and its rank recorded, while the same page surfacing
+// for an ordinary constraint stays part of the enumeration profile.
+func TestGateResultReadFailsASurfacedDiscontinuityPage(t *testing.T) {
+	t.Parallel()
+	cell := graphfix.CompletionCell{
+		ID: "gs-test", EntryKey: "entry-page",
+		Constraints: []graphfix.Constraint{
+			{ID: "t-entry", Desc: "d", Pages: []string{"entry-page"}, Patterns: []string{`zz-entry-token`}},
+			{ID: "t-disc", Desc: "d", Pages: []string{"far-calendar"}, Patterns: []string{`zz-far-token`}, Discontinuity: true},
+		},
+	}
+	planted := Planted{Pages: map[string]string{"entry-page": "kp_entry", "far-calendar": "kp_far"}}
+	var got GateResult
+	got.read([]searchHit{
+		{Text: "Entry Page", Reference: "mcp:knowledge_page:kp_entry"},
+		{Text: "Company Calendar", Reference: "mcp:knowledge_page:kp_far"},
+	}, cell, planted)
+	if got.Pass {
+		t.Fatal("read passed with a discontinuity source page in the hit list")
+	}
+	if got.DiscontinuityHits["far-calendar"] != 2 {
+		t.Errorf("DiscontinuityHits = %v, want far-calendar at rank 2", got.DiscontinuityHits)
+	}
+	if len(got.Leaks) != 0 {
+		t.Errorf("Leaks = %v, want none: the page surfaced but no signature was in hit text", got.Leaks)
+	}
+}
+
 // TestGateReportSerializes keeps the archived gate shape readable by the
 // reread path, which decodes the same file a run wrote.
 func TestGateReportSerializes(t *testing.T) {
@@ -307,8 +340,8 @@ func TestRunRefusesAFailedGateAndAnArmMismatch(t *testing.T) {
 	t.Parallel()
 	base := func() Options {
 		return Options{
-			Runner: stubRunner{}, Cells: graphfix.CompletionCells(), K: 1,
-			OutDir: t.TempDir(), Planted: testPlanted(), SearchEnabled: true,
+			Runner: stubRunner{}, Corpus: graphfix.Default(), Cells: graphfix.CompletionCells(), K: 1, OutDir: t.TempDir(),
+			Planted: testPlanted(), SearchEnabled: true,
 			Gate: passingGate(),
 		}
 	}
@@ -335,7 +368,7 @@ func TestRunWritesAnArchiveAndRefusesToOverwriteIt(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	opts := Options{
-		Runner: stubRunner{}, Cells: graphfix.CompletionCells(), K: 1,
+		Runner: stubRunner{}, Corpus: graphfix.Default(), Cells: graphfix.CompletionCells(), K: 1,
 		OutDir: dir, Planted: testPlanted(), SearchEnabled: true,
 		Gate: passingGate(),
 	}
@@ -366,7 +399,7 @@ func TestRunComposesTheNoSearchPrompt(t *testing.T) {
 	t.Parallel()
 	var requests []claudecli.Request
 	_, err := Run(context.Background(), Options{
-		Runner: stubRunner{requests: &requests}, Cells: graphfix.CompletionCells()[:1], K: 1,
+		Runner: stubRunner{requests: &requests}, Corpus: graphfix.Default(), Cells: graphfix.CompletionCells()[:1], K: 1,
 		OutDir: t.TempDir(), Planted: testPlanted(), SearchEnabled: false,
 		Gate: passingGate(),
 	})
@@ -414,7 +447,7 @@ func TestRunGradesAndArchivesAnEpisode(t *testing.T) {
 		Transcript: transcript, PlatformVersion: "v-test",
 	}}
 	res, err := Run(context.Background(), Options{
-		Runner: runner, Cells: []graphfix.CompletionCell{cell}, K: 1, OutDir: dir,
+		Runner: runner, Corpus: graphfix.Default(), Cells: []graphfix.CompletionCell{cell}, K: 1, OutDir: dir,
 		Planted: testPlanted(), SearchEnabled: true,
 		Gate: passingGate(),
 	})
@@ -460,7 +493,7 @@ func TestOptionsValidateRefusesEveryUninterpretableRun(t *testing.T) {
 	t.Parallel()
 	base := func() Options {
 		return Options{
-			Runner: stubRunner{}, Cells: graphfix.CompletionCells(), K: 1, OutDir: t.TempDir(),
+			Runner: stubRunner{}, Corpus: graphfix.Default(), Cells: graphfix.CompletionCells(), K: 1, OutDir: t.TempDir(),
 			Planted: testPlanted(), SearchEnabled: true,
 			Gate: passingGate(),
 		}
@@ -501,7 +534,7 @@ func TestPlanterRefusesANonEmptyStore(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
-	_, err := NewPlanter(srv.URL, srv.Client()).Plant(context.Background(), false)
+	_, err := NewPlanter(srv.URL, srv.Client()).Plant(context.Background(), graphfix.Default(), false)
 	if err == nil || !strings.Contains(err.Error(), "already holds") {
 		t.Fatalf("Plant error = %v, want a refusal naming the existing pages", err)
 	}
@@ -509,12 +542,12 @@ func TestPlanterRefusesANonEmptyStore(t *testing.T) {
 
 // plantServer scripts the knowledge-page REST surface for planter tests. The
 // refs handler decides what every page's reference read-back reports.
-func plantServer(refs func() []any) (*httptest.Server, *int) {
-	created := new(int)
+func plantServer(refs func() []any) (*httptest.Server, *atomic.Int64) {
+	created := new(atomic.Int64)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost:
-			*created++
+			created.Add(1)
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "kp_stub"})
 		case strings.HasSuffix(r.URL.Path, "/refs"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"refs": refs()})
@@ -533,11 +566,11 @@ func TestPlanterRefusesAPageWhoseReferencesTheStoreDidNotRecord(t *testing.T) {
 	t.Parallel()
 	srv, created := plantServer(func() []any { return []any{} })
 	defer srv.Close()
-	_, err := NewPlanter(srv.URL, srv.Client()).Plant(context.Background(), false)
+	_, err := NewPlanter(srv.URL, srv.Client()).Plant(context.Background(), graphfix.Default(), false)
 	if err == nil || !strings.Contains(err.Error(), "declares references") {
 		t.Fatalf("Plant error = %v, want a refusal naming the missing references", err)
 	}
-	if *created == 0 {
+	if created.Load() == 0 {
 		t.Error("no page was created, so the reference check never ran")
 	}
 }
@@ -551,7 +584,7 @@ func TestStrippedPlantRefusesALiveReference(t *testing.T) {
 		return []any{map[string]any{"urn": "mcp:knowledge_page:kp_stub", "type": knowledgePageRefType, "exists": true}}
 	})
 	defer srv.Close()
-	planted, err := NewPlanter(srv.URL, srv.Client()).Plant(context.Background(), true)
+	planted, err := NewPlanter(srv.URL, srv.Client()).Plant(context.Background(), graphfix.Default(), true)
 	if err == nil || !strings.Contains(err.Error(), "stripped") {
 		t.Fatalf("Plant error = %v, want a refusal naming the stripped arm's live reference", err)
 	}
@@ -566,12 +599,12 @@ func TestStrippedPlantAcceptsAnEdgelessStore(t *testing.T) {
 	t.Parallel()
 	srv, created := plantServer(func() []any { return []any{} })
 	defer srv.Close()
-	planted, err := NewPlanter(srv.URL, srv.Client()).Plant(context.Background(), true)
+	planted, err := NewPlanter(srv.URL, srv.Client()).Plant(context.Background(), graphfix.Default(), true)
 	if err != nil {
 		t.Fatalf("Plant: %v", err)
 	}
-	if *created != len(graphfix.Pages()) {
-		t.Errorf("created %d pages, want the whole corpus (%d)", *created, len(graphfix.Pages()))
+	if created.Load() != int64(len(graphfix.Pages())) {
+		t.Errorf("created %d pages, want the whole corpus (%d)", created.Load(), len(graphfix.Pages()))
 	}
 	if planted.Arm() != "stripped" {
 		t.Errorf("Arm = %q, want stripped", planted.Arm())
@@ -583,13 +616,16 @@ func TestStrippedPlantAcceptsAnEdgelessStore(t *testing.T) {
 // in front of the next run.
 func TestPlanterDeleteRemovesEveryPlantedPage(t *testing.T) {
 	t.Parallel()
+	var mu sync.Mutex
 	deleted := map[string]bool{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
+		mu.Lock()
 		deleted[strings.TrimPrefix(r.URL.Path, "/api/v1/portal/knowledge-pages/")] = true
+		mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
@@ -597,6 +633,8 @@ func TestPlanterDeleteRemovesEveryPlantedPage(t *testing.T) {
 	if err := NewPlanter(srv.URL, srv.Client()).Delete(context.Background(), planted); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
+	mu.Lock()
+	defer mu.Unlock()
 	if !deleted["kp_a"] || !deleted["kp_b"] {
 		t.Errorf("deleted = %v, want both planted pages", deleted)
 	}

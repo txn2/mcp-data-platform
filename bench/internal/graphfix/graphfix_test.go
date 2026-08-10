@@ -23,7 +23,7 @@ func TestCellShapesDiffer(t *testing.T) {
 	t.Parallel()
 	var deep, wide bool
 	for _, c := range CompletionCells() {
-		depths := c.Depths()
+		depths := Default().Depths(c)
 		pages := map[string]bool{}
 		for _, k := range c.OffEntry() {
 			for _, key := range k.Pages {
@@ -52,7 +52,7 @@ func TestCellShapesDiffer(t *testing.T) {
 func TestEveryConstraintPageReachable(t *testing.T) {
 	t.Parallel()
 	for _, c := range CompletionCells() {
-		depths := c.Depths()
+		depths := Default().Depths(c)
 		for _, k := range c.Constraints {
 			reachable := false
 			for _, key := range k.Pages {

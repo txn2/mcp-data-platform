@@ -1,0 +1,233 @@
+{
+  "ran_at": "2026-08-10T08:13:40.356263Z",
+  "spec": {
+    "scale": 500,
+    "seed": 1250,
+    "edge_density": 3
+  },
+  "model": "nomic-embed-text",
+  "top_k": 25,
+  "entry_top_k": 25,
+  "phrasings": [
+    {
+      "cell_id": "gs-change-plan",
+      "phrasing": "We want to add a new field to the records on the orders-ledger stream. Write the complete change plan the stream's owner could execute as written: every step from proposal to the field being live, every approval the change needs, every rule that constrains when it can be applied, and everything the stream's consumers are owed along the way. Completeness matters more than brevity; the plan is the deliverable.",
+      "prompt": true,
+      "entry_rank": 1,
+      "entry_sim": 0.7645444074444945,
+      "constraint_ranks": {
+        "attestation-procedure": 2,
+        "change-announcement-directory": 3,
+        "change-class-directory": 5,
+        "consumer-agreement-ledger": 4,
+        "corp-close-calendar": 431,
+        "governed-tier-obligations": 6,
+        "orders-ledger-stream-runbook": 1,
+        "records-retention-directory": 155,
+        "schema-version-register": 7
+      },
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "phrasing": "orders-ledger stream add a field change plan",
+      "entry_rank": 1,
+      "entry_sim": 0.7736152750939744,
+      "constraint_ranks": {
+        "attestation-procedure": 8,
+        "change-announcement-directory": 2,
+        "change-class-directory": 4,
+        "consumer-agreement-ledger": 3,
+        "corp-close-calendar": 289,
+        "governed-tier-obligations": 7,
+        "orders-ledger-stream-runbook": 1,
+        "records-retention-directory": 282,
+        "schema-version-register": 118
+      },
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "phrasing": "how is a change to a governed stream approved and announced",
+      "entry_rank": 5,
+      "entry_sim": 0.6625424318946517,
+      "constraint_ranks": {
+        "attestation-procedure": 4,
+        "change-announcement-directory": 1,
+        "change-class-directory": 3,
+        "consumer-agreement-ledger": 7,
+        "corp-close-calendar": 187,
+        "governed-tier-obligations": 2,
+        "orders-ledger-stream-runbook": 5,
+        "records-retention-directory": 184,
+        "schema-version-register": 6
+      },
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "phrasing": "stream schema change consumer notice requirements",
+      "entry_rank": 5,
+      "entry_sim": 0.6512240956185631,
+      "constraint_ranks": {
+        "attestation-procedure": 9,
+        "change-announcement-directory": 1,
+        "change-class-directory": 2,
+        "consumer-agreement-ledger": 4,
+        "corp-close-calendar": 470,
+        "governed-tier-obligations": 6,
+        "orders-ledger-stream-runbook": 5,
+        "records-retention-directory": 273,
+        "schema-version-register": 3
+      },
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "phrasing": "The nightly settlement-recon job has now failed on three consecutive nights. Write the complete incident-handling document for this situation, one the on-shift engineer could follow as written: what is opened and at what severity, who has to be told, how the escalation proceeds and on what clocks when nobody responds, what is communicated while it is open, what has to be true before it can be closed, and what record it has to leave behind. Completeness matters more than brevity; the document is the deliverable.",
+      "prompt": true,
+      "entry_rank": 1,
+      "entry_sim": 0.8494664210708737,
+      "constraint_ranks": {
+        "acknowledgment-clocks": 81,
+        "closure-evidence-standard": 5,
+        "escalation-roster": 432,
+        "incident-comms-standard": 3,
+        "incident-severity-standard": 4,
+        "postmortem-record-standard": 2,
+        "regulator-notify-calendar": 130,
+        "settlement-recon-job-runbook": 1,
+        "worked-hours-ledger-practice": 267
+      },
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "phrasing": "settlement-recon job failed several nights running what happens",
+      "entry_rank": 1,
+      "entry_sim": 0.8246086495710134,
+      "constraint_ranks": {
+        "acknowledgment-clocks": 52,
+        "closure-evidence-standard": 16,
+        "escalation-roster": 306,
+        "incident-comms-standard": 22,
+        "incident-severity-standard": 8,
+        "postmortem-record-standard": 4,
+        "regulator-notify-calendar": 120,
+        "settlement-recon-job-runbook": 1,
+        "worked-hours-ledger-practice": 36
+      },
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "phrasing": "incident severity and escalation when nobody responds",
+      "entry_rank": 7,
+      "entry_sim": 0.5284393187157924,
+      "constraint_ranks": {
+        "acknowledgment-clocks": 3,
+        "closure-evidence-standard": 4,
+        "escalation-roster": 6,
+        "incident-comms-standard": 2,
+        "incident-severity-standard": 1,
+        "postmortem-record-standard": 5,
+        "regulator-notify-calendar": 268,
+        "settlement-recon-job-runbook": 7,
+        "worked-hours-ledger-practice": 484
+      },
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "phrasing": "how are control failure incidents communicated and closed",
+      "entry_rank": 5,
+      "entry_sim": 0.6130873423406205,
+      "constraint_ranks": {
+        "acknowledgment-clocks": 45,
+        "closure-evidence-standard": 1,
+        "escalation-roster": 202,
+        "incident-comms-standard": 2,
+        "incident-severity-standard": 4,
+        "postmortem-record-standard": 3,
+        "regulator-notify-calendar": 146,
+        "settlement-recon-job-runbook": 5,
+        "worked-hours-ledger-practice": 382
+      },
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "phrasing": "We are standing up a new nightly feed, invoice-adjustments, to be operated exactly like the parcel-events feed. Write the complete onboarding document for it: how the feed and its output are named, where the output lands and how that area is organized, how its storage is registered and how long its output lives, when it is expected to land and what happens when it is repeatedly late, how it is re-run safely after a bad night, and what applies if any of its output is ever copied outside the platform. Completeness matters more than brevity; the document is the deliverable.",
+      "prompt": true,
+      "entry_rank": 1,
+      "entry_sim": 0.8171961442048475,
+      "constraint_ranks": {
+        "delivery-expectation-standard": 24,
+        "feed-naming-standard": 8,
+        "feed-rerun-procedure": 19,
+        "landing-zone-layout": 39,
+        "offplatform-copy-policy": 233,
+        "parcel-events-feed-runbook": 1,
+        "procurement-commitment-ledger": 365,
+        "sharing-agreement-register": 500,
+        "storage-tier-register": 20
+      },
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "phrasing": "new nightly feed onboarding naming storage delivery",
+      "entry_rank": 2,
+      "entry_sim": 0.6765447458338628,
+      "constraint_ranks": {
+        "delivery-expectation-standard": 5,
+        "feed-naming-standard": 1,
+        "feed-rerun-procedure": 4,
+        "landing-zone-layout": 60,
+        "offplatform-copy-policy": 350,
+        "parcel-events-feed-runbook": 2,
+        "procurement-commitment-ledger": 298,
+        "sharing-agreement-register": 448,
+        "storage-tier-register": 3
+      },
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "phrasing": "how are nightly feeds operated and registered",
+      "entry_rank": 1,
+      "entry_sim": 0.7061654264989385,
+      "constraint_ranks": {
+        "delivery-expectation-standard": 5,
+        "feed-naming-standard": 2,
+        "feed-rerun-procedure": 4,
+        "landing-zone-layout": 95,
+        "offplatform-copy-policy": 214,
+        "parcel-events-feed-runbook": 1,
+        "procurement-commitment-ledger": 478,
+        "sharing-agreement-register": 373,
+        "storage-tier-register": 3
+      },
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "phrasing": "feed output lifetime and delivery expectations",
+      "entry_rank": 2,
+      "entry_sim": 0.6172830020093338,
+      "constraint_ranks": {
+        "delivery-expectation-standard": 1,
+        "feed-naming-standard": 4,
+        "feed-rerun-procedure": 33,
+        "landing-zone-layout": 105,
+        "offplatform-copy-policy": 69,
+        "parcel-events-feed-runbook": 2,
+        "procurement-commitment-ledger": 208,
+        "sharing-agreement-register": 390,
+        "storage-tier-register": 3
+      },
+      "pass": true
+    }
+  ],
+  "pass": true
+}

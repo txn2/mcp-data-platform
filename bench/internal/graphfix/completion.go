@@ -58,6 +58,15 @@ type Constraint struct {
 	// names, route names) a grounded document necessarily carries; paraphrase
 	// slips past them, which undercounts identically in every arm.
 	Patterns []string `json:"patterns"`
+	// Discontinuity marks a constraint whose connection to the task is
+	// institutional rather than topical (#1250): its source pages share no
+	// vocabulary or embedding neighborhood with the task, so search cannot
+	// rank them from any task-derived query and an authored edge is the only
+	// discovery route. The claim is certified twice before any run — an
+	// authoring-time embedding-distance check and the live sweep gate
+	// requiring the source pages absent from every swept result list — never
+	// assumed from this flag alone.
+	Discontinuity bool `json:"discontinuity,omitempty"`
 }
 
 // Entry reports whether the constraint is stated on the cell's entry page.
@@ -80,15 +89,44 @@ func (c CompletionCell) OffEntry() []Constraint {
 	return out
 }
 
+// Discontinuities returns the cell's discontinuity constraints.
+func (c CompletionCell) Discontinuities() []Constraint {
+	out := make([]Constraint, 0, len(c.Constraints))
+	for _, k := range c.Constraints {
+		if k.Discontinuity {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// DiscontinuityPages returns the union of the cell's discontinuity
+// constraints' source pages: the pages both certification gates are read
+// against.
+func (c CompletionCell) DiscontinuityPages() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, k := range c.Discontinuities() {
+		for _, key := range k.Pages {
+			if !seen[key] {
+				seen[key] = true
+				out = append(out, key)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // Depths returns every corpus page's reference distance from the cell's entry
 // page (breadth-first over declared references), omitting unreachable pages.
-func (c CompletionCell) Depths() map[string]int {
-	depths := map[string]int{c.EntryKey: 0}
-	queue := []string{c.EntryKey}
+func (c Corpus) Depths(cell CompletionCell) map[string]int {
+	depths := map[string]int{cell.EntryKey: 0}
+	queue := []string{cell.EntryKey}
 	for len(queue) > 0 {
 		key := queue[0]
 		queue = queue[1:]
-		page, ok := PageByKey(key)
+		page, ok := c.ByKey(key)
 		if !ok {
 			continue
 		}
@@ -100,6 +138,21 @@ func (c CompletionCell) Depths() map[string]int {
 		}
 	}
 	return depths
+}
+
+// Closure returns the reference closure from a cell's entry page in
+// deterministic order (key ascending): every page reachable over declared
+// references, the entry included. This is the study's per-cell ground truth
+// (#1250): unlike a ranked result list, the closure is enumerable and
+// terminating, so "complete" is decidable against it.
+func (c Corpus) Closure(cell CompletionCell) []string {
+	depths := c.Depths(cell)
+	out := make([]string, 0, len(depths))
+	for key := range depths {
+		out = append(out, key)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // ConstraintByID returns one constraint of this cell.
@@ -127,71 +180,83 @@ func (k Constraint) CompiledPatterns() []*regexp.Regexp {
 	return out
 }
 
-// validateCompletionCells checks cell shape: identities, non-empty fields,
-// real pages, and that every constraint has at least one source page
-// reachable from the entry over declared references, because a constraint no
-// graph walk can reach is a constraint only search could deliver and the arm
-// contrast would be broken for it.
-func validateCompletionCells() error {
+// validateCells checks cell shape: identities, non-empty fields, real pages,
+// and that every constraint has at least one source page reachable from the
+// entry over declared references, because a constraint no graph walk can
+// reach is a constraint only search could deliver and the arm contrast would
+// be broken for it.
+func (c Corpus) validateCells() error {
 	ids := map[string]bool{}
-	for _, c := range completionCells {
-		if err := c.validateShape(ids); err != nil {
+	for _, cell := range c.Cells {
+		if err := c.validateCellShape(cell, ids); err != nil {
 			return err
 		}
-		depths := c.Depths()
+		depths := c.Depths(cell)
 		kids := map[string]bool{}
-		for _, k := range c.Constraints {
-			if err := c.validateConstraint(k, kids, depths); err != nil {
+		for _, k := range cell.Constraints {
+			if err := c.validateConstraint(cell, k, kids, depths); err != nil {
 				return err
 			}
 		}
-		if len(c.OffEntry()) < 4 {
-			return fmt.Errorf("graphfix: cell %q holds %d off-entry constraints; the spread mass is the subject and needs at least 4", c.ID, len(c.OffEntry()))
+		if len(cell.OffEntry()) < 4 {
+			return fmt.Errorf("graphfix: cell %q holds %d off-entry constraints; the spread mass is the subject and needs at least 4", cell.ID, len(cell.OffEntry()))
 		}
 	}
 	return nil
 }
 
-// validateShape checks one cell's identity and required fields.
-func (c CompletionCell) validateShape(ids map[string]bool) error {
+// validateCellShape checks one cell's identity and required fields.
+func (c Corpus) validateCellShape(cell CompletionCell, ids map[string]bool) error {
 	switch {
-	case ids[c.ID]:
-		return fmt.Errorf("graphfix: duplicate cell id %q", c.ID)
-	case c.Prompt == "" || c.EntryIntro == "" || c.EntryKey == "":
-		return fmt.Errorf("graphfix: cell %q has an empty required field", c.ID)
-	case len(c.GateQueries) < 3:
-		return fmt.Errorf("graphfix: cell %q authors %d gate queries; the sweep needs at least 3", c.ID, len(c.GateQueries))
-	case len(c.Constraints) == 0:
-		return fmt.Errorf("graphfix: cell %q has no constraints", c.ID)
+	case ids[cell.ID]:
+		return fmt.Errorf("graphfix: duplicate cell id %q", cell.ID)
+	case cell.Prompt == "" || cell.EntryIntro == "" || cell.EntryKey == "":
+		return fmt.Errorf("graphfix: cell %q has an empty required field", cell.ID)
+	case len(cell.GateQueries) < 3:
+		return fmt.Errorf("graphfix: cell %q authors %d gate queries; the sweep needs at least 3", cell.ID, len(cell.GateQueries))
+	case len(cell.Constraints) == 0:
+		return fmt.Errorf("graphfix: cell %q has no constraints", cell.ID)
 	}
-	ids[c.ID] = true
-	if _, ok := PageByKey(c.EntryKey); !ok {
-		return fmt.Errorf("graphfix: cell %q names undefined entry page %q", c.ID, c.EntryKey)
+	ids[cell.ID] = true
+	if _, ok := c.ByKey(cell.EntryKey); !ok {
+		return fmt.Errorf("graphfix: cell %q names undefined entry page %q", cell.ID, cell.EntryKey)
 	}
 	return nil
 }
 
 // validateConstraint checks one constraint's identity, pages and
-// reachability.
-func (c CompletionCell) validateConstraint(k Constraint, ids map[string]bool, depths map[string]int) error {
+// reachability. A discontinuity constraint must additionally be off-entry
+// with every source page off-entry too: the entry page is handed to the
+// no-search arms and read by construction, so a "discontinuity" stated there
+// would be discoverable without either search or an edge and the label would
+// claim a separation the design does not have.
+func (c Corpus) validateConstraint(cell CompletionCell, k Constraint, ids map[string]bool, depths map[string]int) error {
 	switch {
 	case ids[k.ID]:
-		return fmt.Errorf("graphfix: cell %q duplicates constraint id %q", c.ID, k.ID)
+		return fmt.Errorf("graphfix: cell %q duplicates constraint id %q", cell.ID, k.ID)
 	case k.Desc == "" || len(k.Pages) == 0 || len(k.Patterns) == 0:
-		return fmt.Errorf("graphfix: cell %q constraint %q has an empty required field", c.ID, k.ID)
+		return fmt.Errorf("graphfix: cell %q constraint %q has an empty required field", cell.ID, k.ID)
+	case k.Discontinuity && cell.Entry(k):
+		return fmt.Errorf("graphfix: cell %q discontinuity constraint %q is stated on the entry page, which every arm reads by construction", cell.ID, k.ID)
 	}
 	ids[k.ID] = true
+	return c.validateConstraintPages(cell, k, depths)
+}
+
+// validateConstraintPages checks a constraint's source pages exist and that
+// at least one is reachable from the cell's entry.
+func (c Corpus) validateConstraintPages(cell CompletionCell, k Constraint, depths map[string]int) error {
 	reachable := false
 	for _, key := range k.Pages {
-		if _, ok := PageByKey(key); !ok {
-			return fmt.Errorf("graphfix: cell %q constraint %q names undefined page %q", c.ID, k.ID, key)
+		if _, ok := c.ByKey(key); !ok {
+			return fmt.Errorf("graphfix: cell %q constraint %q names undefined page %q", cell.ID, k.ID, key)
 		}
 		if _, ok := depths[key]; ok {
 			reachable = true
 		}
 	}
 	if !reachable {
-		return fmt.Errorf("graphfix: cell %q constraint %q has no source page reachable from entry %q", c.ID, k.ID, c.EntryKey)
+		return fmt.Errorf("graphfix: cell %q constraint %q has no source page reachable from entry %q", cell.ID, k.ID, cell.EntryKey)
 	}
 	return nil
 }
@@ -212,15 +277,15 @@ func (c CompletionCell) validateConstraint(k Constraint, ids map[string]bool, de
 //     the entry by construction and no kill condition is written on them);
 //   - it matches none of the cell's own prompt, entry intro, or gate
 //     queries, so an episode can never be handed a signature by the harness.
-func validateSignatures() error {
-	for _, c := range completionCells {
-		for _, k := range c.Constraints {
+func (c Corpus) validateSignatures() error {
+	for _, cell := range c.Cells {
+		for _, k := range cell.Constraints {
 			for _, raw := range k.Patterns {
 				re, err := regexp.Compile("(?i)" + raw)
 				if err != nil {
-					return fmt.Errorf("graphfix: cell %q constraint %q pattern %q does not compile: %w", c.ID, k.ID, raw, err)
+					return fmt.Errorf("graphfix: cell %q constraint %q pattern %q does not compile: %w", cell.ID, k.ID, raw, err)
 				}
-				if err := c.checkSignature(k, raw, re); err != nil {
+				if err := c.checkSignature(cell, k, raw, re); err != nil {
 					return err
 				}
 			}
@@ -230,44 +295,44 @@ func validateSignatures() error {
 }
 
 // checkSignature applies the signature rules for one compiled pattern.
-func (c CompletionCell) checkSignature(k Constraint, raw string, re *regexp.Regexp) error {
-	if err := c.checkSignatureHolders(k, raw, re); err != nil {
+func (c Corpus) checkSignature(cell CompletionCell, k Constraint, raw string, re *regexp.Regexp) error {
+	if err := c.checkSignatureHolders(cell, k, raw, re); err != nil {
 		return err
 	}
 	matches := func(text string) bool { return re.MatchString(normalize(text)) }
-	if matches(c.Prompt) || matches(c.EntryIntro) || slices.ContainsFunc(c.GateQueries, matches) {
-		return fmt.Errorf("graphfix: cell %q constraint %q pattern %q appears in the cell's own prompt, intro or gate queries", c.ID, k.ID, raw)
+	if matches(cell.Prompt) || matches(cell.EntryIntro) || slices.ContainsFunc(cell.GateQueries, matches) {
+		return fmt.Errorf("graphfix: cell %q constraint %q pattern %q appears in the cell's own prompt, intro or gate queries", cell.ID, k.ID, raw)
 	}
 	return nil
 }
 
 // checkSignatureHolders checks where one pattern lives in the corpus.
-func (c CompletionCell) checkSignatureHolders(k Constraint, raw string, re *regexp.Regexp) error {
+func (c Corpus) checkSignatureHolders(cell CompletionCell, k Constraint, raw string, re *regexp.Regexp) error {
 	matchedDeclared := false
-	for _, p := range corpus {
-		declared, err := c.checkSignatureOnPage(k, raw, re, p)
+	for _, p := range c.Pages {
+		declared, err := checkSignatureOnPage(cell, k, raw, re, p)
 		if err != nil {
 			return err
 		}
 		matchedDeclared = matchedDeclared || declared
 	}
 	if !matchedDeclared {
-		return fmt.Errorf("graphfix: cell %q constraint %q pattern %q matches none of its declared pages %v", c.ID, k.ID, raw, k.Pages)
+		return fmt.Errorf("graphfix: cell %q constraint %q pattern %q matches none of its declared pages %v", cell.ID, k.ID, raw, k.Pages)
 	}
 	return nil
 }
 
 // checkSignatureOnPage applies the holder rules for one pattern on one page,
 // reporting whether the pattern matched a declared source page's body.
-func (c CompletionCell) checkSignatureOnPage(k Constraint, raw string, re *regexp.Regexp, p Page) (bool, error) {
+func checkSignatureOnPage(cell CompletionCell, k Constraint, raw string, re *regexp.Regexp, p Page) (bool, error) {
 	declared := slices.Contains(k.Pages, p.Key)
 	stripped := normalize(p.StrippedBody())
 	inBody := re.MatchString(stripped) || re.MatchString(normalize(p.Body))
 	if !declared && inBody {
-		return false, fmt.Errorf("graphfix: cell %q constraint %q pattern %q also matches undeclared page %q", c.ID, k.ID, raw, p.Key)
+		return false, fmt.Errorf("graphfix: cell %q constraint %q pattern %q also matches undeclared page %q", cell.ID, k.ID, raw, p.Key)
 	}
-	if !c.Entry(k) && (re.MatchString(normalize(p.Title)) || re.MatchString(normalize(p.Summary))) {
-		return false, fmt.Errorf("graphfix: cell %q off-entry constraint %q pattern %q appears in page %q title or summary, which search delivers without a read", c.ID, k.ID, raw, p.Key)
+	if !cell.Entry(k) && (re.MatchString(normalize(p.Title)) || re.MatchString(normalize(p.Summary))) {
+		return false, fmt.Errorf("graphfix: cell %q off-entry constraint %q pattern %q appears in page %q title or summary, which search delivers without a read", cell.ID, k.ID, raw, p.Key)
 	}
 	return declared && re.MatchString(stripped), nil
 }
