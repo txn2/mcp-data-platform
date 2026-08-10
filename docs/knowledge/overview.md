@@ -217,12 +217,16 @@ personas:
       allow: ["*"]                # includes search, fetch, memory_capture
       deny:
         - "apply_knowledge"       # Cannot apply changes
+    connections:
+      allow: ["*"]
 
   admin:
     display_name: "Administrator"
     roles: ["admin"]
     tools:
       allow: ["*"]                # Full access including apply_knowledge
+    connections:
+      allow: ["*"]
 
   etl_service:
     display_name: "ETL Service"
@@ -236,6 +240,8 @@ personas:
       deny:
         - "memory_capture"        # Automated processes should not capture
         - "apply_knowledge"
+    connections:
+      allow: ["*"]
 ```
 
 ## Insight Sources

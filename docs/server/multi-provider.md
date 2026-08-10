@@ -203,6 +203,8 @@ personas:
     tools:
       allow: ["*"]
       deny: []
+    connections:
+      allow: ["*"]
 
   staging_user:
     display_name: Staging User
@@ -218,6 +220,8 @@ personas:
         - "list_connections"    # Can list connections
       deny:
         - "trino_explain"       # Cannot see execution plans
+    connections:
+      allow: ["staging"]        # Only the staging Trino instance
 ```
 
 Tool patterns are one of two axes. Personas also restrict which toolkit

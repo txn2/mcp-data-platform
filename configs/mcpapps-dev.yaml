@@ -31,6 +31,8 @@ personas:
     tools:
       allow: ["*"]
       deny: []
+    connections:
+      allow: ["*"]
 
 # Trino connection (matches docker-compose.dev.yml)
 toolkits:

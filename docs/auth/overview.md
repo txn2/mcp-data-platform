@@ -211,6 +211,8 @@ personas:
     tools:
       allow: ["*"]
       deny: ["*_delete_*"]
+    connections:
+      allow: ["*"]
 ```
 
 A caller whose roles match no persona here reaches nothing: tool calls are

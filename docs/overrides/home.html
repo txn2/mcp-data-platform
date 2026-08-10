@@ -215,7 +215,7 @@ p.Run(ctx)</pre>
       <li class="stack__row">
         <div class="stack__main">
           <a class="stack__name" href="server/multi-provider/">composable toolkits</a>
-          <p class="stack__desc">DataHub is what cross-enrichment needs (the semantic layer). Add <code>mcp-trino</code> for federated SQL and <code>mcp-s3</code> for object storage when you need them, or run none of the three and keep the database-backed surfaces. Multi-instance per service, runtime instance selection, isolated failure domains. Add custom toolkits via the <code>Toolkit</code> interface.</p>
+          <p class="stack__desc">DataHub, Trino and S3 are components the platform composes, not infrastructure you must already run. DataHub is what cross-enrichment needs (the semantic layer) and can stay a silent backend the operator never surfaces. Add <code>mcp-trino</code> for federated SQL and <code>mcp-s3</code> for object storage when you need them, or run none of the three and keep the database-backed surfaces. Multi-instance per service, runtime instance selection, isolated failure domains. Add custom toolkits via the <code>Toolkit</code> interface.</p>
         </div>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
@@ -228,8 +228,8 @@ p.Run(ctx)</pre>
       </li>
       <li class="stack__row">
         <div class="stack__main">
-          <a class="stack__name" href="personas/overview/">personas &amp; tool filtering</a>
-          <p class="stack__desc">Map OIDC roles to personas. Each persona has allow/deny patterns for tools and connections. Analysts get read access. Admins get everything. Connection-level filtering restricts which toolkit instances a persona can use. Description overrides per persona steer the model differently for different audiences.</p>
+          <a class="stack__name" href="personas/overview/">personas &amp; connection scoping</a>
+          <p class="stack__desc">The unit of access is the connection, not the end user. Map OIDC roles to personas, then grant each persona the connections it may reach: deny-by-default, enforced on every tool call and on discovery. Several connections can front one system under different credentials, so a read-only and a write-capable Trino account are two grants rather than one. Per-user attribution comes from the audit trail. Description overrides per persona steer the model differently for different audiences.</p>
         </div>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>

@@ -26,6 +26,8 @@ personas:
     tools:
       allow: ["*"]
       deny: []
+    connections:
+      allow: ["*"]
 
 # Trino connection - uses Docker internal hostname
 toolkits:
