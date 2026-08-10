@@ -1189,6 +1189,44 @@ bench-gt-run:
 		$(if $(K),-k $(K),) \
 		$(if $(MODEL),-model $(MODEL),)
 
+# --- Graph-completion study, stage 3 (issue #1250) ------------------------
+# The deterministic study corpus at controlled scale, its authoring-time
+# embedding certification, and the live sweep gate with the discontinuity
+# requirement on. Reuses the gt stack (bench-gt-up / bench-gt-down) and its
+# ollama requirement; certification talks to ollama directly and needs no
+# stack at all.
+#
+# The default scale is the smallest CERTIFIABLE one: scale 50 is the study's
+# within-enumeration-ceiling control, where certification is unsatisfiable by
+# construction and both gates exit non-zero on purpose. Run it explicitly
+# (BENCH_GS_SCALE=50) when recording that reading.
+BENCH_GS_SCALE ?= 500
+
+## bench-gs-certify: Offline embedding certification of the study corpus at SCALE (#1250; no stack needed, ollama required)
+bench-gs-certify:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-graphstudy ./graphstudy
+	$(BUILD_DIR)/bench-graphstudy -mode certify -scale $(BENCH_GS_SCALE)
+
+## bench-gs-plant: Generate and plant the study corpus at SCALE through the platform API (#1250; STRIP=1 for the stripped arm)
+bench-gs-plant:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-graphstudy ./graphstudy
+	$(BUILD_DIR)/bench-graphstudy -mode plant -url $(BENCH_URL) -credential $(BENCH_KEY) \
+		-scale $(BENCH_GS_SCALE) $(if $(STRIP),-strip,)
+
+## bench-gs-gate: Live sweep gate over the planted study corpus, discontinuity requirement on (#1250)
+bench-gs-gate:
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-graphstudy ./graphstudy
+	$(BUILD_DIR)/bench-graphstudy -mode gate -url $(BENCH_URL) -credential $(BENCH_KEY) \
+		-scale $(BENCH_GS_SCALE) -identity-keys $(BENCH_GT_KEYS)
+
+## bench-gs-reset: Delete the planted study corpus so another scale or arm can go in (#1250)
+bench-gs-reset:
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-graphstudy ./graphstudy
+	$(BUILD_DIR)/bench-graphstudy -mode reset -url $(BENCH_URL) -credential $(BENCH_KEY) \
+		-scale $(BENCH_GS_SCALE)
+
 ## bench-gt-down: Stop the graph-traversal probe stack (platform, compose)
 bench-gt-down:
 	@if [ -f $(BENCH_PID) ]; then \

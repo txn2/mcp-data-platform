@@ -107,7 +107,7 @@ func printTable() error {
 		return err
 	}
 	for _, c := range graphfix.CompletionCells() {
-		depths := c.Depths()
+		depths := graphfix.Default().Depths(c)
 		fmt.Printf("%s  (entry %s, %d constraints, %d off-entry)\n",
 			c.ID, c.EntryKey, len(c.Constraints), len(c.OffEntry()))
 		for _, k := range c.Constraints {
@@ -141,8 +141,16 @@ func plant(ctx context.Context, cfg config) error {
 		return errors.New("-credential is required to plant")
 	}
 	tgt := target.Target{BaseURL: cfg.url, Credential: cfg.credential}
-	planted, err := graphprobe.NewPlanter(cfg.url, tgt.HTTPClient(httpTimeout)).Plant(ctx, cfg.strip)
+	planted, err := graphprobe.NewPlanter(cfg.url, tgt.HTTPClient(httpTimeout)).Plant(ctx, graphfix.Default(), cfg.strip)
 	if err != nil {
+		if len(planted.Pages) > 0 {
+			// A failed plant that already wrote pages must not lose them: the
+			// partial record is what -mode reset deletes by.
+			if werr := writeJSON(cfg.plantPath+".partial", planted); werr == nil {
+				fmt.Printf("plant failed after %d page(s); partial record written to %s.partial — reset with -plant %s.partial before replanting\n",
+					len(planted.Pages), cfg.plantPath, cfg.plantPath)
+			}
+		}
 		return err
 	}
 	if err := writeJSON(cfg.plantPath, planted); err != nil {
@@ -181,7 +189,7 @@ func gate(ctx context.Context, cfg config) error {
 		return err
 	}
 	tgt := target.Target{BaseURL: cfg.url, Credential: cfg.credential}
-	report, err := graphprobe.Gate(ctx, tgt, cfg.identityKeys, planted, httpTimeout)
+	report, err := graphprobe.Gate(ctx, tgt, cfg.identityKeys, graphfix.Default(), planted, httpTimeout)
 	if err != nil {
 		return err
 	}
@@ -257,6 +265,7 @@ func episodes(ctx context.Context, cfg config) error {
 		Runner:          runner,
 		Planted:         planted,
 		Gate:            report,
+		Corpus:          graphfix.Default(),
 		Cells:           graphfix.CompletionCells(),
 		SearchEnabled:   !cfg.noSearch,
 		K:               cfg.k,

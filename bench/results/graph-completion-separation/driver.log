@@ -1,0 +1,135 @@
+[gs-driver 01:15:35] === scale 50: plant (graph arm)
+planted 50 pages (graph arm, scale 50); record written to build/bench-results/graph-study-plant-50.json
+[gs-driver 01:15:36] waiting for 50 live pages to embed (reconciler sweeps every 5 minutes)
+[gs-driver 01:16:37] embeddings ready (50 live pages)
+[gs-driver 01:16:37] === scale 50: sweep gate
+live sweep gate, scale 50, graph arm, limits [5 25 100]
+
+gs-change-plan       limit   5 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit   5 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit  25 FAIL entry@1 disc map[corp-close-calendar:17]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit 100 FAIL entry@1 disc map[corp-close-calendar:17 records-retention-directory:21]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit   5 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit  25 pass entry@6 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit 100 FAIL entry@6 disc map[records-retention-directory:23]  "stream schema change consumer notice requirements"
+gs-change-plan       adjacent constraint pages surfaced: 7 of 7 [attestation-procedure@4 change-announcement-directory@2 change-class-directory@1 consumer-agreement-ledger@3 governed-tier-obligations@5 orders-ledger-stream-runbook@1 schema-version-register@3]
+
+gs-incident          limit   5 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit  25 FAIL entry@1 disc map[regulator-notify-calendar:15 worked-hours-ledger-practice:9]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit 100 FAIL entry@1 disc map[regulator-notify-calendar:15 worked-hours-ledger-practice:9]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit   5 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit  25 pass entry@7 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit 100 pass entry@7 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit   5 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit  25 FAIL entry@6 disc map[regulator-notify-calendar:13]  "how are control failure incidents communicated and closed"
+gs-incident          limit 100 FAIL entry@6 disc map[regulator-notify-calendar:13]  "how are control failure incidents communicated and closed"
+gs-incident          adjacent constraint pages surfaced: 7 of 7 [acknowledgment-clocks@3 closure-evidence-standard@2 escalation-roster@5 incident-comms-standard@1 incident-severity-standard@2 postmortem-record-standard@3 settlement-recon-job-runbook@1]
+
+gs-feed-onboarding   limit   5 pass entry@0 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit  25 FAIL entry@4 disc map[procurement-commitment-ledger:17]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit 100 FAIL entry@4 disc map[procurement-commitment-ledger:17]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit   5 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit  25 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit 100 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit   5 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit  25 FAIL entry@2 disc map[procurement-commitment-ledger:18]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit 100 FAIL entry@2 disc map[procurement-commitment-ledger:18]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   adjacent constraint pages surfaced: 6 of 7 [delivery-expectation-standard@1 feed-naming-standard@1 feed-rerun-procedure@3 landing-zone-layout@6 parcel-events-feed-runbook@1 storage-tier-register@2]
+
+
+gate report written to build/bench-results/graph-study-gate-50.json
+graphstudy: the live sweep gate did not pass at this scale
+[gs-driver 01:16:40] gate did not pass at scale 50: the pre-stated within-ceiling reading (recorded)
+[gs-driver 01:16:40] === scale 50: reset
+deleted 50 pages (graph arm, scale 50)
+[gs-driver 01:16:40] === scale 500: plant (graph arm)
+planted 500 pages (graph arm, scale 500); record written to build/bench-results/graph-study-plant-500.json
+[gs-driver 01:16:43] waiting for 500 live pages to embed (reconciler sweeps every 5 minutes)
+[gs-driver 01:21:47] embeddings ready (500 live pages)
+[gs-driver 01:21:47] === scale 500: sweep gate
+live sweep gate, scale 500, graph arm, limits [5 25 100]
+
+gs-change-plan       limit   5 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit   5 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit   5 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit  25 pass entry@11 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit 100 pass entry@11 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       adjacent constraint pages surfaced: 7 of 7 [attestation-procedure@4 change-announcement-directory@2 change-class-directory@1 consumer-agreement-ledger@3 governed-tier-obligations@5 orders-ledger-stream-runbook@1 schema-version-register@2]
+
+gs-incident          limit   5 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit  25 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit 100 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit   5 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit  25 pass entry@15 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit 100 pass entry@15 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit   5 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit  25 pass entry@8 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit 100 pass entry@8 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          adjacent constraint pages surfaced: 7 of 7 [acknowledgment-clocks@3 closure-evidence-standard@2 escalation-roster@6 incident-comms-standard@1 incident-severity-standard@2 postmortem-record-standard@3 settlement-recon-job-runbook@1]
+
+gs-feed-onboarding   limit   5 pass entry@0 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit  25 pass entry@4 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit 100 pass entry@4 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit   5 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit  25 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit 100 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit   5 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit  25 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit 100 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   adjacent constraint pages surfaced: 6 of 7 [delivery-expectation-standard@1 feed-naming-standard@1 feed-rerun-procedure@3 landing-zone-layout@13 parcel-events-feed-runbook@1 storage-tier-register@2]
+
+
+gate report written to build/bench-results/graph-study-gate-500.json
+[gs-driver 01:21:51] === scale 500: reset
+deleted 500 pages (graph arm, scale 500)
+[gs-driver 01:21:51] === scale 5000: plant (graph arm)
+planted 5000 pages (graph arm, scale 5000); record written to build/bench-results/graph-study-plant-5000.json
+[gs-driver 01:22:13] waiting for 5000 live pages to embed (reconciler sweeps every 5 minutes)
+[gs-driver 01:29:04] embeddings ready (5000 live pages)
+[gs-driver 01:29:04] === scale 5000: sweep gate
+live sweep gate, scale 5000, graph arm, limits [5 25 100]
+
+gs-change-plan       limit   5 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit   5 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit   5 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit  25 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit 100 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       adjacent constraint pages surfaced: 7 of 7 [attestation-procedure@4 change-announcement-directory@2 change-class-directory@3 consumer-agreement-ledger@3 governed-tier-obligations@5 orders-ledger-stream-runbook@1 schema-version-register@8]
+
+gs-incident          limit   5 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit  25 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit 100 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit   5 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit  25 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit 100 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit   5 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit  25 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit 100 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          adjacent constraint pages surfaced: 2 of 7 [incident-comms-standard@1 settlement-recon-job-runbook@1]
+
+gs-feed-onboarding   limit   5 pass entry@0 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit  25 pass entry@5 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit 100 pass entry@5 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit   5 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit  25 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit 100 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit   5 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit  25 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit 100 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   adjacent constraint pages surfaced: 5 of 7 [delivery-expectation-standard@1 feed-naming-standard@1 feed-rerun-procedure@3 parcel-events-feed-runbook@1 storage-tier-register@2]
+
+
+gate report written to build/bench-results/graph-study-gate-5000.json
+[gs-driver 01:29:11] === scale 5000: reset
+deleted 5000 pages (graph arm, scale 5000)
+[gs-driver 01:29:17] separation demonstration complete

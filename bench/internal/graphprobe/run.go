@@ -60,15 +60,23 @@ type Options struct {
 	Runner       EpisodeRunner
 	Planted      Planted
 	Gate         GateReport
-	Cells        []graphfix.CompletionCell
+	// Corpus is the page set this run's plant record was rendered from; the
+	// classifier reads reference depths over it and validation proves it
+	// before any episode spends wall clock.
+	Corpus graphfix.Corpus
+	Cells  []graphfix.CompletionCell
 	// SearchEnabled distinguishes the search arms from the no-search arms. In
 	// a no-search run the client is invoked with the search tool disallowed
 	// and each prompt opens with the cell's entry reference, because an
 	// episode that cannot search has no other way to hold a reference at all.
 	SearchEnabled bool
-	K             int
-	OutDir        string
-	GitCommit     string
+	// ElicitCompleteness appends PromptCompleteness to every cell prompt and
+	// grades each final document's completeness claim, so overclaim is
+	// measurable (#1250). The probe ran without it; study runs set it.
+	ElicitCompleteness bool
+	K                  int
+	OutDir             string
+	GitCommit          string
 	// ClientVersion and DisallowedTools describe the episode client as it was
 	// actually invoked, for the manifest.
 	ClientVersion   string
@@ -92,9 +100,12 @@ type Manifest struct {
 	Arm string `json:"arm,omitempty"`
 	// SearchEnabled records the search condition of this run.
 	SearchEnabled bool `json:"search_enabled"`
-	Cells         int  `json:"cells"`
-	K             int  `json:"k"`
-	Attempts      int  `json:"attempts"`
+	// ElicitCompleteness records whether prompts carried the completeness
+	// elicitation and claims were graded.
+	ElicitCompleteness bool `json:"elicit_completeness,omitempty"`
+	Cells              int  `json:"cells"`
+	K                  int  `json:"k"`
+	Attempts           int  `json:"attempts"`
 	// Exploratory is always true: a premise probe is a decision input, never a
 	// published finding (the study lifecycle, bench/docs/findings-register.md).
 	Exploratory bool `json:"exploratory"`
@@ -115,6 +126,10 @@ type CompletionAttempt struct {
 	ToolCalls int               `json:"tool_calls"`
 	Reading   CompletionReading `json:"reading"`
 	Coverage  Coverage          `json:"coverage"`
+	// Claim is the document's graded completeness claim, present only when
+	// the run elicited one; Overclaim is the claim read against Coverage.
+	Claim     *CompletenessClaim `json:"claim,omitempty"`
+	Overclaim bool               `json:"overclaim,omitempty"`
 	// FinalDoc is the episode's final message, the graded document. Archived
 	// in the results as well as the transcript because it is the primary
 	// evidence for every coverage number.
@@ -154,7 +169,8 @@ func Run(ctx context.Context, opts Options) (*CompletionResults, error) {
 			Model: opts.Runner.Model(), ClientVersion: opts.ClientVersion,
 			DisallowedTools: opts.DisallowedTools,
 			Probe:           probeName, Arm: opts.Planted.Arm(), SearchEnabled: opts.SearchEnabled,
-			Cells: len(opts.Cells), K: opts.K, Exploratory: true,
+			ElicitCompleteness: opts.ElicitCompleteness,
+			Cells:              len(opts.Cells), K: opts.K, Exploratory: true,
 			Scaffold: opts.scaffold(), CorpusPages: len(opts.Planted.Pages),
 		},
 		Gate: opts.Gate, Planted: opts.Planted, Cells: opts.Cells,
@@ -189,23 +205,44 @@ func (o Options) scaffold() string {
 }
 
 // prompt composes one cell's episode prompt. The no-search arms open with the
-// entry reference; the search arms are the bare task.
+// entry reference; the search arms are the bare task. An eliciting run
+// appends the frozen completeness suffix in every arm identically.
 func (o Options) prompt(cell graphfix.CompletionCell) (string, error) {
+	text := cell.Prompt
+	if o.ElicitCompleteness {
+		text += "\n\n" + PromptCompleteness
+	}
 	if o.SearchEnabled {
-		return cell.Prompt, nil
+		return text, nil
 	}
 	id := o.Planted.Pages[cell.EntryKey]
 	if id == "" {
 		return "", fmt.Errorf("graphprobe: plant record holds no id for entry page %s", cell.EntryKey)
 	}
-	return fmt.Sprintf("%s mcp:knowledge_page:%s.\n\n%s", cell.EntryIntro, id, cell.Prompt), nil
+	return fmt.Sprintf("%s mcp:knowledge_page:%s.\n\n%s", cell.EntryIntro, id, text), nil
 }
 
 // validate rejects a run that cannot produce interpretable results.
 func (o Options) validate() error {
+	if err := o.validateShape(); err != nil {
+		return err
+	}
+	if err := o.validateGate(); err != nil {
+		return err
+	}
+	if err := o.validateCellsBelong(); err != nil {
+		return err
+	}
+	return o.Corpus.Validate()
+}
+
+// validateShape checks the run's own fields.
+func (o Options) validateShape() error {
 	switch {
 	case o.Runner == nil:
 		return errors.New("graphprobe: no episode runner")
+	case len(o.Corpus.Pages) == 0:
+		return errors.New("graphprobe: no corpus; an empty page set would validate and then classify every read at depth -1")
 	case len(o.Cells) == 0:
 		return errors.New("graphprobe: no cells")
 	case o.K < 1:
@@ -218,10 +255,20 @@ func (o Options) validate() error {
 		return fmt.Errorf("graphprobe: %d cells x k=%d needs %d identities, pool holds %d",
 			len(o.Cells), o.K, len(o.Cells)*o.K, o.IdentityKeys)
 	}
-	if err := o.validateGate(); err != nil {
-		return err
+	return nil
+}
+
+// validateCellsBelong rejects cells that are not the run corpus's own: a
+// reading graded over the wrong reference graph would be silently
+// uninterpretable.
+func (o Options) validateCellsBelong() error {
+	for _, cell := range o.Cells {
+		got, ok := o.Corpus.CellByID(cell.ID)
+		if !ok || got.EntryKey != cell.EntryKey {
+			return fmt.Errorf("graphprobe: cell %q is not a cell of the run's corpus", cell.ID)
+		}
 	}
-	return graphfix.Validate()
+	return nil
 }
 
 // validateGate rejects a run whose gate reading cannot vouch for the corpus
@@ -276,8 +323,13 @@ func (o Options) attempt(ctx context.Context, cell graphfix.CompletionCell, rep,
 		return a
 	}
 	a.FinalDoc = out.FinalText
-	a.Reading = ReadCompletion(out.Transcript, cell, o.Planted)
+	a.Reading = ReadCompletion(out.Transcript, o.Corpus, cell, o.Planted)
 	a.Coverage = GradeCoverage(out.FinalText, cell, a.Reading)
+	if o.ElicitCompleteness {
+		claim := ReadCompletenessClaim(out.FinalText)
+		a.Claim = &claim
+		a.Overclaim = Overclaim(a.Coverage, claim)
+	}
 	return a
 }
 

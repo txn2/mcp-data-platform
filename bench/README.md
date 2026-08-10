@@ -202,6 +202,21 @@ make bench-gt-down
 at all, and `-mode reread -out <run dir>` recomputes an archived run's readings
 from its transcripts offline (both completion and lookup-era archives).
 
+The stage-3 study (#1250, design in
+[`docs/graph-completion-study-design.md`](docs/graph-completion-study-design.md))
+replaces the probe's 42-page fixture with a deterministic generated corpus at
+controlled scale, on the same stack:
+
+```bash
+make bench-gs-certify BENCH_GS_SCALE=500       # offline embedding certification (ollama only)
+make bench-gs-plant   BENCH_GS_SCALE=500       # generate + plant (STRIP=1 for the stripped arm)
+make bench-gs-gate    BENCH_GS_SCALE=500       # live sweep gate, discontinuity requirement on
+make bench-gs-reset   BENCH_GS_SCALE=500       # delete the plant
+```
+
+`cd bench && go run ./graphstudy -mode table` prints every scale's corpus
+shape with no stack at all.
+
 Every run writes into its own timestamped directory under
 `build/bench-results/`, and the runners refuse an output path that already
 exists, so a re-run can never overwrite paid-for results.
@@ -263,6 +278,7 @@ bench/
 ├── pkrun/               cell runner CLI (knowledge use)
 ├── pollutionplant/      plant / remediate / attribution-table CLI (knowledge pollution)
 ├── graphprobe/          fixture / plant / gate / run / reread CLI (graph-completion probe)
+├── graphstudy/          study-corpus generate / certify / plant / gate CLI (graph-completion study, stage 3)
 ├── config/              arm profiles (a0/a1/a2/a3, the pk profile, the gt probe profile)
 ├── seed/                generated seed artifacts (committed; bench-gen)
 ├── specs/               generated fixture OpenAPI specs + world/fixture data (committed; bench-api-gen)
@@ -285,8 +301,9 @@ bench/
     ├── pkcell/          cells, derived correct behavior, ground truths, deterministic grading
     ├── pkrun/           cell runner: plant, move the world, ask, grade
     ├── pollutionplant/  knowledge pollution: treatments, cells, plant, remediation drivers
-    ├── graphfix/        graph-completion probe: the seeded page corpus, its completion cells, and their invariants
-    ├── graphprobe/      graph-completion probe: plant, sweep gate, episode runner, reading and coverage grading
+    ├── graphfix/        graph-completion corpus contract: pages, completion cells, the validator battery; the probe fixture is its default corpus
+    ├── graphgen/        graph-completion study: deterministic corpus generator, signature mint, embedding certification
+    ├── graphprobe/      graph-completion instruments: plant, sweep gate, episode runner, reading, coverage and closure grading
     ├── task/            task schema, loader, task-set hash
     ├── protocol/        S5 lifecycle protocol schema, loader, protocol-set hash
     ├── curriculum/      cold-start curriculum schema, loader, curriculum-set hash
