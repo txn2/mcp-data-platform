@@ -128,7 +128,7 @@ Execute a read-only SQL query against the Trino cluster. Write operations (INSER
 
 Execute any SQL against the Trino cluster, including write operations (INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, etc.). Annotated with `DestructiveHint: true` so MCP clients prompt for confirmation.
 
-When `read_only: true` is configured at the instance level, write operations are blocked.
+`read_only` is set per instance, and the block applies to the connection the call names — or to the default connection when it names none. A call routed to an instance with `read_only: true` is refused; the other instances of the same toolkit still accept writes.
 
 **Parameters:**
 
