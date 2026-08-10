@@ -46,8 +46,12 @@ personas:
   analyst:
     tools:
       allow: ["*"]        # includes search, fetch, and memory_*
+    connections:
+      allow: ["*"]
   admin:
     tools:
+      allow: ["*"]
+    connections:
       allow: ["*"]
 ```
 

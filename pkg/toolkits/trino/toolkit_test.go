@@ -904,23 +904,40 @@ func TestBuildToolkitOptions(t *testing.T) {
 	const baseline = 1
 
 	t.Run("empty config produces only the error sanitizer", func(t *testing.T) {
-		opts := buildToolkitOptions(Config{}, nil, nil)
+		opts := buildToolkitOptions(Config{}, nil, nil, nil)
 		if len(opts) != baseline {
 			t.Errorf("expected %d option, got %d", baseline, len(opts))
 		}
 	})
 
-	t.Run("read-only adds interceptor", func(t *testing.T) {
-		opts := buildToolkitOptions(Config{ReadOnly: true}, nil, nil)
+	t.Run("the unconditional interceptor adds no connection middleware", func(t *testing.T) {
+		opts := buildToolkitOptions(Config{}, nil, nil, NewReadOnlyInterceptor())
 		if len(opts) != baseline+1 {
 			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
+		}
+	})
+
+	t.Run("a per-connection interceptor adds its connection middleware too", func(t *testing.T) {
+		ro := NewConnectionReadOnlyInterceptor("a", map[string]bool{"a": true})
+		opts := buildToolkitOptions(Config{}, nil, nil, ro)
+		if len(opts) != baseline+2 {
+			t.Errorf("expected %d options, got %d", baseline+2, len(opts))
+		}
+	})
+
+	t.Run("config read_only alone adds nothing", func(t *testing.T) {
+		// Enforcement is driven by the interceptor the caller builds, so a
+		// stray ReadOnly on the toolkit-level config must not install one.
+		opts := buildToolkitOptions(Config{ReadOnly: true}, nil, nil, nil)
+		if len(opts) != baseline {
+			t.Errorf("expected %d option, got %d", baseline, len(opts))
 		}
 	})
 
 	t.Run("titles adds option", func(t *testing.T) {
 		opts := buildToolkitOptions(Config{
 			Titles: map[string]string{"trino_query": "Run Query"},
-		}, nil, nil)
+		}, nil, nil, nil)
 		if len(opts) != baseline+1 {
 			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
 		}
@@ -930,14 +947,14 @@ func TestBuildToolkitOptions(t *testing.T) {
 		opts := buildToolkitOptions(Config{
 			Descriptions: map[string]string{"trino_query": "custom"},
 			Annotations:  map[string]AnnotationConfig{"trino_query": {}},
-		}, nil, nil)
+		}, nil, nil, nil)
 		if len(opts) != baseline+2 {
 			t.Errorf("expected %d options, got %d", baseline+2, len(opts))
 		}
 	})
 
 	t.Run("progress adds middleware", func(t *testing.T) {
-		opts := buildToolkitOptions(Config{ProgressEnabled: true}, nil, nil)
+		opts := buildToolkitOptions(Config{ProgressEnabled: true}, nil, nil, nil)
 		if len(opts) != baseline+1 {
 			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
 		}
@@ -947,7 +964,7 @@ func TestBuildToolkitOptions(t *testing.T) {
 		cr := NewConnectionRequiredMiddleware([]ConnectionDescription{
 			{Name: "a"}, {Name: "b"},
 		})
-		opts := buildToolkitOptions(Config{}, nil, cr)
+		opts := buildToolkitOptions(Config{}, nil, cr, nil)
 		if len(opts) != baseline+1 {
 			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
 		}
@@ -959,14 +976,14 @@ func TestBuildToolkitOptions(t *testing.T) {
 			{Name: "a"}, {Name: "b"},
 		})
 		opts := buildToolkitOptions(Config{
-			ReadOnly:        true,
 			Titles:          map[string]string{"a": "Title A"},
 			Descriptions:    map[string]string{"a": "b"},
 			Annotations:     map[string]AnnotationConfig{"a": {}},
 			ProgressEnabled: true,
-		}, em, cr)
-		if len(opts) != baseline+7 { //nolint:mnd // readonly + titles + descs + annots + connRequired + progress + elicit
-			t.Errorf("expected %d options, got %d", baseline+7, len(opts))
+		}, em, cr, NewConnectionReadOnlyInterceptor("a", map[string]bool{"a": true}))
+		//nolint:mnd // readonly interceptor + its middleware + titles + descs + annots + connRequired + progress + elicit
+		if len(opts) != baseline+8 {
+			t.Errorf("expected %d options, got %d", baseline+8, len(opts))
 		}
 	})
 }

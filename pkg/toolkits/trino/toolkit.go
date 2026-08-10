@@ -4,6 +4,7 @@ package trino
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -119,8 +120,18 @@ type Toolkit struct {
 	// elicitation holds the middleware so providers can be propagated after init.
 	elicitation *ElicitationMiddleware
 
+	// connMu guards connectionDescriptions, which AddConnection and
+	// RemoveConnection mutate from an admin HTTP goroutine while
+	// ListConnections reads it from a tool-call goroutine.
+	connMu sync.RWMutex
+
 	// connectionDescriptions maps connection name → description (multi-connection mode).
 	connectionDescriptions map[string]string
+
+	// readOnly holds the per-connection read-only interceptor so connections
+	// added or removed at runtime keep their read_only setting enforced
+	// (multi-connection mode; nil in single-connection mode).
+	readOnly *ReadOnlyInterceptor
 
 	// exportDeps holds portal dependencies for trino_export (nil = export disabled).
 	exportDeps *ExportDeps
@@ -208,10 +219,11 @@ func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 		config:                 defaultCfg,
 		manager:                mgr,
 		connectionDescriptions: descs,
+		readOnly:               buildReadOnlyInterceptor(defaultName, cfg.Instances),
 	}
 
 	connRequired := buildConnectionRequired(defaultName, cfg.Instances)
-	opts := buildToolkitOptions(defaultCfg, nil, connRequired) // elicitation not supported in multi-mode yet
+	opts := buildToolkitOptions(defaultCfg, nil, connRequired, t.readOnly) // elicitation not supported in multi-mode yet
 	t.trinoToolkit = trinotools.NewToolkitWithManager(mgr, trinotools.Config{
 		DefaultLimit: defaultCfg.DefaultLimit,
 		MaxLimit:     defaultCfg.MaxLimit,
@@ -235,6 +247,19 @@ func buildConnectionRequired(defaultName string, instances map[string]Config) *C
 		})
 	}
 	return NewConnectionRequiredMiddleware(connDescs)
+}
+
+// buildReadOnlyInterceptor creates the per-connection read-only interceptor for
+// a multi-connection toolkit. It is installed whether or not any instance sets
+// read_only, because toolkit options are fixed at construction: a connection
+// added later (AddConnection) can then be enforced without rebuilding the
+// toolkit.
+func buildReadOnlyInterceptor(defaultName string, instances map[string]Config) *ReadOnlyInterceptor {
+	readOnly := make(map[string]bool, len(instances))
+	for name, instCfg := range instances {
+		readOnly[name] = instCfg.ReadOnly
+	}
+	return NewConnectionReadOnlyInterceptor(defaultName, readOnly)
 }
 
 // buildMultiserverConfig constructs a multiserver.Config from instance configs.
@@ -294,16 +319,28 @@ func buildMultiserverConfig(
 	}
 }
 
-// buildToolkitOptions constructs toolkit options from config.
-func buildToolkitOptions(cfg Config, elicit *ElicitationMiddleware, connRequired *ConnectionRequiredMiddleware) []trinotools.ToolkitOption {
+// buildToolkitOptions constructs toolkit options from config. readOnly is nil
+// when no connection restricts writes.
+func buildToolkitOptions(
+	cfg Config,
+	elicit *ElicitationMiddleware,
+	connRequired *ConnectionRequiredMiddleware,
+	readOnly *ReadOnlyInterceptor,
+) []trinotools.ToolkitOption {
 	var opts []trinotools.ToolkitOption
 
 	// Always scrub internal topology (connector transport envelopes) from
 	// upstream engine errors before they reach tool callers.
 	opts = append(opts, trinotools.WithMiddleware(&ErrorSanitizerMiddleware{}))
 
-	if cfg.ReadOnly {
-		opts = append(opts, trinotools.WithQueryInterceptor(NewReadOnlyInterceptor()))
+	if readOnly != nil {
+		opts = append(opts, trinotools.WithQueryInterceptor(readOnly))
+		// A per-connection interceptor also runs as a middleware, to learn
+		// which connection each call named. The unconditional one refuses
+		// writes whatever the answer, so it does not pay for the hook.
+		if readOnly.perConnection() {
+			opts = append(opts, trinotools.WithMiddleware(readOnly))
+		}
 	}
 	if len(cfg.Titles) > 0 {
 		opts = append(opts, trinotools.WithTitles(toTrinoToolNames(cfg.Titles)))
@@ -402,7 +439,13 @@ func toTrinoToolNames(m map[string]string) map[trinotools.ToolName]string {
 
 // createToolkit creates the mcp-trino toolkit with appropriate options.
 func createToolkit(client *trinoclient.Client, cfg Config, elicit *ElicitationMiddleware) *trinotools.Toolkit {
-	opts := buildToolkitOptions(cfg, elicit, nil)
+	// A single-connection toolkit routes every call to the one client whatever
+	// the connection argument says, so read_only holds for all of them.
+	var readOnly *ReadOnlyInterceptor
+	if cfg.ReadOnly {
+		readOnly = NewReadOnlyInterceptor()
+	}
+	opts := buildToolkitOptions(cfg, elicit, nil, readOnly)
 	return trinotools.NewToolkit(client, trinotools.Config{
 		DefaultLimit: cfg.DefaultLimit,
 		MaxLimit:     cfg.MaxLimit,
@@ -496,6 +539,9 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 
 	infos := t.manager.ConnectionInfos()
 	details := make([]toolkit.ConnectionDetail, len(infos))
+
+	t.connMu.RLock()
+	defer t.connMu.RUnlock()
 	for i, info := range infos {
 		details[i] = toolkit.ConnectionDetail{
 			Name:        info.Name,
@@ -529,11 +575,22 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 		return fmt.Errorf("adding trino connection %s: %w", name, err)
 	}
 
+	t.connMu.Lock()
+	defer t.connMu.Unlock()
+
 	// Keep the description map current for list_connections.
 	if t.connectionDescriptions == nil {
 		t.connectionDescriptions = make(map[string]string)
 	}
 	t.connectionDescriptions[name] = getString(config, "description")
+
+	// Enforce this connection's read_only from its first call, not from the
+	// next restart. Until this lands the interceptor holds no setting for the
+	// name and refuses writes on it, so the window between the manager
+	// accepting the connection and this line is closed rather than open.
+	if t.readOnly != nil {
+		t.readOnly.SetConnection(name, getBool(config, "read_only"))
+	}
 
 	return nil
 }
@@ -547,7 +604,13 @@ func (t *Toolkit) RemoveConnection(name string) error {
 	if err := t.manager.RemoveConnection(name); err != nil {
 		return fmt.Errorf("removing trino connection %s: %w", name, err)
 	}
+
+	t.connMu.Lock()
+	defer t.connMu.Unlock()
 	delete(t.connectionDescriptions, name)
+	if t.readOnly != nil {
+		t.readOnly.ForgetConnection(name)
+	}
 	return nil
 }
 

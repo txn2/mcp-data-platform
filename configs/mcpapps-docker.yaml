@@ -32,6 +32,8 @@ personas:
     tools:
       allow: ["*"]
       deny: []
+    connections:
+      allow: ["*"]
 
 toolkits:
   trino:

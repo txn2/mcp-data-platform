@@ -711,9 +711,22 @@ toolkits:
 | `timeout` | duration | `120s` | Query timeout |
 | `default_limit` | int | `1000` | Default row limit for queries |
 | `max_limit` | int | `10000` | Maximum allowed row limit |
-| `read_only` | bool | `false` | Restrict to read-only queries |
+| `read_only` | bool | `false` | Reject write SQL on this connection. Set per instance: the other instances of the same toolkit are unaffected, and a call that omits `connection` is judged by the default instance's setting |
 | `connection_name` | string | instance name | Display name for this connection |
 | `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
+
+`read_only` became per connection in #1269. Before that it was read from the
+default instance alone and applied to the whole Trino toolkit, which cut both
+ways: `read_only: true` on the default instance refused write SQL on *every*
+Trino connection, and `read_only: true` on any other instance did nothing. A
+deployment that was relying on the default instance's `read_only` to cover its
+other Trino connections must now set `read_only: true` on each connection it
+wants refused.
+
+Connections stored in the database (Admin > Connections) carry the same key,
+with a **Read Only** toggle in the Trino connection form. A connection the
+toolkit holds no setting for — one just added, or a name that is not
+configured — refuses write SQL until its setting is recorded.
 
 ### DataHub
 
@@ -1012,10 +1025,14 @@ personas:
     tools:
       allow: ["*"]
       deny: ["*_delete_*", "*_drop_*"]
+    connections:
+      allow: ["*"]
   admin:
     display_name: "Administrator"
     roles: ["admin"]
     tools:
+      allow: ["*"]
+    connections:
       allow: ["*"]
 ```
 
@@ -1499,10 +1516,14 @@ personas:
     tools:
       allow: ["*"]
       deny: ["*_delete_*"]
+    connections:
+      allow: ["*"]
   admin:
     display_name: "Administrator"
     roles: ["admin"]
     tools:
+      allow: ["*"]
+    connections:
       allow: ["*"]
 ```
 

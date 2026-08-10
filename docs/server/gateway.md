@@ -133,6 +133,8 @@ personas:
         - "vendor__send_*"        # Gateway: trigger vendor sends
       deny:
         - "vendor__delete_*"      # Block destructive vendor calls
+    connections:
+      allow: ["*"]
 ```
 
 See [Tool Filtering](../personas/tool-filtering.md) for the full pattern grammar.

@@ -78,8 +78,10 @@ type ToolRules struct {
 
 // ConnectionRules defines connection-level access rules for a persona.
 // These work alongside ToolRules — a tool call must pass both the tool
-// check AND the connection check. If the Allow list is empty, all
-// connections are permitted (backward-compatible default).
+// check AND the connection check. Connections are deny-by-default: an
+// empty Allow list grants NO connections, so a persona that should reach
+// data must list what it may reach. See ToolFilter.IsConnectionAllowed
+// for the evaluation order.
 type ConnectionRules struct {
 	// Allow patterns for allowed connections (supports wildcards like "prod-*").
 	Allow []string `json:"allow,omitempty" yaml:"allow,omitempty"`

@@ -218,7 +218,7 @@ calling user's identity.
 
 | Dependency | Package | Credential / control |
 |------------|---------|----------------------|
-| Trino | `pkg/toolkits/trino/`, `pkg/query/trino/` | Username/password from connection config. Optional read-only mode (`read_only`, default off) rejects write SQL via `ReadOnlyInterceptor` (delegates to `trinotools.IsWriteSQL`); this is a write-verb rejection, not a SELECT-only allowlist. |
+| Trino | `pkg/toolkits/trino/`, `pkg/query/trino/` | Username/password from connection config. Optional read-only mode (`read_only`, default off) rejects write SQL via `ReadOnlyInterceptor` (delegates to `trinotools.IsWriteSQL`); this is a write-verb rejection, not a SELECT-only allowlist. It applies per connection: the interceptor resolves the connection the call names, or the default when it names none, and permits writes only on a connection configured write-capable — an unresolved or unconfigured connection is refused. The interceptor runs on the toolkit's SQL tools; `pkg/query/trino/` is the enrichment read path, which issues its own fixed metadata queries and does not run the interceptor. |
 | DataHub | `pkg/semantic/datahub/adapter.go` | Static bearer token from connection config. |
 | S3 | `pkg/storage/s3/adapter.go` | Static access-key/secret from connection config; the adapter carries a `ReadOnly` flag. |
 | Upstream MCP servers (gateway toolkit) | `pkg/toolkits/gateway/` | Remote tool descriptions and responses are re-exposed under a namespaced name. Descriptions and non-error response content flow through with enrichment applied only to structured content; there is no description sanitization. See the [malicious upstream](#malicious-or-compromised-upstream) analysis. |
@@ -375,6 +375,15 @@ account.
   flag. The platform cannot constrain a downstream account beyond what the
   downstream system's own authorization enforces; scoping the service account to
   least privilege in Trino/S3/DataHub is a deployment responsibility.
+- The connection is also the unit of containment, by design. Access is scoped at
+  the connection rather than the end user (see
+  [Authorization model](../concepts/authorization.md)), so an operator sizes
+  blast radius by deciding what each credential can reach and which personas are
+  granted it, before any call happens. Several connections may front the same
+  downstream system under different credentials at different permission levels;
+  a compromise of the read-only one does not reach what the write-capable one
+  can do. That containment is only as good as the split: a single broad
+  credential shared by every persona makes the boundary a formality.
 
 ## Mitigations
 
@@ -397,7 +406,7 @@ configuration that implements it.
 | Guest-link abuse (mailbombing a recipient, probing share tokens, replaying emailed links) | Uniform response regardless of share state; per-share issue cap plus per-IP rate limit; single-use atomic claim of a hashed, 15-minute token; guest session scoped to one share and view-only | `pkg/portal/shareguest` |
 | Forged unsubscribe (opting someone else out) | Footer token is an HMAC over the recipient address under a key derived from the browser-session signing key; only a holder of the emailed link can opt that address out | `internal/httpserver/unsubhttp/unsubscribe.go` |
 | Silent unsubscribe by mail-scanner prefetch (Safe Links, Proofpoint, and similar GETting footer URLs) | GET renders a confirmation page and mutates nothing; the opt-out records only on the confirmation form POST or the RFC 8058 one-click POST, which providers fire only on a real user action | `internal/httpserver/unsubhttp/unsubscribe.go` |
-| The model acting on injected instructions to mutate data | Trino read-only mode rejects write SQL | `pkg/toolkits/trino/readonly.go` (opt-in via `read_only`) |
+| The model acting on injected instructions to mutate data | Trino read-only mode rejects write SQL on the connections that set it | `pkg/toolkits/trino/readonly.go` (opt-in per connection via `read_only`) |
 | Premature or over-broad tool use | Search-first gate refuses query tools until `search` runs; `SEARCH_REQUIRED` short-circuit | `pkg/middleware/mcp_workflow_gate.go` |
 | Unbounded large scans / unconsented PII access | Cost-estimation and PII-consent elicitation prompts (Trino toolkit) | `pkg/toolkits/trino/elicitation.go` |
 | SSRF via catalog spec fetch by URL | https-only, DNS pre-check plus dial-time re-check blocking private/link-local/CGNAT ranges and the metadata endpoint, redirects disabled, body capped | `pkg/toolkits/apigateway/catalog/fetch.go`, applied in `pkg/admin/catalog_handler.go` |
@@ -427,11 +436,30 @@ These are stated plainly. Omitting them would misrepresent the security posture.
   latency for durability. The full loss model is documented in
   [Delivery semantics](../server/audit.md#delivery-semantics); it is not
   restated here.
-- API-gateway connections use one shared upstream identity per connection by
-  design (#374). The platform does not perform per-user token exchange to
-  upstream APIs; all callers of a given connection share its upstream
-  credential, and per-user attribution comes from the audit trail, not from
-  distinct upstream identities.
+- Downstream identity is per connection, not per user. This is the authorization
+  design rather than an unmitigated gap, and the distinction matters for how a
+  reader sizes it. Access is scoped at the connection: a connection is a named
+  binding to one downstream system under one operator-authored credential,
+  connection rules are deny-by-default and enforced on every tool call and every
+  discovery surface (`pkg/persona/filter.go`, `internal/platform/connscope`), and
+  several connections may front the same system under different credentials at
+  different permission levels. The platform performs no per-user token exchange,
+  no impersonation, and no session-user propagation to Trino, S3, DataHub,
+  upstream MCP servers, or HTTP APIs, because the construct every one of those
+  backends shares is a credential and an endpoint, not a caller identity the
+  platform could pass through. Outbound OAuth is per connection rather than per
+  user (`pkg/connoauth/exchange.go`, and the mitigations table above); the
+  API-gateway case is recorded as #374. What that costs is stated without
+  softening: all callers granted a connection are indistinguishable to the
+  downstream system, and warehouse row policies or column masks that key off the
+  end user do not follow a caller through the platform. Expressing per-person
+  policy means one connection per distinct policy outcome, which is workable when
+  those outcomes are few and unpleasant when they are many. Per-user attribution
+  comes from the audit trail, not from distinct downstream identities: with audit
+  enabled, each call records `user_id`, `user_email`, `persona`, and the
+  connection it targeted, subject to the best-effort delivery model stated above.
+  Rationale and the add-a-connection-not-a-role guidance:
+  [Authorization model](../concepts/authorization.md).
 - Content sanitization is partial, not comprehensive. DataHub semantic metadata
   is sanitized on the enrichment path (`pkg/semantic/sanitize.go`), but raw query
   row values and gateway-upstream tool descriptions and responses are not

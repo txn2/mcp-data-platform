@@ -254,6 +254,8 @@ personas:
         - "vendor__send_*"        # Gateway: trigger vendor sends
       deny:
         - "vendor__delete_*"      # Block destructive vendor calls
+    connections:
+      allow: ["*"]
 ```
 
 The double-underscore separator (`__`) is a deliberate marker — it makes "gateway tool" visually obvious in audit logs, persona configs, and tool-list responses, and it never collides with the single-underscore separators used by native toolkits (`trino_query`, `datahub_search`, `s3_get_object`).

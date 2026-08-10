@@ -94,6 +94,8 @@ personas:
     tools:
       allow: ["*"]
       deny: ["*_delete_*", "*_drop_*"]
+    connections:
+      allow: ["*"]
 ```
 
 PII detection itself comes from DataHub tags on the table (surfaced via
@@ -128,6 +130,8 @@ personas:
     tools:
       allow: ["platform_info", "search", "fetch", "datahub_get_*"]
       deny: ["trino_*", "s3_*"]
+    connections:
+      allow: ["*"]
 
   # Tier 2: Query-capable analysts
   analyst:
@@ -136,6 +140,8 @@ personas:
     tools:
       allow: ["*"]
       deny: ["*_delete_*", "*_drop_*", "*_put_*", "trino_execute"]
+    connections:
+      allow: ["*"]
 
   # Tier 3: Data engineers with write access
   engineer:
@@ -144,12 +150,16 @@ personas:
     tools:
       allow: ["*"]
       deny: ["*_delete_*"]
+    connections:
+      allow: ["*"]
 
   # Tier 4: Administrators
   admin:
     display_name: "Administrator"
     roles: ["dp_admin"]
     tools:
+      allow: ["*"]
+    connections:
       allow: ["*"]
 
   # Mapping for legacy role names
@@ -277,6 +287,8 @@ personas:
       deny:
         - "*_delete_*"
         - "*_drop_*"
+    connections:
+      allow: ["*"]
 
     # User-friendly context override
     context:
@@ -391,6 +403,8 @@ personas:
         - "trino_query"
         - "trino_execute"
         - "*_delete_*"
+    connections:
+      allow: ["*"]
 
     context:
       description_prefix: |
@@ -473,6 +487,8 @@ personas:
         - "*_delete_*"
         - "*_put_*"
         - "trino_execute"              # Read-only: no DDL/DML
+    connections:
+      allow: ["*"]
 
     context:
       description_prefix: |
@@ -519,6 +535,8 @@ personas:
       allow: ["*"]
       deny:
         - "*_delete_*"
+    connections:
+      allow: ["*"]
 
     context:
       description_prefix: |
@@ -563,6 +581,8 @@ personas:
       allow: ["*"]
       deny:
         - "*_delete_*"
+    connections:
+      allow: ["*"]
 
     context:
       description_prefix: |

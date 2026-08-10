@@ -2,6 +2,7 @@ package graphgen
 
 import (
 	"fmt"
+	// nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- deterministic corpus generation for the graph-completion study; not security-sensitive, and a seedable PRNG is required so the same Spec regenerates the same corpus.
 	"math/rand/v2"
 	"strings"
 
