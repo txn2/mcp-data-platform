@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
 	"github.com/txn2/mcp-data-platform/bench/internal/graphfix"
+	"github.com/txn2/mcp-data-platform/bench/internal/graphgen"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/pool"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
@@ -74,9 +75,18 @@ type Options struct {
 	// grades each final document's completeness claim, so overclaim is
 	// measurable (#1250). The probe ran without it; study runs set it.
 	ElicitCompleteness bool
-	K                  int
-	OutDir             string
-	GitCommit          string
+	// Spec is the generator spec the run corpus was rendered from, recorded
+	// in the manifest so an offline reread regenerates the exact corpus
+	// (#1251). Nil for the probe's compiled-in fixture.
+	Spec *graphgen.Spec
+	// WithinCeiling accepts a gate report whose only failures are
+	// discontinuity hits (#1250's within-enumeration-ceiling reading), which
+	// the study's smallest scale records by construction. Leaks and entry
+	// findability still gate. Never set it at a certified scale.
+	WithinCeiling bool
+	K             int
+	OutDir        string
+	GitCommit     string
 	// ClientVersion and DisallowedTools describe the episode client as it was
 	// actually invoked, for the manifest.
 	ClientVersion   string
@@ -103,9 +113,21 @@ type Manifest struct {
 	// ElicitCompleteness records whether prompts carried the completeness
 	// elicitation and claims were graded.
 	ElicitCompleteness bool `json:"elicit_completeness,omitempty"`
-	Cells              int  `json:"cells"`
-	K                  int  `json:"k"`
-	Attempts           int  `json:"attempts"`
+	// Spec is the generator spec that regenerates the run's exact corpus;
+	// absent for the probe's compiled-in fixture (#1251).
+	Spec *graphgen.Spec `json:"spec,omitempty"`
+	// CorpusFingerprint is the content hash of the corpus the run graded
+	// against. Reread refuses to regrade when the corpus it resolves hashes
+	// differently — page counts and cell ids are scale-invariant and would
+	// not catch generator content drift after the run.
+	CorpusFingerprint string `json:"corpus_fingerprint,omitempty"`
+	// WithinCeiling records that the run accepted a gate carrying the
+	// within-enumeration-ceiling reading, so the archive says on its face
+	// that the discontinuity DV is not read from it.
+	WithinCeiling bool `json:"within_ceiling,omitempty"`
+	Cells         int  `json:"cells"`
+	K             int  `json:"k"`
+	Attempts      int  `json:"attempts"`
 	// Exploratory is always true: a premise probe is a decision input, never a
 	// published finding (the study lifecycle, bench/docs/findings-register.md).
 	Exploratory bool `json:"exploratory"`
@@ -170,7 +192,9 @@ func Run(ctx context.Context, opts Options) (*CompletionResults, error) {
 			DisallowedTools: opts.DisallowedTools,
 			Probe:           probeName, Arm: opts.Planted.Arm(), SearchEnabled: opts.SearchEnabled,
 			ElicitCompleteness: opts.ElicitCompleteness,
-			Cells:              len(opts.Cells), K: opts.K, Exploratory: true,
+			Spec:               opts.Spec, WithinCeiling: opts.WithinCeiling && !opts.Gate.Pass,
+			CorpusFingerprint: opts.Corpus.Fingerprint(),
+			Cells:             len(opts.Cells), K: opts.K, Exploratory: true,
 			Scaffold: opts.scaffold(), CorpusPages: len(opts.Planted.Pages),
 		},
 		Gate: opts.Gate, Planted: opts.Planted, Cells: opts.Cells,
@@ -272,17 +296,27 @@ func (o Options) validateCellsBelong() error {
 }
 
 // validateGate rejects a run whose gate reading cannot vouch for the corpus
-// it is about to run against.
+// it is about to run against. A within-ceiling run accepts the one failure
+// shape the design pre-states for the smallest scale — discontinuity hits
+// only — and nothing else.
 func (o Options) validateGate() error {
 	switch {
 	case len(o.Gate.Results) == 0:
 		return errors.New("graphprobe: no fixture-gate reading; the gate is a pre-stated precondition and its result is archived with the run")
 	case o.Gate.Stripped != o.Planted.Stripped:
 		return errors.New("graphprobe: the gate report swept a different corpus arm than the plant record; re-run the gate against this plant")
-	case !o.Gate.Pass:
-		return errors.New("graphprobe: the fixture gate did not pass; re-author or drop the failing cell rather than running it")
+	case !o.Gate.PlantedAt.IsZero() && !o.Gate.PlantedAt.Equal(o.Planted.PlantedAt):
+		// The study's cell ids and entry keys are identical at every scale,
+		// so nothing else would catch a leftover report from another
+		// corpus's sweep. Reports from before the field existed carry zero
+		// and keep validating on arm alone.
+		return errors.New("graphprobe: the gate report swept a different plant than the plant record; re-run the gate against this plant")
+	case o.Gate.Pass:
+		return nil
+	case o.WithinCeiling && o.Gate.WithinCeilingReading(o.Cells):
+		return nil
 	}
-	return nil
+	return errors.New("graphprobe: the fixture gate did not pass; re-author or drop the failing cell rather than running it")
 }
 
 // attempt runs one cell once.

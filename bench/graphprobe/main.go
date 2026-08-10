@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
 	"github.com/txn2/mcp-data-platform/bench/internal/graphfix"
 	"github.com/txn2/mcp-data-platform/bench/internal/graphprobe"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
@@ -31,11 +30,6 @@ func main() {
 		os.Exit(1)
 	}
 }
-
-// searchToolFullName is the search tool as the client namespaces it
-// (mcp__<server>__<tool> with claudecli's default server name); the no-search
-// arms pass it to --disallowedTools.
-const searchToolFullName = "mcp__bench__search"
 
 // config is the parsed command line.
 type config struct {
@@ -255,7 +249,7 @@ func episodes(ctx context.Context, cfg config) error {
 	if err := readJSON(cfg.gatePath, &report); err != nil {
 		return fmt.Errorf("reading the sweep-gate report: %w", err)
 	}
-	runner, version, err := buildRunner(ctx, cfg)
+	runner, version, err := graphprobe.BuildRunner(ctx, cfg.model, cfg.disallow, cfg.noSearch)
 	if err != nil {
 		return err
 	}
@@ -279,34 +273,6 @@ func episodes(ctx context.Context, cfg config) error {
 		summarize(res, cfg.out)
 	}
 	return runErr
-}
-
-// buildRunner assembles the claude-cli runner for this run's search
-// condition: the no-search arms disallow the platform's search tool at the
-// client, which is the whole manipulation (the platform is unchanged, and
-// `fetch` is not behind the search-first gate).
-func buildRunner(ctx context.Context, cfg config) (*claudecli.Runner, string, error) {
-	extra := cfg.disallow
-	if cfg.noSearch {
-		if extra == "" {
-			extra = searchToolFullName
-		} else {
-			extra += "," + searchToolFullName
-		}
-	}
-	disallowed, err := claudecli.DisallowTools(extra)
-	if err != nil {
-		return nil, "", err
-	}
-	runner, err := claudecli.New(claudecli.Options{Model: cfg.model, DisallowedTools: disallowed})
-	if err != nil {
-		return nil, "", err
-	}
-	version, err := runner.Version(ctx)
-	if err != nil {
-		return nil, "", fmt.Errorf("claude --version: %w", err)
-	}
-	return runner, version, nil
 }
 
 // tally accumulates one cell's episode outcomes.

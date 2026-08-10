@@ -1,0 +1,751 @@
+{
+  "ran_at": "2026-08-10T21:32:55.606534Z",
+  "stripped": true,
+  "planted_at": "2026-08-10T21:29:00.861677Z",
+  "limits": [
+    5,
+    25,
+    100
+  ],
+  "results": [
+    {
+      "cell_id": "gs-change-plan",
+      "query": "orders-ledger stream add a field change plan",
+      "limit": 5,
+      "entry_rank": 1,
+      "page_ranks": {
+        "consumer-agreement-ledger": 2,
+        "orders-ledger-stream-runbook": 1
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "consumer-agreement-ledger"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "orders-ledger stream add a field change plan",
+      "limit": 25,
+      "entry_rank": 1,
+      "page_ranks": {
+        "change-announcement-directory": 3,
+        "change-class-directory": 5,
+        "consumer-agreement-ledger": 2,
+        "orders-ledger-stream-runbook": 1
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "consumer-agreement-ledger",
+        "change-announcement-directory",
+        "billing-rollup-schema-notes",
+        "change-class-directory",
+        "loyalty-rollup-checks",
+        "payment-backfill-schema-notes",
+        "billing-rollup-runbook",
+        "billing-rollup-checks",
+        "loyalty-rollup-schema-notes",
+        "signup-bridge-runbook",
+        "billing-snapshot-schema-notes",
+        "payment-rollup-checks",
+        "loyalty-compaction-window-notes",
+        "payment-index-schema-notes",
+        "procurement-commitment-ledger"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "orders-ledger stream add a field change plan",
+      "limit": 100,
+      "entry_rank": 1,
+      "page_ranks": {
+        "change-announcement-directory": 3,
+        "change-class-directory": 5,
+        "consumer-agreement-ledger": 2,
+        "orders-ledger-stream-runbook": 1
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "consumer-agreement-ledger",
+        "change-announcement-directory",
+        "billing-rollup-schema-notes",
+        "change-class-directory",
+        "loyalty-rollup-checks",
+        "payment-backfill-schema-notes",
+        "billing-rollup-runbook",
+        "billing-rollup-checks",
+        "loyalty-rollup-schema-notes",
+        "signup-bridge-runbook",
+        "billing-snapshot-schema-notes",
+        "payment-rollup-checks",
+        "loyalty-compaction-window-notes",
+        "payment-index-schema-notes",
+        "procurement-commitment-ledger"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "how is a change to a governed stream approved and announced",
+      "limit": 5,
+      "entry_rank": 1,
+      "page_ranks": {
+        "change-announcement-directory": 2,
+        "orders-ledger-stream-runbook": 1
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "change-announcement-directory"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "how is a change to a governed stream approved and announced",
+      "limit": 25,
+      "entry_rank": 1,
+      "page_ranks": {
+        "attestation-procedure": 5,
+        "change-announcement-directory": 2,
+        "change-class-directory": 4,
+        "consumer-agreement-ledger": 10,
+        "governed-tier-obligations": 3,
+        "orders-ledger-stream-runbook": 1,
+        "schema-version-register": 9
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "change-announcement-directory",
+        "governed-tier-obligations",
+        "change-class-directory",
+        "attestation-procedure",
+        "consent-rollup-checks",
+        "consent-rollup-tuning-notes",
+        "consent-intake-checks",
+        "schema-version-register",
+        "consumer-agreement-ledger",
+        "dispatch-rollup-checks",
+        "consent-rollup-history",
+        "customs-rollup-checks",
+        "consent-extract-runbook",
+        "consent-bridge-tuning-notes",
+        "offplatform-copy-policy",
+        "consent-bridge-history",
+        "consent-backfill-runbook"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "how is a change to a governed stream approved and announced",
+      "limit": 100,
+      "entry_rank": 1,
+      "page_ranks": {
+        "attestation-procedure": 5,
+        "change-announcement-directory": 2,
+        "change-class-directory": 4,
+        "consumer-agreement-ledger": 10,
+        "governed-tier-obligations": 3,
+        "orders-ledger-stream-runbook": 1,
+        "schema-version-register": 9
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "change-announcement-directory",
+        "governed-tier-obligations",
+        "change-class-directory",
+        "attestation-procedure",
+        "consent-rollup-checks",
+        "consent-rollup-tuning-notes",
+        "consent-intake-checks",
+        "schema-version-register",
+        "consumer-agreement-ledger",
+        "dispatch-rollup-checks",
+        "consent-rollup-history",
+        "customs-rollup-checks",
+        "consent-extract-runbook",
+        "consent-bridge-tuning-notes",
+        "offplatform-copy-policy",
+        "consent-bridge-history",
+        "consent-backfill-runbook"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "stream schema change consumer notice requirements",
+      "limit": 5,
+      "entry_rank": 0,
+      "hits": [
+        "checkout-intake-schema-notes",
+        "promo-backfill-schema-notes",
+        "loyalty-relay-schema-notes"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "stream schema change consumer notice requirements",
+      "limit": 25,
+      "entry_rank": 0,
+      "hits": [
+        "checkout-intake-schema-notes",
+        "promo-backfill-schema-notes",
+        "loyalty-relay-schema-notes",
+        "signup-relay-schema-notes",
+        "payment-backfill-schema-notes",
+        "voucher-extract-schema-notes",
+        "segment-digest-schema-notes",
+        "device-relay-schema-notes",
+        "voucher-cleanse-schema-notes",
+        "subscription-intake-schema-notes",
+        "payment-bridge-schema-notes",
+        "supplier-compaction-schema-notes",
+        "signup-handoff-schema-notes",
+        "outlet-digest-schema-notes",
+        "telemetry-mirror-schema-notes",
+        "listing-mirror-schema-notes",
+        "pricing-backfill-schema-notes"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "stream schema change consumer notice requirements",
+      "limit": 100,
+      "entry_rank": 0,
+      "hits": [
+        "checkout-intake-schema-notes",
+        "promo-backfill-schema-notes",
+        "loyalty-relay-schema-notes",
+        "signup-relay-schema-notes",
+        "payment-backfill-schema-notes",
+        "voucher-extract-schema-notes",
+        "segment-digest-schema-notes",
+        "device-relay-schema-notes",
+        "voucher-cleanse-schema-notes",
+        "subscription-intake-schema-notes",
+        "payment-bridge-schema-notes",
+        "supplier-compaction-schema-notes",
+        "signup-handoff-schema-notes",
+        "outlet-digest-schema-notes",
+        "telemetry-mirror-schema-notes",
+        "listing-mirror-schema-notes",
+        "pricing-backfill-schema-notes"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "settlement-recon job failed several nights running what happens",
+      "limit": 5,
+      "entry_rank": 1,
+      "page_ranks": {
+        "settlement-recon-job-runbook": 1
+      },
+      "hits": [
+        "settlement-recon-job-runbook",
+        "feed-rerun-procedure"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "settlement-recon job failed several nights running what happens",
+      "limit": 25,
+      "entry_rank": 1,
+      "page_ranks": {
+        "postmortem-record-standard": 19,
+        "settlement-recon-job-runbook": 1
+      },
+      "hits": [
+        "settlement-recon-job-runbook",
+        "feed-rerun-procedure",
+        "sensor-handoff-runbook",
+        "loyalty-rollup-runbook",
+        "sensor-reconciliation-checks",
+        "receipt-compaction-runbook",
+        "sensor-reconciliation-handling-guide",
+        "sensor-reconciliation-runbook",
+        "sensor-snapshot-history",
+        "beacon-reconciliation-runbook",
+        "sensor-compaction-checks",
+        "returns-reconciliation-runbook",
+        "sensor-compaction-runbook",
+        "forecast-compaction-runbook",
+        "voucher-reconciliation-runbook",
+        "sensor-relay-history",
+        "beacon-rollup-runbook",
+        "telemetry-reconciliation-checks",
+        "postmortem-record-standard",
+        "telemetry-reconciliation-runbook"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "settlement-recon job failed several nights running what happens",
+      "limit": 100,
+      "entry_rank": 1,
+      "page_ranks": {
+        "postmortem-record-standard": 19,
+        "settlement-recon-job-runbook": 1
+      },
+      "hits": [
+        "settlement-recon-job-runbook",
+        "feed-rerun-procedure",
+        "sensor-handoff-runbook",
+        "loyalty-rollup-runbook",
+        "sensor-reconciliation-checks",
+        "receipt-compaction-runbook",
+        "sensor-reconciliation-handling-guide",
+        "sensor-reconciliation-runbook",
+        "sensor-snapshot-history",
+        "beacon-reconciliation-runbook",
+        "sensor-compaction-checks",
+        "returns-reconciliation-runbook",
+        "sensor-compaction-runbook",
+        "forecast-compaction-runbook",
+        "voucher-reconciliation-runbook",
+        "sensor-relay-history",
+        "beacon-rollup-runbook",
+        "telemetry-reconciliation-checks",
+        "postmortem-record-standard",
+        "telemetry-reconciliation-runbook",
+        "sensor-compaction-window-notes",
+        "loyalty-reconciliation-history",
+        "loyalty-reconciliation-runbook"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "incident severity and escalation when nobody responds",
+      "limit": 5,
+      "entry_rank": 0,
+      "page_ranks": {
+        "incident-comms-standard": 1,
+        "incident-severity-standard": 2
+      },
+      "hits": [
+        "incident-comms-standard",
+        "incident-severity-standard"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "incident severity and escalation when nobody responds",
+      "limit": 25,
+      "entry_rank": 0,
+      "page_ranks": {
+        "acknowledgment-clocks": 3,
+        "closure-evidence-standard": 4,
+        "escalation-roster": 7,
+        "incident-comms-standard": 1,
+        "incident-severity-standard": 2,
+        "postmortem-record-standard": 10
+      },
+      "hits": [
+        "incident-comms-standard",
+        "incident-severity-standard",
+        "acknowledgment-clocks",
+        "closure-evidence-standard",
+        "dispatch-reconciliation-checks",
+        "telemetry-reconciliation-checks",
+        "escalation-roster",
+        "dispatch-snapshot-history",
+        "dispatch-intake-review-notes",
+        "postmortem-record-standard",
+        "signup-bridge-history",
+        "invoice-snapshot-checks",
+        "outlet-snapshot-checks",
+        "signup-snapshot-checks",
+        "sensor-bridge-tuning-notes",
+        "sensor-reconciliation-checks"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "incident severity and escalation when nobody responds",
+      "limit": 100,
+      "entry_rank": 0,
+      "page_ranks": {
+        "acknowledgment-clocks": 3,
+        "closure-evidence-standard": 4,
+        "escalation-roster": 7,
+        "incident-comms-standard": 1,
+        "incident-severity-standard": 2,
+        "postmortem-record-standard": 10
+      },
+      "hits": [
+        "incident-comms-standard",
+        "incident-severity-standard",
+        "acknowledgment-clocks",
+        "closure-evidence-standard",
+        "dispatch-reconciliation-checks",
+        "telemetry-reconciliation-checks",
+        "escalation-roster",
+        "dispatch-snapshot-history",
+        "dispatch-intake-review-notes",
+        "postmortem-record-standard",
+        "signup-bridge-history",
+        "invoice-snapshot-checks",
+        "outlet-snapshot-checks",
+        "signup-snapshot-checks",
+        "sensor-bridge-tuning-notes",
+        "sensor-reconciliation-checks"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "how are control failure incidents communicated and closed",
+      "limit": 5,
+      "entry_rank": 0,
+      "page_ranks": {
+        "incident-comms-standard": 1
+      },
+      "hits": [
+        "incident-comms-standard",
+        "notification-staging-handling-guide"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "how are control failure incidents communicated and closed",
+      "limit": 25,
+      "entry_rank": 0,
+      "page_ranks": {
+        "incident-comms-standard": 1
+      },
+      "hits": [
+        "incident-comms-standard",
+        "notification-staging-handling-guide",
+        "dispatch-snapshot-history",
+        "dispatch-reconciliation-checks",
+        "ticket-relay-tuning-notes",
+        "notification-staging-runbook",
+        "email-handoff-history",
+        "shipment-handoff-checks",
+        "notification-cleanse-runbook",
+        "sensor-relay-handling-guide",
+        "notification-replay-history",
+        "dispatch-relay-tuning-notes",
+        "chat-handoff-history",
+        "carrier-handoff-checks",
+        "dispatch-relay-handling-guide",
+        "notification-reconciliation-runbook",
+        "shipment-cleanse-history",
+        "notification-cleanse-checks",
+        "terminal-handoff-checks",
+        "shipment-staging-history"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "how are control failure incidents communicated and closed",
+      "limit": 100,
+      "entry_rank": 0,
+      "page_ranks": {
+        "incident-comms-standard": 1
+      },
+      "hits": [
+        "incident-comms-standard",
+        "notification-staging-handling-guide",
+        "dispatch-snapshot-history",
+        "dispatch-reconciliation-checks",
+        "ticket-relay-tuning-notes",
+        "notification-staging-runbook",
+        "email-handoff-history",
+        "shipment-handoff-checks",
+        "notification-cleanse-runbook",
+        "sensor-relay-handling-guide",
+        "notification-replay-history",
+        "dispatch-relay-tuning-notes",
+        "chat-handoff-history",
+        "carrier-handoff-checks",
+        "dispatch-relay-handling-guide",
+        "notification-reconciliation-runbook",
+        "shipment-cleanse-history",
+        "notification-cleanse-checks",
+        "terminal-handoff-checks",
+        "shipment-staging-history",
+        "chat-handoff-checks",
+        "sensor-relay-checks"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "new nightly feed onboarding naming storage delivery",
+      "limit": 5,
+      "entry_rank": 3,
+      "page_ranks": {
+        "feed-naming-standard": 1,
+        "parcel-events-feed-runbook": 3,
+        "storage-tier-register": 2
+      },
+      "hits": [
+        "feed-naming-standard",
+        "storage-tier-register",
+        "parcel-events-feed-runbook"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "new nightly feed onboarding naming storage delivery",
+      "limit": 25,
+      "entry_rank": 3,
+      "page_ranks": {
+        "delivery-expectation-standard": 5,
+        "feed-naming-standard": 1,
+        "feed-rerun-procedure": 11,
+        "parcel-events-feed-runbook": 3,
+        "storage-tier-register": 2
+      },
+      "hits": [
+        "feed-naming-standard",
+        "storage-tier-register",
+        "parcel-events-feed-runbook",
+        "notification-intake-runbook",
+        "delivery-expectation-standard",
+        "notification-intake-checks",
+        "notification-rollup-runbook",
+        "notification-staging-runbook",
+        "courier-intake-runbook",
+        "depot-intake-runbook",
+        "feed-rerun-procedure",
+        "notification-index-handling-guide",
+        "dispatch-intake-handling-guide",
+        "courier-intake-history",
+        "dispatch-intake-checks",
+        "notification-staging-window-notes",
+        "notification-staging-history",
+        "notification-intake-history",
+        "container-intake-runbook",
+        "shipment-snapshot-runbook"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "new nightly feed onboarding naming storage delivery",
+      "limit": 100,
+      "entry_rank": 3,
+      "page_ranks": {
+        "delivery-expectation-standard": 5,
+        "feed-naming-standard": 1,
+        "feed-rerun-procedure": 11,
+        "parcel-events-feed-runbook": 3,
+        "storage-tier-register": 2
+      },
+      "hits": [
+        "feed-naming-standard",
+        "storage-tier-register",
+        "parcel-events-feed-runbook",
+        "notification-intake-runbook",
+        "delivery-expectation-standard",
+        "notification-intake-checks",
+        "notification-rollup-runbook",
+        "notification-staging-runbook",
+        "courier-intake-runbook",
+        "depot-intake-runbook",
+        "feed-rerun-procedure",
+        "notification-index-handling-guide",
+        "dispatch-intake-handling-guide",
+        "courier-intake-history",
+        "dispatch-intake-checks",
+        "notification-staging-window-notes",
+        "notification-staging-history",
+        "notification-intake-history",
+        "container-intake-runbook",
+        "shipment-snapshot-runbook",
+        "container-intake-handling-guide",
+        "notification-rollup-history"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "how are nightly feeds operated and registered",
+      "limit": 5,
+      "entry_rank": 1,
+      "page_ranks": {
+        "parcel-events-feed-runbook": 1,
+        "storage-tier-register": 2
+      },
+      "hits": [
+        "parcel-events-feed-runbook",
+        "storage-tier-register"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "how are nightly feeds operated and registered",
+      "limit": 25,
+      "entry_rank": 1,
+      "page_ranks": {
+        "delivery-expectation-standard": 6,
+        "feed-naming-standard": 13,
+        "feed-rerun-procedure": 4,
+        "parcel-events-feed-runbook": 1,
+        "storage-tier-register": 2
+      },
+      "hits": [
+        "parcel-events-feed-runbook",
+        "storage-tier-register",
+        "notification-intake-checks",
+        "feed-rerun-procedure",
+        "roster-sync-checks",
+        "delivery-expectation-standard",
+        "receipt-intake-history",
+        "roster-sync-runbook",
+        "notification-staging-runbook",
+        "receipt-intake-handling-guide",
+        "courier-intake-runbook",
+        "receipt-index-checks",
+        "feed-naming-standard",
+        "roster-index-handling-guide",
+        "notification-index-checks",
+        "notification-intake-runbook",
+        "dispatch-intake-checks",
+        "subscription-rollup-runbook",
+        "roster-index-runbook",
+        "notification-rollup-runbook"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "how are nightly feeds operated and registered",
+      "limit": 100,
+      "entry_rank": 1,
+      "page_ranks": {
+        "delivery-expectation-standard": 6,
+        "feed-naming-standard": 13,
+        "feed-rerun-procedure": 4,
+        "parcel-events-feed-runbook": 1,
+        "storage-tier-register": 2
+      },
+      "hits": [
+        "parcel-events-feed-runbook",
+        "storage-tier-register",
+        "notification-intake-checks",
+        "feed-rerun-procedure",
+        "roster-sync-checks",
+        "delivery-expectation-standard",
+        "receipt-intake-history",
+        "roster-sync-runbook",
+        "notification-staging-runbook",
+        "receipt-intake-handling-guide",
+        "courier-intake-runbook",
+        "receipt-index-checks",
+        "feed-naming-standard",
+        "roster-index-handling-guide",
+        "notification-index-checks",
+        "notification-intake-runbook",
+        "dispatch-intake-checks",
+        "subscription-rollup-runbook",
+        "roster-index-runbook",
+        "notification-rollup-runbook",
+        "roster-sync-window-notes",
+        "subscription-sync-runbook",
+        "receipt-intake-runbook",
+        "notification-index-handling-guide",
+        "notification-index-window-notes"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "feed output lifetime and delivery expectations",
+      "limit": 5,
+      "entry_rank": 2,
+      "page_ranks": {
+        "delivery-expectation-standard": 1,
+        "parcel-events-feed-runbook": 2
+      },
+      "hits": [
+        "delivery-expectation-standard",
+        "parcel-events-feed-runbook"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "feed output lifetime and delivery expectations",
+      "limit": 25,
+      "entry_rank": 2,
+      "page_ranks": {
+        "delivery-expectation-standard": 1,
+        "feed-naming-standard": 10,
+        "parcel-events-feed-runbook": 2,
+        "storage-tier-register": 4
+      },
+      "hits": [
+        "delivery-expectation-standard",
+        "parcel-events-feed-runbook",
+        "forecast-intake-runbook",
+        "storage-tier-register",
+        "courier-intake-runbook",
+        "receipt-intake-history",
+        "forecast-extract-runbook",
+        "courier-intake-history",
+        "dispatch-intake-checks",
+        "feed-naming-standard",
+        "shipment-digest-runbook",
+        "shipment-digest-review-notes",
+        "dispatch-intake-runbook",
+        "forecast-intake-window-notes",
+        "dispatch-intake-tuning-notes",
+        "forecast-intake-review-notes",
+        "shipment-intake-checks",
+        "forecast-intake-schema-notes",
+        "receipt-intake-tuning-notes"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "feed output lifetime and delivery expectations",
+      "limit": 100,
+      "entry_rank": 2,
+      "page_ranks": {
+        "delivery-expectation-standard": 1,
+        "feed-naming-standard": 10,
+        "parcel-events-feed-runbook": 2,
+        "storage-tier-register": 4
+      },
+      "hits": [
+        "delivery-expectation-standard",
+        "parcel-events-feed-runbook",
+        "forecast-intake-runbook",
+        "storage-tier-register",
+        "courier-intake-runbook",
+        "receipt-intake-history",
+        "forecast-extract-runbook",
+        "courier-intake-history",
+        "dispatch-intake-checks",
+        "feed-naming-standard",
+        "shipment-digest-runbook",
+        "shipment-digest-review-notes",
+        "dispatch-intake-runbook",
+        "forecast-intake-window-notes",
+        "dispatch-intake-tuning-notes",
+        "forecast-intake-review-notes",
+        "shipment-intake-checks",
+        "forecast-intake-schema-notes",
+        "receipt-intake-tuning-notes"
+      ],
+      "pass": true
+    }
+  ],
+  "pass": true
+}

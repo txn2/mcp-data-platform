@@ -31,6 +31,9 @@
 package graphfix
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -178,6 +181,24 @@ func (c Corpus) Sorted() []Page {
 	out := slices.Clone(c.Pages)
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
+}
+
+// Fingerprint returns a stable content hash of the corpus: every page's
+// full JSON in key order, then every cell's. A run manifest records it so an
+// offline regrade can prove the corpus it regenerated is byte-for-byte the
+// one the run graded against — page counts, cell ids and entry keys are
+// scale-invariant and would not catch a generator whose content drifted
+// after the run (#1251).
+func (c Corpus) Fingerprint() string {
+	h := sha256.New()
+	enc := json.NewEncoder(h)
+	for _, p := range c.Sorted() {
+		_ = enc.Encode(p)
+	}
+	for _, cell := range c.Cells {
+		_ = enc.Encode(cell)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // ByKey returns one corpus page.

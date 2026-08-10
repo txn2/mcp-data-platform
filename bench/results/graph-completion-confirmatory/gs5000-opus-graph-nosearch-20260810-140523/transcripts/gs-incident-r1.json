@@ -1,0 +1,332 @@
+[
+  {
+    "role": "user",
+    "text": "The operating runbook for the nightly settlement-recon job is mcp:knowledge_page:kp_f396db6f-11ee-428e-8648-eedbe560e2b3.\n\nThe nightly settlement-recon job has now failed on three consecutive nights. Write the complete incident-handling document for this situation, one the on-shift engineer could follow as written: what is opened and at what severity, who has to be told, how the escalation proceeds and on what clocks when nobody responds, what is communicated while it is open, what has to be true before it can be closed, and what record it has to leave behind. Completeness matters more than brevity; the document is the deliverable.\n\nEnd the document with a section titled \"Open items\": list each thing the document needs that you could not determine, or write \"None\" if nothing is outstanding."
+  },
+  {
+    "role": "assistant",
+    "text": "I'll start by reading the platform documentation and the runbook."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01JFeT9k2ookee99qxfx4V5Z",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:mcp__bench__platform_info,mcp__bench__fetch,mcp__bench__list_connections"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01JFeT9k2ookee99qxfx4V5Z",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01YB9CzCBNWUAMF3nRMpyTSY",
+        "name": "mcp__bench__platform_info",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01YB9CzCBNWUAMF3nRMpyTSY",
+        "text": "{\"name\":\"mcp-data-platform-bench-gt\",\"version\":\"v1.120.0-2-g7e441e30-dirty\",\"session_id\":\"dps_6507a88c2f84530e4dcb9e453c5f6ddd\",\"session_expires_at\":\"2026-08-11T05:08:18Z\",\"agent_instructions\":\"SESSION HANDLE: This call issued you session_id \\\"dps_6507a88c2f84530e4dcb9e453c5f6ddd\\\". Pass it as the session_id argument on EVERY subsequent tool call. Tool calls without it are refused (SESSION_REQUIRED). Do not call platform_info again unless a call returns SESSION_EXPIRED.\\n\\nHow to operate this platform:\\n- Discover before you act. Call `search` first: one query reveals what is already known across every source you can reach (the data catalog, its context documents, your memory, captured insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and connections). The answer may span several sources, or may not be in the data warehouse at all, so do not assume a backend and do not stop at the first result.\\n- Reuse what is known. Treat `search` results as the starting point and read a result in full with `fetch` (pass the result's `reference`), or drill in with the scoped tool a result points to, rather than re-deriving an answer or re-asking the user for something already recorded.\\n\\nUploaded reference material:\\nResources are human-uploaded inputs an agent uses as-is: report templates, brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated outputs. Knowledge pages are curated facts to search and synthesize. Memory is per-user recall. If it existed before the conversation and the agent should use it verbatim, it is a resource.\\n- Before you format a deliverable, `search` for an applicable template or reference resource and follow it rather than inventing a layout.\\n- When the user names a company file (\\\"our template\\\", \\\"the checklist\\\", \\\"the brand header\\\"), resolve it with `search` and read it in full with `fetch` (pass the result's `reference`) instead of asking them to paste it.\\n- Material attached to a prompt is authoritative: use it as given rather than paraphrasing it or substituting your own.\",\"toolkits\":[\"platform\",\"api\",\"mcp\"],\"toolkit_descriptions\":{\"platform\":\"Core platform tools: deployment info, connection listing, and resource access.\"},\"persona\":{\"name\":\"admin\",\"display_name\":\"Bench Graph Traversal (GT)\"},\"prompts\":[{\"name\":\"knowledge_capture_guidance\",\"description\":\"Guidance on when and how to capture domain knowledge insights\",\"category\":\"toolkit\",\"content\":\"## Knowledge Capture Guidance\\n\\n### Default Behavior: Capture Proactively\\n\\nYou should capture knowledge automatically during normal conversation. Do not wait for the user to say \\\"capture this\\\" or \\\"remember that.\\\" When someone tells you a fact about their data, that is knowledge. Record it.\\n\\nUse memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.\\n\\nThe goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.\\n\\n### When to Capture an Insight\\n\\nUse memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:\\n\\n**Corrections**: The user corrects a column description, table purpose, or data interpretation.\\nExample: \\\"That column isn't actually revenue, it's gross margin before returns.\\\"\\n\\n**Business Context**: The user explains what data means in business terms not captured in metadata.\\nExample: \\\"We only count active subscriptions, not trial accounts, for MRR calculations.\\\"\\n\\n**Data Quality**: The user reports data quality issues or known limitations.\\nExample: \\\"The timestamps before March 2024 are in UTC but after that they switched to America/Chicago.\\\"\\n\\n**Usage Guidance**: The user shares tips on how to query or interpret data correctly.\\nExample: \\\"Always filter by status='active' on that table, otherwise you get duplicates from soft deletes.\\\"\\n\\n**Relationships**: The user explains connections between datasets not captured in lineage.\\nExample: \\\"The customer_id in orders joins to the legacy CRM export, not the new identity table.\\\"\\n\\n**Enhancements**: The user suggests improvements to existing documentation or metadata.\\nExample: \\\"It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT.\\\"\\n\\n### Agent-Discovered Insights\\n\\nYou can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:\\n\\n**source: \\\"agent_discovery\\\"** — Use when you figure something out yourself during exploration:\\n- Discovering what a column actually contains by sampling data (e.g., \\\"column 'amt' appears to be in cents, not dollars, based on value ranges\\\")\\n- Finding join relationships not documented in lineage (e.g., \\\"orders.cust_id matches customers.legacy_id, not customers.id\\\")\\n- Identifying data quality patterns through queries (e.g., \\\"ship_date is NULL for 23% of completed orders since 2024-06\\\")\\n- Determining refresh cadence by observing max timestamps across multiple queries\\n\\n**source: \\\"enrichment_gap\\\"** — Use when flagging metadata gaps that need admin attention:\\n- A table has no description and you cannot determine its purpose from the data alone\\n- Column descriptions are missing or clearly outdated\\n- Lineage is incomplete or contradicts what the data shows\\n- Tags or glossary terms are absent for datasets that clearly belong to a domain\\n\\n**source: \\\"user\\\"** (default) — Use for insights the user explicitly shares with you.\\n\\n### When to Ask the User Instead\\n\\nDo NOT guess when:\\n- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone\\n- Multiple interpretations of a column or table are equally plausible\\n- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)\\n\\nIn these cases, ask the user to clarify before capturing anything.\\n\\n### When NOT to Capture\\n\\nDo NOT capture insights for:\\n- Transient questions or debugging (\\\"why is my query slow?\\\")\\n- Personal preferences (\\\"I prefer using CTEs\\\")\\n- Information already present in the catalog metadata\\n- Vague or unverifiable claims without specific context\\n- Trivial observations that don't add catalog value\\n- Trivially obvious metadata gaps without adding what the data actually means\\n- Speculative interpretations you have not verified by querying the data\\n- The same gap repeatedly within a single session\\n\\n### Best Practices\\n\\n- Include specific entity URNs when the insight relates to known datasets\\n- Suggest concrete actions (add_tag, update_description) when applicable\\n- Set confidence to \\\"high\\\" only when the user is clearly authoritative\\n- For agent discoveries, set confidence based on evidence strength: \\\"high\\\" if verified by querying, \\\"medium\\\" if inferred from patterns, \\\"low\\\" if speculative\\n- Capture the insight promptly while context is fresh\\n- Use markdown formatting when it aids clarity: backticks for `column_name` and `table_name`, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.\"},{\"name\":\"knowledge_apply_guidance\",\"description\":\"How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"category\":\"toolkit\",\"content\":\"## Reviewing Insights into Durable Knowledge\\n\\nYou hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as \\\"review and apply knowledge.\\\") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.\\n\\n### The loop, and why knowledge matters\\n\\n- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.\\n- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.\\n- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.\\n\\nAlways discover before you apply: search existing memory, insights, and knowledge first.\\n\\n### The expert review workflow\\n\\n1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.\\n2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.\\n3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.\\n4. **Route to the right home.**\\n   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.\\n   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.\\n5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:\u003cid\u003e, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).\\n6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).\\n7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.\\n\\n### Structure knowledge as a navigable graph\\n\\nPrefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:\u003cid\u003e references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.\\n\\n### Routing examples\\n\\n- \\\"The amount column excludes returns\\\" applies to DataHub: update_description on that dataset column.\\n- \\\"We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning\\\" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.\\n- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.\\n- A broad \\\"retail operations\\\" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.\"},{\"name\":\"capture-this-as-knowledge\",\"description\":\"Record insights from this conversation for data catalog improvement\",\"category\":\"toolkit\",\"content\":\"Capture the key insights from this conversation as domain knowledge for the data catalog.\\n\\n1. Review our conversation for corrections, business context, data quality observations, or relationships discovered\\n2. Identify which datasets and columns the insights relate to\\n3. Record each insight with appropriate categorization and confidence level\\n4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)\"},{\"name\":\"save-this-as-an-asset\",\"description\":\"Save output from this conversation as a viewable, shareable asset\",\"category\":\"toolkit\",\"content\":\"Save the most recent output or analysis from this conversation as a shareable asset.\\n\\n1. Identify the key output from our conversation (dashboard, report, chart, or analysis)\\n2. Package it with an appropriate name, description, and tags\\n3. Save it as an asset so it can be viewed and shared\\n4. Return the link to the saved asset\"},{\"name\":\"show-my-saved-assets\",\"description\":\"Browse your saved assets\",\"category\":\"toolkit\",\"content\":\"List my saved assets.\\n\\n1. Retrieve all assets I have saved\\n2. Present them with names, descriptions, tags, and creation dates\\n3. Highlight the most recent items\"}],\"features\":{\"semantic_enrichment\":false,\"query_enrichment\":false,\"storage_enrichment\":false,\"audit_logging\":true,\"knowledge_capture\":false,\"managed_resources\":true},\"config_version\":{\"api_version\":\"v1\",\"supported_versions\":[\"v1\"],\"latest_version\":\"v1\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_012AKBpESgJVwtavUneYMpS7",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 3,
+          "query": "select:mcp__bench__search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_012AKBpESgJVwtavUneYMpS7",
+        "text": "No matching deferred tools found",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_014QhKhkdNwM8u472X53Ng6d",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 8,
+          "query": "search discover knowledge pages catalog"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_014QhKhkdNwM8u472X53Ng6d",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01NTsdopNfF6dYD61Lt9SMXK",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_f396db6f-11ee-428e-8648-eedbe560e2b3",
+          "session_id": "dps_6507a88c2f84530e4dcb9e453c5f6ddd"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01NTsdopNfF6dYD61Lt9SMXK",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_f396db6f-11ee-428e-8648-eedbe560e2b3\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_f396db6f-11ee-428e-8648-eedbe560e2b3\",\"source\":\"knowledge_pages\",\"title\":\"Settlement Recon Job Runbook\",\"body\":\"# Settlement Recon Job Runbook\\n\\nThe nightly settlement-recon job agrees the day's settlement records against\\nthe processor statements. A clean pass is silent; a failed pass leaves the\\nday unagreed and is re-attempted the following night after the upstream\\nstatements refresh.\\n\\n## When failures become formal\\n\\nOne failed night is watched. Two failed nights are worked during the day. A\\nthird consecutive failed night is no longer an operational matter: it opens\\nan IN-28 incident record, because the unagreed days now span a statement\\ncycle. The incident's severity and everything that follows from it are set by\\nmcp:knowledge_page:kp_0bb745e8-ba1e-411e-aea0-ab5dfe72075e, not by\\nthe job's operators.\\n\\n## While an incident is open\\n\\nThe job keeps running on its schedule. What an open incident communicates,\\nand on what rhythm, follows\\nmcp:knowledge_page:kp_2ebe1912-9877-4582-88ea-953c33ff306c; what\\nmust be true before the record can be closed, and the proof it takes, follows\\nmcp:knowledge_page:kp_d4923cfe-3d29-4190-a98a-7e24b0320cc3. The\\nrunbook's own scope ends at opening the record honestly.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_d4923cfe-3d29-4190-a98a-7e24b0320cc3\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_2ebe1912-9877-4582-88ea-953c33ff306c\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_0bb745e8-ba1e-411e-aea0-ab5dfe72075e\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01J4AUQdaPkzgwXRNoVVCYxi",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_0bb745e8-ba1e-411e-aea0-ab5dfe72075e",
+          "session_id": "dps_6507a88c2f84530e4dcb9e453c5f6ddd"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01J4AUQdaPkzgwXRNoVVCYxi",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_0bb745e8-ba1e-411e-aea0-ab5dfe72075e\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_0bb745e8-ba1e-411e-aea0-ab5dfe72075e\",\"source\":\"knowledge_pages\",\"title\":\"Incident Severity Standard\",\"body\":\"# Incident Severity Standard\\n\\nSeverity is assigned when the record is opened and belongs to the standard,\\nnot to the team that opened it.\\n\\n## Band SB-8\\n\\nA reconciliation or settlement control failing across a statement cycle is\\nband SB-8. The band notifies the owning team and the platform group's\\nshift lead at opening, and it escalates along the garnet route defined\\nin mcp:knowledge_page:kp_1d19dcf9-cba1-4e20-8347-cc2204f62972: severity decides the\\nroute, the roster decides the names.\\n\\n## Regulatory windows\\n\\nBands touching settlement controls carry one more obligation that is not the\\nengineering organization's to schedule: when the failure falls inside a\\nstatutory filing window, notification follows\\nmcp:knowledge_page:kp_21a4c204-04ff-430f-abeb-77c0740274ca maintained\\nby the compliance office.\\n\\n## Other bands\\n\\nSingle-night failures and non-control degradations carry the lighter bands,\\nwhich notify the owning team only and do not escalate unattended.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_21a4c204-04ff-430f-abeb-77c0740274ca\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_1d19dcf9-cba1-4e20-8347-cc2204f62972\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01GJuLaBVU71Lbm2jCvn9fck",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_2ebe1912-9877-4582-88ea-953c33ff306c",
+          "session_id": "dps_6507a88c2f84530e4dcb9e453c5f6ddd"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01GJuLaBVU71Lbm2jCvn9fck",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_2ebe1912-9877-4582-88ea-953c33ff306c\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_2ebe1912-9877-4582-88ea-953c33ff306c\",\"source\":\"knowledge_pages\",\"title\":\"Incident Communications Standard\",\"body\":\"# Incident Communications Standard\\n\\nAn open incident communicates on the cadence its opening notice declared,\\nand the cadence is a promise: missing an update is itself reportable.\\n\\nCadence UC-11 applies to control-failure incidents. The opening notice\\nnames the affected control, the days in question, and when the next update\\nwill arrive; every update thereafter either reports progress or re-promises\\nthe next time honestly. Updates go to the same audience as the opening\\nnotice — narrowing the audience mid-incident is not permitted, however quiet\\nthe update.\\n\\nThe closing notice is part of the standard too: it goes to the full audience\\nand names the evidence the closure rests on.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_019FkM29m64rhUMAenvAUXvd",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_d4923cfe-3d29-4190-a98a-7e24b0320cc3",
+          "session_id": "dps_6507a88c2f84530e4dcb9e453c5f6ddd"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_019FkM29m64rhUMAenvAUXvd",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_d4923cfe-3d29-4190-a98a-7e24b0320cc3\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_d4923cfe-3d29-4190-a98a-7e24b0320cc3\",\"source\":\"knowledge_pages\",\"title\":\"Closure Evidence Standard\",\"body\":\"# Closure Evidence Standard\\n\\nA control-failure incident closes on evidence, not on silence.\\n\\nClosure requires a CE-2 evidence record: the control passing on its own\\nschedule, unassisted, with the previously unagreed days brought current. A\\nmanually forced pass does not qualify — the record must come from the\\nscheduled run itself — and a quiet night with the control disabled qualifies\\neven less. The CE-2 record is attached to the incident before the\\nclosing notice goes out.\\n\\nOnce closed, the incident owes one more artifact: the review record described\\nin mcp:knowledge_page:kp_9de09300-a4d1-4fac-928d-465f95dee759, due on the\\nstandard's own clock rather than at closure time.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_9de09300-a4d1-4fac-928d-465f95dee759\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_017PGYWvLXyS4yFyG8A5yrLD",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_1d19dcf9-cba1-4e20-8347-cc2204f62972",
+          "session_id": "dps_6507a88c2f84530e4dcb9e453c5f6ddd"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_017PGYWvLXyS4yFyG8A5yrLD",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_1d19dcf9-cba1-4e20-8347-cc2204f62972\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_1d19dcf9-cba1-4e20-8347-cc2204f62972\",\"source\":\"knowledge_pages\",\"title\":\"Escalation Roster\",\"body\":\"# Escalation Roster\\n\\nA route is an ordered ladder of roles; an escalation climbs it one rung at a\\ntime and never skips a rung that has acknowledged.\\n\\n## The garnet route\\n\\nThe garnet route climbs from the platform shift lead to the duty\\nmanager to the head of platform operations. Each rung holds for the\\nacknowledgment clock recorded in\\nmcp:knowledge_page:kp_a1a45b2e-8435-4311-bd23-c35ae280d6f5; the clocks\\nbelong to that table, not to this roster, so a clock change never edits a\\nroute.\\n\\n## Changes\\n\\nRoutes change by agreement between the owning teams and the platform group,\\nand the roster is edited only after the change is agreed in writing; an\\nescalation in flight finishes on the roster it started on.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_a1a45b2e-8435-4311-bd23-c35ae280d6f5\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Er9cocqvk7eNBL8VVVbwAL",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_21a4c204-04ff-430f-abeb-77c0740274ca",
+          "session_id": "dps_6507a88c2f84530e4dcb9e453c5f6ddd"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Er9cocqvk7eNBL8VVVbwAL",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_21a4c204-04ff-430f-abeb-77c0740274ca\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_21a4c204-04ff-430f-abeb-77c0740274ca\",\"source\":\"knowledge_pages\",\"title\":\"Regulatory Filing Calendar\",\"body\":\"# Regulatory Filing Calendar\\n\\nThe compliance office maintains the calendar of statutory filing windows:\\nthe periods in which the firm's returns and statements are prepared and\\nlodged with its regulators.\\n\\n## Windows\\n\\nWindows are published a year ahead. Each window names its filing, the\\nlodgment date, and the list of in-scope arrangements the filing draws on;\\nthe office confirms scope questions in writing within a working day.\\nPreparation begins when the window opens, and the office's attention during\\na window belongs to the filing, not to new requests.\\n\\n## Form RN-26\\n\\nEach filing is lodged with its supporting declarations. Where anything on\\nthe in-scope list was interrupted while the filing was being prepared, form\\nRN-26 is lodged with it before the window closes, stating what was\\ninterrupted, the days affected, and the basis on which the filed figures\\nstand. The office can only lodge what it has been told while the window is\\nopen; word that arrives after lodgment becomes a correction, which the\\nregulators treat differently.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_018FSas5MUmityxosBxP7UZh",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_9de09300-a4d1-4fac-928d-465f95dee759",
+          "session_id": "dps_6507a88c2f84530e4dcb9e453c5f6ddd"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_018FSas5MUmityxosBxP7UZh",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_9de09300-a4d1-4fac-928d-465f95dee759\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_9de09300-a4d1-4fac-928d-465f95dee759\",\"source\":\"knowledge_pages\",\"title\":\"Review Record Standard\",\"body\":\"# Review Record Standard\\n\\nEvery closed control-failure incident files a PM-6 review record.\\n\\nThe record carries a timeline of the nights in question, the originating\\nconditions as they are actually understood, the corrections that will be\\nmade with a named owner for each, and the review meeting's outcome. Owned\\ncorrections are tracked to completion; a record whose corrections have no\\nowner is returned to the incident's owner rather than filed.\\n\\nThe record is filed against the incident and referenced from the control's\\nown operating notes, so the next operator to meet the same failure finds\\nwhat the last one learned.\\n\\nThe record also closes the people side: hours spent on the nights in\\nquestion are entered under\\nmcp:knowledge_page:kp_53d90e3c-9984-4b82-b2d9-8dca644e4368 before\\nthe record is filed, because the workforce office's ledger closes on its\\nown rhythm whether or not the review is done.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_53d90e3c-9984-4b82-b2d9-8dca644e4368\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01GPGEiYK9RyokrgcRyQQ5vM",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_a1a45b2e-8435-4311-bd23-c35ae280d6f5",
+          "session_id": "dps_6507a88c2f84530e4dcb9e453c5f6ddd"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01GPGEiYK9RyokrgcRyQQ5vM",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_a1a45b2e-8435-4311-bd23-c35ae280d6f5\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_a1a45b2e-8435-4311-bd23-c35ae280d6f5\",\"source\":\"knowledge_pages\",\"title\":\"Acknowledgment Clock Table\",\"body\":\"# Acknowledgment Clock Table\\n\\nEach escalation rung holds for a fixed clock before the call moves on.\\n\\nFor the settlement family of routes the first rung holds 23 minutes and\\nthe second rung holds 34 minutes; the final rung holds until answered,\\nbecause there is nowhere further to climb.\\n\\n## Expiry\\n\\nRule AC-15 governs expiry: a clock that runs out without an\\nacknowledgment advances the call to the next rung on its own, and the missed\\nrung is recorded as missed rather than re-tried. Acknowledging stops the\\nclimb at that rung; declining passes it upward immediately without waiting\\nout the clock.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01NcDDmmbFnY4NVmxhiapBC7",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_53d90e3c-9984-4b82-b2d9-8dca644e4368",
+          "session_id": "dps_6507a88c2f84530e4dcb9e453c5f6ddd"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01NcDDmmbFnY4NVmxhiapBC7",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_53d90e3c-9984-4b82-b2d9-8dca644e4368\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_53d90e3c-9984-4b82-b2d9-8dca644e4368\",\"source\":\"knowledge_pages\",\"title\":\"Worked Hours Ledger Practice\",\"body\":\"# Worked Hours Ledger Practice\\n\\nThe workforce office keeps the worked-hours ledger: the record of hours\\nactually worked, against which payroll and leave balances are agreed.\\n\\n## Entering hours\\n\\nOrdinary working days flow into the ledger from the badge records without\\nanyone's attention. Hours worked outside the working day are different: they\\nare entered by hand under code TL-19, with the date and a one-line\\npurpose, before the payroll cutoff of the following week. An unentered line\\nlapses — the ledger closes with payroll, and a late claim reopens nothing.\\n\\n## Balances\\n\\nEntered TL-19 hours accrue toward time off in lieu at the rate the\\nemployment terms set, and the balance is visible beside leave in the\\nworkforce portal.\\n\\n## Cutoff and corrections\\n\\nThe ledger closes with each payroll run. A correction to a closed period is\\na payroll correction: the payroll administrators apply it on the following\\nrun and it adjusts pay, never the closed ledger itself. Questions about a\\nclosed period go to the workforce office in writing, and are answered\\nagainst the ledger as it closed rather than as anyone remembers the week.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_019hpCvghKXR6yscBCpr5jWS",
+        "name": "mcp__bench__list_connections",
+        "args": {
+          "session_id": "dps_6507a88c2f84530e4dcb9e453c5f6ddd"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_019hpCvghKXR6yscBCpr5jWS",
+        "text": "{\"connections\":[],\"count\":0}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "# Incident-Handling Document — Nightly Settlement-Recon Job, Third Consecutive Failed Night\n\n**Status:** operative procedure for the on-shift engineer\n**Trigger condition:** the nightly settlement-recon job has failed on three consecutive nights\n**Prepared:** 2026-08-10\n**Grounding:** this document is assembled from the Settlement Recon Job Runbook (`mcp:knowledge_page:kp_f396db6f-11ee-428e-8648-eedbe560e2b3`) and the standards it hands off to. Every rule below is traceable to one of the sources listed in §11. Where the recorded material does not answer something the procedure needs, that is stated in place and repeated in §12 rather than filled in.\n\n---\n\n## 1. Scope and the trigger\n\nThe nightly settlement-recon job agrees the day's settlement records against the processor statements. A clean pass is silent. A failed pass leaves that day unagreed, and the job re-attempts the following night once the upstream statements have refreshed.\n\nThe runbook grades failures by run of nights:\n\n| Nights failed consecutively | Handling |\n|---|---|\n| One | Watched. No record. |\n| Two | Worked during the day. Still operational, no record. |\n| Three | No longer an operational matter. An **IN-28 incident record is opened**, because the unagreed days now span a statement cycle. |\n\nYou are at the third night. The IN-28 record is opened — this is not a judgement call, and it is not conditional on a diagnosis being in hand. The runbook is explicit that its own scope ends at *opening the record honestly*; severity and everything downstream of it are set by the standards, not by the job's operators, and not by you.\n\nTwo things follow immediately and are easy to get wrong:\n\n- **You do not set the severity.** It is assigned by the Incident Severity Standard at the moment of opening (§3).\n- **You do not stop the job.** The job keeps running on its schedule for the whole life of the incident. This matters concretely at closure: the only evidence that can close this incident comes from a scheduled run (§8). Disabling the control does not buy a quiet night — it removes the only route to closure.\n\n---\n\n## 2. Step 1 — Open the IN-28 record\n\nOpen the IN-28 incident record now. Record it honestly: the record states what is actually known about the three nights, not a reconstruction that makes the run look tidier than it was.\n\nThe record must carry, at minimum, the material every downstream artifact draws on:\n\n- The affected control: the nightly settlement-recon job.\n- The **days in question** — the settlement days left unagreed across the three failed nights. These are named in the opening notice (§5) and again in the PM-6 review record (§10), so fix them precisely at opening.\n- The three failure nights themselves, and what each run reported.\n- The fact that the unagreed days now span a statement cycle — this is the condition that makes the incident an IN-28 rather than continued day-work, and it is also what puts it in band SB-8.\n- The severity band (§3).\n- The audience notified at opening (§4).\n- The update cadence you declare in the opening notice (§6) — the cadence is a promise and must be recoverable from the record.\n\n*Not determined:* the recorded material does not say which system IN-28 records are opened in, what fields that record carries, or who is designated the **incident owner**. The incident owner is referenced by the Review Record Standard as the person a deficient PM-6 is returned to, but no source defines who holds that role. See §12.\n\n---\n\n## 3. Step 2 — Severity: band SB-8\n\nSeverity is assigned when the record is opened and belongs to the Incident Severity Standard, not to the team that opened it.\n\n**A reconciliation or settlement control failing across a statement cycle is band SB-8.** That is this incident exactly. Open at SB-8.\n\nDo not reach for a lighter band. The lighter bands cover single-night failures and non-control degradations; they notify the owning team only and do not escalate unattended. Neither description fits a settlement control that has failed across a statement cycle, and the choice is not the operator's to make in any case.\n\nBand SB-8 carries three consequences, each handled below:\n\n1. It notifies the owning team and the platform group's shift lead at opening (§4).\n2. It escalates along the **garnet route** (§5). Severity decides the route; the roster decides the names.\n3. Because it touches settlement controls, it may carry a regulatory notification obligation that is not the engineering organization's to schedule (§7).\n\n---\n\n## 4. Step 3 — Who is told at opening\n\nBand SB-8 notifies, at the moment the record is opened:\n\n- **The owning team** for the settlement-recon job.\n- **The platform group's shift lead.**\n\nThat pair is the incident's audience. Fix it now and write it into the record, because the Incident Communications Standard binds every later update and the closing notice to *the same audience as the opening notice*. Narrowing the audience mid-incident is not permitted, however quiet the update is (§6). The audience can grow — escalation adds rungs, and a regulatory notification adds the compliance office — but it never shrinks.\n\n*Not determined:* no source names the owning team of the settlement-recon job, names the individuals filling the shift lead or other roster roles, or gives the channel these notices go out on. You will need the current roster and contact route before you can execute this step. See §12.\n\n---\n\n## 5. Step 4 — Escalation: the garnet route and its clocks\n\nSB-8 escalates along the **garnet route**. A route is an ordered ladder of roles. An escalation climbs it one rung at a time and never skips a rung that has acknowledged.\n\n### The ladder\n\n| Rung | Role | Hold before the call moves on |\n|---|---|---|\n| 1 | Platform shift lead | **23 minutes** |\n| 2 | Duty manager | **34 minutes** |\n| 3 | Head of platform operations | **Holds until answered** — there is nowhere further to climb |\n\nThe 23- and 34-minute holds are the settlement family of routes' clocks, from the Acknowledgment Clock Table. The clocks belong to that table, not to the roster, so a clock change never edits a route — always read the current clock from the table rather than from a copy like this one.\n\n### How the climb behaves when nobody responds — rule AC-15\n\n- **A clock that runs out without an acknowledgment advances the call to the next rung on its own.** You do not need to push it, and you should not wait to be asked.\n- **The missed rung is recorded as missed, not re-tried.** Do not go back and re-page a rung whose clock expired. The record of the missed rung is part of the incident's account of itself.\n- **Acknowledging stops the climb at that rung.** That rung now holds the incident, and no rung below it is skipped past afterwards.\n- **Declining passes the call upward immediately**, without waiting out the remainder of the clock.\n\nSo, concretely, if nobody responds: the shift lead is called at opening; 23 minutes of silence advances to the duty manager and records the shift lead's rung as missed; a further 34 minutes of silence advances to the head of platform operations and records the duty manager's rung as missed; that final rung then holds open until it is answered. Worst case from opening to the top of the ladder with no response at all is 57 minutes.\n\n**Reading applied here:** the Severity Standard says SB-8 notifies the platform shift lead *at opening* and that SB-8-class bands *escalate unattended*, and the garnet route's first rung *is* the platform shift lead. This document therefore treats the opening notification to the shift lead as rung 1, with its 23-minute clock starting at that notification. No source states this start point explicitly — see §12.\n\n### Roster changes mid-incident\n\nRoutes change only by agreement between the owning teams and the platform group, and the roster is edited only after the change is agreed in writing. **An escalation in flight finishes on the roster it started on.** If the roster changes while this incident is climbing, keep climbing the roster you started on.\n\n---\n\n## 6. Step 5 — What is communicated while the incident is open\n\nCadence **UC-11** applies to control-failure incidents, and this is one.\n\n### The opening notice\n\nGoes to the audience in §4 and names three things:\n\n1. **The affected control** — the nightly settlement-recon job.\n2. **The days in question** — the settlement days left unagreed by the three failed nights.\n3. **When the next update will arrive.**\n\nThat third item is the cadence, and **the cadence is a promise: missing an update is itself reportable.** Declare an interval you can actually keep at whatever hour of the night this opens.\n\n### Every update thereafter\n\n- Goes to **the same audience as the opening notice**. Narrowing the audience mid-incident is not permitted, however quiet the update — a \"nothing to report\" update goes to everyone the opening notice went to.\n- **Either reports progress or re-promises the next time honestly.** An update with no progress is still an update; what it must not do is quietly let the promised time pass, or promise a next time you do not expect to meet.\n- Is due on the promised clock regardless of escalation state, staffing, or shift handover. If you hand the incident over, hand over the cadence promise with it explicitly.\n\n### Throughout\n\nThe job keeps running on its schedule. Each night's scheduled run is material for the updates — and a passing scheduled run is the beginning of the closure evidence (§8).\n\n*Not determined:* UC-11 does not state a fixed interval or an outer bound; the standard defines the cadence as whatever the opening notice declared. No source gives a default to declare, or to whom a missed update is reported. See §12.\n\n---\n\n## 7. Step 6 — The regulatory obligation\n\nBands touching settlement controls carry one more obligation that **is not the engineering organization's to schedule**. This step is easy to defer and expensive to defer, because it is governed by someone else's deadline.\n\n**If the failure falls inside a statutory filing window, notification follows the Regulatory Filing Calendar maintained by the compliance office.** Do this as an explicit step at opening; do not leave it to be noticed later.\n\nWhat the calendar records:\n\n- Windows are published a year ahead. Each window names its filing, the lodgment date, and **the list of in-scope arrangements the filing draws on**.\n- The office **confirms scope questions in writing within a working day** — so if you cannot tell whether settlement-recon is on an in-scope list, ask in writing and you have an answer inside a day.\n- Preparation begins when the window opens, and the office's attention during a window belongs to the filing, not to new requests. Ask early and in writing; do not expect an interactive back-and-forth mid-window.\n\n### Form RN-26\n\nWhere anything on the in-scope list was **interrupted while the filing was being prepared**, form RN-26 is lodged with the filing **before the window closes**. It states:\n\n- what was interrupted,\n- the days affected,\n- the basis on which the filed figures stand.\n\nThe operative constraint for you: **the office can only lodge what it has been told while the window is open. Word that arrives after lodgment becomes a correction, which the regulators treat differently.** A three-night settlement-recon failure is an interruption of a settlement control; if it overlaps an open window whose in-scope list includes this arrangement, the compliance office must hear about it while that window is still open. Telling them is cheap; telling them late converts an RN-26 into a regulatory correction.\n\n**Action for the on-shift engineer:** at opening, put the days in question and the fact of the interruption to the compliance office in writing, and ask them to confirm in writing (a) whether any open window covers those days and (b) whether the settlement-recon arrangement is on that window's in-scope list. Record their written answer against the IN-28.\n\n*Not determined:* the calendar's actual windows and in-scope lists are not readable from the material available here — only the calendar's rules are. Whether these three nights fall inside a window is therefore a question for the compliance office, not one this document can answer. No source gives the office's contact route, or says who lodges RN-26 (the material implies the compliance office lodges it, with engineering supplying the facts). See §12.\n\n---\n\n## 8. Step 7 — What has to be true before the incident can be closed\n\n**A control-failure incident closes on evidence, not on silence.**\n\nClosure requires a **CE-2 evidence record**. CE-2 is satisfied by all of the following together:\n\n1. **The control passes** —\n2. **on its own schedule** — from the scheduled run, not an off-cycle invocation —\n3. **unassisted** — and\n4. **the previously unagreed days are brought current.**\n\nExplicitly disqualified:\n\n- **A manually forced pass does not qualify.** The record must come from the scheduled run itself.\n- **A quiet night with the control disabled qualifies even less.** This is why §1 insists the job keeps running.\n\nA passing run that does not bring the previously unagreed days current is not CE-2 either — it means tonight agrees while the incident's own days remain unagreed, and the incident stays open.\n\n**The CE-2 record is attached to the incident before the closing notice goes out.** Order matters: evidence first, then notice.\n\n*Not determined:* no source states how many consecutive clean scheduled runs are required, or what artifact constitutes the CE-2 record in practice (run log, control output, or a form). The plain reading is one scheduled run meeting all four conditions. See §12.\n\n---\n\n## 9. Step 8 — The closing notice\n\nThe closing notice is part of the Incident Communications Standard, not an afterthought:\n\n- It goes to **the full audience** — the same audience as the opening notice, undiminished, plus anyone escalation or the regulatory step added.\n- It **names the evidence the closure rests on** — that is, it points at the attached CE-2 record and states the scheduled run and the days brought current, rather than asserting that things look fine now.\n\n---\n\n## 10. Step 9 — The record the incident has to leave behind\n\nClosure is not the end. Every closed control-failure incident files a **PM-6 review record**.\n\n### What PM-6 carries\n\n- **A timeline of the nights in question.**\n- **The originating conditions as they are actually understood** — the honest account, including what remains unknown, not a tidied narrative.\n- **The corrections that will be made, with a named owner for each.** This is a hard gate: *a record whose corrections have no owner is returned to the incident's owner rather than filed.* Do not submit PM-6 with unowned corrections.\n- **The review meeting's outcome.**\n\nOwned corrections are **tracked to completion** — filing PM-6 does not discharge them.\n\n### Where it lives\n\nThe record is **filed against the incident** and **referenced from the control's own operating notes**, so the next operator to meet the same failure finds what the last one learned. For this incident, that means the PM-6 is cross-referenced from the Settlement Recon Job Runbook (`mcp:knowledge_page:kp_f396db6f-11ee-428e-8648-eedbe560e2b3`).\n\n### When it is due\n\nPM-6 is due **on the Review Record Standard's own clock, not at closure time.** Do not treat closure as the deadline, and do not treat it as unbounded either.\n\n*Not determined:* the Review Record Standard does not state what that clock is. See §12.\n\n### The people side — worked hours, before PM-6 is filed\n\n**Hours spent on the nights in question are entered in the worked-hours ledger before the PM-6 record is filed**, because the workforce office's ledger closes on its own rhythm whether or not the review is done.\n\nMechanics that bind the on-shift engineer directly:\n\n- Ordinary working-day hours flow into the ledger from badge records with nobody's attention.\n- **Hours worked outside the working day are entered by hand, under code TL-19, with the date and a one-line purpose.** A three-night overnight control failure is exactly this case.\n- They must be entered **before the payroll cutoff of the following week**. **An unentered line lapses** — the ledger closes with payroll and a late claim reopens nothing.\n- Entered TL-19 hours accrue toward time off in lieu at the rate the employment terms set; the balance is visible beside leave in the workforce portal.\n- If a period has already closed, the fix is a **payroll correction**: the payroll administrators apply it on the following run, and it adjusts pay, never the closed ledger itself. Questions about a closed period go to the workforce office **in writing**, and are answered against the ledger as it closed rather than as anyone remembers the week.\n\nPractical instruction: enter your TL-19 lines for each of the three nights as you work them, not once the incident is over. The incident may outlive the payroll cutoff.\n\n---\n\n## 11. Artifact and obligation checklist\n\n| # | Artifact / obligation | When | Governed by |\n|---|---|---|---|\n| 1 | IN-28 incident record opened, honestly | On the third consecutive failed night | Settlement Recon Job Runbook |\n| 2 | Severity set to band SB-8 | At opening, by the standard | Incident Severity Standard |\n| 3 | Opening notification to owning team + platform shift lead | At opening | Incident Severity Standard |\n| 4 | Opening notice: control, days in question, next update time | At opening | Incident Communications Standard (UC-11) |\n| 5 | Garnet route escalation running on 23 / 34 / until-answered clocks; missed rungs recorded as missed | From opening, unattended | Escalation Roster; Acknowledgment Clock Table (AC-15) |\n| 6 | Written question to compliance office: does an open filing window cover these days, and is this arrangement in scope | At opening | Incident Severity Standard; Regulatory Filing Calendar |\n| 7 | RN-26 lodged with the filing, before the window closes, if the interruption falls in an open window | Before window close | Regulatory Filing Calendar |\n| 8 | Updates on the promised cadence, full audience, progress or an honest re-promise | Per declared cadence | Incident Communications Standard (UC-11) |\n| 9 | Job left running on its schedule for the life of the incident | Throughout | Settlement Recon Job Runbook; Closure Evidence Standard |\n| 10 | TL-19 lines for out-of-hours work, date + one-line purpose | Before the following week's payroll cutoff | Worked Hours Ledger Practice |\n| 11 | CE-2 evidence record attached to the incident | Before the closing notice | Closure Evidence Standard |\n| 12 | Closing notice to the full audience, naming the evidence | At closure | Incident Communications Standard |\n| 13 | PM-6 review record: timeline, originating conditions, owned corrections, meeting outcome | On the Review Record Standard's clock | Review Record Standard |\n| 14 | PM-6 filed against the incident and referenced from the control's operating notes | With filing | Review Record Standard |\n| 15 | Owned corrections tracked to completion | After filing | Review Record Standard |\n\n**Sources consulted**\n\n- Settlement Recon Job Runbook — mcp:knowledge_page:kp_f396db6f-11ee-428e-8648-eedbe560e2b3\n- Incident Severity Standard — mcp:knowledge_page:kp_0bb745e8-ba1e-411e-aea0-ab5dfe72075e\n- Escalation Roster — mcp:knowledge_page:kp_1d19dcf9-cba1-4e20-8347-cc2204f62972\n- Acknowledgment Clock Table — mcp:knowledge_page:kp_a1a45b2e-8435-4311-bd23-c35ae280d6f5\n- Incident Communications Standard — mcp:knowledge_page:kp_2ebe1912-9877-4582-88ea-953c33ff306c\n- Regulatory Filing Calendar — mcp:knowledge_page:kp_21a4c204-04ff-430f-abeb-77c0740274ca\n- Closure Evidence Standard — mcp:knowledge_page:kp_d4923cfe-3d29-4190-a98a-7e24b0320cc3\n- Review Record Standard — mcp:knowledge_page:kp_9de09300-a4d1-4fac-928d-465f95dee759\n- Worked Hours Ledger Practice — mcp:knowledge_page:kp_53d90e3c-9984-4b82-b2d9-8dca644e4368\n\nNo data connections are configured on this platform (`list_connections` returned none), so nothing above is drawn from job run history, schedules, or logs — only from the recorded standards.\n\n---\n\n## 12. Open items\n\n1. **The three failure nights and the days in question.** Nothing available records the actual dates of the three failed runs, the settlement days left unagreed, or the job's scheduled run time. The opening notice, the CE-2 test, and the PM-6 timeline all depend on these; take them from the job's run history before issuing the opening notice.\n2. **The owning team.** No source names the team that owns the settlement-recon job, though band SB-8 requires notifying it at opening.\n3. **Names and contact routes behind the roster roles.** The garnet route gives roles — platform shift lead, duty manager, head of platform operations — and states that the roster decides the names, but the current roster's names, contact details, and paging mechanism are not in the material.\n4. **The notification channel.** No source says how the opening notice, updates, and closing notice are delivered, or how the notified audience is recorded.\n5. **The UC-11 update interval.** The standard binds you to the cadence the opening notice declares but supplies no default, no maximum, and no guidance for choosing one.\n6. **Where a missed update is reported.** UC-11 says missing an update is itself reportable, but not to whom or by what mechanism.\n7. **When the first escalation clock starts.** This document reads the opening notification to the platform shift lead as rung 1 of the garnet route, starting the 23-minute clock. No source states this explicitly, nor whether an escalation is initiated separately from the opening notification.\n8. **Whether these nights fall inside a statutory filing window, and whether settlement-recon is on an in-scope arrangements list.** The Regulatory Filing Calendar's rules are recorded; its published windows and in-scope lists are not readable from here. This must be confirmed in writing by the compliance office — which is why §7 is written as a question to them rather than a determination.\n9. **Who lodges RN-26, and the compliance office's contact route.** The material implies the compliance office lodges the form with its filing, on facts supplied by engineering, but does not say so outright or name a contact.\n10. **The system of record for IN-28, and its required fields.** Also unstated: who is designated the **incident owner** — the role the Review Record Standard returns a deficient PM-6 to.\n11. **How many clean scheduled runs CE-2 requires, and what artifact the CE-2 record is.** The four conditions are precise; the count of qualifying runs and the record's form are not stated.\n12. **The PM-6 due clock.** The Closure Evidence Standard says the review record is due on the Review Record Standard's own clock rather than at closure; the Review Record Standard does not state that clock.\n13. **Who convenes and attends the review meeting** whose outcome PM-6 carries.\n14. **The payroll cutoff dates** against which TL-19 lines must be entered, and the TOIL accrual rate (set by employment terms, not recorded here).\n15. **Whether severity can be re-banded during an open incident** — e.g. if the control recovers partially, or if further nights fail. The Incident Severity Standard states only that severity is assigned at opening."
+  }
+]

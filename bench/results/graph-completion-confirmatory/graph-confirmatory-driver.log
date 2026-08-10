@@ -1,0 +1,495 @@
+[gs-confirm 09:57:49] building bench-graphstudy from the working tree
+[gs-confirm 09:57:49] === scale 50: embedding certification
+embedding certification, scale 50, model nomic-embed-text, exclusion top-25, entry top-25
+
+gs-change-plan       prompt FAIL entry rank   1  disc violations map[records-retention-directory:22]
+gs-change-plan       query  FAIL entry rank   1  disc violations map[records-retention-directory:25]
+gs-change-plan       query  pass entry rank   5  disc violations map[]
+gs-change-plan       query  pass entry rank   5  disc violations map[]
+gs-incident          prompt FAIL entry rank   1  disc violations map[regulator-notify-calendar:14 worked-hours-ledger-practice:20]
+gs-incident          query  FAIL entry rank   1  disc violations map[regulator-notify-calendar:14 worked-hours-ledger-practice:9]
+gs-incident          query  FAIL entry rank   7  disc violations map[regulator-notify-calendar:23]
+gs-incident          query  FAIL entry rank   5  disc violations map[regulator-notify-calendar:16]
+gs-feed-onboarding   prompt pass entry rank   1  disc violations map[]
+gs-feed-onboarding   query  FAIL entry rank   2  disc violations map[procurement-commitment-ledger:23]
+gs-feed-onboarding   query  pass entry rank   1  disc violations map[]
+gs-feed-onboarding   query  FAIL entry rank   2  disc violations map[procurement-commitment-ledger:21]
+
+certification report written to build/bench-results/graph-study-cert-50.json
+graphstudy: certification unsatisfiable at scale 50: the top-25 horizon covers at least half the corpus (the within-enumeration-ceiling condition)
+[gs-confirm 09:57:50] certification unsatisfiable at scale 50: the within-ceiling reading (recorded)
+[gs-confirm 09:57:50] === scale 50: plant (graph arm)
+planted 50 pages (graph arm, scale 50); record written to build/bench-results/graph-study-plant-50.json
+[gs-confirm 09:57:50] waiting for 50 live pages to embed (reconciler sweeps every 5 minutes)
+[gs-confirm 10:00:23] embeddings ready (50 live pages)
+[gs-confirm 10:00:23] === scale 50: sweep gate
+live sweep gate, scale 50, graph arm, limits [5 25 100]
+
+gs-change-plan       limit   5 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit   5 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit  25 FAIL entry@1 disc map[corp-close-calendar:18 records-retention-directory:20]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit 100 FAIL entry@1 disc map[corp-close-calendar:18 records-retention-directory:20]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit   5 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit  25 pass entry@6 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit 100 FAIL entry@6 disc map[records-retention-directory:23]  "stream schema change consumer notice requirements"
+gs-change-plan       adjacent constraint pages surfaced: 7 of 7 [attestation-procedure@4 change-announcement-directory@2 change-class-directory@1 consumer-agreement-ledger@3 governed-tier-obligations@5 orders-ledger-stream-runbook@1 schema-version-register@3]
+
+gs-incident          limit   5 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit  25 FAIL entry@1 disc map[regulator-notify-calendar:15 worked-hours-ledger-practice:10]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit 100 FAIL entry@1 disc map[regulator-notify-calendar:15 worked-hours-ledger-practice:10]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit   5 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit  25 pass entry@7 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit 100 pass entry@7 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit   5 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit  25 FAIL entry@6 disc map[regulator-notify-calendar:13]  "how are control failure incidents communicated and closed"
+gs-incident          limit 100 FAIL entry@6 disc map[regulator-notify-calendar:13]  "how are control failure incidents communicated and closed"
+gs-incident          adjacent constraint pages surfaced: 7 of 7 [acknowledgment-clocks@3 closure-evidence-standard@2 escalation-roster@5 incident-comms-standard@1 incident-severity-standard@2 postmortem-record-standard@3 settlement-recon-job-runbook@1]
+
+gs-feed-onboarding   limit   5 pass entry@3 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit  25 FAIL entry@3 disc map[procurement-commitment-ledger:17]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit 100 FAIL entry@3 disc map[procurement-commitment-ledger:17]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit   5 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit  25 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit 100 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit   5 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit  25 FAIL entry@2 disc map[procurement-commitment-ledger:16]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit 100 FAIL entry@2 disc map[procurement-commitment-ledger:16]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   adjacent constraint pages surfaced: 7 of 7 [delivery-expectation-standard@1 feed-naming-standard@1 feed-rerun-procedure@3 landing-zone-layout@6 offplatform-copy-policy@24 parcel-events-feed-runbook@1 storage-tier-register@2]
+
+
+gate report written to build/bench-results/graph-study-gate-50.json
+graphstudy: the live sweep gate did not pass at this scale
+[gs-confirm 10:00:26] gate did not pass at scale 50: the within-ceiling reading (recorded); the run mode still refuses leaks
+[gs-confirm 10:00:26] === scale 50: run (graph/search, k=5)
+Results dir: build/bench-results/gs50-opus-graph-search-20260810-100026
+2026/08/10 10:00:27 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=1 seq=1
+2026/08/10 10:04:39 INFO cell attempt cell=gs-incident arm=graph search=true replicate=1 seq=2
+2026/08/10 10:08:16 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=1 seq=3
+2026/08/10 10:10:43 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=2 seq=4
+2026/08/10 10:14:25 INFO cell attempt cell=gs-incident arm=graph search=true replicate=2 seq=5
+2026/08/10 10:17:48 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=2 seq=6
+2026/08/10 10:20:26 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=3 seq=7
+2026/08/10 10:23:50 INFO cell attempt cell=gs-incident arm=graph search=true replicate=3 seq=8
+2026/08/10 10:27:47 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=3 seq=9
+2026/08/10 10:30:29 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=4 seq=10
+2026/08/10 10:34:39 INFO cell attempt cell=gs-incident arm=graph search=true replicate=4 seq=11
+2026/08/10 10:37:11 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=4 seq=12
+2026/08/10 10:39:47 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=5 seq=13
+2026/08/10 10:43:16 INFO cell attempt cell=gs-incident arm=graph search=true replicate=5 seq=14
+2026/08/10 10:46:08 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=5 seq=15
+
+arm=graph search=true within-ceiling=true model=opus pages=50
+cell                   n  off-cov  off-grnd  disc-grnd  unread  complete  overclaim  nostmt  searches  fetches  failed
+gs-change-plan         5     1.00      1.00       1.00       0         0          0       0        30       84       0
+gs-incident            5     1.00      1.00       1.00       0         0          0       0        23       80       0
+gs-feed-onboarding     5     1.00      1.00       1.00       0         0          0       2        27       66       0
+
+archive: build/bench-results/gs50-opus-graph-search-20260810-100026
+[gs-confirm 10:49:11] === scale 50: reset
+deleted 50 pages (graph arm, scale 50)
+[gs-confirm 10:49:11] === scale 50: plant (stripped arm)
+planted 50 pages (stripped arm, scale 50); record written to build/bench-results/graph-study-plant-50.json
+[gs-confirm 10:49:12] waiting for 50 live pages to embed (reconciler sweeps every 5 minutes)
+[gs-confirm 10:50:29] embeddings ready (50 live pages)
+[gs-confirm 10:50:29] === scale 50: sweep gate
+live sweep gate, scale 50, stripped arm, limits [5 25 100]
+
+gs-change-plan       limit   5 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit 100 FAIL entry@1 disc map[records-retention-directory:25]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit   5 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit  25 FAIL entry@1 disc map[corp-close-calendar:20]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit 100 FAIL entry@1 disc map[corp-close-calendar:20 records-retention-directory:23]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit   5 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit  25 pass entry@5 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit 100 FAIL entry@5 disc map[records-retention-directory:24]  "stream schema change consumer notice requirements"
+gs-change-plan       adjacent constraint pages surfaced: 7 of 7 [attestation-procedure@5 change-announcement-directory@2 change-class-directory@1 consumer-agreement-ledger@2 governed-tier-obligations@3 orders-ledger-stream-runbook@1 schema-version-register@3]
+
+gs-incident          limit   5 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit  25 FAIL entry@1 disc map[regulator-notify-calendar:14 worked-hours-ledger-practice:10]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit 100 FAIL entry@1 disc map[regulator-notify-calendar:14 worked-hours-ledger-practice:10]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit   5 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit  25 pass entry@7 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit 100 pass entry@7 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit   5 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit  25 FAIL entry@5 disc map[regulator-notify-calendar:14]  "how are control failure incidents communicated and closed"
+gs-incident          limit 100 FAIL entry@5 disc map[regulator-notify-calendar:14]  "how are control failure incidents communicated and closed"
+gs-incident          adjacent constraint pages surfaced: 7 of 7 [acknowledgment-clocks@3 closure-evidence-standard@2 escalation-roster@5 incident-comms-standard@1 incident-severity-standard@2 postmortem-record-standard@3 settlement-recon-job-runbook@1]
+
+gs-feed-onboarding   limit   5 pass entry@3 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit  25 FAIL entry@3 disc map[procurement-commitment-ledger:20]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit 100 FAIL entry@3 disc map[procurement-commitment-ledger:20]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit   5 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit  25 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit 100 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit   5 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit  25 FAIL entry@2 disc map[procurement-commitment-ledger:18]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit 100 FAIL entry@2 disc map[procurement-commitment-ledger:18]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   adjacent constraint pages surfaced: 7 of 7 [delivery-expectation-standard@1 feed-naming-standard@1 feed-rerun-procedure@3 landing-zone-layout@7 offplatform-copy-policy@24 parcel-events-feed-runbook@1 storage-tier-register@2]
+
+
+gate report written to build/bench-results/graph-study-gate-50.json
+graphstudy: the live sweep gate did not pass at this scale
+[gs-confirm 10:50:34] gate did not pass at scale 50: the within-ceiling reading (recorded); the run mode still refuses leaks
+[gs-confirm 10:50:34] === scale 50: run (stripped/search, k=5)
+Results dir: build/bench-results/gs50-opus-stripped-search-20260810-105034
+2026/08/10 10:50:35 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=1 seq=1
+2026/08/10 10:53:48 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=1 seq=2
+2026/08/10 10:57:02 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=1 seq=3
+2026/08/10 10:59:29 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=2 seq=4
+2026/08/10 11:03:15 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=2 seq=5
+2026/08/10 11:06:43 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=2 seq=6
+2026/08/10 11:09:22 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=3 seq=7
+2026/08/10 11:12:47 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=3 seq=8
+2026/08/10 11:16:03 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=3 seq=9
+2026/08/10 11:18:10 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=4 seq=10
+2026/08/10 11:22:46 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=4 seq=11
+2026/08/10 11:25:54 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=4 seq=12
+2026/08/10 11:28:39 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=5 seq=13
+2026/08/10 11:32:24 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=5 seq=14
+2026/08/10 11:36:10 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=5 seq=15
+
+arm=stripped search=true within-ceiling=true model=opus pages=50
+cell                   n  off-cov  off-grnd  disc-grnd  unread  complete  overclaim  nostmt  searches  fetches  failed
+gs-change-plan         5     1.00      1.00       1.00       0         0          0       1        31       97       0
+gs-incident            5     1.00      1.00       1.00       0         0          0       1        30       83       0
+gs-feed-onboarding     5     1.00      1.00       1.00       0         0          0       0        37       62       0
+
+archive: build/bench-results/gs50-opus-stripped-search-20260810-105034
+[gs-confirm 11:38:57] === scale 50: reset
+deleted 50 pages (stripped arm, scale 50)
+[gs-confirm 11:38:57] === scale 500: embedding certification
+embedding certification, scale 500, model nomic-embed-text, exclusion top-25, entry top-25
+
+gs-change-plan       prompt pass entry rank   1  disc violations map[]
+gs-change-plan       query  pass entry rank   1  disc violations map[]
+gs-change-plan       query  pass entry rank   5  disc violations map[]
+gs-change-plan       query  pass entry rank   5  disc violations map[]
+gs-incident          prompt pass entry rank   1  disc violations map[]
+gs-incident          query  pass entry rank   1  disc violations map[]
+gs-incident          query  pass entry rank   7  disc violations map[]
+gs-incident          query  pass entry rank   5  disc violations map[]
+gs-feed-onboarding   prompt pass entry rank   1  disc violations map[]
+gs-feed-onboarding   query  pass entry rank   2  disc violations map[]
+gs-feed-onboarding   query  pass entry rank   1  disc violations map[]
+gs-feed-onboarding   query  pass entry rank   2  disc violations map[]
+
+certification report written to build/bench-results/graph-study-cert-500.json
+[gs-confirm 11:39:01] === scale 500: plant (graph arm)
+planted 500 pages (graph arm, scale 500); record written to build/bench-results/graph-study-plant-500.json
+[gs-confirm 11:39:04] waiting for 500 live pages to embed (reconciler sweeps every 5 minutes)
+[gs-confirm 11:40:35] embeddings ready (500 live pages)
+[gs-confirm 11:40:35] === scale 500: sweep gate
+live sweep gate, scale 500, graph arm, limits [5 25 100]
+
+gs-change-plan       limit   5 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit   5 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit   5 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit  25 pass entry@12 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit 100 pass entry@12 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       adjacent constraint pages surfaced: 7 of 7 [attestation-procedure@4 change-announcement-directory@2 change-class-directory@1 consumer-agreement-ledger@3 governed-tier-obligations@5 orders-ledger-stream-runbook@1 schema-version-register@2]
+
+gs-incident          limit   5 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit  25 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit 100 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit   5 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit  25 pass entry@15 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit 100 pass entry@15 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit   5 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit  25 pass entry@8 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit 100 pass entry@8 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          adjacent constraint pages surfaced: 7 of 7 [acknowledgment-clocks@3 closure-evidence-standard@2 escalation-roster@6 incident-comms-standard@1 incident-severity-standard@2 postmortem-record-standard@3 settlement-recon-job-runbook@1]
+
+gs-feed-onboarding   limit   5 pass entry@0 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit  25 pass entry@4 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit 100 pass entry@4 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit   5 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit  25 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit 100 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit   5 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit  25 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit 100 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   adjacent constraint pages surfaced: 6 of 7 [delivery-expectation-standard@1 feed-naming-standard@1 feed-rerun-procedure@3 landing-zone-layout@13 parcel-events-feed-runbook@1 storage-tier-register@2]
+
+
+gate report written to build/bench-results/graph-study-gate-500.json
+[gs-confirm 11:40:39] === scale 500: run (graph/search, k=5)
+Results dir: build/bench-results/gs500-opus-graph-search-20260810-114039
+2026/08/10 11:40:40 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=1 seq=1
+2026/08/10 11:45:11 INFO cell attempt cell=gs-incident arm=graph search=true replicate=1 seq=2
+2026/08/10 11:47:56 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=1 seq=3
+2026/08/10 11:50:05 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=2 seq=4
+2026/08/10 11:54:20 INFO cell attempt cell=gs-incident arm=graph search=true replicate=2 seq=5
+2026/08/10 11:57:23 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=2 seq=6
+2026/08/10 12:00:03 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=3 seq=7
+2026/08/10 12:02:46 INFO cell attempt cell=gs-incident arm=graph search=true replicate=3 seq=8
+2026/08/10 12:05:41 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=3 seq=9
+2026/08/10 12:08:37 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=4 seq=10
+2026/08/10 12:12:57 INFO cell attempt cell=gs-incident arm=graph search=true replicate=4 seq=11
+2026/08/10 12:15:31 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=4 seq=12
+2026/08/10 12:17:31 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=5 seq=13
+2026/08/10 12:20:56 INFO cell attempt cell=gs-incident arm=graph search=true replicate=5 seq=14
+2026/08/10 12:24:04 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=5 seq=15
+
+arm=graph search=true within-ceiling=false model=opus pages=500
+cell                   n  off-cov  off-grnd  disc-grnd  unread  complete  overclaim  nostmt  searches  fetches  failed
+gs-change-plan         5     1.00      1.00       1.00       0         0          0       1        34       76       0
+gs-incident            5     1.00      1.00       1.00       0         0          0       0        32       57       0
+gs-feed-onboarding     5     1.00      1.00       1.00       0         0          0       0        25       51       0
+
+archive: build/bench-results/gs500-opus-graph-search-20260810-114039
+[gs-confirm 12:26:07] === scale 500: reset
+deleted 500 pages (graph arm, scale 500)
+[gs-confirm 12:26:08] === scale 500: plant (stripped arm)
+planted 500 pages (stripped arm, scale 500); record written to build/bench-results/graph-study-plant-500.json
+[gs-confirm 12:26:10] waiting for 500 live pages to embed (reconciler sweeps every 5 minutes)
+[gs-confirm 12:30:29] embeddings ready (500 live pages)
+[gs-confirm 12:30:29] === scale 500: sweep gate
+live sweep gate, scale 500, stripped arm, limits [5 25 100]
+
+gs-change-plan       limit   5 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit   5 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit   5 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit  25 pass entry@6 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit 100 pass entry@6 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       adjacent constraint pages surfaced: 7 of 7 [attestation-procedure@5 change-announcement-directory@2 change-class-directory@1 consumer-agreement-ledger@2 governed-tier-obligations@3 orders-ledger-stream-runbook@1 schema-version-register@3]
+
+gs-incident          limit   5 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit  25 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit 100 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit   5 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit  25 pass entry@10 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit 100 pass entry@10 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit   5 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit  25 pass entry@5 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit 100 pass entry@5 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          adjacent constraint pages surfaced: 7 of 7 [acknowledgment-clocks@3 closure-evidence-standard@2 escalation-roster@5 incident-comms-standard@1 incident-severity-standard@2 postmortem-record-standard@3 settlement-recon-job-runbook@1]
+
+gs-feed-onboarding   limit   5 pass entry@3 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit  25 pass entry@3 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit 100 pass entry@3 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit   5 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit  25 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit 100 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit   5 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit  25 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit 100 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   adjacent constraint pages surfaced: 6 of 7 [delivery-expectation-standard@1 feed-naming-standard@1 feed-rerun-procedure@3 landing-zone-layout@16 parcel-events-feed-runbook@1 storage-tier-register@2]
+
+
+gate report written to build/bench-results/graph-study-gate-500.json
+[gs-confirm 12:30:33] === scale 500: run (stripped/search, k=5)
+Results dir: build/bench-results/gs500-opus-stripped-search-20260810-123033
+2026/08/10 12:30:34 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=1 seq=1
+2026/08/10 12:34:05 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=1 seq=2
+2026/08/10 12:37:46 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=1 seq=3
+2026/08/10 12:40:47 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=2 seq=4
+2026/08/10 12:44:40 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=2 seq=5
+2026/08/10 12:46:58 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=2 seq=6
+2026/08/10 12:49:54 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=3 seq=7
+2026/08/10 12:53:20 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=3 seq=8
+2026/08/10 12:56:11 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=3 seq=9
+2026/08/10 12:59:25 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=4 seq=10
+2026/08/10 13:02:33 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=4 seq=11
+2026/08/10 13:05:23 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=4 seq=12
+2026/08/10 13:08:13 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=5 seq=13
+2026/08/10 13:12:06 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=5 seq=14
+2026/08/10 13:15:41 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=5 seq=15
+
+arm=stripped search=true within-ceiling=false model=opus pages=500
+cell                   n  off-cov  off-grnd  disc-grnd  unread  complete  overclaim  nostmt  searches  fetches  failed
+gs-change-plan         5     1.00      1.00       1.00       0         0          0       0        59       74       0
+gs-incident            5     1.00      1.00       1.00       0         0          0       0        35       60       0
+gs-feed-onboarding     5     1.00      1.00       1.00       0         0          0       0        44       65       0
+
+archive: build/bench-results/gs500-opus-stripped-search-20260810-123033
+[gs-confirm 13:18:42] === scale 500: reset
+deleted 500 pages (stripped arm, scale 500)
+[gs-confirm 13:18:43] scale 500 graph arm off-entry grounded coverage SD = 0.0000 (limit 0.30)
+[gs-confirm 13:18:43] scale 500 stripped arm off-entry grounded coverage SD = 0.0000 (limit 0.30)
+[gs-confirm 13:18:43] === scale 5000: embedding certification
+embedding certification, scale 5000, model nomic-embed-text, exclusion top-100, entry top-25
+
+gs-change-plan       prompt pass entry rank   1  disc violations map[]
+gs-change-plan       query  pass entry rank   1  disc violations map[]
+gs-change-plan       query  pass entry rank   5  disc violations map[]
+gs-change-plan       query  pass entry rank   7  disc violations map[]
+gs-incident          prompt pass entry rank   1  disc violations map[]
+gs-incident          query  pass entry rank   1  disc violations map[]
+gs-incident          query  pass entry rank  23  disc violations map[]
+gs-incident          query  pass entry rank   5  disc violations map[]
+gs-feed-onboarding   prompt pass entry rank   1  disc violations map[]
+gs-feed-onboarding   query  pass entry rank   2  disc violations map[]
+gs-feed-onboarding   query  pass entry rank   1  disc violations map[]
+gs-feed-onboarding   query  pass entry rank   2  disc violations map[]
+
+certification report written to build/bench-results/graph-study-cert-5000.json
+[gs-confirm 13:19:23] === scale 5000: plant (graph arm)
+planted 5000 pages (graph arm, scale 5000); record written to build/bench-results/graph-study-plant-5000.json
+[gs-confirm 13:19:44] waiting for 5000 live pages to embed (reconciler sweeps every 5 minutes)
+[gs-confirm 13:22:47] embeddings ready (5000 live pages)
+[gs-confirm 13:22:47] === scale 5000: sweep gate
+live sweep gate, scale 5000, graph arm, limits [5 25 100]
+
+gs-change-plan       limit   5 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit   5 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit   5 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit  25 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit 100 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       adjacent constraint pages surfaced: 7 of 7 [attestation-procedure@4 change-announcement-directory@2 change-class-directory@1 consumer-agreement-ledger@3 governed-tier-obligations@5 orders-ledger-stream-runbook@1 schema-version-register@2]
+
+gs-incident          limit   5 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit  25 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit 100 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit   5 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit  25 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit 100 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit   5 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit  25 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit 100 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          adjacent constraint pages surfaced: 7 of 7 [acknowledgment-clocks@3 closure-evidence-standard@6 escalation-roster@10 incident-comms-standard@1 incident-severity-standard@2 postmortem-record-standard@16 settlement-recon-job-runbook@1]
+
+gs-feed-onboarding   limit   5 pass entry@0 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit  25 pass entry@5 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit 100 pass entry@5 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit   5 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit  25 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit 100 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit   5 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit  25 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit 100 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   adjacent constraint pages surfaced: 5 of 7 [delivery-expectation-standard@1 feed-naming-standard@1 feed-rerun-procedure@4 parcel-events-feed-runbook@1 storage-tier-register@2]
+
+
+gate report written to build/bench-results/graph-study-gate-5000.json
+[gs-confirm 13:22:54] === scale 5000: run (graph/search, k=5)
+Results dir: build/bench-results/gs5000-opus-graph-search-20260810-132303
+2026/08/10 13:23:11 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=1 seq=1
+2026/08/10 13:26:04 INFO cell attempt cell=gs-incident arm=graph search=true replicate=1 seq=2
+2026/08/10 13:29:08 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=1 seq=3
+2026/08/10 13:31:17 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=2 seq=4
+2026/08/10 13:35:06 INFO cell attempt cell=gs-incident arm=graph search=true replicate=2 seq=5
+2026/08/10 13:37:55 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=2 seq=6
+2026/08/10 13:40:08 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=3 seq=7
+2026/08/10 13:42:38 INFO cell attempt cell=gs-incident arm=graph search=true replicate=3 seq=8
+2026/08/10 13:45:17 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=3 seq=9
+2026/08/10 13:47:50 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=4 seq=10
+2026/08/10 13:50:57 INFO cell attempt cell=gs-incident arm=graph search=true replicate=4 seq=11
+2026/08/10 13:53:31 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=4 seq=12
+2026/08/10 13:56:35 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=5 seq=13
+2026/08/10 14:00:03 INFO cell attempt cell=gs-incident arm=graph search=true replicate=5 seq=14
+2026/08/10 14:02:58 INFO cell attempt cell=gs-feed-onboarding arm=graph search=true replicate=5 seq=15
+
+arm=graph search=true within-ceiling=false model=opus pages=5000
+cell                   n  off-cov  off-grnd  disc-grnd  unread  complete  overclaim  nostmt  searches  fetches  failed
+gs-change-plan         5     1.00      1.00       1.00       0         0          0       0        33       58       0
+gs-incident            5     1.00      1.00       1.00       0         0          0       0        29       53       0
+gs-feed-onboarding     5     1.00      1.00       1.00       0         0          0       0        23       50       0
+
+archive: build/bench-results/gs5000-opus-graph-search-20260810-132303
+[gs-confirm 14:05:23] === scale 5000: run (graph/nosearch, k=3)
+Results dir: build/bench-results/gs5000-opus-graph-nosearch-20260810-140523
+2026/08/10 14:05:30 INFO cell attempt cell=gs-change-plan arm=graph search=false replicate=1 seq=1
+2026/08/10 14:08:13 INFO cell attempt cell=gs-incident arm=graph search=false replicate=1 seq=2
+2026/08/10 14:11:03 INFO cell attempt cell=gs-feed-onboarding arm=graph search=false replicate=1 seq=3
+2026/08/10 14:13:32 INFO cell attempt cell=gs-change-plan arm=graph search=false replicate=2 seq=4
+2026/08/10 14:16:12 INFO cell attempt cell=gs-incident arm=graph search=false replicate=2 seq=5
+2026/08/10 14:18:42 INFO cell attempt cell=gs-feed-onboarding arm=graph search=false replicate=2 seq=6
+2026/08/10 14:20:44 INFO cell attempt cell=gs-change-plan arm=graph search=false replicate=3 seq=7
+2026/08/10 14:24:09 INFO cell attempt cell=gs-incident arm=graph search=false replicate=3 seq=8
+2026/08/10 14:26:27 INFO cell attempt cell=gs-feed-onboarding arm=graph search=false replicate=3 seq=9
+
+arm=graph search=false within-ceiling=false model=opus pages=5000
+cell                   n  off-cov  off-grnd  disc-grnd  unread  complete  overclaim  nostmt  searches  fetches  failed
+gs-change-plan         3     1.00      1.00       1.00       0         0          0       0         0       27       0
+gs-incident            3     1.00      1.00       1.00       0         0          0       1         0       27       0
+gs-feed-onboarding     3     1.00      1.00       1.00       0         0          0       0         0       27       0
+
+archive: build/bench-results/gs5000-opus-graph-nosearch-20260810-140523
+[gs-confirm 14:28:41] === scale 5000: reset
+deleted 5000 pages (graph arm, scale 5000)
+[gs-confirm 14:28:47] === scale 5000: plant (stripped arm)
+planted 5000 pages (stripped arm, scale 5000); record written to build/bench-results/graph-study-plant-5000.json
+[gs-confirm 14:29:03] waiting for 5000 live pages to embed (reconciler sweeps every 5 minutes)
+[gs-confirm 14:32:51] embeddings ready (5000 live pages)
+[gs-confirm 14:32:51] === scale 5000: sweep gate
+live sweep gate, scale 5000, stripped arm, limits [5 25 100]
+
+gs-change-plan       limit   5 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit   5 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit   5 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit  25 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit 100 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       adjacent constraint pages surfaced: 7 of 7 [attestation-procedure@5 change-announcement-directory@2 change-class-directory@4 consumer-agreement-ledger@2 governed-tier-obligations@3 orders-ledger-stream-runbook@1 schema-version-register@9]
+
+gs-incident          limit   5 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit  25 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit 100 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit   5 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit  25 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit 100 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit   5 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit  25 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit 100 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          adjacent constraint pages surfaced: 7 of 7 [acknowledgment-clocks@3 closure-evidence-standard@4 escalation-roster@7 incident-comms-standard@1 incident-severity-standard@2 postmortem-record-standard@10 settlement-recon-job-runbook@1]
+
+gs-feed-onboarding   limit   5 pass entry@3 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit  25 pass entry@3 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit 100 pass entry@3 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit   5 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit  25 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit 100 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit   5 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit  25 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit 100 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   adjacent constraint pages surfaced: 5 of 7 [delivery-expectation-standard@1 feed-naming-standard@1 feed-rerun-procedure@4 parcel-events-feed-runbook@1 storage-tier-register@2]
+
+
+gate report written to build/bench-results/graph-study-gate-5000.json
+[gs-confirm 14:32:58] === scale 5000: run (stripped/search, k=5)
+Results dir: build/bench-results/gs5000-opus-stripped-search-20260810-143259
+2026/08/10 14:33:06 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=1 seq=1
+2026/08/10 14:36:55 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=1 seq=2
+2026/08/10 14:40:30 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=1 seq=3
+2026/08/10 14:43:32 WARN attempt failed cell=gs-feed-onboarding error="episode: claude reported success"
+2026/08/10 14:43:32 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=2 seq=4
+2026/08/10 14:47:25 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=2 seq=5
+2026/08/10 14:50:37 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=2 seq=6
+2026/08/10 14:53:16 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=3 seq=7
+2026/08/10 14:56:17 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=3 seq=8
+2026/08/10 14:58:55 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=3 seq=9
+2026/08/10 15:01:30 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=4 seq=10
+2026/08/10 15:05:05 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=4 seq=11
+2026/08/10 15:08:58 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=4 seq=12
+2026/08/10 15:11:34 INFO cell attempt cell=gs-change-plan arm=stripped search=true replicate=5 seq=13
+2026/08/10 15:16:02 INFO cell attempt cell=gs-incident arm=stripped search=true replicate=5 seq=14
+2026/08/10 15:19:05 INFO cell attempt cell=gs-feed-onboarding arm=stripped search=true replicate=5 seq=15
+
+arm=stripped search=true within-ceiling=false model=opus pages=5000
+cell                   n  off-cov  off-grnd  disc-grnd  unread  complete  overclaim  nostmt  searches  fetches  failed
+gs-change-plan         5     1.00      1.00       1.00       0         0          0       0        80       60       0
+gs-incident            5     0.86      0.86       0.80       0         0          0       0        49       55       0
+gs-feed-onboarding     4     1.00      1.00       1.00       0         0          0       1        42       42       1
+
+archive: build/bench-results/gs5000-opus-stripped-search-20260810-143259
+[gs-confirm 15:21:43] === scale 5000: reset
+deleted 5000 pages (stripped arm, scale 5000)
+[gs-confirm 15:21:52] confirmatory matrix complete

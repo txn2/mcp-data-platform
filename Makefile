@@ -1221,6 +1221,29 @@ bench-gs-gate:
 	$(BUILD_DIR)/bench-graphstudy -mode gate -url $(BENCH_URL) -credential $(BENCH_KEY) \
 		-scale $(BENCH_GS_SCALE) -identity-keys $(BENCH_GT_KEYS)
 
+## bench-gs-run: Run the confirmatory cells into a fresh per-run dir under build/bench-results/ (#1251; K=, MODEL=, NOSEARCH=1)
+bench-gs-run:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-graphstudy ./graphstudy
+	@test -f build/bench-results/graph-study-plant-$(BENCH_GS_SCALE).json || \
+		{ echo "ERROR: no plant record for scale $(BENCH_GS_SCALE); run bench-gs-plant first"; exit 1; }
+	@arm=$$(grep -q '"stripped": true' build/bench-results/graph-study-plant-$(BENCH_GS_SCALE).json && echo stripped || echo graph); \
+	search=$(if $(NOSEARCH),nosearch,search); \
+	git_commit=$$(git rev-parse HEAD); git diff --quiet HEAD || git_commit="$$git_commit-dirty"; \
+	dir="build/bench-results/gs$(BENCH_GS_SCALE)-$(if $(MODEL),$(MODEL),opus)-$$arm-$$search-$$(date +%Y%m%d-%H%M%S)"; \
+	mkdir -p $$dir; \
+	echo "Results dir: $$dir"; \
+	$(BUILD_DIR)/bench-graphstudy -mode run \
+		-url $(BENCH_URL) \
+		-credential $(BENCH_KEY) \
+		-scale $(BENCH_GS_SCALE) \
+		-identity-keys $(BENCH_GT_KEYS) \
+		-git-commit $$git_commit \
+		-out $$dir \
+		$(if $(NOSEARCH),-no-search,) \
+		$(if $(K),-k $(K),) \
+		$(if $(MODEL),-model $(MODEL),)
+
 ## bench-gs-reset: Delete the planted study corpus so another scale or arm can go in (#1250)
 bench-gs-reset:
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/bench-graphstudy ./graphstudy

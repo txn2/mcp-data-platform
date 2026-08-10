@@ -1,0 +1,67 @@
+[gs-confirm 09:54:20] building bench-graphstudy from the working tree
+[gs-confirm 09:54:21] === scale 50: embedding certification
+embedding certification, scale 50, model nomic-embed-text, exclusion top-25, entry top-25
+
+gs-change-plan       prompt FAIL entry rank   1  disc violations map[records-retention-directory:22]
+gs-change-plan       query  FAIL entry rank   1  disc violations map[records-retention-directory:25]
+gs-change-plan       query  pass entry rank   5  disc violations map[]
+gs-change-plan       query  pass entry rank   5  disc violations map[]
+gs-incident          prompt FAIL entry rank   1  disc violations map[regulator-notify-calendar:14 worked-hours-ledger-practice:20]
+gs-incident          query  FAIL entry rank   1  disc violations map[regulator-notify-calendar:14 worked-hours-ledger-practice:9]
+gs-incident          query  FAIL entry rank   7  disc violations map[regulator-notify-calendar:23]
+gs-incident          query  FAIL entry rank   5  disc violations map[regulator-notify-calendar:16]
+gs-feed-onboarding   prompt pass entry rank   1  disc violations map[]
+gs-feed-onboarding   query  FAIL entry rank   2  disc violations map[procurement-commitment-ledger:23]
+gs-feed-onboarding   query  pass entry rank   1  disc violations map[]
+gs-feed-onboarding   query  FAIL entry rank   2  disc violations map[procurement-commitment-ledger:21]
+
+certification report written to build/bench-results/graph-study-cert-50.json
+graphstudy: certification unsatisfiable at scale 50: the top-25 horizon covers at least half the corpus (the within-enumeration-ceiling condition)
+[gs-confirm 09:54:22] certification unsatisfiable at scale 50: the within-ceiling reading (recorded)
+[gs-confirm 09:54:22] === scale 50: plant (graph arm)
+planted 50 pages (graph arm, scale 50); record written to build/bench-results/graph-study-plant-50.json
+[gs-confirm 09:54:22] waiting for 50 live pages to embed (reconciler sweeps every 5 minutes)
+[gs-confirm 09:55:23] embeddings ready (50 live pages)
+[gs-confirm 09:55:24] === scale 50: sweep gate
+live sweep gate, scale 50, graph arm, limits [5 25 100]
+
+gs-change-plan       limit   5 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit  25 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit 100 pass entry@1 disc map[]  "orders-ledger stream add a field change plan"
+gs-change-plan       limit   5 pass entry@1 disc map[]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit  25 FAIL entry@1 disc map[corp-close-calendar:17 records-retention-directory:20]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit 100 FAIL entry@1 disc map[corp-close-calendar:17 records-retention-directory:20]  "how is a change to a governed stream approved and announced"
+gs-change-plan       limit   5 pass entry@0 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit  25 pass entry@6 disc map[]  "stream schema change consumer notice requirements"
+gs-change-plan       limit 100 FAIL entry@6 disc map[records-retention-directory:24]  "stream schema change consumer notice requirements"
+gs-change-plan       adjacent constraint pages surfaced: 7 of 7 [attestation-procedure@4 change-announcement-directory@2 change-class-directory@1 consumer-agreement-ledger@3 governed-tier-obligations@5 orders-ledger-stream-runbook@1 schema-version-register@2]
+
+gs-incident          limit   5 pass entry@1 disc map[]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit  25 FAIL entry@1 disc map[regulator-notify-calendar:15 worked-hours-ledger-practice:9]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit 100 FAIL entry@1 disc map[regulator-notify-calendar:15 worked-hours-ledger-practice:9]  "settlement-recon job failed several nights running what happens"
+gs-incident          limit   5 pass entry@0 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit  25 pass entry@7 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit 100 pass entry@7 disc map[]  "incident severity and escalation when nobody responds"
+gs-incident          limit   5 pass entry@0 disc map[]  "how are control failure incidents communicated and closed"
+gs-incident          limit  25 FAIL entry@6 disc map[regulator-notify-calendar:13]  "how are control failure incidents communicated and closed"
+gs-incident          limit 100 FAIL entry@6 disc map[regulator-notify-calendar:13]  "how are control failure incidents communicated and closed"
+gs-incident          adjacent constraint pages surfaced: 7 of 7 [acknowledgment-clocks@3 closure-evidence-standard@2 escalation-roster@5 incident-comms-standard@1 incident-severity-standard@2 postmortem-record-standard@3 settlement-recon-job-runbook@1]
+
+gs-feed-onboarding   limit   5 pass entry@0 disc map[]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit  25 FAIL entry@4 disc map[procurement-commitment-ledger:17]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit 100 FAIL entry@4 disc map[procurement-commitment-ledger:17]  "new nightly feed onboarding naming storage delivery"
+gs-feed-onboarding   limit   5 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit  25 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit 100 pass entry@1 disc map[]  "how are nightly feeds operated and registered"
+gs-feed-onboarding   limit   5 pass entry@2 disc map[]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit  25 FAIL entry@2 disc map[procurement-commitment-ledger:16]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   limit 100 FAIL entry@2 disc map[procurement-commitment-ledger:16]  "feed output lifetime and delivery expectations"
+gs-feed-onboarding   adjacent constraint pages surfaced: 6 of 7 [delivery-expectation-standard@1 feed-naming-standard@1 feed-rerun-procedure@3 landing-zone-layout@7 parcel-events-feed-runbook@1 storage-tier-register@2]
+
+
+gate report written to build/bench-results/graph-study-gate-50.json
+graphstudy: the live sweep gate did not pass at this scale
+[gs-confirm 09:55:27] gate did not pass at scale 50: the within-ceiling reading (recorded); the run mode still refuses leaks
+[gs-confirm 09:55:27] === scale 50: run (graph/search, k=5)
+Results dir: build/bench-results/gs50-opus-graph-search-20260810-095527
+2026/08/10 09:55:27 INFO cell attempt cell=gs-change-plan arm=graph search=true replicate=1 seq=1

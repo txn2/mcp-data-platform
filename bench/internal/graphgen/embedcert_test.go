@@ -86,6 +86,18 @@ func TestEffectiveTopKScalesWithTheCorpus(t *testing.T) {
 	}
 }
 
+// TestWithinCeilingMarksOnlyTheSmallestScale: the boundary is the horizon
+// covering half the corpus — true at the study's scale 50 (and just past
+// it), false from the first certifiable scale on.
+func TestWithinCeilingMarksOnlyTheSmallestScale(t *testing.T) {
+	t.Parallel()
+	for n, want := range map[int]bool{42: true, 50: true, 51: false, 500: false, 5000: false} {
+		if got := WithinCeiling(n); got != want {
+			t.Errorf("WithinCeiling(%d) = %t, want %t", n, got, want)
+		}
+	}
+}
+
 // TestCertifyDiscontinuityFailsInsideTheHorizon: with the horizon at the
 // corpus size, no page can be absent and the reading records both the
 // violations and that the horizon exceeds the corpus — the
