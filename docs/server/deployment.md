@@ -235,10 +235,14 @@ personas:
     tools:
       allow: ["*"]
       deny: ["*_delete_*"]
+    connections:
+      allow: ["*"]
   admin:
     display_name: "Administrator"
     roles: ["admin"]
     tools:
+      allow: ["*"]
+    connections:
       allow: ["*"]
 
 enrichment:

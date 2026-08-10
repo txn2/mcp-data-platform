@@ -9,7 +9,11 @@ A persona is a named configuration that includes:
 - **Display Name** - Human-readable identifier
 - **Roles** - Which authenticated roles map to this persona
 - **Tool Rules** - Allow and deny patterns for tool access
+- **Connection Rules** - Allow and deny patterns for which toolkit connections the persona may reach, deny-by-default
+- **API Routes** - Per-(connection, method, path) rules narrowing HTTP API gateway connections further
 - **Context Overrides** - Per-persona customization of platform description and agent instructions
+
+The connection rules carry the platform's authorization design: access is scoped at the connection rather than at the end user. [Authorization: the connection is the boundary](../concepts/authorization.md) states why, what that enforces, and what it does not.
 
 ## How Personas Work
 
@@ -47,6 +51,8 @@ personas:
       allow: ["*"]
       deny:
         - "*_delete_*"
+    connections:
+      allow: ["*"]
     context:
       description_prefix: "You are helping a data analyst explore data."
 
@@ -57,6 +63,8 @@ personas:
     tools:
       allow: ["*"]
       deny: []
+    connections:
+      allow: ["*"]
 
   viewer:
     display_name: "Viewer"
@@ -74,6 +82,8 @@ personas:
         - "trino_query"
         - "trino_execute"
         - "s3_get_object"
+    connections:
+      allow: ["*"]
 ```
 
 Prefer `allow: ["*"]` with a targeted `deny`, as `analyst` does above. An
@@ -167,6 +177,8 @@ personas:
     roles: ["admin", "anonymous"]   # anonymous callers land here
     tools:
       allow: ["*"]
+    connections:
+      allow: ["*"]
 ```
 
 Without a persona listing `anonymous`, an unidentified caller maps to no persona
@@ -185,6 +197,7 @@ personas:
     tools:
       allow: []
       deny: ["*"]
+    connections: {}   # deny-by-default: no connection is reachable
 ```
 
 The built-in default persona is **deny-all**, not allow-all: a user who
@@ -289,6 +302,18 @@ personas:
       allow: ["*"]   # required: connections are deny-by-default
 ```
 
+### The connection is the authorization boundary
+
+This is the platform's authorization design, not a filter layered on top of one. A connection is a named binding to one downstream system under one credential, and several connections may front the *same* system under *different* credentials at different permission levels. That is the intended shape: a read-only Trino account and a write-capable one on the same cluster become two connections, and personas are granted one or both. The API gateway uses the same split heavily, with `api_routes` narrowing a connection further by method and path.
+
+What follows from that:
+
+- **The permission level a caller gets is the permission level of the credential bound to the connection they were granted.** Tighten access by adding a connection with a narrower downstream account, not by adding a role that lands on the same connection.
+- **The platform does not impersonate the caller downstream.** There is no per-user token exchange and no session-user propagation; everyone granted a connection acts as that connection's credential. Warehouse row policies and column masks that key off the end user therefore do not follow a caller through the platform. Expressing per-person policy means one connection per distinct policy outcome.
+- **Per-user attribution comes from the audit trail.** With audit enabled, each tool call records `user_id`, `user_email`, `persona`, and the connection it targeted, so the platform can answer who ran what, as which persona, through which connection, even though the downstream system sees only the service account. Audit needs a database and can be switched off, so a deployment relying on connection-scoping should keep it on.
+
+[Authorization: the connection is the boundary](../concepts/authorization.md) covers the rationale, the trade against per-user identity passthrough, and when to reach for another connection instead of another role.
+
 ### How Connection Filtering Works
 
 1. When a tool call arrives, the middleware identifies which toolkit connection the tool belongs to
@@ -333,12 +358,16 @@ personas:
       allow: ["*"]                # includes search, fetch, memory_capture
       deny:
         - "apply_knowledge"       # Cannot apply changes
+    connections:
+      allow: ["*"]
 
   admin:
     display_name: "Administrator"
     roles: ["admin"]
     tools:
       allow: ["*"]                # Full access including apply_knowledge
+    connections:
+      allow: ["*"]
 
   etl_service:
     display_name: "ETL Service"
@@ -352,6 +381,8 @@ personas:
       deny:
         - "memory_capture"        # Automated processes should not capture
         - "apply_knowledge"
+    connections:
+      allow: ["*"]
 ```
 
 `etl_service` shows the enumerated form done correctly: it withholds the
@@ -370,6 +401,8 @@ personas:
     tools:
       allow: ["*"]
       deny: []
+    connections:
+      allow: ["*"]
     context:
       description_prefix: |
         You are helping a sales analyst.
@@ -382,6 +415,8 @@ personas:
     tools:
       allow: ["*"]
       deny: []
+    connections:
+      allow: ["*"]
     context:
       description_prefix: |
         You are helping a marketing analyst.

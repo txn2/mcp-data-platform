@@ -147,6 +147,8 @@ personas:
     tools:
       # search discovers; fetch is the only tool that reads a result in full.
       allow: ["platform_info", "search", "fetch", "datahub_get_*"]
+    connections:
+      allow: ["*"]
 
   analyst:
     display_name: "Data Analyst"
@@ -155,6 +157,8 @@ personas:
     tools:
       allow: ["*"]
       deny: ["*_delete_*"]
+    connections:
+      allow: ["*"]
 
   data_engineer:
     display_name: "Data Engineer"
@@ -163,12 +167,16 @@ personas:
     tools:
       allow: ["*"]
       deny: ["*_delete_*"]
+    connections:
+      allow: ["*"]
 
   admin:
     display_name: "Administrator"
     roles: ["admin", "ops-team"]
     priority: 100
     tools:
+      allow: ["*"]
+    connections:
       allow: ["*"]
 
   role_mapping:

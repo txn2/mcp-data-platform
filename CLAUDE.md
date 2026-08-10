@@ -303,6 +303,8 @@ personas:
       # reference. See docs/personas/overview.md#some-tools-are-a-unit.
       allow: ["*"]
       deny: ["*_delete_*"]
+    connections:
+      allow: ["*"]
     context:
       description_prefix: "You are helping a data analyst."
   admin:
@@ -310,11 +312,15 @@ personas:
     roles: ["admin"]
     tools:
       allow: ["*"]
-  default_persona: analyst
+    connections:
+      allow: ["*"]
 ```
 
 `PersonasConfig.Definitions` is an inline map (`pkg/platform/config.go`), so
 persona names go directly under `personas:` — not under a `definitions:` key.
+Connections are deny-by-default (`pkg/persona/filter.go`), so every persona
+needs its own `connections:` block; `personas.default_persona` was removed and
+a config that still sets it is refused at startup (`pkg/platform/config.go`).
 
 ### Semantic Layer
 ```yaml

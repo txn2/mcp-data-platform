@@ -27,7 +27,9 @@ It is a platform, not just a bridge. The same endpoint gives agents persistent m
 
 ## Do you need DataHub? Only for cross-enrichment
 
-Cross-enrichment is what [DataHub](https://datahubproject.io/) is for: point the platform at it as the semantic layer, then add [Trino](https://trino.io/) for SQL and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack.](https://mcp-data-platform.txn2.com/concepts/components/)
+[DataHub](https://datahubproject.io/), [Trino](https://trino.io/), and [S3](https://aws.amazon.com/s3/) are components this platform composes, not infrastructure it expects you to already run. The platform needed a metadata layer and a federating query engine; reimplementing either mature open-source system would have been the wrong call, so it adapts them behind provider interfaces instead. DataHub can run as a silent backend the operator never surfaces, which is the usual shape for the many organizations that have no metadata layer today.
+
+Cross-enrichment is what DataHub is for: point the platform at it as the semantic layer, then add Trino for SQL and S3 for object storage when you're ready. [Learn why this stack.](https://mcp-data-platform.txn2.com/concepts/components/)
 
 **Everything else runs without it.** DataHub is an adapter behind a provider interface, not a substrate the platform is built on. Omit the `semantic:` block and the semantic provider resolves to a noop, the server starts normally, and the gateways, knowledge layer, memory, portal, and `search`/`fetch` run on PostgreSQL alone. What you give up is cross-enrichment and the `datahub_*` tools, not the platform: `semantic:`, `query:`, `storage:`, and `toolkits:` are independent config blocks, so Trino and S3 stay available on their own terms and simply stop being enriched. See [Deployment Shapes](https://mcp-data-platform.txn2.com/server/deployment-shapes/) for exactly what each shape includes and leaves out.
 
@@ -139,6 +141,7 @@ Each feature links to its full documentation.
 | [OAuth 2.1 server](https://mcp-data-platform.txn2.com/auth/oauth-server/) | A broker, [not an identity provider](#a-broker-not-an-identity-provider): authorization server with PKCE and Dynamic Client Registration toward MCP clients, delegating every human login upstream to your IdP |
 | [Outbound OAuth](https://mcp-data-platform.txn2.com/auth/oauth-gateway/) | OAuth to upstream MCPs and APIs with encrypted refresh tokens that survive restarts |
 | [Personas](https://mcp-data-platform.txn2.com/personas/overview/) | Role-mapped allow/deny tool and connection filtering, default-deny; roles that match no persona reach nothing, in the portal as well as over MCP |
+| [Authorization model](https://mcp-data-platform.txn2.com/concepts/authorization/) | Why the connection, not the end user, is the unit of access; what that enforces, what it does not, and when to add a connection instead of a role |
 | [Audit logging](https://mcp-data-platform.txn2.com/server/audit/) | Every tool call logged to PostgreSQL with identity, persona, sanitized parameters, and timing |
 | [Observability](https://mcp-data-platform.txn2.com/server/observability/) | Prometheus metrics and optional OpenTelemetry distributed tracing |
 | [Session externalization](https://mcp-data-platform.txn2.com/server/session-externalization/) | PostgreSQL-backed sessions for zero-downtime restarts, horizontal scaling, and live tool-inventory updates |
@@ -229,6 +232,12 @@ The platform implements a **fail-closed** security model: missing or invalid cre
 |-----------|----------------|-----|
 | **stdio** | Not required (local execution) | N/A |
 | **HTTP** | Required (Bearer token or API key) | Strongly recommended |
+
+### Access control: the connection is the boundary
+
+**The unit of access is the connection, not the end user.** A connection is a named binding to one downstream system under one credential, and several connections may front the *same* system under *different* credentials at different permission levels: a read-only Trino account and a write-capable one on the same cluster are two connections, and each persona is granted the subset it may reach. Connection rules are deny-by-default (an empty or omitted `connections.allow` grants nothing), enforced on every tool call alongside the tool-pattern check, and applied to discovery so `search`, `fetch`, `list_connections`, and the portal search do not surface entities behind a connection the persona was not granted, with `search` and `list_connections` reporting a `withheld` count and a notice naming the persona (`pkg/persona/filter.go`, `internal/platform/connscope`). `api_routes` narrows an HTTP API gateway connection further by method and path, which is how read-write and read-only access to one API are split across personas.
+
+The trade is explicit. The platform does not impersonate the caller downstream: no per-user token exchange and no session-user propagation, so everyone granted a connection acts as that connection's credential, and warehouse row policies or column masks that key off the end user do not follow a caller through. Per-person policy is expressed as connections, one per distinct outcome. Per-user attribution comes from the audit trail instead: with audit enabled, each call records `user_id`, `user_email`, `persona`, and the connection it targeted, so the platform knows who acted even where the downstream system sees only a service account. Tighten access by adding a connection with a narrower downstream account, not by adding a role that lands on the same connection. [Authorization model](https://mcp-data-platform.txn2.com/concepts/authorization/).
 
 ### A broker, not an identity provider
 

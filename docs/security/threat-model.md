@@ -375,6 +375,15 @@ account.
   flag. The platform cannot constrain a downstream account beyond what the
   downstream system's own authorization enforces; scoping the service account to
   least privilege in Trino/S3/DataHub is a deployment responsibility.
+- The connection is also the unit of containment, by design. Access is scoped at
+  the connection rather than the end user (see
+  [Authorization model](../concepts/authorization.md)), so an operator sizes
+  blast radius by deciding what each credential can reach and which personas are
+  granted it, before any call happens. Several connections may front the same
+  downstream system under different credentials at different permission levels;
+  a compromise of the read-only one does not reach what the write-capable one
+  can do. That containment is only as good as the split: a single broad
+  credential shared by every persona makes the boundary a formality.
 
 ## Mitigations
 
@@ -427,11 +436,30 @@ These are stated plainly. Omitting them would misrepresent the security posture.
   latency for durability. The full loss model is documented in
   [Delivery semantics](../server/audit.md#delivery-semantics); it is not
   restated here.
-- API-gateway connections use one shared upstream identity per connection by
-  design (#374). The platform does not perform per-user token exchange to
-  upstream APIs; all callers of a given connection share its upstream
-  credential, and per-user attribution comes from the audit trail, not from
-  distinct upstream identities.
+- Downstream identity is per connection, not per user. This is the authorization
+  design rather than an unmitigated gap, and the distinction matters for how a
+  reader sizes it. Access is scoped at the connection: a connection is a named
+  binding to one downstream system under one operator-authored credential,
+  connection rules are deny-by-default and enforced on every tool call and every
+  discovery surface (`pkg/persona/filter.go`, `internal/platform/connscope`), and
+  several connections may front the same system under different credentials at
+  different permission levels. The platform performs no per-user token exchange,
+  no impersonation, and no session-user propagation to Trino, S3, DataHub,
+  upstream MCP servers, or HTTP APIs, because the construct every one of those
+  backends shares is a credential and an endpoint, not a caller identity the
+  platform could pass through. Outbound OAuth is per connection rather than per
+  user (`pkg/connoauth/exchange.go`, and the mitigations table above); the
+  API-gateway case is recorded as #374. What that costs is stated without
+  softening: all callers granted a connection are indistinguishable to the
+  downstream system, and warehouse row policies or column masks that key off the
+  end user do not follow a caller through the platform. Expressing per-person
+  policy means one connection per distinct policy outcome, which is workable when
+  those outcomes are few and unpleasant when they are many. Per-user attribution
+  comes from the audit trail, not from distinct downstream identities: with audit
+  enabled, each call records `user_id`, `user_email`, `persona`, and the
+  connection it targeted, subject to the best-effort delivery model stated above.
+  Rationale and the add-a-connection-not-a-role guidance:
+  [Authorization model](../concepts/authorization.md).
 - Content sanitization is partial, not comprehensive. DataHub semantic metadata
   is sanitized on the enrichment path (`pkg/semantic/sanitize.go`), but raw query
   row values and gateway-upstream tool descriptions and responses are not

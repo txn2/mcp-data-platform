@@ -98,6 +98,8 @@ personas:
     roles: ["analyst"]
     tools:
       allow: ["*"]
+    connections:
+      allow: ["*"]
 ```
 
 The `system/info` endpoint reports:
@@ -197,10 +199,14 @@ personas:
     roles: ["analyst"]
     tools:
       allow: ["*"]
+    connections:
+      allow: ["*"]
   admin:
     display_name: "Administrator"
     roles: ["admin"]
     tools:
+      allow: ["*"]
+    connections:
       allow: ["*"]
 ```
 
