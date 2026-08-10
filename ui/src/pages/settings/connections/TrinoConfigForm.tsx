@@ -74,6 +74,12 @@ export function TrinoConfigForm({ config, onChange }: ConfigFormProps) {
         onChange={(v) => onChange(update(config, "ssl", v))}
         help="Connect using HTTPS. Required for production deployments."
       />
+      <ConfigToggle
+        label="Read Only"
+        checked={!!config.read_only}
+        onChange={(v) => onChange(update(config, "read_only", v))}
+        help="Reject write SQL (INSERT, UPDATE, DELETE, CREATE, DROP) on this connection. Applies to this connection alone; other Trino connections are unaffected."
+      />
       <Separator className="mt-2" />
       <div className="space-y-4">
         <p className="text-xs font-medium">DataHub Integration</p>
