@@ -1124,6 +1124,99 @@ func TestApplyDefaults_PortalTitle(t *testing.T) {
 			t.Errorf("Portal.Title = %q, want %q (should preserve)", cfg.Portal.Title, "My Custom Platform")
 		}
 	})
+
+	t.Run("composes the title from the brand", func(t *testing.T) {
+		cfg := &Config{
+			Portal: PortalConfig{BrandName: "ACME"},
+		}
+		applyDefaults(cfg)
+		if cfg.Portal.Title != "ACME Portal" {
+			t.Errorf("Portal.Title = %q, want %q", cfg.Portal.Title, "ACME Portal")
+		}
+	})
+
+	t.Run("explicit title beats the brand", func(t *testing.T) {
+		cfg := &Config{
+			Portal: PortalConfig{BrandName: "ACME", Title: "ACME Analytics"},
+		}
+		applyDefaults(cfg)
+		if cfg.Portal.Title != "ACME Analytics" {
+			t.Errorf("Portal.Title = %q, want %q", cfg.Portal.Title, "ACME Analytics")
+		}
+	})
+}
+
+func TestApplyDefaults_PortalBrandFromMCPApps(t *testing.T) {
+	// An existing deployment that branded its platform-info app keeps the
+	// brand, and keeps the title it renders today: only a brand named in the
+	// portal block opts into the composed title, so an upgrade never renames
+	// the portal out from under the operator.
+	t.Run("backfills brand from the app config without renaming the portal", func(t *testing.T) {
+		cfg := &Config{
+			MCPApps: MCPAppsConfig{Apps: map[string]AppConfig{
+				builtinPlatformInfoName: {Config: map[string]any{
+					"brand_name": "ACME",
+					"brand_url":  "https://acme.example.com",
+				}},
+			}},
+		}
+		applyDefaults(cfg)
+		if cfg.Portal.BrandName != "ACME" {
+			t.Errorf("Portal.BrandName = %q, want %q", cfg.Portal.BrandName, "ACME")
+		}
+		if cfg.Portal.BrandURL != "https://acme.example.com" {
+			t.Errorf("Portal.BrandURL = %q, want %q", cfg.Portal.BrandURL, "https://acme.example.com")
+		}
+		if cfg.Portal.Title != "MCP Data Platform" {
+			t.Errorf("Portal.Title = %q, want %q (upgrade must not rename)", cfg.Portal.Title, "MCP Data Platform")
+		}
+	})
+
+	// A disabled MCP Apps subsystem must not drive what the portal renders.
+	t.Run("ignores the app config when mcpapps is disabled", func(t *testing.T) {
+		cfg := &Config{
+			MCPApps: MCPAppsConfig{
+				Enabled: new(false),
+				Apps: map[string]AppConfig{
+					builtinPlatformInfoName: {Config: map[string]any{
+						"brand_name": "OldCo",
+						"brand_url":  "https://oldco.example.com",
+					}},
+				},
+			},
+		}
+		applyDefaults(cfg)
+		if cfg.Portal.BrandName != "" || cfg.Portal.BrandURL != "" {
+			t.Errorf("brand = (%q, %q), want empty", cfg.Portal.BrandName, cfg.Portal.BrandURL)
+		}
+	})
+
+	t.Run("portal block wins over the app config", func(t *testing.T) {
+		cfg := &Config{
+			Portal: PortalConfig{BrandName: "Contoso", BrandURL: "https://contoso.example.com"},
+			MCPApps: MCPAppsConfig{Apps: map[string]AppConfig{
+				builtinPlatformInfoName: {Config: map[string]any{
+					"brand_name": "ACME",
+					"brand_url":  "https://acme.example.com",
+				}},
+			}},
+		}
+		applyDefaults(cfg)
+		if cfg.Portal.BrandName != "Contoso" {
+			t.Errorf("Portal.BrandName = %q, want %q", cfg.Portal.BrandName, "Contoso")
+		}
+		if cfg.Portal.BrandURL != "https://contoso.example.com" {
+			t.Errorf("Portal.BrandURL = %q, want %q", cfg.Portal.BrandURL, "https://contoso.example.com")
+		}
+	})
+
+	t.Run("no platform-info app leaves the brand empty", func(t *testing.T) {
+		cfg := &Config{}
+		applyDefaults(cfg)
+		if cfg.Portal.BrandName != "" || cfg.Portal.BrandURL != "" {
+			t.Errorf("brand = (%q, %q), want empty", cfg.Portal.BrandName, cfg.Portal.BrandURL)
+		}
+	})
 }
 
 func TestLoadConfig_PortalBrandingFromYAML(t *testing.T) {

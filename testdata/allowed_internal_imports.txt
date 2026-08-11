@@ -391,6 +391,7 @@ pkg/platform -> internal/platform/memorylayer
 pkg/platform -> internal/platform/mwchain
 pkg/platform -> internal/platform/oauthserver
 pkg/platform -> internal/platform/obs
+pkg/platform -> internal/platform/portalcfg
 pkg/platform -> internal/platform/portalstore
 pkg/platform -> internal/platform/promptlayer
 pkg/platform -> internal/platform/reflexivecapture

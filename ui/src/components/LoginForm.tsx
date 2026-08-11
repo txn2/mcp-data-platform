@@ -3,12 +3,12 @@ import { useAuthStore } from "@/stores/auth";
 import { useResolvedDark } from "@/stores/theme";
 import { useBranding } from "@/api/portal/hooks";
 import { resolvePortalLogo } from "@/lib/portalLogo";
+import { usePortalTitle } from "@/hooks/usePortalTitle";
 import { LogIn } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-const DEFAULT_PORTAL_TITLE = "MCP Data Platform";
 const DEFAULT_PORTAL_TAGLINE = "Sign in to access the platform.";
 const DEFAULT_OIDC_BUTTON_LABEL = "Sign in with OIDC";
 
@@ -39,7 +39,7 @@ export function LoginForm() {
 
   const isDark = useResolvedDark();
 
-  const portalTitle = branding?.portal_title || DEFAULT_PORTAL_TITLE;
+  const { portalTitle } = usePortalTitle();
   const portalTagline = branding?.portal_tagline || DEFAULT_PORTAL_TAGLINE;
   const oidcButtonLabel = branding?.oidc_button_label || DEFAULT_OIDC_BUTTON_LABEL;
   const portalLogo = resolvePortalLogo(branding ?? undefined, isDark);

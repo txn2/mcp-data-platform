@@ -22,6 +22,29 @@ const themeOptions: SegmentedOption<Theme>[] = [
   { value: "system", icon: Monitor, label: "System" },
 ];
 
+/**
+ * VersionBadge shows the running server version, linked when the deployment
+ * configured somewhere for it to go (portal.version_url — release notes, a
+ * changelog, an internal wiki). Unconfigured it stays plain text, so no reader
+ * is offered a link the operator never pointed anywhere.
+ */
+function VersionBadge({ version, url }: { version: string; url: string }) {
+  const label = `v${version}`;
+  if (!url) {
+    return <span className="text-xs text-muted-foreground">{label}</span>;
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="rounded-sm text-xs text-muted-foreground underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+    >
+      {label}
+    </a>
+  );
+}
+
 export function Header({ title, onMenuClick }: Props) {
   const { theme, setTheme } = useThemeStore();
   const { data: branding } = useBranding();
@@ -45,11 +68,7 @@ export function Header({ title, onMenuClick }: Props) {
         <h1 className="text-lg font-semibold truncate">{title}</h1>
       </div>
       <div className="flex items-center gap-3">
-        {version && (
-          <span className="text-xs text-muted-foreground">
-            v{version}
-          </span>
-        )}
+        {version && <VersionBadge version={version} url={branding?.version_url || ""} />}
         <SegmentedControl
           label="Theme"
           value={theme}

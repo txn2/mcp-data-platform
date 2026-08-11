@@ -17,6 +17,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
+	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -335,19 +336,14 @@ type StalenessConfig struct {
 	BatchSize int           `yaml:"batch_size"`
 }
 
-// Default bucket and prefix for portal asset storage. The prefix keeps its
-// historical "artifacts/" value: it addresses stored blobs, not the tool
-// surface #1029 renamed, so it is deliberately out of that rename's scope.
-const (
-	defaultPortalS3Bucket = "portal-assets"
-	defaultPortalS3Prefix = "artifacts/"
-)
-
 // PortalConfig configures the asset portal for saving AI-generated assets.
 // Enabled by default when a database is available. Set enabled: false to disable.
 type PortalConfig struct {
 	Enabled         *bool                 `yaml:"enabled"`
-	Title           string                `yaml:"title"`             // sidebar/branding title (default: "MCP Data Platform")
+	Title           string                `yaml:"title"`             // sidebar/branding title (default: "<brand_name> Portal", or "MCP Data Platform" with no brand)
+	BrandName       string                `yaml:"brand_name"`        // deployment brand (e.g. "ACME"); falls back to the mcpapps platform-info brand_name
+	BrandURL        string                `yaml:"brand_url"`         // brand home page the portal's brand mark links to; falls back to the mcpapps platform-info brand_url
+	VersionURL      string                `yaml:"version_url"`       // optional link target for the version number in the portal header (e.g. a changelog)
 	Tagline         string                `yaml:"tagline"`           // login-screen subtitle (default: "Sign in to access the platform.")
 	OIDCButtonLabel string                `yaml:"oidc_button_label"` // login-screen SSO button text (default: "Sign in with OIDC")
 	Logo            string                `yaml:"logo"`              // URL to logo (fallback for both themes)
@@ -399,9 +395,6 @@ type PortalRateLimitConfig struct {
 	// of collapsing onto the proxy IP.
 	TrustedProxies []string `yaml:"trusted_proxies"`
 }
-
-// defaultMaxContentSize is the default maximum asset size (10 MB).
-const defaultMaxContentSize = 10 * 1024 * 1024
 
 // ServerConfig configures the MCP server.
 type ServerConfig struct {
@@ -1818,20 +1811,17 @@ func applyEnrichmentCompat(cfg *Config) {
 	cfg.EnrichmentDeprecated = nil
 }
 
-// applyPortalDefaults sets defaults for portal config.
+// applyPortalDefaults sets defaults for portal config. The title is composed
+// before the brand fallback runs, so only a brand named in the portal block
+// renames the portal: a deployment that branded its platform-info app keeps
+// the title it renders today.
 func applyPortalDefaults(cfg *Config) {
-	if cfg.Portal.Title == "" {
-		cfg.Portal.Title = "MCP Data Platform"
-	}
-	if cfg.Portal.MaxContentSize == 0 {
-		cfg.Portal.MaxContentSize = defaultMaxContentSize
-	}
-	if cfg.Portal.S3Bucket == "" {
-		cfg.Portal.S3Bucket = defaultPortalS3Bucket
-	}
-	if cfg.Portal.S3Prefix == "" {
-		cfg.Portal.S3Prefix = defaultPortalS3Prefix
-	}
+	p := &cfg.Portal
+	p.Title = portalcfg.Title(p.Title, p.BrandName)
+	p.BrandName, p.BrandURL = portalcfg.Brand(p.BrandName, p.BrandURL,
+		cfg.MCPApps.IsEnabled(), cfg.MCPApps.Apps[builtinPlatformInfoName].Config)
+	p.MaxContentSize = portalcfg.MaxContentSize(p.MaxContentSize)
+	p.S3Bucket, p.S3Prefix = portalcfg.S3Location(p.S3Bucket, p.S3Prefix)
 }
 
 // applyResourceDefaults sets defaults for managed resources config.

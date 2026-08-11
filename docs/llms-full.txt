@@ -617,7 +617,10 @@ Branding fields have moved to the `portal:` section:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `portal.enabled` | bool | `false` | Enable portal SPA frontend and asset API |
-| `portal.title` | string | `MCP Data Platform` | Sidebar/branding title text |
+| `portal.brand_name` | string | mcpapps `brand_name` | Deployment brand; composes the portal title as `<brand_name> Portal` and names the public viewer header, branded denial pages, and built-in MCP Apps. Falls back to `brand_name` in `mcpapps.apps.platform-info.config` when MCP Apps are enabled |
+| `portal.brand_url` | string | mcpapps `brand_url` | Brand home page; the sidebar brand mark (logo and name) links to it in a new tab. Unset leaves the mark inert. Falls back to `brand_url` in `mcpapps.apps.platform-info.config` when MCP Apps are enabled |
+| `portal.version_url` | string | `""` | Link target for the version number in the portal header (release notes or changelog). Unset leaves the version as plain text. Served on the unauthenticated branding endpoint |
+| `portal.title` | string | `<brand_name> Portal`, else `MCP Data Platform` | Sidebar/branding title text; composed from `brand_name` when unset. A brand already ending in "Portal" is not doubled. Only a `brand_name` set in the `portal` block composes the title, so an mcpapps-inherited brand leaves an existing deployment's title unchanged |
 | `portal.tagline` | string | `Sign in to access the platform.` | Login-screen subtitle text |
 | `portal.oidc_button_label` | string | `Sign in with OIDC` | Login-screen SSO button text (e.g. "Sign in with ACME Keycloak") |
 | `portal.logo` | string | `""` | Logo URL (fallback for both themes) |

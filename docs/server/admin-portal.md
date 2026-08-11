@@ -9,7 +9,8 @@ The Admin Portal is an interactive web dashboard for managing and monitoring the
 ```yaml
 portal:
   enabled: true
-  title: "ACME Data Platform"
+  brand_name: "ACME"
+  brand_url: "https://acme.example.com"
   logo: https://example.com/logo.svg
   logo_light: https://example.com/logo-for-light-bg.svg
   logo_dark: https://example.com/logo-for-dark-bg.svg
@@ -23,12 +24,29 @@ The portal is served at `/portal/`. Authentication is required — use the same 
 
 ### Branding
 
-Customize the sidebar title and logo via `portal.title`, `portal.logo`, `portal.logo_light`, and `portal.logo_dark`. The portal picks the theme-appropriate logo automatically:
+Name the deployment once with `portal.brand_name` and the portal follows it everywhere: the sidebar and browser tab read **`<brand_name>` Portal** ("ACME" gives "ACME Portal"), and the same brand names the public viewer header, the branded denial pages, and the built-in MCP Apps. A brand that already ends in "Portal" is used as-is rather than doubled. `portal.title` overrides the composed title outright, for a deployment whose portal is called something other than its brand.
+
+`portal.brand_name` and `portal.brand_url` fall back to `brand_name` / `brand_url` in the `mcpapps.apps.platform-info.config` block, so a deployment that branded its MCP App keeps that brand without repeating it — and it keeps its current title, because only a brand named in the `portal` block composes the title. The `portal` block wins when both are set, and is the one to use: it needs no MCP Apps configuration at all, and its brand is written into the built-in apps that name none of their own. An `mcpapps` block the operator has disabled contributes nothing.
+
+With `portal.brand_url` set, the sidebar brand mark — logo and name together — becomes a link to the brand's own site, opening in a new tab so a reader mid-task does not lose the portal to it. Unset, the mark is inert markup rather than a link to nowhere.
+
+Customize the logo via `portal.logo`, `portal.logo_light`, and `portal.logo_dark`. The portal picks the theme-appropriate logo automatically:
 
 - **Light theme**: `logo_light` → `logo` → built-in default
 - **Dark theme**: `logo_dark` → `logo` → built-in default
 
 The resolved logo is also used as the browser favicon. A built-in activity icon is used when no logo is configured. Logos should be square SVGs for best results.
+
+#### Version link
+
+The portal header shows the running server version. Point `portal.version_url` at release notes, a changelog, or an internal wiki page and the version becomes a link there:
+
+```yaml
+portal:
+  version_url: "https://acme.example.com/changelog"
+```
+
+Unset, the version stays plain text — no reader is offered a link the operator never pointed anywhere.
 
 #### Email logo
 
@@ -45,7 +63,7 @@ The logo is additive: the brand wordmark still renders beneath it, and doubles a
 
 ### Public Viewer Branding
 
-Shared asset links (the public viewer at `/portal/view/{token}`) display a two-zone header. The **right zone** shows the platform brand (`portal.title` and `portal.logo`). The **left zone** is an optional implementor brand for the organization deploying the platform:
+Shared asset links (the public viewer at `/portal/view/{token}`) display a two-zone header. The **right zone** shows the platform brand (`portal.brand_name` and `portal.logo`, linked to `portal.brand_url`). The **left zone** is an optional implementor brand for the organization deploying the platform:
 
 ```yaml
 portal:

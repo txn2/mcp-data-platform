@@ -249,6 +249,86 @@ func TestBrandURL(t *testing.T) {
 			t.Errorf("nil BrandURL() = %q, want empty", got)
 		}
 	})
+
+	t.Run("returns the configured portal brand URL", func(t *testing.T) {
+		h := New(Config{BrandURL: "https://portal.example.com"})
+		if got := h.BrandURL(); got != "https://portal.example.com" {
+			t.Errorf("BrandURL() = %q, want %q", got, "https://portal.example.com")
+		}
+	})
+
+	// portal.brand_url is the operator's first-class brand home; the app
+	// config only backfills it, so a platform-info app that names a different
+	// brand_url must not silently replace what the portal block configured.
+	t.Run("configured brand URL survives InjectPortalLogo", func(t *testing.T) {
+		h := New(Config{BrandURL: "https://portal.example.com"})
+		_ = h.InjectPortalLogo(map[string]any{"brand_url": "https://app.example.com"})
+		if got := h.BrandURL(); got != "https://portal.example.com" {
+			t.Errorf("BrandURL() = %q, want %q", got, "https://portal.example.com")
+		}
+	})
+}
+
+// The portal block is documented as needing no MCP Apps configuration, so a
+// deployment that sets only portal.brand_* must still render a branded app:
+// the brand has to travel INTO the app config, not just out of it.
+func TestInjectPortalLogoWritesBrandIntoAppConfig(t *testing.T) {
+	t.Run("writes brand into an app config that names none", func(t *testing.T) {
+		h := New(Config{BrandName: "ACME", BrandURL: "https://acme.example.com"})
+		m := mustMap(t, h.InjectPortalLogo(map[string]any{}))
+		if m["brand_name"] != "ACME" {
+			t.Errorf("brand_name = %v, want %q", m["brand_name"], "ACME")
+		}
+		if m["brand_url"] != "https://acme.example.com" {
+			t.Errorf("brand_url = %v, want %q", m["brand_url"], "https://acme.example.com")
+		}
+	})
+
+	t.Run("writes brand into a nil app config", func(t *testing.T) {
+		h := New(Config{BrandName: "ACME"})
+		m := mustMap(t, h.InjectPortalLogo(nil))
+		if m["brand_name"] != "ACME" {
+			t.Errorf("brand_name = %v, want %q", m["brand_name"], "ACME")
+		}
+	})
+
+	// An app config that names its own brand is the operator being specific
+	// about that app; the portal-wide brand must not overwrite it.
+	t.Run("leaves an app config that names its own brand", func(t *testing.T) {
+		h := New(Config{BrandName: "ACME", BrandURL: "https://acme.example.com"})
+		m := mustMap(t, h.InjectPortalLogo(map[string]any{
+			"brand_name": "ACME Labs",
+			"brand_url":  "https://labs.acme.example.com",
+		}))
+		if m["brand_name"] != "ACME Labs" {
+			t.Errorf("brand_name = %v, want %q", m["brand_name"], "ACME Labs")
+		}
+		if m["brand_url"] != "https://labs.acme.example.com" {
+			t.Errorf("brand_url = %v, want %q", m["brand_url"], "https://labs.acme.example.com")
+		}
+	})
+
+	t.Run("writes nothing when no brand is configured", func(t *testing.T) {
+		h := New(Config{})
+		m := mustMap(t, h.InjectPortalLogo(map[string]any{}))
+		if _, ok := m["brand_name"]; ok {
+			t.Errorf("brand_name present (%v), want absent", m["brand_name"])
+		}
+		if _, ok := m["brand_url"]; ok {
+			t.Errorf("brand_url present (%v), want absent", m["brand_url"])
+		}
+	})
+
+	// Both built-in apps are injected from the same Handle, and the prompt
+	// browser may share platform-info's map: a second pass must be a no-op.
+	t.Run("is idempotent across repeated injection", func(t *testing.T) {
+		h := New(Config{BrandName: "ACME"})
+		m := mustMap(t, h.InjectPortalLogo(map[string]any{}))
+		m = mustMap(t, h.InjectPortalLogo(m))
+		if m["brand_name"] != "ACME" {
+			t.Errorf("brand_name = %v, want %q", m["brand_name"], "ACME")
+		}
+	})
 }
 
 func TestInjectPortalLogoCachesBrandURL(t *testing.T) {

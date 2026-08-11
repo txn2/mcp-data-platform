@@ -68,9 +68,16 @@ func portalDisabled(p *platform.Platform) bool {
 }
 
 // portalBrandName resolves the platform brand shown in the public viewer
-// header (far right): prefer the mcpapps platform-info config, then the portal
-// title, then the server name.
+// header (far right): prefer portal.brand_name, then the mcpapps platform-info
+// config, then the portal title, then the server name.
+//
+// Config loading already backfills portal.brand_name from the app config, so
+// the second step only matters for a Config assembled in code without the
+// loader's defaults.
 func portalBrandName(p *platform.Platform) string {
+	if name := p.Config().Portal.BrandName; name != "" {
+		return name
+	}
 	if name := mcpappsBrandName(p); name != "" {
 		return name
 	}

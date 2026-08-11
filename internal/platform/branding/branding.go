@@ -45,7 +45,20 @@ type Config struct {
 	// ImplementorLogo is the portal.implementor.logo URL, fetched lazily by
 	// ResolveImplementorLogo.
 	ImplementorLogo string
+	// BrandName is the resolved portal.brand_name. InjectPortalLogo writes it
+	// into an app config that names no brand of its own.
+	BrandName string
+	// BrandURL is the portal.brand_url the operator configured. It takes
+	// precedence over the brand_url in the mcpapps platform-info app config,
+	// which InjectPortalLogo caches only when this is empty.
+	BrandURL string
 }
+
+// Config keys the MCP Apps read their brand from.
+const (
+	keyBrandName = "brand_name"
+	keyBrandURL  = "brand_url"
+)
 
 // Handle owns the resolved brand assets: the portal / implementor logo URLs it
 // was configured with and the cached brand logo SVG, brand URL, and implementor
@@ -56,6 +69,7 @@ type Handle struct {
 	implementorLogo string
 
 	brandLogoSVG            string
+	brandName               string
 	brandURL                string
 	resolvedImplementorLogo string
 }
@@ -66,6 +80,8 @@ func New(cfg Config) *Handle {
 	return &Handle{
 		portalLogo:      cfg.PortalLogo,
 		implementorLogo: cfg.ImplementorLogo,
+		brandName:       cfg.BrandName,
+		brandURL:        cfg.BrandURL,
 	}
 }
 
@@ -84,10 +100,7 @@ func (h *Handle) InjectPortalLogo(cfg any) any {
 		return m
 	}
 
-	// Cache brand_url from the platform-info config.
-	if brandURL, _ := m["brand_url"].(string); brandURL != "" {
-		h.brandURL = brandURL
-	}
+	h.syncBrand(m)
 
 	if h.portalLogo == "" {
 		// Still cache logo_svg if present in the app config.
@@ -116,6 +129,29 @@ func (h *Handle) InjectPortalLogo(cfg any) any {
 	return m
 }
 
+// syncBrand reconciles the brand between the portal block and one app config,
+// in both directions. A configured portal.brand_* is written into an app config
+// that names no brand of its own, so the MCP Apps render the deployment's brand
+// without the operator repeating it under mcpapps. An app config that does name
+// a brand keeps it, and backfills the Handle when the portal block named none.
+func (h *Handle) syncBrand(m map[string]any) {
+	h.brandName = reconcile(m, keyBrandName, h.brandName)
+	h.brandURL = reconcile(m, keyBrandURL, h.brandURL)
+}
+
+// reconcile returns the value for key: the configured value when set (writing
+// it into m if m leaves the key empty), otherwise m's own value.
+func reconcile(m map[string]any, key, configured string) string {
+	existing, _ := m[key].(string)
+	if configured == "" {
+		return existing
+	}
+	if existing == "" {
+		m[key] = configured
+	}
+	return configured
+}
+
 // BrandLogoSVG returns the resolved brand logo SVG content (from the portal logo
 // or the mcpapps platform-info config), or "" if none is configured or on a nil
 // Handle.
@@ -126,8 +162,9 @@ func (h *Handle) BrandLogoSVG() string {
 	return h.brandLogoSVG
 }
 
-// BrandURL returns the resolved brand URL from the mcpapps platform-info config
-// (brand_url), or "" if not configured or on a nil Handle.
+// BrandURL returns the resolved brand URL — portal.brand_url when set,
+// otherwise brand_url from the mcpapps platform-info config — or "" if neither
+// is configured or on a nil Handle.
 func (h *Handle) BrandURL() string {
 	if h == nil {
 		return ""

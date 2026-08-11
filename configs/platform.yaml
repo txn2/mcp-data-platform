@@ -443,7 +443,10 @@ tuning:
 # Portal UI and branding
 # portal:
 #   enabled: true                                             # single flag to enable portal SPA + API
-#   title: "My Data Platform"                                 # sidebar/branding title (default: "MCP Data Platform")
+#   brand_name: "ACME"                                        # deployment brand; composes the title as "ACME Portal" (falls back to mcpapps platform-info brand_name)
+#   brand_url: "https://acme.example.com"                     # brand site the sidebar brand mark links to (falls back to mcpapps platform-info brand_url)
+#   version_url: "https://acme.example.com/changelog"         # optional link for the header version number; served unauthenticated, so use a publicly disclosable URL
+#   title: "My Data Platform"                                 # overrides the brand-composed title (default: "<brand_name> Portal", or "MCP Data Platform" with no brand)
 #   tagline: "Sign in to access the platform."                # login-screen subtitle (default: "Sign in to access the platform.")
 #   oidc_button_label: "Sign in with ACME Keycloak"           # login-screen SSO button text (default: "Sign in with OIDC")
 #   logo: https://example.com/logo.svg                        # logo URL, used if no light/dark specified
