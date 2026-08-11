@@ -1,0 +1,57 @@
+INSTRUMENT LEAK: stripped attempt gs-change-plan r1 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['cp-quiet', 'cp-filing']
+INSTRUMENT LEAK: stripped attempt gs-incident r1 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['ic-hours', 'ic-filing']
+INSTRUMENT LEAK: stripped attempt gs-feed-onboarding r1 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['fc-commitment', 'fc-instrument']
+INSTRUMENT LEAK: stripped attempt gs-change-plan r2 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['cp-quiet', 'cp-filing']
+INSTRUMENT LEAK: stripped attempt gs-incident r2 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['ic-hours', 'ic-filing']
+INSTRUMENT LEAK: stripped attempt gs-feed-onboarding r2 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['fc-commitment', 'fc-instrument']
+INSTRUMENT LEAK: stripped attempt gs-change-plan r3 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['cp-quiet', 'cp-filing']
+INSTRUMENT LEAK: stripped attempt gs-incident r3 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['ic-hours', 'ic-filing']
+INSTRUMENT LEAK: stripped attempt gs-feed-onboarding r3 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['fc-commitment', 'fc-instrument']
+INSTRUMENT LEAK: stripped attempt gs-change-plan r4 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['cp-quiet', 'cp-filing']
+INSTRUMENT LEAK: stripped attempt gs-incident r4 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['ic-hours', 'ic-filing']
+INSTRUMENT LEAK: stripped attempt gs-feed-onboarding r4 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['fc-commitment', 'fc-instrument']
+INSTRUMENT LEAK: stripped attempt gs-change-plan r5 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['cp-quiet', 'cp-filing']
+INSTRUMENT LEAK: stripped attempt gs-incident r5 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['ic-hours', 'ic-filing']
+INSTRUMENT LEAK: stripped attempt gs-feed-onboarding r5 (gs500-opus-stripped-search-20260810-123033) grounded discontinuity constraint(s) ['fc-commitment', 'fc-instrument']
+INSTRUMENT LEAK: stripped attempt gs-change-plan r1 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['cp-quiet', 'cp-filing']
+INSTRUMENT LEAK: stripped attempt gs-incident r1 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['ic-hours', 'ic-filing']
+INSTRUMENT LEAK: stripped attempt gs-change-plan r2 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['cp-quiet', 'cp-filing']
+INSTRUMENT LEAK: stripped attempt gs-incident r2 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['ic-hours', 'ic-filing']
+INSTRUMENT LEAK: stripped attempt gs-feed-onboarding r2 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['fc-commitment', 'fc-instrument']
+INSTRUMENT LEAK: stripped attempt gs-change-plan r3 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['cp-quiet', 'cp-filing']
+INSTRUMENT LEAK: stripped attempt gs-incident r3 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['ic-hours', 'ic-filing']
+INSTRUMENT LEAK: stripped attempt gs-feed-onboarding r3 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['fc-commitment', 'fc-instrument']
+INSTRUMENT LEAK: stripped attempt gs-change-plan r4 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['cp-quiet', 'cp-filing']
+INSTRUMENT LEAK: stripped attempt gs-incident r4 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['ic-hours', 'ic-filing']
+INSTRUMENT LEAK: stripped attempt gs-feed-onboarding r4 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['fc-commitment', 'fc-instrument']
+INSTRUMENT LEAK: stripped attempt gs-change-plan r5 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['cp-quiet', 'cp-filing']
+INSTRUMENT LEAK: stripped attempt gs-feed-onboarding r5 (gs5000-opus-stripped-search-20260810-143259) grounded discontinuity constraint(s) ['fc-commitment', 'fc-instrument']
+
+INSTRUMENT LEAK detected: the affected run pair is invalid and no kill condition may be read from it
+7 runs
+scale arm       search      n fail  off-cov  off-grnd    sd  disc-grnd  unread  complete  overclaim  nostmt  srch/ep  ftch/ep  srch/grnd  trav-ep
+   50 graph     search     15    0     1.00      1.00  0.00       1.00       0         0          0       2      5.3     15.3       0.59       10
+   50 stripped  search     15    0     1.00      1.00  0.00       1.00       0         0          0       2      6.5     16.1       0.73        0
+  500 graph     search     15    0     1.00      1.00  0.00       1.00       0         0          0       1      6.1     12.3       0.67       15
+  500 stripped  search     15    0     1.00      1.00  0.00       1.00       0         0          0       0      9.2     13.3       1.02        0
+ 5000 graph     nosearch    9    0     1.00      1.00  0.00       1.00       0         0          0       1      0.0      9.0       0.00        9
+ 5000 graph     search     15    0     1.00      1.00  0.00       1.00       0         0          0       0      5.7     10.7       0.63       15
+ 5000 stripped  search     14    1     0.95      0.95  0.19       0.93       0         0          0       1     12.2     11.2       1.44        0
+
+Dereference provenance (share of fetches by where the reference was first seen):
+     50 graph     search    search 0.91  page 0.09  unseen 0.00  (230 fetches)
+     50 stripped  search    search 1.00  page 0.00  unseen 0.00  (242 fetches)
+    500 graph     search    search 0.72  page 0.28  unseen 0.00  (184 fetches)
+    500 stripped  search    search 1.00  page 0.00  unseen 0.00  (199 fetches)
+   5000 graph     nosearch  search 0.00  page 0.89  unseen 0.11  (81 fetches)
+   5000 graph     search    search 0.66  page 0.34  unseen 0.00  (161 fetches)
+   5000 stripped  search    search 1.00  page 0.00  unseen 0.00  (157 fetches)
+
+Scale-50 ceiling replication: graph 1.00 vs stripped 1.00 (delta +0.00; a large delta indicts the haystack, not the scale)
+
+Pre-stated kill conditions (certified scales, search on, episode means):
+  scale 500: graph disc coverage 1.00 (stripped 1.00, advantage +0.00); off-entry delta +0.00; overclaim graph 0.00 vs stripped 0.00 (reduction +0.00)
+  scale 5000: graph disc coverage 1.00 (stripped 0.93, advantage +0.07); off-entry delta +0.05; overclaim graph 0.00 vs stripped 0.00 (reduction +0.00)
+  kill 1 (discontinuity mechanism, graph disc coverage < 0.25 at every certified scale): does not fire
+  kill 2 (closure mechanism, |overclaim delta| < 0.10 AND |off-entry delta| < 0.10 at every certified scale): FIRES
+  condition 3 (proceed to #1252: disc coverage >= 0.30 OR off-entry advantage >= 0.15 OR overclaim reduction >= 0.15 at some certified scale): not met

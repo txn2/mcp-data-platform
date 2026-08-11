@@ -1,0 +1,389 @@
+[
+  {
+    "role": "user",
+    "text": "The operating runbook for the parcel-events feed, the model for the new feed, is mcp:knowledge_page:kp_31600f93-cb47-4044-b209-2bba3a25a3c8.\n\nWe are standing up a new nightly feed, invoice-adjustments, to be operated exactly like the parcel-events feed. Write the complete onboarding document for it: how the feed and its output are named, where the output lands and how that area is organized, how its storage is registered and how long its output lives, when it is expected to land and what happens when it is repeatedly late, how it is re-run safely after a bad night, and what applies if any of its output is ever copied outside the platform. Completeness matters more than brevity; the document is the deliverable.\n\nEnd the document with a section titled \"Open items\": list each thing the document needs that you could not determine, or write \"None\" if nothing is outstanding."
+  },
+  {
+    "role": "assistant",
+    "text": "I'll start by getting the platform context and reading the model runbook."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0133VqXAWHmXWSrR21gdvEjt",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:mcp__bench__platform_info,mcp__bench__fetch,mcp__bench__list_connections"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0133VqXAWHmXWSrR21gdvEjt",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01FnkiAXG9oQi5tGN4eEX38e",
+        "name": "mcp__bench__platform_info",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01FnkiAXG9oQi5tGN4eEX38e",
+        "text": "{\"name\":\"mcp-data-platform-bench-gt\",\"version\":\"v1.120.0-2-g7e441e30-dirty\",\"session_id\":\"dps_76fb9abdc23ba55f54545c423ecdb91c\",\"session_expires_at\":\"2026-08-11T05:26:31Z\",\"agent_instructions\":\"SESSION HANDLE: This call issued you session_id \\\"dps_76fb9abdc23ba55f54545c423ecdb91c\\\". Pass it as the session_id argument on EVERY subsequent tool call. Tool calls without it are refused (SESSION_REQUIRED). Do not call platform_info again unless a call returns SESSION_EXPIRED.\\n\\nHow to operate this platform:\\n- Discover before you act. Call `search` first: one query reveals what is already known across every source you can reach (the data catalog, its context documents, your memory, captured insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and connections). The answer may span several sources, or may not be in the data warehouse at all, so do not assume a backend and do not stop at the first result.\\n- Reuse what is known. Treat `search` results as the starting point and read a result in full with `fetch` (pass the result's `reference`), or drill in with the scoped tool a result points to, rather than re-deriving an answer or re-asking the user for something already recorded.\\n\\nUploaded reference material:\\nResources are human-uploaded inputs an agent uses as-is: report templates, brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated outputs. Knowledge pages are curated facts to search and synthesize. Memory is per-user recall. If it existed before the conversation and the agent should use it verbatim, it is a resource.\\n- Before you format a deliverable, `search` for an applicable template or reference resource and follow it rather than inventing a layout.\\n- When the user names a company file (\\\"our template\\\", \\\"the checklist\\\", \\\"the brand header\\\"), resolve it with `search` and read it in full with `fetch` (pass the result's `reference`) instead of asking them to paste it.\\n- Material attached to a prompt is authoritative: use it as given rather than paraphrasing it or substituting your own.\",\"toolkits\":[\"platform\",\"mcp\",\"api\"],\"toolkit_descriptions\":{\"platform\":\"Core platform tools: deployment info, connection listing, and resource access.\"},\"persona\":{\"name\":\"admin\",\"display_name\":\"Bench Graph Traversal (GT)\"},\"prompts\":[{\"name\":\"knowledge_capture_guidance\",\"description\":\"Guidance on when and how to capture domain knowledge insights\",\"category\":\"toolkit\",\"content\":\"## Knowledge Capture Guidance\\n\\n### Default Behavior: Capture Proactively\\n\\nYou should capture knowledge automatically during normal conversation. Do not wait for the user to say \\\"capture this\\\" or \\\"remember that.\\\" When someone tells you a fact about their data, that is knowledge. Record it.\\n\\nUse memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.\\n\\nThe goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.\\n\\n### When to Capture an Insight\\n\\nUse memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:\\n\\n**Corrections**: The user corrects a column description, table purpose, or data interpretation.\\nExample: \\\"That column isn't actually revenue, it's gross margin before returns.\\\"\\n\\n**Business Context**: The user explains what data means in business terms not captured in metadata.\\nExample: \\\"We only count active subscriptions, not trial accounts, for MRR calculations.\\\"\\n\\n**Data Quality**: The user reports data quality issues or known limitations.\\nExample: \\\"The timestamps before March 2024 are in UTC but after that they switched to America/Chicago.\\\"\\n\\n**Usage Guidance**: The user shares tips on how to query or interpret data correctly.\\nExample: \\\"Always filter by status='active' on that table, otherwise you get duplicates from soft deletes.\\\"\\n\\n**Relationships**: The user explains connections between datasets not captured in lineage.\\nExample: \\\"The customer_id in orders joins to the legacy CRM export, not the new identity table.\\\"\\n\\n**Enhancements**: The user suggests improvements to existing documentation or metadata.\\nExample: \\\"It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT.\\\"\\n\\n### Agent-Discovered Insights\\n\\nYou can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:\\n\\n**source: \\\"agent_discovery\\\"** — Use when you figure something out yourself during exploration:\\n- Discovering what a column actually contains by sampling data (e.g., \\\"column 'amt' appears to be in cents, not dollars, based on value ranges\\\")\\n- Finding join relationships not documented in lineage (e.g., \\\"orders.cust_id matches customers.legacy_id, not customers.id\\\")\\n- Identifying data quality patterns through queries (e.g., \\\"ship_date is NULL for 23% of completed orders since 2024-06\\\")\\n- Determining refresh cadence by observing max timestamps across multiple queries\\n\\n**source: \\\"enrichment_gap\\\"** — Use when flagging metadata gaps that need admin attention:\\n- A table has no description and you cannot determine its purpose from the data alone\\n- Column descriptions are missing or clearly outdated\\n- Lineage is incomplete or contradicts what the data shows\\n- Tags or glossary terms are absent for datasets that clearly belong to a domain\\n\\n**source: \\\"user\\\"** (default) — Use for insights the user explicitly shares with you.\\n\\n### When to Ask the User Instead\\n\\nDo NOT guess when:\\n- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone\\n- Multiple interpretations of a column or table are equally plausible\\n- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)\\n\\nIn these cases, ask the user to clarify before capturing anything.\\n\\n### When NOT to Capture\\n\\nDo NOT capture insights for:\\n- Transient questions or debugging (\\\"why is my query slow?\\\")\\n- Personal preferences (\\\"I prefer using CTEs\\\")\\n- Information already present in the catalog metadata\\n- Vague or unverifiable claims without specific context\\n- Trivial observations that don't add catalog value\\n- Trivially obvious metadata gaps without adding what the data actually means\\n- Speculative interpretations you have not verified by querying the data\\n- The same gap repeatedly within a single session\\n\\n### Best Practices\\n\\n- Include specific entity URNs when the insight relates to known datasets\\n- Suggest concrete actions (add_tag, update_description) when applicable\\n- Set confidence to \\\"high\\\" only when the user is clearly authoritative\\n- For agent discoveries, set confidence based on evidence strength: \\\"high\\\" if verified by querying, \\\"medium\\\" if inferred from patterns, \\\"low\\\" if speculative\\n- Capture the insight promptly while context is fresh\\n- Use markdown formatting when it aids clarity: backticks for `column_name` and `table_name`, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.\"},{\"name\":\"knowledge_apply_guidance\",\"description\":\"How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"category\":\"toolkit\",\"content\":\"## Reviewing Insights into Durable Knowledge\\n\\nYou hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as \\\"review and apply knowledge.\\\") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.\\n\\n### The loop, and why knowledge matters\\n\\n- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.\\n- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.\\n- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.\\n\\nAlways discover before you apply: search existing memory, insights, and knowledge first.\\n\\n### The expert review workflow\\n\\n1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.\\n2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.\\n3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.\\n4. **Route to the right home.**\\n   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.\\n   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.\\n5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:\u003cid\u003e, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).\\n6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).\\n7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.\\n\\n### Structure knowledge as a navigable graph\\n\\nPrefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:\u003cid\u003e references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.\\n\\n### Routing examples\\n\\n- \\\"The amount column excludes returns\\\" applies to DataHub: update_description on that dataset column.\\n- \\\"We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning\\\" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.\\n- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.\\n- A broad \\\"retail operations\\\" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.\"},{\"name\":\"capture-this-as-knowledge\",\"description\":\"Record insights from this conversation for data catalog improvement\",\"category\":\"toolkit\",\"content\":\"Capture the key insights from this conversation as domain knowledge for the data catalog.\\n\\n1. Review our conversation for corrections, business context, data quality observations, or relationships discovered\\n2. Identify which datasets and columns the insights relate to\\n3. Record each insight with appropriate categorization and confidence level\\n4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)\"},{\"name\":\"save-this-as-an-asset\",\"description\":\"Save output from this conversation as a viewable, shareable asset\",\"category\":\"toolkit\",\"content\":\"Save the most recent output or analysis from this conversation as a shareable asset.\\n\\n1. Identify the key output from our conversation (dashboard, report, chart, or analysis)\\n2. Package it with an appropriate name, description, and tags\\n3. Save it as an asset so it can be viewed and shared\\n4. Return the link to the saved asset\"},{\"name\":\"show-my-saved-assets\",\"description\":\"Browse your saved assets\",\"category\":\"toolkit\",\"content\":\"List my saved assets.\\n\\n1. Retrieve all assets I have saved\\n2. Present them with names, descriptions, tags, and creation dates\\n3. Highlight the most recent items\"}],\"features\":{\"semantic_enrichment\":false,\"query_enrichment\":false,\"storage_enrichment\":false,\"audit_logging\":true,\"knowledge_capture\":false,\"managed_resources\":true},\"config_version\":{\"api_version\":\"v1\",\"supported_versions\":[\"v1\"],\"latest_version\":\"v1\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_012zGjbtUfVe1zdjph7TC3VU",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_31600f93-cb47-4044-b209-2bba3a25a3c8",
+          "session_id": "dps_76fb9abdc23ba55f54545c423ecdb91c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_012zGjbtUfVe1zdjph7TC3VU",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_31600f93-cb47-4044-b209-2bba3a25a3c8\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_31600f93-cb47-4044-b209-2bba3a25a3c8\",\"source\":\"knowledge_pages\",\"title\":\"Parcel Events Feed Runbook\",\"body\":\"# Parcel Events Feed Runbook\\n\\nThe parcel-events feed writes the day's parcel scan records nightly. It runs\\nonly after the parcel collectors drain: a missing hour in the output is a\\ncollector matter, not a feed matter, and re-running the feed cannot supply\\nrecords a collector never delivered.\\n\\n## How it is operated\\n\\nThe feed is the model other nightly feeds are stood up from, and everything\\nthat makes it operable lives in the standards it follows rather than in this\\npage: its name follows mcp:knowledge_page:kp_c10b0211-f624-4939-82b8-d4f587fccce7,\\nits output lands as mcp:knowledge_page:kp_9ff0b13b-97a0-4baf-b528-f530fad2fc2c\\nprescribes, its storage is registered in\\nmcp:knowledge_page:kp_274877d1-0abb-4465-94b6-c2c541abe791, its landing time is\\ndeclared in mcp:knowledge_page:kp_d541283e-e432-4807-8062-682f6e14b8d1,\\nand a bad night is repaired under\\nmcp:knowledge_page:kp_8d49a146-f84b-4657-a31f-e1b3e028b92c.\\n\\n## Leaving the platform\\n\\nFeed output copied anywhere outside the platform is not the operator's call:\\nevery such copy runs through mcp:knowledge_page:kp_b1904567-cdd3-45f9-a2dc-d365ffcedf22.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_c10b0211-f624-4939-82b8-d4f587fccce7\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_274877d1-0abb-4465-94b6-c2c541abe791\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_b1904567-cdd3-45f9-a2dc-d365ffcedf22\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_d541283e-e432-4807-8062-682f6e14b8d1\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_9ff0b13b-97a0-4baf-b528-f530fad2fc2c\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_8d49a146-f84b-4657-a31f-e1b3e028b92c\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "The runbook delegates to six standards pages. Fetching all of them."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01E9hGRN2yaZiJKeBe7XMADW",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_c10b0211-f624-4939-82b8-d4f587fccce7",
+          "session_id": "dps_76fb9abdc23ba55f54545c423ecdb91c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01E9hGRN2yaZiJKeBe7XMADW",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_c10b0211-f624-4939-82b8-d4f587fccce7\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_c10b0211-f624-4939-82b8-d4f587fccce7\",\"source\":\"knowledge_pages\",\"title\":\"Feed Naming Standard\",\"body\":\"# Feed Naming Standard\\n\\nA feed's name is its contract with everyone who schedules against it, so\\nnames follow pattern FN-13: the subject first, then the grain of the\\nrecords, joined with a dash — the parcel-events feed itself is the model.\\nThe output carries the feed's name; a consumer should never need a lookup\\ntable to connect the two.\\n\\n## Renames\\n\\nA rename runs through an alias period: the old name keeps working while\\nregistered consumers move over, and the alias is retired only when the\\ndelivery records show no reads against it. Renaming without the alias period\\nis treated as decommissioning one feed and launching another, with\\neverything that obliges.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01L3Mr698pFYTE5Fke1H1o5z",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_9ff0b13b-97a0-4baf-b528-f530fad2fc2c",
+          "session_id": "dps_76fb9abdc23ba55f54545c423ecdb91c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01L3Mr698pFYTE5Fke1H1o5z",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_9ff0b13b-97a0-4baf-b528-f530fad2fc2c\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_9ff0b13b-97a0-4baf-b528-f530fad2fc2c\",\"source\":\"knowledge_pages\",\"title\":\"Landing Zone Layout\",\"body\":\"# Landing Zone Layout\\n\\nThe landing area is organized by layout LZ-14: every feed owns exactly\\none prefix, named for the feed, and everything the feed writes lands under\\nthat prefix partitioned by write date. Nothing writes outside its own\\nprefix — a feed that needs a second area is two feeds — and nothing but the\\nfeed writes inside it, so ownership of any object in the zone is readable\\nfrom its path alone.\\n\\nConsumers read from the prefix; they do not write markers, checkpoints or\\nscratch output into it. Consumer state lives with the consumer.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01ESC9zhCtepjyPHtD3iTp8N",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_274877d1-0abb-4465-94b6-c2c541abe791",
+          "session_id": "dps_76fb9abdc23ba55f54545c423ecdb91c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01ESC9zhCtepjyPHtD3iTp8N",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_274877d1-0abb-4465-94b6-c2c541abe791\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_274877d1-0abb-4465-94b6-c2c541abe791\",\"source\":\"knowledge_pages\",\"title\":\"Storage Tier Register\",\"body\":\"# Storage Tier Register\\n\\nEvery feed registers its output in exactly one storage tier, and the tier\\ndecides the output's lifetime.\\n\\n## Tier ST-16\\n\\nNightly operational feeds register in tier ST-16. Output in the tier is\\npurged 47 days after its write date; keeping anything longer is a\\nre-registration into a retention tier, reviewed by the register's owners\\nrather than granted by the feed team. The parcel-events feed sits in this\\ntier, and a feed operated like it registers here too.\\n\\n## Capacity\\n\\nRegistration is also where capacity is accounted for. The platform's storage\\nis bought ahead under a standing vendor commitment, so a new registration\\ndraws against mcp:knowledge_page:kp_1eca0e33-4804-4923-8fb3-181a1643189b\\nmaintained by the procurement office — registering the feed is what makes\\nthe draw visible to them.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_1eca0e33-4804-4923-8fb3-181a1643189b\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0182iPNoebf3fcvmhJtDN63z",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_d541283e-e432-4807-8062-682f6e14b8d1",
+          "session_id": "dps_76fb9abdc23ba55f54545c423ecdb91c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0182iPNoebf3fcvmhJtDN63z",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_d541283e-e432-4807-8062-682f6e14b8d1\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_d541283e-e432-4807-8062-682f6e14b8d1\",\"source\":\"knowledge_pages\",\"title\":\"Delivery Expectation Standard\",\"body\":\"# Delivery Expectation Standard\\n\\nEvery nightly feed declares its expected landing hour in table LH-18,\\nand the declaration is what consumers schedule against — an undeclared feed\\nhas no lateness, only unpredictability.\\n\\nA feed landing after its declared hour is late, and lateness is tracked per\\nmorning against the declaration. One late morning is noted. Repeated late\\nmornings in the same week are raised with the owning team as a delivery\\nmatter: either the window moves and the declaration is corrected, or the\\ncause is fixed. Quietly re-declaring a later hour to absorb lateness is a\\nchange consumers must be told about like any other.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01NqgEToxnifefuqiepCcwMq",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_8d49a146-f84b-4657-a31f-e1b3e028b92c",
+          "session_id": "dps_76fb9abdc23ba55f54545c423ecdb91c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01NqgEToxnifefuqiepCcwMq",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_8d49a146-f84b-4657-a31f-e1b3e028b92c\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_8d49a146-f84b-4657-a31f-e1b3e028b92c\",\"source\":\"knowledge_pages\",\"title\":\"Feed Re-run Procedure\",\"body\":\"# Feed Re-run Procedure\\n\\nA re-run repairs a bad night by replacing it, never by appending to it.\\n\\nProcedure RP-22 governs the repair: the affected write-date partitions\\nare replaced whole, under the feed's own prefix, and the original write date\\nstays the partition's identity — a re-run performed days later still lands\\nunder the night it repairs, so consumers re-reading the partition see the\\ncorrected records where the bad ones were. A re-run that would change a\\npartition's write date is not a re-run; it is a new feed writing into an old\\nfeed's zone, and the layout forbids it.\\n\\nRe-runs happen after the upstream collectors have drained for the affected\\nwindow; re-running ahead of the upstream repair reproduces the bad night.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01SmtHB7A1xLMP3WGBNJTBxW",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_b1904567-cdd3-45f9-a2dc-d365ffcedf22",
+          "session_id": "dps_76fb9abdc23ba55f54545c423ecdb91c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01SmtHB7A1xLMP3WGBNJTBxW",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_b1904567-cdd3-45f9-a2dc-d365ffcedf22\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_b1904567-cdd3-45f9-a2dc-d365ffcedf22\",\"source\":\"knowledge_pages\",\"title\":\"Off-platform Copy Policy\",\"body\":\"# Off-platform Copy Policy\\n\\nNo feed output leaves the platform on an operator's judgment alone.\\n\\nEvery copy outside the platform carries an EG-24 approval naming the\\nreceiving party, the purpose, and the date the copy will be deleted — an\\napproval without all three is returned unactioned. The approval is filed\\nbefore the copy is made, and re-copies under an existing approval are\\nre-copies only while the purpose and recipient are unchanged.\\n\\n## The covering instrument\\n\\nAn approval also cites the agreement that makes the transfer lawful: the\\ncovering instrument is looked up in\\nmcp:knowledge_page:kp_73b7407c-d98f-4a36-9a3f-f35137957d35\\nmaintained by the legal office, and a transfer with no instrument to cite\\ndoes not proceed, whatever its purpose.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_73b7407c-d98f-4a36-9a3f-f35137957d35\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "Two more second-level references to follow (procurement commitment, legal instrument register)."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01E3THcZwTbjNpDaJZsnmp18",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_1eca0e33-4804-4923-8fb3-181a1643189b",
+          "session_id": "dps_76fb9abdc23ba55f54545c423ecdb91c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01E3THcZwTbjNpDaJZsnmp18",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_1eca0e33-4804-4923-8fb3-181a1643189b\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_1eca0e33-4804-4923-8fb3-181a1643189b\",\"source\":\"knowledge_pages\",\"title\":\"Procurement Commitment Ledger\",\"body\":\"# Procurement Commitment Ledger\\n\\nThe procurement office buys recurring capacity ahead under standing vendor\\ncommitments, and the ledger records each commitment line, what has been\\ndrawn against it, and when it renews.\\n\\n## Line PV-25\\n\\nLine PV-25 is the standing commitment for bulk storage. Draw-downs\\nagainst the line are recorded as internal registrations are made, and the\\noffice sizes the renewal from the recorded draws — an unrecorded draw is\\ncapacity the renewal will not cover. New draws are confirmed with the\\nvendor manager before they begin, and a draw that would take the line past\\nits committed volume waits for the renewal rather than assuming it.\\n\\nRenewals run on the office's own negotiation calendar; teams planning a\\nlarge draw talk to the office a cycle ahead.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01RhEGEAdAkmPgboznMiBdCt",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_73b7407c-d98f-4a36-9a3f-f35137957d35",
+          "session_id": "dps_76fb9abdc23ba55f54545c423ecdb91c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01RhEGEAdAkmPgboznMiBdCt",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_73b7407c-d98f-4a36-9a3f-f35137957d35\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_73b7407c-d98f-4a36-9a3f-f35137957d35\",\"source\":\"knowledge_pages\",\"title\":\"Data Sharing Agreement Register\",\"body\":\"# Data Sharing Agreement Register\\n\\nThe legal office keeps the register of instruments under which the firm\\nshares records with outside parties.\\n\\n## Instruments\\n\\nEach instrument is registered as an SA-27 entry: the counterparty, the\\ncategories of records covered, the permitted purposes, and the instrument's\\nexpiry. A transfer to an outside party cites the SA-27 entry that\\ncovers it, and the citation is checked against the entry's categories and\\npurposes, not against the transferring team's intent. An expired or absent\\ninstrument means the transfer waits for the legal office, however routine\\nthe request.\\n\\nThe register is the only authoritative list; copies of instruments held by\\nteams are working copies, and the register's expiry dates govern.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "Now let me search for anything already recorded about invoice-adjustments and for any onboarding template."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01AHS4AEf6WyojcLknbBhCJh",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 3,
+          "query": "select:search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01AHS4AEf6WyojcLknbBhCJh",
+        "text": "No matching deferred tools found",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01K5Sfn9WP6HJXTRyXHnCcsm",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 8,
+          "query": "search discover catalog knowledge"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01K5Sfn9WP6HJXTRyXHnCcsm",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0123bYGXRwQZWxRmjjfhzFSi",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 3,
+          "query": "select:ListMcpResourcesTool,ReadMcpResourceTool"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0123bYGXRwQZWxRmjjfhzFSi",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01NNaeRbE6TdDDxArY1as64S",
+        "name": "ListMcpResourcesTool",
+        "args": {
+          "server": "bench"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01NNaeRbE6TdDDxArY1as64S",
+        "text": "[{\"name\":\"platform-info\",\"uri\":\"ui://platform-info\",\"description\":\"Interactive UI for platform-info\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"},{\"name\":\"prompt-browser\",\"uri\":\"ui://prompt-browser\",\"description\":\"Interactive UI for prompt-browser\",\"mimeType\":\"text/html;profile=mcp-app\",\"server\":\"bench\"}]",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01J42swBaepiu8Z9cPXmRvV1",
+        "name": "mcp__bench__list_connections",
+        "args": {
+          "session_id": "dps_76fb9abdc23ba55f54545c423ecdb91c"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01J42swBaepiu8Z9cPXmRvV1",
+        "text": "{\"connections\":[],\"count\":0}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "I read the runbook and followed every standard it delegates to, plus the two second-level registers those cite. There is no `search` tool and no connections or uploaded templates in this session, so the eight knowledge pages below are the whole of the available material.\n\n---\n\n# Onboarding Document — `invoice-adjustments` Nightly Feed\n\n**Status:** onboarding draft\n**Model feed:** parcel-events (mcp:knowledge_page:kp_31600f93-cb47-4044-b209-2bba3a25a3c8)\n**Date prepared:** 2026-08-10\n\nThe `invoice-adjustments` feed is to be operated exactly like the parcel-events feed. The model runbook is deliberately thin: it holds almost no operating detail of its own and instead states that everything making the feed operable lives in the standards it follows. This document therefore does the same thing the model does — it binds `invoice-adjustments` to each of those standards and states what each one requires of this feed specifically.\n\nSources this document is grounded in:\n\n- Feed Naming Standard — mcp:knowledge_page:kp_c10b0211-f624-4939-82b8-d4f587fccce7\n- Landing Zone Layout — mcp:knowledge_page:kp_9ff0b13b-97a0-4baf-b528-f530fad2fc2c\n- Storage Tier Register — mcp:knowledge_page:kp_274877d1-0abb-4465-94b6-c2c541abe791\n- Delivery Expectation Standard — mcp:knowledge_page:kp_d541283e-e432-4807-8062-682f6e14b8d1\n- Feed Re-run Procedure — mcp:knowledge_page:kp_8d49a146-f84b-4657-a31f-e1b3e028b92c\n- Off-platform Copy Policy — mcp:knowledge_page:kp_b1904567-cdd3-45f9-a2dc-d365ffcedf22\n- Procurement Commitment Ledger — mcp:knowledge_page:kp_1eca0e33-4804-4923-8fb3-181a1643189b\n- Data Sharing Agreement Register — mcp:knowledge_page:kp_73b7407c-d98f-4a36-9a3f-f35137957d35\n\n---\n\n## 1. Naming: the feed and its output\n\nThe feed name is governed by pattern **FN-13**: subject first, then the grain of the records, joined with a dash. The parcel-events feed is the named model for the pattern — subject `parcel`, grain `events`.\n\n`invoice-adjustments` conforms as given: subject `invoice`, grain `adjustments`. No adjustment to the proposed name is needed to satisfy FN-13.\n\nThe standard treats the name as the feed's **contract with everyone who schedules against it**. Two consequences follow for this feed:\n\n- **The output carries the feed's name.** A consumer must never need a lookup table to get from the feed name to its output. Whatever the output is called, `invoice-adjustments` must be readable in it directly.\n- **Naming is not a private decision.** Because the name is the scheduling contract, it is fixed at onboarding and changed only through the rename path below.\n\n### 1.1 If the feed is ever renamed\n\nA rename runs through an **alias period**:\n\n1. The old name keeps working while registered consumers move over.\n2. The alias is retired only when the **delivery records show no reads against it** — not on a calendar date, and not on the feed team's assertion that consumers have moved.\n3. Renaming *without* the alias period is not a rename. It is treated as decommissioning one feed and launching another, carrying every obligation that implies.\n\nThis applies from the day the feed is live, including to any change of the name during onboarding once consumers have begun scheduling against it.\n\n---\n\n## 2. Where the output lands and how that area is organized\n\nThe landing area follows layout **LZ-14**.\n\n- **One prefix, named for the feed.** `invoice-adjustments` owns exactly one prefix in the landing zone, named for the feed.\n- **Everything it writes lands under that prefix, partitioned by write date.** There is no second location for any part of the feed's output.\n- **Nothing writes outside its own prefix.** If `invoice-adjustments` is ever found to need a second area, that is not a second area — by the layout, it is **two feeds**, each of which must be named, registered, declared and operated in its own right under this same document's standards.\n- **Nothing but the feed writes inside its prefix.** The point of the rule is that ownership of any object in the zone is readable from its path alone.\n\n### 2.1 Rules for consumers of `invoice-adjustments`\n\nConsumers **read from the prefix**. They do not write markers, checkpoints, or scratch output into it. Consumer state lives with the consumer. This should be stated to every consumer at the point they register against the feed, because a consumer writing a completion marker into the feed's prefix breaks the path-implies-ownership property for the whole zone.\n\nThe material specifies the *organizing rule* (one prefix per feed, named for the feed, partitioned by write date). It does not record the physical path syntax — bucket or root, prefix spelling, or the partition key's format. See Open items.\n\n---\n\n## 3. Storage registration and output lifetime\n\nEvery feed registers its output in **exactly one storage tier**, and the tier decides the output's lifetime.\n\n### 3.1 Tier\n\n`invoice-adjustments` is a nightly operational feed, so it registers in tier **ST-16**. The register states this directly for feeds operated like parcel-events: parcel-events sits in ST-16, and a feed operated like it registers there too.\n\n### 3.2 Lifetime of the output\n\nOutput in ST-16 is **purged 47 days after its write date**.\n\nThe 47 days run from the **write date of the partition**, which matters for repaired nights — see §5.3.\n\nKeeping anything longer than 47 days is **not** a setting the feed team can change. It is a **re-registration into a retention tier**, reviewed by the register's owners. If any `invoice-adjustments` consumer has a requirement to read output older than 47 days, that requirement must be taken to the register's owners as a re-registration request; it cannot be met by the feed team extending a lifetime.\n\n### 3.3 Capacity — the procurement draw\n\nRegistration is also where capacity is accounted for. Platform storage is bought ahead under standing vendor commitments, and a new registration **draws against line PV-25**, the standing commitment for bulk storage, recorded in the Procurement Commitment Ledger and maintained by the procurement office.\n\nWhat this obliges for onboarding `invoice-adjustments`:\n\n- **Registering the feed is what makes the draw visible to procurement.** The ledger records draw-downs as internal registrations are made, and the office sizes the renewal from the recorded draws. An unrecorded draw is capacity the renewal will not cover — so the feed must not begin writing on unregistered storage.\n- **New draws are confirmed with the vendor manager before they begin.** Confirmation precedes the first night of output, not follows it.\n- **A draw that would take PV-25 past its committed volume waits for the renewal.** It does not proceed on the assumption that headroom exists.\n- **A large draw needs a cycle of lead time.** Teams planning a large draw talk to the procurement office a cycle ahead. Renewals run on the office's own negotiation calendar, not on the feed's launch date, so a launch date cannot be assumed to bend the renewal.\n\nThe steady-state footprint of `invoice-adjustments` — 47 days of nightly output at ST-16 — is what should be presented to the vendor manager as the draw. The material does not record that volume, nor PV-25's current headroom or renewal date. See Open items.\n\n---\n\n## 4. When the feed is expected to land, and repeated lateness\n\n### 4.1 The declaration\n\nEvery nightly feed **declares its expected landing hour in table LH-18**, and that declaration is what consumers schedule against. The standard is explicit that an **undeclared feed has no lateness, only unpredictability** — so declaring the hour is a launch prerequisite for `invoice-adjustments`, not a follow-up task. Until the hour is in LH-18, no consumer can hold the feed to anything and no lateness can be tracked.\n\nThe specific hour to declare for `invoice-adjustments` is not determinable from the available material. See Open items.\n\n### 4.2 Lateness\n\nA feed landing after its declared hour is **late**. Lateness is tracked **per morning** against the declaration.\n\n- **One late morning is noted.**\n- **Repeated late mornings in the same week are raised with the owning team as a delivery matter.** The resolution is one of exactly two things: either the window genuinely moves and the **declaration is corrected**, or the **cause is fixed**. There is no third option in which repeated lateness is absorbed as normal.\n\n### 4.3 Re-declaring is a consumer-facing change\n\nQuietly re-declaring a later hour to absorb lateness is a change **consumers must be told about like any other**. If the `invoice-adjustments` window is corrected in LH-18, the correction is announced to registered consumers — the declaration is their scheduling input, so a silent edit moves their schedules without their knowledge.\n\n---\n\n## 5. Re-running after a bad night\n\nRepair is governed by procedure **RP-22**. The governing principle: **a re-run repairs a bad night by replacing it, never by appending to it.**\n\n### 5.1 What a re-run does\n\n- The affected **write-date partitions are replaced whole**.\n- The replacement is written **under the feed's own prefix** — the same single `invoice-adjustments` prefix from §2, never a side location.\n- The **original write date stays the partition's identity.** A re-run performed days later still lands under the night it repairs, so consumers re-reading the partition see the corrected records exactly where the bad ones were.\n\n### 5.2 What is not a re-run\n\nA re-run that would change a partition's write date is **not a re-run**. Procedure RP-22 classifies it as a new feed writing into an old feed's zone, and the Landing Zone Layout forbids it. So \"re-run last Tuesday's night under today's date\" is not an option for `invoice-adjustments` under any urgency.\n\n### 5.3 Interaction with retention\n\nBecause the repaired partition keeps its original write date, the ST-16 47-day purge clock for that partition continues to run from the **original** write date, not from the date of the repair. A night repaired late in its 47-day life does not gain a fresh lifetime.\n\n### 5.4 Sequencing against upstream\n\nRe-runs happen **after the upstream has drained for the affected window**. Re-running ahead of the upstream repair reproduces the bad night.\n\nThis is the point where the model feed's one piece of feed-specific content is relevant and does **not** transfer automatically. The parcel-events runbook states that the feed runs only after the **parcel collectors** drain, and that a missing hour in the output is a *collector* matter, not a feed matter — re-running the feed cannot supply records a collector never delivered.\n\nThe structural rule generalizes to `invoice-adjustments`: it runs after its own upstream has drained; a gap in output caused by upstream never delivering records is an upstream matter that a re-run cannot repair; and a re-run is scheduled only once that upstream has drained for the affected window. **What the upstream for `invoice-adjustments` actually is, is not recorded in the available material** — the collectors named in the model runbook are the parcel collectors specifically, and nothing states the analogous source for invoice adjustments. That identification is required before the first re-run can be sequenced correctly. See Open items.\n\n### 5.5 Practical order for a bad night\n\n1. Establish whether the defect is in the feed's output or in what the upstream delivered. If the upstream never delivered the records, stop — a re-run will not create them.\n2. Wait for the upstream to drain for the affected window.\n3. Replace the affected write-date partitions whole, under the `invoice-adjustments` prefix, preserving each partition's original write date.\n4. Tell consumers the partition has been replaced, so those that already read it re-read it.\n\n---\n\n## 6. If any output is ever copied outside the platform\n\n**No feed output leaves the platform on an operator's judgment alone.** This is not the operator's call for `invoice-adjustments` any more than it is for parcel-events.\n\n### 6.1 The EG-24 approval\n\nEvery copy outside the platform carries an **EG-24 approval** naming all three of:\n\n1. the **receiving party**,\n2. the **purpose**, and\n3. the **date the copy will be deleted**.\n\nAn approval missing any of the three is **returned unactioned**.\n\n- The approval is **filed before the copy is made**.\n- **Re-copies under an existing approval are re-copies only while the purpose and recipient are unchanged.** A new recipient or a new purpose is a new approval, not a repeat of an old one.\n\n### 6.2 The covering instrument\n\nAn EG-24 approval also **cites the agreement that makes the transfer lawful**. The covering instrument is looked up in the **Data Sharing Agreement Register**, maintained by the legal office. A transfer with **no instrument to cite does not proceed, whatever its purpose.**\n\nEach instrument is registered as an **SA-27 entry** recording the counterparty, the categories of records covered, the permitted purposes, and the instrument's expiry. Points that bear directly on any `invoice-adjustments` transfer:\n\n- The citation is **checked against the entry's categories and purposes — not against the transferring team's intent.** An SA-27 entry covering a counterparty in general does not automatically cover invoice-adjustment records; the entry's record categories must actually cover them, and the intended use must fall within its permitted purposes.\n- An **expired or absent instrument means the transfer waits for the legal office**, however routine the request.\n- The **register is the only authoritative list.** Copies of instruments held by teams are working copies, and the **register's expiry dates govern** — a team's copy showing an unexpired instrument is not a basis to proceed.\n\nWhether any SA-27 entry currently covers invoice-adjustment records for any counterparty is not determinable from the available material. See Open items.\n\n---\n\n## 7. Onboarding checklist\n\n| # | Step | Standard | Complete when |\n|---|---|---|---|\n| 1 | Confirm the name `invoice-adjustments` (subject-then-grain) and that the output carries the feed name | FN-13 | Name fixed; output naming carries it |\n| 2 | Create the single landing-zone prefix named for the feed, partitioned by write date | LZ-14 | Prefix exists; nothing else writes to it |\n| 3 | Brief consumers: read-only from the prefix, consumer state lives with the consumer | LZ-14 | Communicated at consumer registration |\n| 4 | Size the steady-state footprint (47 days of nightly output) | ST-16 | Volume estimate produced |\n| 5 | Confirm the new draw with the vendor manager **before** it begins; talk to procurement a cycle ahead if the draw is large | PV-25 | Vendor manager confirmation on record |\n| 6 | Register the output in tier ST-16 so the draw is recorded | ST-16 / PV-25 | Registration made; draw visible in the ledger |\n| 7 | Declare the expected landing hour in table LH-18 | LH-18 | Declaration published to consumers |\n| 8 | Identify the upstream that must drain before each run and each re-run | RP-22 | Upstream named in this document |\n| 9 | Establish per-morning lateness tracking against the declaration | LH-18 | Tracking live from first night |\n| 10 | Establish the re-run path: whole-partition replacement, original write date preserved | RP-22 | Procedure documented and exercised |\n| 11 | Record that no output leaves the platform without a filed EG-24 approval and a cited SA-27 entry | EG-24 / SA-27 | Stated to the feed team and to consumers |\n\n---\n\n## Open items\n\nEach of the following is required by a standard this feed must follow, but is not determinable from the material available in the platform. None should be filled in by assumption.\n\n1. **The expected landing hour to declare in LH-18.** The standard requires a declared hour and states that an undeclared feed has no lateness at all, but no hour for `invoice-adjustments` is recorded anywhere in the available material, and the model runbook does not record parcel-events' hour either. The hour must be set by the owning team and entered in LH-18 before launch.\n2. **The upstream that `invoice-adjustments` runs behind.** The model runbook names the *parcel collectors* for parcel-events specifically. Nothing in the available material identifies the equivalent upstream for invoice adjustments, so §5.4's \"wait for the upstream to drain\" cannot yet be made concrete, and the boundary between \"feed matter\" and \"upstream matter\" for a missing window cannot yet be drawn.\n3. **The owning team, and who holds the LH-18 declaration.** The Delivery Expectation Standard raises repeated lateness \"with the owning team,\" but the owning team for `invoice-adjustments` is not recorded.\n4. **The physical path form of the landing prefix.** LZ-14 fixes the organizing rule (one prefix, named for the feed, partitioned by write date) but not the bucket/root, the prefix spelling, or the write-date partition key format. These must be taken from the existing parcel-events prefix or from whoever administers the landing zone.\n5. **The output's concrete naming.** FN-13 requires the output to carry the feed's name without a lookup table, but the material does not record the form the output takes (table, object naming convention, or both), so \"carries the name\" cannot be made specific here.\n6. **The volume estimate for the PV-25 draw, and PV-25's current headroom and renewal date.** The ledger requires vendor-manager confirmation before a draw begins, requires a draw exceeding the committed volume to wait for renewal, and requires a cycle of lead time for a large draw. None of the volume, headroom, or renewal-calendar figures are in the available material, so it cannot be determined here whether this draw is large or whether it fits within PV-25 as committed.\n7. **The vendor manager and the register's owners, by name or role.** Both are required counterparties (vendor manager for the draw; the register's owners for any retention re-registration) and neither is identified.\n8. **Whether any SA-27 entry covers invoice-adjustment records.** No off-platform copy can proceed without citing a covering instrument whose categories and permitted purposes actually cover these records. The register is the only authoritative list and must be consulted by the legal office at the time of any request; nothing in the available material indicates an existing instrument.\n9. **Whether `invoice-adjustments` output contains record categories with handling constraints beyond ST-16 and EG-24.** The available material describes only tier lifetime and off-platform approval. If invoice adjustment records carry classification or regulatory handling requirements, those are not documented in anything reachable here.\n10. **The registered consumer list for `invoice-adjustments`.** Several rules depend on it — retiring a rename alias when delivery records show no reads, announcing a corrected landing hour, and notifying consumers that a partition has been replaced after a re-run. No consumer registry for this feed exists in the available material."
+  }
+]

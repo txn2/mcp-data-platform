@@ -155,11 +155,28 @@ func EffectiveTopK(n int) int {
 	return min(max(n/50, CertEntryTopK), CertTopK)
 }
 
+// WithinCeiling reports whether a corpus of n pages sits within the
+// enumeration ceiling: the exclusion horizon covers at least half the store,
+// so one practical result list reaches most of it and discontinuity cannot
+// exist by construction (#1250). At that scale certification is unsatisfiable,
+// the sweep gate records discontinuity hits on purpose, and episodes run the
+// cells with the discontinuity constraints graded as ordinary spread
+// constraints — which, at that scale, is what they are.
+func WithinCeiling(n int) bool {
+	return withinHorizon(EffectiveTopK(n), n)
+}
+
+// withinHorizon is the shared rule: a horizon of topK covers at least half a
+// corpus of n pages.
+func withinHorizon(topK, n int) bool {
+	return 2*topK >= n
+}
+
 // CertifyDiscontinuity runs the authoring-time gate over a generated corpus.
 func CertifyDiscontinuity(ctx context.Context, emb Embedder, res *Result, topK, entryTopK int) (*CertReport, error) {
 	report := &CertReport{
 		RanAt: time.Now().UTC(), Spec: res.Spec, TopK: topK, EntryTopK: entryTopK, Pass: true,
-		HorizonExceedsCorpus: 2*topK >= len(res.Corpus.Pages),
+		HorizonExceedsCorpus: withinHorizon(topK, len(res.Corpus.Pages)),
 	}
 	if o, ok := emb.(*OllamaEmbedder); ok {
 		report.Model = o.Model

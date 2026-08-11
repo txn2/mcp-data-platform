@@ -1,10 +1,12 @@
-// Command graphstudy drives the graph-completion study's stage-3 corpus
-// work (#1250) against a running gt stack: it generates the deterministic
-// study corpus at a chosen scale, runs the authoring-time embedding
-// certification offline through a local ollama, plants the corpus through
-// the platform's knowledge-page API in either arm, and runs the live sweep
-// gate with the discontinuity requirement on. The confirmatory episode
-// matrix is #1251; this command ends at demonstrated separation.
+// Command graphstudy drives the graph-completion study's corpus work and
+// confirmatory matrix (#1250, #1251) against a running gt stack: it
+// generates the deterministic study corpus at a chosen scale, runs the
+// authoring-time embedding certification offline through a local ollama,
+// plants the corpus through the platform's knowledge-page API in either
+// arm, runs the live sweep gate with the discontinuity requirement on,
+// executes the pre-registered completion cells through `claude -p` with the
+// completeness elicitation always on, and rereads an archived run offline
+// by regenerating its corpus from the manifest's generator spec.
 package main
 
 import (
@@ -13,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"time"
@@ -41,17 +44,23 @@ type config struct {
 	certPath     string
 	ollamaURL    string
 	embedModel   string
+	out          string
+	model        string
+	gitCommit    string
+	disallow     string
 	scale        int
 	seed         uint64
 	density      int
+	k            int
 	strip        bool
+	noSearch     bool
 	identityKeys int
 }
 
 // parseFlags reads the command line.
 func parseFlags() config {
 	var cfg config
-	flag.StringVar(&cfg.mode, "mode", "table", "table (print corpus shapes), certify, plant, gate, or reset")
+	flag.StringVar(&cfg.mode, "mode", "table", "table (print corpus shapes), certify, plant, gate, run, reread, or reset")
 	flag.StringVar(&cfg.url, "url", "http://localhost:8098", "platform MCP + admin REST base URL")
 	flag.StringVar(&cfg.credential, "credential", "", "admin API key (Bearer)")
 	flag.StringVar(&cfg.plantPath, "plant", "", "plant record path (default build/bench-results/graph-study-plant-<scale>.json)")
@@ -59,10 +68,16 @@ func parseFlags() config {
 	flag.StringVar(&cfg.certPath, "cert", "", "embedding certification report path (default build/bench-results/graph-study-cert-<scale>.json)")
 	flag.StringVar(&cfg.ollamaURL, "ollama", "http://localhost:11434", "ollama base URL for -mode certify")
 	flag.StringVar(&cfg.embedModel, "embed-model", "nomic-embed-text", "ollama embedding model, matching the platform's provider")
+	flag.StringVar(&cfg.out, "out", "", "run output directory (required for -mode run and reread)")
+	flag.StringVar(&cfg.model, "model", "opus", "claude-cli model alias (the design freezes the probe's stronger tier)")
+	flag.StringVar(&cfg.gitCommit, "git-commit", "", "git commit recorded in the manifest")
+	flag.StringVar(&cfg.disallow, "disallow-tools", "", "comma-separated client tools to forbid in addition to the built-in disallow list")
 	flag.IntVar(&cfg.scale, "scale", graphgen.Scales[0], "corpus scale (total pages)")
 	flag.Uint64Var(&cfg.seed, "seed", graphgen.DefaultSeed, "generation seed")
 	flag.IntVar(&cfg.density, "density", 0, "filler mean out-degree (0 = default)")
+	flag.IntVar(&cfg.k, "k", 5, "replicates per cell (the matrix's pre-registered primary k)")
 	flag.BoolVar(&cfg.strip, "strip", false, "plant the stripped arm: prose fallbacks instead of reference tokens")
+	flag.BoolVar(&cfg.noSearch, "no-search", false, "run the no-search condition: the search tool is disallowed and each prompt opens with the cell's entry reference")
 	flag.IntVar(&cfg.identityKeys, "identity-keys", 64, "configured identity pool size")
 	flag.Parse()
 	return cfg
@@ -83,6 +98,10 @@ func run(cfg config) error {
 		return plant(ctx, cfg)
 	case "gate":
 		return gate(ctx, cfg)
+	case "run":
+		return episodes(ctx, cfg)
+	case "reread":
+		return reread(cfg)
 	case "reset":
 		return reset(ctx, cfg)
 	default:
@@ -304,6 +323,205 @@ func arm(stripped bool) string {
 	return "graph"
 }
 
+// episodes runs the confirmatory cells against the planted study corpus
+// under one (arm, search) condition, with the completeness elicitation
+// always on — the matrix as #1251 pre-registers it. The corpus, its arm and
+// its scale all come from the plant record; the manifest carries the
+// generator spec so the archive rereads offline.
+func episodes(ctx context.Context, cfg config) error {
+	switch {
+	case cfg.credential == "":
+		return errors.New("-credential is required to run")
+	case cfg.out == "":
+		return errors.New("-out is required to run")
+	}
+	record, res, err := readPlantRecord(cfg)
+	if err != nil {
+		return err
+	}
+	var report graphprobe.GateReport
+	if err := readJSON(cfg.path(cfg.gatePath, "gate"), &report); err != nil {
+		return fmt.Errorf("reading the sweep-gate report: %w", err)
+	}
+	runner, version, err := graphprobe.BuildRunner(ctx, cfg.model, cfg.disallow, cfg.noSearch)
+	if err != nil {
+		return err
+	}
+	results, runErr := graphprobe.Run(ctx, graphprobe.Options{
+		Target:             target.Target{BaseURL: cfg.url, Credential: cfg.credential},
+		IdentityKeys:       cfg.identityKeys,
+		Runner:             runner,
+		Planted:            record.Planted,
+		Gate:               report,
+		Corpus:             res.Corpus,
+		Cells:              res.Corpus.Cells,
+		SearchEnabled:      !cfg.noSearch,
+		ElicitCompleteness: true,
+		Spec:               &record.Spec,
+		WithinCeiling:      graphgen.WithinCeiling(len(res.Corpus.Pages)),
+		K:                  cfg.k,
+		OutDir:             cfg.out,
+		GitCommit:          cfg.gitCommit,
+		ClientVersion:      version,
+		DisallowedTools:    runner.DisallowedTools(),
+		Log:                slog.Default(),
+	})
+	if results != nil {
+		summarize(results, cfg.out)
+	}
+	if runErr == nil {
+		runErr = resultError(results)
+	}
+	return runErr
+}
+
+// resultError converts a run in which no attempt produced a result into a
+// command failure: the archive holds only harness errors, so a driver that
+// treated it as success would reset the corpus and report a matrix cell
+// that does not exist.
+func resultError(res *graphprobe.CompletionResults) error {
+	if res == nil || len(res.Attempts) == 0 {
+		return errors.New("the run produced no attempts")
+	}
+	for _, a := range res.Attempts {
+		if a.Error == "" {
+			return nil
+		}
+	}
+	return fmt.Errorf("every one of the %d attempts failed (first: %s); the archive holds no result", len(res.Attempts), res.Attempts[0].Error)
+}
+
+// reread recomputes an archived study run's readings offline, regenerating
+// the exact corpus from the generator spec its manifest carries.
+func reread(cfg config) error {
+	if cfg.out == "" {
+		return errors.New("-out is required to reread (the archive directory)")
+	}
+	probe, err := graphprobe.ArchiveProbe(cfg.out)
+	if err != nil {
+		return err
+	}
+	if probe == "" {
+		return errors.New("this archive predates the completion instrument; reread it with the graphprobe command")
+	}
+	res, err := graphprobe.RereadCompletion(cfg.out)
+	if err != nil {
+		return err
+	}
+	summarize(res, cfg.out)
+	return nil
+}
+
+// studyTally accumulates one cell's episode outcomes across replicates.
+type studyTally struct {
+	n, failed               int
+	offCovered, offGrounded int
+	offTotal, unread        int
+	discGrounded, discTotal int
+	complete, overclaim     int
+	noStatement             int
+	searches, fetches       int
+}
+
+// add folds one attempt into its cell's tally.
+func (t *studyTally) add(a graphprobe.CompletionAttempt, cell graphfix.CompletionCell) {
+	if a.Error != "" {
+		t.failed++
+		return
+	}
+	t.n++
+	t.offCovered += a.Coverage.OffEntryCovered
+	t.offGrounded += a.Coverage.OffEntryGrounded
+	t.offTotal += a.Coverage.OffEntryTotal
+	t.unread += a.Coverage.UnreadCovered
+	t.searches += len(a.Reading.Searches)
+	t.fetches += len(a.Reading.Fetches)
+	t.addDiscontinuity(a, cell)
+	t.addClaim(a)
+}
+
+// addDiscontinuity folds the attempt's discontinuity constraint results in.
+func (t *studyTally) addDiscontinuity(a graphprobe.CompletionAttempt, cell graphfix.CompletionCell) {
+	for _, cr := range a.Coverage.Constraints {
+		k, ok := cell.ConstraintByID(cr.ID)
+		if !ok || !k.Discontinuity {
+			continue
+		}
+		t.discTotal++
+		if cr.Grounded {
+			t.discGrounded++
+		}
+	}
+}
+
+// addClaim folds the attempt's graded completeness claim in.
+func (t *studyTally) addClaim(a graphprobe.CompletionAttempt) {
+	if a.Claim == nil {
+		return
+	}
+	switch {
+	case !a.Claim.Stated:
+		t.noStatement++
+	case a.Claim.Complete:
+		t.complete++
+	}
+	if a.Overclaim {
+		t.overclaim++
+	}
+}
+
+// ratio renders covered/total as a fraction, "-" for an empty denominator.
+func ratio(covered, total int) string {
+	if total == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.2f", float64(covered)/float64(total))
+}
+
+// summarize prints the per-cell rates the kill conditions are read from.
+func summarize(res *graphprobe.CompletionResults, out string) {
+	byCell := map[string]*studyTally{}
+	for i := range res.Attempts {
+		a := res.Attempts[i]
+		cell, ok := cellByID(res.Cells, a.CellID)
+		if !ok {
+			continue
+		}
+		t := byCell[a.CellID]
+		if t == nil {
+			t = &studyTally{}
+			byCell[a.CellID] = t
+		}
+		t.add(a, cell)
+	}
+	fmt.Printf("\narm=%s search=%t within-ceiling=%t model=%s pages=%d\n",
+		res.Manifest.Arm, res.Manifest.SearchEnabled, res.Manifest.WithinCeiling,
+		res.Manifest.Model, res.Manifest.CorpusPages)
+	fmt.Printf("%-20s %3s %8s %9s %10s %7s %9s %10s %7s %9s %8s %7s\n",
+		"cell", "n", "off-cov", "off-grnd", "disc-grnd", "unread", "complete", "overclaim", "nostmt", "searches", "fetches", "failed")
+	for _, c := range res.Cells {
+		t, ok := byCell[c.ID]
+		if !ok {
+			continue
+		}
+		fmt.Printf("%-20s %3d %8s %9s %10s %7d %9d %10d %7d %9d %8d %7d\n",
+			c.ID, t.n, ratio(t.offCovered, t.offTotal), ratio(t.offGrounded, t.offTotal),
+			ratio(t.discGrounded, t.discTotal), t.unread, t.complete, t.overclaim,
+			t.noStatement, t.searches, t.fetches, t.failed)
+	}
+	fmt.Printf("\narchive: %s\n", out)
+}
+
+// cellByID finds one archived cell.
+func cellByID(cells []graphfix.CompletionCell, id string) (graphfix.CompletionCell, bool) {
+	for _, c := range cells {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return graphfix.CompletionCell{}, false
+}
+
 // reset deletes a previously planted study corpus.
 func reset(ctx context.Context, cfg config) error {
 	if cfg.credential == "" {
@@ -340,6 +558,18 @@ func readPlantRecord(cfg config) (plantRecord, *graphgen.Result, error) {
 			len(record.Planted.Pages), record.Spec, len(res.Corpus.Pages))
 	}
 	return record, res, nil
+}
+
+// readJSON reads one artifact.
+func readJSON(path string, v any) error {
+	b, err := os.ReadFile(path) // #nosec G304 -- operator-supplied artifact path
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	if err := json.Unmarshal(b, v); err != nil {
+		return fmt.Errorf("decoding %s: %w", path, err)
+	}
+	return nil
 }
 
 // writeJSON writes one artifact, creating parents.

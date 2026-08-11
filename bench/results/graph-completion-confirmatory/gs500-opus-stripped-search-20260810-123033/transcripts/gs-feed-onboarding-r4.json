@@ -1,0 +1,560 @@
+[
+  {
+    "role": "user",
+    "text": "We are standing up a new nightly feed, invoice-adjustments, to be operated exactly like the parcel-events feed. Write the complete onboarding document for it: how the feed and its output are named, where the output lands and how that area is organized, how its storage is registered and how long its output lives, when it is expected to land and what happens when it is repeatedly late, how it is re-run safely after a bad night, and what applies if any of its output is ever copied outside the platform. Completeness matters more than brevity; the document is the deliverable.\n\nEnd the document with a section titled \"Open items\": list each thing the document needs that you could not determine, or write \"None\" if nothing is outstanding."
+  },
+  {
+    "role": "assistant",
+    "text": "I'll start by getting the platform documentation and session ID."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01KBXALzHoF9FcMjSm5jkfLX",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:mcp__bench__platform_info,mcp__bench__search,mcp__bench__fetch,mcp__bench__list_connections"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01KBXALzHoF9FcMjSm5jkfLX",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Kz1CsYFXiNyFK36nhqt2Kv",
+        "name": "mcp__bench__platform_info",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Kz1CsYFXiNyFK36nhqt2Kv",
+        "text": "{\"name\":\"mcp-data-platform-bench-gt\",\"version\":\"v1.120.0-2-g7e441e30-dirty\",\"session_id\":\"dps_6ad58a8f6fcf75e77d713a9391093201\",\"session_expires_at\":\"2026-08-11T04:05:30Z\",\"agent_instructions\":\"SESSION HANDLE: This call issued you session_id \\\"dps_6ad58a8f6fcf75e77d713a9391093201\\\". Pass it as the session_id argument on EVERY subsequent tool call. Tool calls without it are refused (SESSION_REQUIRED). Do not call platform_info again unless a call returns SESSION_EXPIRED.\\n\\nHow to operate this platform:\\n- Discover before you act. Call `search` first: one query reveals what is already known across every source you can reach (the data catalog, its context documents, your memory, captured insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and connections). The answer may span several sources, or may not be in the data warehouse at all, so do not assume a backend and do not stop at the first result.\\n- Reuse what is known. Treat `search` results as the starting point and read a result in full with `fetch` (pass the result's `reference`), or drill in with the scoped tool a result points to, rather than re-deriving an answer or re-asking the user for something already recorded.\\n\\nUploaded reference material:\\nResources are human-uploaded inputs an agent uses as-is: report templates, brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated outputs. Knowledge pages are curated facts to search and synthesize. Memory is per-user recall. If it existed before the conversation and the agent should use it verbatim, it is a resource.\\n- Before you format a deliverable, `search` for an applicable template or reference resource and follow it rather than inventing a layout.\\n- When the user names a company file (\\\"our template\\\", \\\"the checklist\\\", \\\"the brand header\\\"), resolve it with `search` and read it in full with `fetch` (pass the result's `reference`) instead of asking them to paste it.\\n- Material attached to a prompt is authoritative: use it as given rather than paraphrasing it or substituting your own.\",\"toolkits\":[\"platform\",\"api\",\"mcp\"],\"toolkit_descriptions\":{\"platform\":\"Core platform tools: deployment info, connection listing, and resource access.\"},\"persona\":{\"name\":\"admin\",\"display_name\":\"Bench Graph Traversal (GT)\"},\"prompts\":[{\"name\":\"knowledge_capture_guidance\",\"description\":\"Guidance on when and how to capture domain knowledge insights\",\"category\":\"toolkit\",\"content\":\"## Knowledge Capture Guidance\\n\\n### Default Behavior: Capture Proactively\\n\\nYou should capture knowledge automatically during normal conversation. Do not wait for the user to say \\\"capture this\\\" or \\\"remember that.\\\" When someone tells you a fact about their data, that is knowledge. Record it.\\n\\nUse memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.\\n\\nThe goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.\\n\\n### When to Capture an Insight\\n\\nUse memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:\\n\\n**Corrections**: The user corrects a column description, table purpose, or data interpretation.\\nExample: \\\"That column isn't actually revenue, it's gross margin before returns.\\\"\\n\\n**Business Context**: The user explains what data means in business terms not captured in metadata.\\nExample: \\\"We only count active subscriptions, not trial accounts, for MRR calculations.\\\"\\n\\n**Data Quality**: The user reports data quality issues or known limitations.\\nExample: \\\"The timestamps before March 2024 are in UTC but after that they switched to America/Chicago.\\\"\\n\\n**Usage Guidance**: The user shares tips on how to query or interpret data correctly.\\nExample: \\\"Always filter by status='active' on that table, otherwise you get duplicates from soft deletes.\\\"\\n\\n**Relationships**: The user explains connections between datasets not captured in lineage.\\nExample: \\\"The customer_id in orders joins to the legacy CRM export, not the new identity table.\\\"\\n\\n**Enhancements**: The user suggests improvements to existing documentation or metadata.\\nExample: \\\"It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT.\\\"\\n\\n### Agent-Discovered Insights\\n\\nYou can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:\\n\\n**source: \\\"agent_discovery\\\"** — Use when you figure something out yourself during exploration:\\n- Discovering what a column actually contains by sampling data (e.g., \\\"column 'amt' appears to be in cents, not dollars, based on value ranges\\\")\\n- Finding join relationships not documented in lineage (e.g., \\\"orders.cust_id matches customers.legacy_id, not customers.id\\\")\\n- Identifying data quality patterns through queries (e.g., \\\"ship_date is NULL for 23% of completed orders since 2024-06\\\")\\n- Determining refresh cadence by observing max timestamps across multiple queries\\n\\n**source: \\\"enrichment_gap\\\"** — Use when flagging metadata gaps that need admin attention:\\n- A table has no description and you cannot determine its purpose from the data alone\\n- Column descriptions are missing or clearly outdated\\n- Lineage is incomplete or contradicts what the data shows\\n- Tags or glossary terms are absent for datasets that clearly belong to a domain\\n\\n**source: \\\"user\\\"** (default) — Use for insights the user explicitly shares with you.\\n\\n### When to Ask the User Instead\\n\\nDo NOT guess when:\\n- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone\\n- Multiple interpretations of a column or table are equally plausible\\n- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)\\n\\nIn these cases, ask the user to clarify before capturing anything.\\n\\n### When NOT to Capture\\n\\nDo NOT capture insights for:\\n- Transient questions or debugging (\\\"why is my query slow?\\\")\\n- Personal preferences (\\\"I prefer using CTEs\\\")\\n- Information already present in the catalog metadata\\n- Vague or unverifiable claims without specific context\\n- Trivial observations that don't add catalog value\\n- Trivially obvious metadata gaps without adding what the data actually means\\n- Speculative interpretations you have not verified by querying the data\\n- The same gap repeatedly within a single session\\n\\n### Best Practices\\n\\n- Include specific entity URNs when the insight relates to known datasets\\n- Suggest concrete actions (add_tag, update_description) when applicable\\n- Set confidence to \\\"high\\\" only when the user is clearly authoritative\\n- For agent discoveries, set confidence based on evidence strength: \\\"high\\\" if verified by querying, \\\"medium\\\" if inferred from patterns, \\\"low\\\" if speculative\\n- Capture the insight promptly while context is fresh\\n- Use markdown formatting when it aids clarity: backticks for `column_name` and `table_name`, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.\"},{\"name\":\"knowledge_apply_guidance\",\"description\":\"How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"category\":\"toolkit\",\"content\":\"## Reviewing Insights into Durable Knowledge\\n\\nYou hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as \\\"review and apply knowledge.\\\") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.\\n\\n### The loop, and why knowledge matters\\n\\n- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.\\n- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.\\n- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.\\n\\nAlways discover before you apply: search existing memory, insights, and knowledge first.\\n\\n### The expert review workflow\\n\\n1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.\\n2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.\\n3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.\\n4. **Route to the right home.**\\n   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.\\n   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.\\n5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:\u003cid\u003e, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).\\n6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).\\n7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.\\n\\n### Structure knowledge as a navigable graph\\n\\nPrefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:\u003cid\u003e references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.\\n\\n### Routing examples\\n\\n- \\\"The amount column excludes returns\\\" applies to DataHub: update_description on that dataset column.\\n- \\\"We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning\\\" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.\\n- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.\\n- A broad \\\"retail operations\\\" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.\"},{\"name\":\"capture-this-as-knowledge\",\"description\":\"Record insights from this conversation for data catalog improvement\",\"category\":\"toolkit\",\"content\":\"Capture the key insights from this conversation as domain knowledge for the data catalog.\\n\\n1. Review our conversation for corrections, business context, data quality observations, or relationships discovered\\n2. Identify which datasets and columns the insights relate to\\n3. Record each insight with appropriate categorization and confidence level\\n4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)\"},{\"name\":\"save-this-as-an-asset\",\"description\":\"Save output from this conversation as a viewable, shareable asset\",\"category\":\"toolkit\",\"content\":\"Save the most recent output or analysis from this conversation as a shareable asset.\\n\\n1. Identify the key output from our conversation (dashboard, report, chart, or analysis)\\n2. Package it with an appropriate name, description, and tags\\n3. Save it as an asset so it can be viewed and shared\\n4. Return the link to the saved asset\"},{\"name\":\"show-my-saved-assets\",\"description\":\"Browse your saved assets\",\"category\":\"toolkit\",\"content\":\"List my saved assets.\\n\\n1. Retrieve all assets I have saved\\n2. Present them with names, descriptions, tags, and creation dates\\n3. Highlight the most recent items\"}],\"features\":{\"semantic_enrichment\":false,\"query_enrichment\":false,\"storage_enrichment\":false,\"audit_logging\":true,\"knowledge_capture\":false,\"managed_resources\":true},\"config_version\":{\"api_version\":\"v1\",\"supported_versions\":[\"v1\"],\"latest_version\":\"v1\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_012aBCe778jZPtEevaraM4jm",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "parcel-events feed onboarding, naming, output location, retention",
+          "limit": 30,
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_012aBCe778jZPtEevaraM4jm",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Parcel Events Feed Runbook\\nOperating notes for the nightly parcel-events feed: what it writes, when it runs, and where its operating standards are kept.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a56e6979-b2fe-4785-8146-ae23538e6928\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_a56e6979-b2fe-4785-8146-ae23538e6928\"},{\"text\":\"Feed Naming Standard\\nHow nightly feeds and their outputs are named, and how renames are carried out without stranding consumers.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_04bea312-20cf-4c92-bc20-ceef90cd3961\",\"score\":0.625121122279479,\"reference\":\"mcp:knowledge_page:kp_04bea312-20cf-4c92-bc20-ceef90cd3961\"},{\"text\":\"Storage Tier Register\\nHow feed storage is registered: tiers, output lifetime, and where the capacity a new registration draws on comes from.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_08189c19-da89-4054-8131-dcadd582779f\",\"score\":0.41121911237557524,\"reference\":\"mcp:knowledge_page:kp_08189c19-da89-4054-8131-dcadd582779f\"},{\"text\":\"Landing Zone Layout\\nHow the raw landing area is organized: per-feed prefixes, partition layout, and what may write where.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_43161ea6-e4c4-4e4c-8919-f205e1f865c4\",\"score\":0.3897932897154038,\"reference\":\"mcp:knowledge_page:kp_43161ea6-e4c4-4e4c-8919-f205e1f865c4\"},{\"text\":\"Dispatch Enrichment History\\nOperating history for the dispatch-enrichment pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f22f1a7b-18e0-431a-a991-b70c48bb8cc2\",\"score\":0.20466728373221058,\"reference\":\"mcp:knowledge_page:kp_f22f1a7b-18e0-431a-a991-b70c48bb8cc2\"},{\"text\":\"Shipment Intake History\\nOperating history for the shipment-intake pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_6a32b536-901b-4ec9-b8a4-923bc068081c\",\"score\":0.18185347842968355,\"reference\":\"mcp:knowledge_page:kp_6a32b536-901b-4ec9-b8a4-923bc068081c\"},{\"text\":\"Shipment Intake Runbook\\nOperating runbook for the shipment-intake pipeline: what it covers, when it runs and who looks after it (the integrations crew).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_7b08939f-abd0-4ca4-876c-21a6a758ef67\",\"score\":0.15821903679986885,\"reference\":\"mcp:knowledge_page:kp_7b08939f-abd0-4ca4-876c-21a6a758ef67\"},{\"text\":\"Shipment Handoff Handling Guide\\nOperating handling guide for the shipment-handoff pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8829ccd3-66fa-4fb2-a12b-31f43b907f3f\",\"score\":0.11281219062184594,\"reference\":\"mcp:knowledge_page:kp_8829ccd3-66fa-4fb2-a12b-31f43b907f3f\"},{\"text\":\"Dispatch Enrichment Checks\\nOperating checks for the dispatch-enrichment pipeline: what it covers, when it runs and who looks after it (the warehouse platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f9ff1c51-e25d-4f66-9567-90c4cd73b6f4\",\"score\":0.10440278745012986,\"reference\":\"mcp:knowledge_page:kp_f9ff1c51-e25d-4f66-9567-90c4cd73b6f4\"},{\"text\":\"Shipment Handoff History\\nOperating history for the shipment-handoff pipeline: what it covers, when it runs and who looks after it (the stream operations group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_4e3c36fb-6338-4d94-8c32-601e57670cf1\",\"score\":0.10287389930486086,\"reference\":\"mcp:knowledge_page:kp_4e3c36fb-6338-4d94-8c32-601e57670cf1\"},{\"text\":\"Shipment Intake Handling Guide\\nOperating handling guide for the shipment-intake pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3d3390b3-4e88-461d-abe3-957c4e70b425\",\"score\":0.09517543520147387,\"reference\":\"mcp:knowledge_page:kp_3d3390b3-4e88-461d-abe3-957c4e70b425\"},{\"text\":\"Dispatch Digest History\\nOperating history for the dispatch-digest pipeline: what it covers, when it runs and who looks after it (the stream operations group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_27b109fd-9e31-491f-8339-6a7559387a54\",\"score\":0.09040327851711161,\"reference\":\"mcp:knowledge_page:kp_27b109fd-9e31-491f-8339-6a7559387a54\"},{\"text\":\"Dispatch Enrichment Runbook\\nOperating runbook for the dispatch-enrichment pipeline: what it covers, when it runs and who looks after it (the warehouse platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1e1c037e-ca50-4067-b92f-033e26699a06\",\"score\":0.08340175347692479,\"reference\":\"mcp:knowledge_page:kp_1e1c037e-ca50-4067-b92f-033e26699a06\"},{\"text\":\"Shipment Handoff Runbook\\nOperating runbook for the shipment-handoff pipeline: what it covers, when it runs and who looks after it (the reporting platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b696dbc7-5c2a-4f87-8314-ddc637a4ce24\",\"score\":0.07652930480124077,\"reference\":\"mcp:knowledge_page:kp_b696dbc7-5c2a-4f87-8314-ddc637a4ce24\"},{\"text\":\"Shipment Handoff Schema Notes\\nOperating schema notes for the shipment-handoff pipeline: what it covers, when it runs and who looks after it (the reporting platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8e2f9bd5-3a0c-4c7f-a269-ef33e3fced75\",\"score\":0.0736058324708057,\"reference\":\"mcp:knowledge_page:kp_8e2f9bd5-3a0c-4c7f-a269-ef33e3fced75\"},{\"text\":\"Ticket Intake Runbook\\nOperating runbook for the ticket-intake pipeline: what it covers, when it runs and who looks after it (the integrations crew).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_5b7262da-ed91-4e04-8a36-f6ea3964cb9d\",\"score\":0.059944251995964364,\"reference\":\"mcp:knowledge_page:kp_5b7262da-ed91-4e04-8a36-f6ea3964cb9d\"},{\"text\":\"Courier Digest Checks\\nOperating checks for the courier-digest pipeline: what it covers, when it runs and who looks after it (the integrations crew).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d94ea44b-a7a7-4d3c-bfb2-296df1729859\",\"score\":0.04287025565379941,\"reference\":\"mcp:knowledge_page:kp_d94ea44b-a7a7-4d3c-bfb2-296df1729859\"},{\"text\":\"Region Handoff Runbook\\nOperating runbook for the region-handoff pipeline: what it covers, when it runs and who looks after it (the stream operations group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8d64b0a9-ba66-40e7-8613-0c3556b72399\",\"score\":0.04075522992908477,\"reference\":\"mcp:knowledge_page:kp_8d64b0a9-ba66-40e7-8613-0c3556b72399\"},{\"text\":\"Shipment Handoff Checks\\nOperating checks for the shipment-handoff pipeline: what it covers, when it runs and who looks after it (the reporting platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a7e3f338-e242-4e5c-bf89-4375c28453f3\",\"score\":0.03379350779685983,\"reference\":\"mcp:knowledge_page:kp_a7e3f338-e242-4e5c-bf89-4375c28453f3\"},{\"text\":\"Shipment Handoff Tuning Notes\\nOperating tuning notes for the shipment-handoff pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8862d96a-9d0f-44bf-9fd5-503bec95240f\",\"score\":0.031871178981783224,\"reference\":\"mcp:knowledge_page:kp_8862d96a-9d0f-44bf-9fd5-503bec95240f\"},{\"text\":\"Shipment Intake Window Notes\\nOperating window notes for the shipment-intake pipeline: what it covers, when it runs and who looks after it (the integrations crew).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b3714b81-40a4-4ee5-b554-8fd632ffc7c6\",\"score\":0.03009113347092667,\"reference\":\"mcp:knowledge_page:kp_b3714b81-40a4-4ee5-b554-8fd632ffc7c6\"},{\"text\":\"Change Announcement Directory\\nHow governed-stream changes are announced: the bulletin, who receives it, and which record of it is authoritative.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f44939d2-1860-4c08-a86e-c5eda4e5e57a\",\"score\":0.02781459337759595,\"reference\":\"mcp:knowledge_page:kp_f44939d2-1860-4c08-a86e-c5eda4e5e57a\"},{\"text\":\"Email Summary Handling Guide\\nOperating handling guide for the email-summary pipeline: what it covers, when it runs and who looks after it (the stream operations group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_ec1242ac-6342-41a3-8fab-0a6a817b9f53\",\"score\":0.019377575590502228,\"reference\":\"mcp:knowledge_page:kp_ec1242ac-6342-41a3-8fab-0a6a817b9f53\"},{\"text\":\"Starter Onboarding Calendar\\nHow starter onboarding is handled by the workforce office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9eb91eb8-9e6f-45d9-90dd-50fd467f8bd1\",\"score\":0.010453164126913501,\"reference\":\"mcp:knowledge_page:kp_9eb91eb8-9e6f-45d9-90dd-50fd467f8bd1\"},{\"text\":\"Region Handoff Handling Guide\\nOperating handling guide for the region-handoff pipeline: what it covers, when it runs and who looks after it (the stream operations group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_98b5d39f-6ef8-492f-bffd-4a5e9b9e4e71\",\"score\":0,\"reference\":\"mcp:knowledge_page:kp_98b5d39f-6ef8-492f-bffd-4a5e9b9e4e71\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":1,\"reference\":\"mcp:prompt:3866cf0b-6ac6-4566-8802-0eb0164375d4\"},{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":0.7414607703350049,\"reference\":\"mcp:prompt:413b4350-4754-4d8e-878d-c8de2a5a80be\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.4815396284823598,\"reference\":\"mcp:prompt:1e65fe82-a0df-43c2-8dd4-f77d9b10b7f5\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.08235392784986363,\"reference\":\"mcp:prompt:29eba056-5bd2-43bd-b144-3026e0296b61\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0,\"reference\":\"mcp:prompt:9be8c35d-fe7e-4968-8f06-594d9f0203f3\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":25},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":30,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_019DvYRfBBwhuD5z6ntzs7tR",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "nightly feed SLA lateness escalation re-run backfill idempotency",
+          "limit": 30,
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_019DvYRfBBwhuD5z6ntzs7tR",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Telemetry Backfill Tuning Notes\\nOperating tuning notes for the telemetry-backfill pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f7c35892-05cd-41eb-b478-c8d58e661fc5\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_f7c35892-05cd-41eb-b478-c8d58e661fc5\"},{\"text\":\"Telemetry Backfill History\\nOperating history for the telemetry-backfill pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_bd7fc303-b845-4635-af49-47bb49088f2e\",\"score\":0.8298510753523103,\"reference\":\"mcp:knowledge_page:kp_bd7fc303-b845-4635-af49-47bb49088f2e\"},{\"text\":\"Sensor Backfill Checks\\nOperating checks for the sensor-backfill pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_c31724bf-6589-4643-bcc5-2944e3be3985\",\"score\":0.7074073973630649,\"reference\":\"mcp:knowledge_page:kp_c31724bf-6589-4643-bcc5-2944e3be3985\"},{\"text\":\"Telemetry Backfill Runbook\\nOperating runbook for the telemetry-backfill pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_fb6a31e3-a57f-4271-bfc7-a7dd5f01490a\",\"score\":0.6235222965420361,\"reference\":\"mcp:knowledge_page:kp_fb6a31e3-a57f-4271-bfc7-a7dd5f01490a\"},{\"text\":\"Telemetry Backfill Checks\\nOperating checks for the telemetry-backfill pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_28bb32bc-01b5-4b50-ad55-dccb8dbe5289\",\"score\":0.5604333641070318,\"reference\":\"mcp:knowledge_page:kp_28bb32bc-01b5-4b50-ad55-dccb8dbe5289\"},{\"text\":\"Sensor Backfill Handling Guide\\nOperating handling guide for the sensor-backfill pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d12570eb-11d7-4b4c-b623-b69f672326c4\",\"score\":0.5318478616172508,\"reference\":\"mcp:knowledge_page:kp_d12570eb-11d7-4b4c-b623-b69f672326c4\"},{\"text\":\"Telemetry Backfill Handling Guide\\nOperating handling guide for the telemetry-backfill pipeline: what it covers, when it runs and who looks after it (the warehouse platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9c259fe9-a5e3-40cb-9af5-5f6ee0990b65\",\"score\":0.5047158690472003,\"reference\":\"mcp:knowledge_page:kp_9c259fe9-a5e3-40cb-9af5-5f6ee0990b65\"},{\"text\":\"Delivery Expectation Standard\\nHow each feed's expected landing time is declared, and when repeated lateness is raised rather than watched.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_7b9cc4c2-fd29-4e41-b1e1-1aaf452e00e2\",\"score\":0.28102606863518476,\"reference\":\"mcp:knowledge_page:kp_7b9cc4c2-fd29-4e41-b1e1-1aaf452e00e2\"},{\"text\":\"Telemetry Backfill Window Notes\\nOperating window notes for the telemetry-backfill pipeline: what it covers, when it runs and who looks after it (the integrations crew).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8068b3c2-87b3-420e-8f21-b4f9ed53a6a5\",\"score\":0.2538590848571325,\"reference\":\"mcp:knowledge_page:kp_8068b3c2-87b3-420e-8f21-b4f9ed53a6a5\"},{\"text\":\"Telemetry Backfill Schema Notes\\nOperating schema notes for the telemetry-backfill pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_dfafb962-f807-4553-9357-7506d0b7957c\",\"score\":0.2234869044115344,\"reference\":\"mcp:knowledge_page:kp_dfafb962-f807-4553-9357-7506d0b7957c\"},{\"text\":\"Sensor Backfill Schema Notes\\nOperating schema notes for the sensor-backfill pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b0455393-6e43-429f-bfe2-64674436ad37\",\"score\":0.20609882020553616,\"reference\":\"mcp:knowledge_page:kp_b0455393-6e43-429f-bfe2-64674436ad37\"},{\"text\":\"Ticket Intake Schema Notes\\nOperating schema notes for the ticket-intake pipeline: what it covers, when it runs and who looks after it (the stream operations group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_0cdf321c-5c81-4113-ab70-fc1eb6a60e33\",\"score\":0.20323652814127366,\"reference\":\"mcp:knowledge_page:kp_0cdf321c-5c81-4113-ab70-fc1eb6a60e33\"},{\"text\":\"Beacon Index Runbook\\nOperating runbook for the beacon-index pipeline: what it covers, when it runs and who looks after it (the warehouse platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f69f0b39-540c-4698-8d85-bb56e78aff2a\",\"score\":0.20283842098837657,\"reference\":\"mcp:knowledge_page:kp_f69f0b39-540c-4698-8d85-bb56e78aff2a\"},{\"text\":\"Depot Bridge Runbook\\nOperating runbook for the depot-bridge pipeline: what it covers, when it runs and who looks after it (the warehouse platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_2ef17b66-7ac4-464f-a201-349ec8b742a9\",\"score\":0.18116538776151142,\"reference\":\"mcp:knowledge_page:kp_2ef17b66-7ac4-464f-a201-349ec8b742a9\"},{\"text\":\"Outlet Summary Runbook\\nOperating runbook for the outlet-summary pipeline: what it covers, when it runs and who looks after it (the reporting platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_cd6ba350-c18a-43a4-a7c6-7f71bfb1b6b5\",\"score\":0.170270377182097,\"reference\":\"mcp:knowledge_page:kp_cd6ba350-c18a-43a4-a7c6-7f71bfb1b6b5\"},{\"text\":\"Loyalty Relay Tuning Notes\\nOperating tuning notes for the loyalty-relay pipeline: what it covers, when it runs and who looks after it (the warehouse platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9bb67495-6d43-4a3f-aa0a-ac6e7f530897\",\"score\":0.1515127248508004,\"reference\":\"mcp:knowledge_page:kp_9bb67495-6d43-4a3f-aa0a-ac6e7f530897\"},{\"text\":\"Outlet Summary History\\nOperating history for the outlet-summary pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_29384061-7333-4dd2-86d6-c8a2261a414b\",\"score\":0.13440456040137358,\"reference\":\"mcp:knowledge_page:kp_29384061-7333-4dd2-86d6-c8a2261a414b\"},{\"text\":\"Manifest Rollup Window Notes\\nOperating window notes for the manifest-rollup pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1f236343-9b7d-4290-8905-54fc3768ff83\",\"score\":0.12220075915273354,\"reference\":\"mcp:knowledge_page:kp_1f236343-9b7d-4290-8905-54fc3768ff83\"},{\"text\":\"Feed Re-run Procedure\\nHow a nightly feed's bad night is repaired: replacement by partition, and what a re-run must never change.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_01fc3369-f4ff-482b-acb2-65f491e0e021\",\"score\":0.09851730046388826,\"reference\":\"mcp:knowledge_page:kp_01fc3369-f4ff-482b-acb2-65f491e0e021\"},{\"text\":\"Manifest Intake Window Notes\\nOperating window notes for the manifest-intake pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_309eaac8-377a-4ac5-9ee5-917f78036aa2\",\"score\":0.03851817437239119,\"reference\":\"mcp:knowledge_page:kp_309eaac8-377a-4ac5-9ee5-917f78036aa2\"},{\"text\":\"Outlet Archive Tuning Notes\\nOperating tuning notes for the outlet-archive pipeline: what it covers, when it runs and who looks after it (the stream operations group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_0328f2eb-46f4-42a0-b638-48ee632ce83d\",\"score\":0.03239292867496967,\"reference\":\"mcp:knowledge_page:kp_0328f2eb-46f4-42a0-b638-48ee632ce83d\"},{\"text\":\"Device Rollup Window Notes\\nOperating window notes for the device-rollup pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d9938d1f-15cc-41a4-99c8-7c3f4ca3dbc3\",\"score\":0.02000688259378632,\"reference\":\"mcp:knowledge_page:kp_d9938d1f-15cc-41a4-99c8-7c3f4ca3dbc3\"},{\"text\":\"Manifest Rollup Tuning Notes\\nOperating tuning notes for the manifest-rollup pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_aca9ec46-c101-42eb-94b4-eed6f46544fa\",\"score\":0.0199925260480978,\"reference\":\"mcp:knowledge_page:kp_aca9ec46-c101-42eb-94b4-eed6f46544fa\"},{\"text\":\"Telemetry Backfill Review Notes\\nOperating review notes for the telemetry-backfill pipeline: what it covers, when it runs and who looks after it (the integrations crew).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_c810f355-3062-452b-909c-f384718caaee\",\"score\":0.0008933764539965083,\"reference\":\"mcp:knowledge_page:kp_c810f355-3062-452b-909c-f384718caaee\"},{\"text\":\"Roster Archive History\\nOperating history for the roster-archive pipeline: what it covers, when it runs and who looks after it (the stream operations group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d6ef9107-e3b5-49cc-8bda-5647350c8107\",\"score\":0,\"reference\":\"mcp:knowledge_page:kp_d6ef9107-e3b5-49cc-8bda-5647350c8107\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":1,\"reference\":\"mcp:prompt:9be8c35d-fe7e-4968-8f06-594d9f0203f3\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.7862689198662416,\"reference\":\"mcp:prompt:29eba056-5bd2-43bd-b144-3026e0296b61\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.44104541180636064,\"reference\":\"mcp:prompt:1e65fe82-a0df-43c2-8dd4-f77d9b10b7f5\"},{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":0.1586793436668523,\"reference\":\"mcp:prompt:3866cf0b-6ac6-4566-8802-0eb0164375d4\"},{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":0,\"reference\":\"mcp:prompt:413b4350-4754-4d8e-878d-c8de2a5a80be\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":25},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":30,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "Found the governing pages. Let me read the parcel-events runbook and the standards it points to."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Jsic1EAVPFC2mDGEwgoxU7",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_a56e6979-b2fe-4785-8146-ae23538e6928",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Jsic1EAVPFC2mDGEwgoxU7",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_a56e6979-b2fe-4785-8146-ae23538e6928\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_a56e6979-b2fe-4785-8146-ae23538e6928\",\"source\":\"knowledge_pages\",\"title\":\"Parcel Events Feed Runbook\",\"body\":\"# Parcel Events Feed Runbook\\n\\nThe parcel-events feed writes the day's parcel scan records nightly. It runs\\nonly after the parcel collectors drain: a missing hour in the output is a\\ncollector matter, not a feed matter, and re-running the feed cannot supply\\nrecords a collector never delivered.\\n\\n## How it is operated\\n\\nThe feed is the model other nightly feeds are stood up from, and everything\\nthat makes it operable lives in the standards it follows rather than in this\\npage: its name follows the feed naming standard,\\nits output lands as the landing zone layout\\nprescribes, its storage is registered in\\nthe storage tier register, its landing time is\\ndeclared in the delivery expectation standard,\\nand a bad night is repaired under\\nthe re-run procedure.\\n\\n## Leaving the platform\\n\\nFeed output copied anywhere outside the platform is not the operator's call:\\nevery such copy runs through the off-platform copy policy.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_011GBMWHhrwwQoAoY74aknyj",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_04bea312-20cf-4c92-bc20-ceef90cd3961",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_011GBMWHhrwwQoAoY74aknyj",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_04bea312-20cf-4c92-bc20-ceef90cd3961\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_04bea312-20cf-4c92-bc20-ceef90cd3961\",\"source\":\"knowledge_pages\",\"title\":\"Feed Naming Standard\",\"body\":\"# Feed Naming Standard\\n\\nA feed's name is its contract with everyone who schedules against it, so\\nnames follow pattern FN-13: the subject first, then the grain of the\\nrecords, joined with a dash — the parcel-events feed itself is the model.\\nThe output carries the feed's name; a consumer should never need a lookup\\ntable to connect the two.\\n\\n## Renames\\n\\nA rename runs through an alias period: the old name keeps working while\\nregistered consumers move over, and the alias is retired only when the\\ndelivery records show no reads against it. Renaming without the alias period\\nis treated as decommissioning one feed and launching another, with\\neverything that obliges.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01JBuLcTVc67coy1FVopsRuM",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_08189c19-da89-4054-8131-dcadd582779f",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01JBuLcTVc67coy1FVopsRuM",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_08189c19-da89-4054-8131-dcadd582779f\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_08189c19-da89-4054-8131-dcadd582779f\",\"source\":\"knowledge_pages\",\"title\":\"Storage Tier Register\",\"body\":\"# Storage Tier Register\\n\\nEvery feed registers its output in exactly one storage tier, and the tier\\ndecides the output's lifetime.\\n\\n## Tier ST-16\\n\\nNightly operational feeds register in tier ST-16. Output in the tier is\\npurged 47 days after its write date; keeping anything longer is a\\nre-registration into a retention tier, reviewed by the register's owners\\nrather than granted by the feed team. The parcel-events feed sits in this\\ntier, and a feed operated like it registers here too.\\n\\n## Capacity\\n\\nRegistration is also where capacity is accounted for. The platform's storage\\nis bought ahead under a standing vendor commitment, so a new registration\\ndraws against the procurement commitment ledger\\nmaintained by the procurement office — registering the feed is what makes\\nthe draw visible to them.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_015Fud5qucdbrsmFDV9owq6f",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_43161ea6-e4c4-4e4c-8919-f205e1f865c4",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_015Fud5qucdbrsmFDV9owq6f",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_43161ea6-e4c4-4e4c-8919-f205e1f865c4\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_43161ea6-e4c4-4e4c-8919-f205e1f865c4\",\"source\":\"knowledge_pages\",\"title\":\"Landing Zone Layout\",\"body\":\"# Landing Zone Layout\\n\\nThe landing area is organized by layout LZ-14: every feed owns exactly\\none prefix, named for the feed, and everything the feed writes lands under\\nthat prefix partitioned by write date. Nothing writes outside its own\\nprefix — a feed that needs a second area is two feeds — and nothing but the\\nfeed writes inside it, so ownership of any object in the zone is readable\\nfrom its path alone.\\n\\nConsumers read from the prefix; they do not write markers, checkpoints or\\nscratch output into it. Consumer state lives with the consumer.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01GNa2bXVPJmGCPGZZrFZ7sW",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_7b9cc4c2-fd29-4e41-b1e1-1aaf452e00e2",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01GNa2bXVPJmGCPGZZrFZ7sW",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_7b9cc4c2-fd29-4e41-b1e1-1aaf452e00e2\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_7b9cc4c2-fd29-4e41-b1e1-1aaf452e00e2\",\"source\":\"knowledge_pages\",\"title\":\"Delivery Expectation Standard\",\"body\":\"# Delivery Expectation Standard\\n\\nEvery nightly feed declares its expected landing hour in table LH-18,\\nand the declaration is what consumers schedule against — an undeclared feed\\nhas no lateness, only unpredictability.\\n\\nA feed landing after its declared hour is late, and lateness is tracked per\\nmorning against the declaration. One late morning is noted. Repeated late\\nmornings in the same week are raised with the owning team as a delivery\\nmatter: either the window moves and the declaration is corrected, or the\\ncause is fixed. Quietly re-declaring a later hour to absorb lateness is a\\nchange consumers must be told about like any other.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01XTmtPrgiWxpTcVaK8dFdfM",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_01fc3369-f4ff-482b-acb2-65f491e0e021",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01XTmtPrgiWxpTcVaK8dFdfM",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_01fc3369-f4ff-482b-acb2-65f491e0e021\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_01fc3369-f4ff-482b-acb2-65f491e0e021\",\"source\":\"knowledge_pages\",\"title\":\"Feed Re-run Procedure\",\"body\":\"# Feed Re-run Procedure\\n\\nA re-run repairs a bad night by replacing it, never by appending to it.\\n\\nProcedure RP-22 governs the repair: the affected write-date partitions\\nare replaced whole, under the feed's own prefix, and the original write date\\nstays the partition's identity — a re-run performed days later still lands\\nunder the night it repairs, so consumers re-reading the partition see the\\ncorrected records where the bad ones were. A re-run that would change a\\npartition's write date is not a re-run; it is a new feed writing into an old\\nfeed's zone, and the layout forbids it.\\n\\nRe-runs happen after the upstream collectors have drained for the affected\\nwindow; re-running ahead of the upstream repair reproduces the bad night.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "Now the two referenced policies I haven't read: the off-platform copy policy and the procurement commitment ledger."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01KJXAQaUXHsWV5oXZJAfQ46",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "off-platform copy policy: feed output copied outside the platform",
+          "limit": 15,
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01KJXAQaUXHsWV5oXZJAfQ46",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Off-platform Copy Policy\\nWhat any copy of feed output outside the platform requires: the approval, its contents, and the covering instrument.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9ce673cb-ca57-4edb-83aa-000aefa39f5d\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_9ce673cb-ca57-4edb-83aa-000aefa39f5d\"},{\"text\":\"Parcel Events Feed Runbook\\nOperating notes for the nightly parcel-events feed: what it writes, when it runs, and where its operating standards are kept.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a56e6979-b2fe-4785-8146-ae23538e6928\",\"score\":0.9213927247608822,\"reference\":\"mcp:knowledge_page:kp_a56e6979-b2fe-4785-8146-ae23538e6928\"},{\"text\":\"Feed Re-run Procedure\\nHow a nightly feed's bad night is repaired: replacement by partition, and what a re-run must never change.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_01fc3369-f4ff-482b-acb2-65f491e0e021\",\"score\":0.05195596879087205,\"reference\":\"mcp:knowledge_page:kp_01fc3369-f4ff-482b-acb2-65f491e0e021\"},{\"text\":\"Feed Naming Standard\\nHow nightly feeds and their outputs are named, and how renames are carried out without stranding consumers.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_04bea312-20cf-4c92-bc20-ceef90cd3961\",\"score\":0.027573046594021988,\"reference\":\"mcp:knowledge_page:kp_04bea312-20cf-4c92-bc20-ceef90cd3961\"},{\"text\":\"Landing Zone Layout\\nHow the raw landing area is organized: per-feed prefixes, partition layout, and what may write where.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_43161ea6-e4c4-4e4c-8919-f205e1f865c4\",\"score\":0.026334631679979948,\"reference\":\"mcp:knowledge_page:kp_43161ea6-e4c4-4e4c-8919-f205e1f865c4\"},{\"text\":\"Chat Extract Handling Guide\\nOperating handling guide for the chat-extract pipeline: what it covers, when it runs and who looks after it (the reporting platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_004a178e-9914-4d95-ad1a-b03a284035d3\",\"score\":0.01911489534835612,\"reference\":\"mcp:knowledge_page:kp_004a178e-9914-4d95-ad1a-b03a284035d3\"},{\"text\":\"Attestation Procedure\\nThe owner attestation that closes any governed-stream change: who signs, what they sign, and when.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_2d27fa68-78e1-4e7b-8b25-cf00fd4de6e5\",\"score\":0.017243006367167128,\"reference\":\"mcp:knowledge_page:kp_2d27fa68-78e1-4e7b-8b25-cf00fd4de6e5\"},{\"text\":\"Chat Extract History\\nOperating history for the chat-extract pipeline: what it covers, when it runs and who looks after it (the warehouse platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_c4dac957-6269-41bf-af83-650d0d868d12\",\"score\":0.01673466986280616,\"reference\":\"mcp:knowledge_page:kp_c4dac957-6269-41bf-af83-650d0d868d12\"},{\"text\":\"Storage Tier Register\\nHow feed storage is registered: tiers, output lifetime, and where the capacity a new registration draws on comes from.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_08189c19-da89-4054-8131-dcadd582779f\",\"score\":0.013747830283159254,\"reference\":\"mcp:knowledge_page:kp_08189c19-da89-4054-8131-dcadd582779f\"},{\"text\":\"Governed Tier Obligations\\nWhat owning a governed-tier stream obliges: change classification, owner attestation, and the calendars change timing observes.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1b7085d9-4689-46dd-b7fb-d00dfa413fdc\",\"score\":0.01366511258075878,\"reference\":\"mcp:knowledge_page:kp_1b7085d9-4689-46dd-b7fb-d00dfa413fdc\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":1,\"reference\":\"mcp:prompt:3866cf0b-6ac6-4566-8802-0eb0164375d4\"},{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":0.45090155336090837,\"reference\":\"mcp:prompt:413b4350-4754-4d8e-878d-c8de2a5a80be\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.22719452190009087,\"reference\":\"mcp:prompt:1e65fe82-a0df-43c2-8dd4-f77d9b10b7f5\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.07120404350197085,\"reference\":\"mcp:prompt:29eba056-5bd2-43bd-b144-3026e0296b61\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0,\"reference\":\"mcp:prompt:9be8c35d-fe7e-4968-8f06-594d9f0203f3\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":10},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":15,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01PCbhyG7JUtzhQLaFebkcUY",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "procurement commitment ledger storage capacity draw procurement office",
+          "limit": 15,
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01PCbhyG7JUtzhQLaFebkcUY",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Procurement Commitment Ledger\\nThe procurement office's ledger of standing vendor commitments: lines, draw-downs, and renewal.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_5876ab28-90fb-4ca5-8e2f-e1afc84e2997\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_5876ab28-90fb-4ca5-8e2f-e1afc84e2997\"},{\"text\":\"Storage Tier Register\\nHow feed storage is registered: tiers, output lifetime, and where the capacity a new registration draws on comes from.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_08189c19-da89-4054-8131-dcadd582779f\",\"score\":0.8705702947166064,\"reference\":\"mcp:knowledge_page:kp_08189c19-da89-4054-8131-dcadd582779f\"},{\"text\":\"Purchase Requisition Calendar\\nHow purchase requisition is handled by the procurement office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_d1225b21-746b-4072-9aee-126c0481f03f\",\"score\":0.028751410185525,\"reference\":\"mcp:knowledge_page:kp_d1225b21-746b-4072-9aee-126c0481f03f\"},{\"text\":\"Spend Reporting Guide\\nHow spend reporting is handled by the procurement office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f2da2033-3a64-4bdc-bf6f-ff07e9b2c0e5\",\"score\":0.023777879695323044,\"reference\":\"mcp:knowledge_page:kp_f2da2033-3a64-4bdc-bf6f-ff07e9b2c0e5\"},{\"text\":\"Catalog Maintenance Handbook\\nHow catalog maintenance is handled by the procurement office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f2346c25-6854-43d3-82e7-29404f51253b\",\"score\":0.02256666915464656,\"reference\":\"mcp:knowledge_page:kp_f2346c25-6854-43d3-82e7-29404f51253b\"},{\"text\":\"Catalog Maintenance Reference\\nHow catalog maintenance is handled by the procurement office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_2b1ab53d-8de2-4178-a5ec-b779f70d3981\",\"score\":0.022043059970070125,\"reference\":\"mcp:knowledge_page:kp_2b1ab53d-8de2-4178-a5ec-b779f70d3981\"},{\"text\":\"Purchase Requisition Reference\\nHow purchase requisition is handled by the procurement office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_94771b01-972b-4f2a-bd39-f30845b11538\",\"score\":0.02161388202635771,\"reference\":\"mcp:knowledge_page:kp_94771b01-972b-4f2a-bd39-f30845b11538\"},{\"text\":\"Spend Reporting Handbook\\nHow spend reporting is handled by the procurement office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_18731b8c-5792-4aaa-af12-4d1d77b3d7e5\",\"score\":0.02144408958455727,\"reference\":\"mcp:knowledge_page:kp_18731b8c-5792-4aaa-af12-4d1d77b3d7e5\"},{\"text\":\"Spend Reporting Reference\\nHow spend reporting is handled by the procurement office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_4e219541-e1c6-48f3-937d-5b0ad72ef98d\",\"score\":0.020362364946614735,\"reference\":\"mcp:knowledge_page:kp_4e219541-e1c6-48f3-937d-5b0ad72ef98d\"},{\"text\":\"Purchase Requisition Checklist\\nHow purchase requisition is handled by the procurement office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_27e29f48-57dc-43a4-9908-a32d7b8e9fc3\",\"score\":0.018541871214012583,\"reference\":\"mcp:knowledge_page:kp_27e29f48-57dc-43a4-9908-a32d7b8e9fc3\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":1,\"reference\":\"mcp:prompt:413b4350-4754-4d8e-878d-c8de2a5a80be\"},{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":0.8546630108812064,\"reference\":\"mcp:prompt:3866cf0b-6ac6-4566-8802-0eb0164375d4\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.7619234987868831,\"reference\":\"mcp:prompt:29eba056-5bd2-43bd-b144-3026e0296b61\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.47466175637689245,\"reference\":\"mcp:prompt:1e65fe82-a0df-43c2-8dd4-f77d9b10b7f5\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0,\"reference\":\"mcp:prompt:9be8c35d-fe7e-4968-8f06-594d9f0203f3\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":10},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":15,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01UJX6T93NPuwNe9bi1doNmz",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "table LH-18 declared landing hour for parcel-events",
+          "limit": 15,
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01UJX6T93NPuwNe9bi1doNmz",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Delivery Expectation Standard\\nHow each feed's expected landing time is declared, and when repeated lateness is raised rather than watched.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_7b9cc4c2-fd29-4e41-b1e1-1aaf452e00e2\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_7b9cc4c2-fd29-4e41-b1e1-1aaf452e00e2\"},{\"text\":\"Parcel Events Feed Runbook\\nOperating notes for the nightly parcel-events feed: what it writes, when it runs, and where its operating standards are kept.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a56e6979-b2fe-4785-8146-ae23538e6928\",\"score\":0.4107712997254402,\"reference\":\"mcp:knowledge_page:kp_a56e6979-b2fe-4785-8146-ae23538e6928\"},{\"text\":\"Shipment Handoff Schema Notes\\nOperating schema notes for the shipment-handoff pipeline: what it covers, when it runs and who looks after it (the reporting platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8e2f9bd5-3a0c-4c7f-a269-ef33e3fced75\",\"score\":0.2678851853871072,\"reference\":\"mcp:knowledge_page:kp_8e2f9bd5-3a0c-4c7f-a269-ef33e3fced75\"},{\"text\":\"Shipment Intake History\\nOperating history for the shipment-intake pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_6a32b536-901b-4ec9-b8a4-923bc068081c\",\"score\":0.19356956088615054,\"reference\":\"mcp:knowledge_page:kp_6a32b536-901b-4ec9-b8a4-923bc068081c\"},{\"text\":\"Shipment Handoff Runbook\\nOperating runbook for the shipment-handoff pipeline: what it covers, when it runs and who looks after it (the reporting platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b696dbc7-5c2a-4f87-8314-ddc637a4ce24\",\"score\":0.14309127051606477,\"reference\":\"mcp:knowledge_page:kp_b696dbc7-5c2a-4f87-8314-ddc637a4ce24\"},{\"text\":\"Shipment Handoff Window Notes\\nOperating window notes for the shipment-handoff pipeline: what it covers, when it runs and who looks after it (the reporting platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_2868e5dd-09e2-4020-ac85-f975de0b3c3b\",\"score\":0.1345094222596564,\"reference\":\"mcp:knowledge_page:kp_2868e5dd-09e2-4020-ac85-f975de0b3c3b\"},{\"text\":\"Shipment Handoff Tuning Notes\\nOperating tuning notes for the shipment-handoff pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_8862d96a-9d0f-44bf-9fd5-503bec95240f\",\"score\":0.11698534584347288,\"reference\":\"mcp:knowledge_page:kp_8862d96a-9d0f-44bf-9fd5-503bec95240f\"},{\"text\":\"Dispatch Bridge Checks\\nOperating checks for the dispatch-bridge pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_6c29f876-ffab-4d60-b224-783bb69d048b\",\"score\":0.10554429241521766,\"reference\":\"mcp:knowledge_page:kp_6c29f876-ffab-4d60-b224-783bb69d048b\"},{\"text\":\"Starter Onboarding Calendar\\nHow starter onboarding is handled by the workforce office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9eb91eb8-9e6f-45d9-90dd-50fd467f8bd1\",\"score\":0.0988970584042452,\"reference\":\"mcp:knowledge_page:kp_9eb91eb8-9e6f-45d9-90dd-50fd467f8bd1\"},{\"text\":\"Shipment Handoff Checks\\nOperating checks for the shipment-handoff pipeline: what it covers, when it runs and who looks after it (the reporting platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a7e3f338-e242-4e5c-bf89-4375c28453f3\",\"score\":0.0905718343313964,\"reference\":\"mcp:knowledge_page:kp_a7e3f338-e242-4e5c-bf89-4375c28453f3\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":1,\"reference\":\"mcp:prompt:3866cf0b-6ac6-4566-8802-0eb0164375d4\"},{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":0.6759893598614694,\"reference\":\"mcp:prompt:413b4350-4754-4d8e-878d-c8de2a5a80be\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.5919879267833013,\"reference\":\"mcp:prompt:1e65fe82-a0df-43c2-8dd4-f77d9b10b7f5\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.3735592143305076,\"reference\":\"mcp:prompt:29eba056-5bd2-43bd-b144-3026e0296b61\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0,\"reference\":\"mcp:prompt:9be8c35d-fe7e-4968-8f06-594d9f0203f3\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":10},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":15,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01HbwxuqW73ViV1v8Apic1eg",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_9ce673cb-ca57-4edb-83aa-000aefa39f5d",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01HbwxuqW73ViV1v8Apic1eg",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_9ce673cb-ca57-4edb-83aa-000aefa39f5d\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_9ce673cb-ca57-4edb-83aa-000aefa39f5d\",\"source\":\"knowledge_pages\",\"title\":\"Off-platform Copy Policy\",\"body\":\"# Off-platform Copy Policy\\n\\nNo feed output leaves the platform on an operator's judgment alone.\\n\\nEvery copy outside the platform carries an EG-24 approval naming the\\nreceiving party, the purpose, and the date the copy will be deleted — an\\napproval without all three is returned unactioned. The approval is filed\\nbefore the copy is made, and re-copies under an existing approval are\\nre-copies only while the purpose and recipient are unchanged.\\n\\n## The covering instrument\\n\\nAn approval also cites the agreement that makes the transfer lawful: the\\ncovering instrument is looked up in\\nthe data sharing agreement register\\nmaintained by the legal office, and a transfer with no instrument to cite\\ndoes not proceed, whatever its purpose.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_015bX5yjXgrWjiPo8eS225YN",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_5876ab28-90fb-4ca5-8e2f-e1afc84e2997",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_015bX5yjXgrWjiPo8eS225YN",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_5876ab28-90fb-4ca5-8e2f-e1afc84e2997\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_5876ab28-90fb-4ca5-8e2f-e1afc84e2997\",\"source\":\"knowledge_pages\",\"title\":\"Procurement Commitment Ledger\",\"body\":\"# Procurement Commitment Ledger\\n\\nThe procurement office buys recurring capacity ahead under standing vendor\\ncommitments, and the ledger records each commitment line, what has been\\ndrawn against it, and when it renews.\\n\\n## Line PV-25\\n\\nLine PV-25 is the standing commitment for bulk storage. Draw-downs\\nagainst the line are recorded as internal registrations are made, and the\\noffice sizes the renewal from the recorded draws — an unrecorded draw is\\ncapacity the renewal will not cover. New draws are confirmed with the\\nvendor manager before they begin, and a draw that would take the line past\\nits committed volume waits for the renewal rather than assuming it.\\n\\nRenewals run on the office's own negotiation calendar; teams planning a\\nlarge draw talk to the office a cycle ahead.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "One more hop: the data sharing agreement register cited by the copy policy."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01BYHLj7m8DHVzQ2JHxAaWUJ",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "data sharing agreement register legal office covering instrument",
+          "limit": 10,
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01BYHLj7m8DHVzQ2JHxAaWUJ",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Data Sharing Agreement Register\\nThe legal office's register of data sharing instruments: what each instrument covers and how one is cited.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_ccdc624f-9718-4304-9bef-c031f10e6708\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_ccdc624f-9718-4304-9bef-c031f10e6708\"},{\"text\":\"Off-platform Copy Policy\\nWhat any copy of feed output outside the platform requires: the approval, its contents, and the covering instrument.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9ce673cb-ca57-4edb-83aa-000aefa39f5d\",\"score\":0.8583542173202757,\"reference\":\"mcp:knowledge_page:kp_9ce673cb-ca57-4edb-83aa-000aefa39f5d\"},{\"text\":\"Consumer Agreement Ledger\\nThe ledger of registered stream consumers: what registration records, and what standing it grants.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_b7f3bfb2-1330-484b-9b52-8883bb34514d\",\"score\":0.04434419884802358,\"reference\":\"mcp:knowledge_page:kp_b7f3bfb2-1330-484b-9b52-8883bb34514d\"},{\"text\":\"Dispute Intake Guide\\nHow dispute intake is handled by the legal office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_78dd504f-f47a-489b-be75-4e2659d63c53\",\"score\":0.025852606711128583,\"reference\":\"mcp:knowledge_page:kp_78dd504f-f47a-489b-be75-4e2659d63c53\"},{\"text\":\"Dispute Intake Reference\\nHow dispute intake is handled by the legal office: the working sequence, who is involved, and where questions land.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_bfb7771f-10da-464a-b13a-f34ddaed28cd\",\"score\":0.023119908676311286,\"reference\":\"mcp:knowledge_page:kp_bfb7771f-10da-464a-b13a-f34ddaed28cd\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":1,\"reference\":\"mcp:prompt:413b4350-4754-4d8e-878d-c8de2a5a80be\"},{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":0.8302679730404073,\"reference\":\"mcp:prompt:3866cf0b-6ac6-4566-8802-0eb0164375d4\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.6184464885830824,\"reference\":\"mcp:prompt:1e65fe82-a0df-43c2-8dd4-f77d9b10b7f5\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.07998975324320179,\"reference\":\"mcp:prompt:29eba056-5bd2-43bd-b144-3026e0296b61\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0,\"reference\":\"mcp:prompt:9be8c35d-fe7e-4968-8f06-594d9f0203f3\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":5},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":10,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01CgmZXj45BVZHg64W1yHCi8",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_ccdc624f-9718-4304-9bef-c031f10e6708",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01CgmZXj45BVZHg64W1yHCi8",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_ccdc624f-9718-4304-9bef-c031f10e6708\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_ccdc624f-9718-4304-9bef-c031f10e6708\",\"source\":\"knowledge_pages\",\"title\":\"Data Sharing Agreement Register\",\"body\":\"# Data Sharing Agreement Register\\n\\nThe legal office keeps the register of instruments under which the firm\\nshares records with outside parties.\\n\\n## Instruments\\n\\nEach instrument is registered as an SA-27 entry: the counterparty, the\\ncategories of records covered, the permitted purposes, and the instrument's\\nexpiry. A transfer to an outside party cites the SA-27 entry that\\ncovers it, and the citation is checked against the entry's categories and\\npurposes, not against the transferring team's intent. An expired or absent\\ninstrument means the transfer waits for the legal office, however routine\\nthe request.\\n\\nThe register is the only authoritative list; copies of instruments held by\\nteams are working copies, and the register's expiry dates govern.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01E91TJQwQN8KiLmCJMPnHhH",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_b7f3bfb2-1330-484b-9b52-8883bb34514d",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01E91TJQwQN8KiLmCJMPnHhH",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_b7f3bfb2-1330-484b-9b52-8883bb34514d\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_b7f3bfb2-1330-484b-9b52-8883bb34514d\",\"source\":\"knowledge_pages\",\"title\":\"Consumer Agreement Ledger\",\"body\":\"# Consumer Agreement Ledger\\n\\nThe ledger records who consumes each governed stream and under what\\nagreement.\\n\\nEach consuming team registers a CA-9 agreement per stream it reads. The\\nagreement names the consuming service, its owner, and the fields it depends\\non. Registration is a condition of read access, and it is also the notice\\nboundary: announcements are delivered to registered consumers, and a team\\nthat never registered is owed nothing, however long it has been reading.\\n\\nAgreements are reviewed when a stream's shape changes: a consumer whose\\ndeclared fields are untouched by a change may be notified without being\\nwaited for, at the announcing owner's discretion.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01WhLLhmHD8NCqNL48quxLka",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_f44939d2-1860-4c08-a86e-c5eda4e5e57a",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01WhLLhmHD8NCqNL48quxLka",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_f44939d2-1860-4c08-a86e-c5eda4e5e57a\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_f44939d2-1860-4c08-a86e-c5eda4e5e57a\",\"source\":\"knowledge_pages\",\"title\":\"Change Announcement Directory\",\"body\":\"# Change Announcement Directory\\n\\nConsumer-facing change notices are issued centrally so no consumer's notice\\ndepends on which team is making the change.\\n\\n## The bulletin\\n\\nA governed-stream change is announced as an AN-5 bulletin. The bulletin\\nis delivered to every consumer the stream's agreement ledger lists — see\\nthe consumer agreement ledger — and posted\\nagainst the stream's register entry, which is the authoritative copy when a\\ndelivered copy and the register disagree.\\n\\n## Retention\\n\\nBulletin issues are corporate correspondence, and their retention is not the\\nannouncing team's decision: issued bulletins are filed under\\nthe corporate records schedule like any\\nother controlled record.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_019Yhti26CteJa2J4JzG2ApD",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "invoice-adjustments feed invoice adjustment nightly",
+          "limit": 20,
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_019Yhti26CteJa2J4JzG2ApD",
+        "text": "{\"groups\":[{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Terminal Sync Tuning Notes\\nOperating tuning notes for the terminal-sync pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_5e21d6bb-a2ca-4b0d-8848-7558d2ea6192\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_5e21d6bb-a2ca-4b0d-8848-7558d2ea6192\"},{\"text\":\"Ticket Intake Tuning Notes\\nOperating tuning notes for the ticket-intake pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_3ca0e3a8-bb3b-449b-8e26-deb0d9d09a86\",\"score\":0.7350049699582742,\"reference\":\"mcp:knowledge_page:kp_3ca0e3a8-bb3b-449b-8e26-deb0d9d09a86\"},{\"text\":\"Ticket Intake Handling Guide\\nOperating handling guide for the ticket-intake pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_1638ce31-44be-4e6a-9dc7-cf92c2070fe2\",\"score\":0.691811907062337,\"reference\":\"mcp:knowledge_page:kp_1638ce31-44be-4e6a-9dc7-cf92c2070fe2\"},{\"text\":\"Dispatch Digest Tuning Notes\\nOperating tuning notes for the dispatch-digest pipeline: what it covers, when it runs and who looks after it (the integrations crew).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_a86bd801-2801-410a-8161-2517e4e718bd\",\"score\":0.6474396964568041,\"reference\":\"mcp:knowledge_page:kp_a86bd801-2801-410a-8161-2517e4e718bd\"},{\"text\":\"Loyalty Relay Tuning Notes\\nOperating tuning notes for the loyalty-relay pipeline: what it covers, when it runs and who looks after it (the warehouse platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_9bb67495-6d43-4a3f-aa0a-ac6e7f530897\",\"score\":0.4516380172111177,\"reference\":\"mcp:knowledge_page:kp_9bb67495-6d43-4a3f-aa0a-ac6e7f530897\"},{\"text\":\"Outlet Archive Tuning Notes\\nOperating tuning notes for the outlet-archive pipeline: what it covers, when it runs and who looks after it (the stream operations group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_0328f2eb-46f4-42a0-b638-48ee632ce83d\",\"score\":0.39629502888526186,\"reference\":\"mcp:knowledge_page:kp_0328f2eb-46f4-42a0-b638-48ee632ce83d\"},{\"text\":\"Shipment Intake Tuning Notes\\nOperating tuning notes for the shipment-intake pipeline: what it covers, when it runs and who looks after it (the reporting platform team).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_249f0062-e4e6-43e5-8349-b75d96cf3286\",\"score\":0.3867885459062531,\"reference\":\"mcp:knowledge_page:kp_249f0062-e4e6-43e5-8349-b75d96cf3286\"},{\"text\":\"Ticket Intake Checks\\nOperating checks for the ticket-intake pipeline: what it covers, when it runs and who looks after it (the stream operations group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_ecec67e7-74b4-47e0-9fab-e60e03009c6d\",\"score\":0.350661309445008,\"reference\":\"mcp:knowledge_page:kp_ecec67e7-74b4-47e0-9fab-e60e03009c6d\"},{\"text\":\"Courier Digest Tuning Notes\\nOperating tuning notes for the courier-digest pipeline: what it covers, when it runs and who looks after it (the stream operations group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_ba6df9f1-2fe6-423d-b63b-aa2f945b8148\",\"score\":0.30517157609819284,\"reference\":\"mcp:knowledge_page:kp_ba6df9f1-2fe6-423d-b63b-aa2f945b8148\"},{\"text\":\"Ticket Intake Window Notes\\nOperating window notes for the ticket-intake pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_4fde8e29-3765-4a13-a173-f9a48bedcfa5\",\"score\":0.29296933648562457,\"reference\":\"mcp:knowledge_page:kp_4fde8e29-3765-4a13-a173-f9a48bedcfa5\"},{\"text\":\"Feed Re-run Procedure\\nHow a nightly feed's bad night is repaired: replacement by partition, and what a re-run must never change.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_01fc3369-f4ff-482b-acb2-65f491e0e021\",\"score\":0.2642062723052642,\"reference\":\"mcp:knowledge_page:kp_01fc3369-f4ff-482b-acb2-65f491e0e021\"},{\"text\":\"Telemetry Backfill Tuning Notes\\nOperating tuning notes for the telemetry-backfill pipeline: what it covers, when it runs and who looks after it (the data services desk).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f7c35892-05cd-41eb-b478-c8d58e661fc5\",\"score\":0.21859280458610897,\"reference\":\"mcp:knowledge_page:kp_f7c35892-05cd-41eb-b478-c8d58e661fc5\"},{\"text\":\"Consent Intake Tuning Notes\\nOperating tuning notes for the consent-intake pipeline: what it covers, when it runs and who looks after it (the integrations crew).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_07b8c762-cd8d-4d3b-90e7-18f37dd7b4a9\",\"score\":0.21679859714795538,\"reference\":\"mcp:knowledge_page:kp_07b8c762-cd8d-4d3b-90e7-18f37dd7b4a9\"},{\"text\":\"Dispatch Digest Checks\\nOperating checks for the dispatch-digest pipeline: what it covers, when it runs and who looks after it (the ingestion duty group).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_02245a42-967b-477d-a3f0-66e6cd095245\",\"score\":0.1855769851267672,\"reference\":\"mcp:knowledge_page:kp_02245a42-967b-477d-a3f0-66e6cd095245\"},{\"text\":\"Terminal Sync Checks\\nOperating checks for the terminal-sync pipeline: what it covers, when it runs and who looks after it (the integrations crew).\",\"source\":\"knowledge_pages\",\"ref\":\"kp_370fd082-34ea-43c6-930e-9c523eeabac2\",\"score\":0.1623095028365209,\"reference\":\"mcp:knowledge_page:kp_370fd082-34ea-43c6-930e-9c523eeabac2\"}]},{\"source\":\"prompts\",\"hits\":[{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":1,\"reference\":\"mcp:prompt:413b4350-4754-4d8e-878d-c8de2a5a80be\"},{\"text\":\"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"source\":\"prompts\",\"ref\":\"knowledge_apply_guidance\",\"score\":0.4476113547141346,\"reference\":\"mcp:prompt:9be8c35d-fe7e-4968-8f06-594d9f0203f3\"},{\"text\":\"save-this-as-an-asset\\nSave output from this conversation as a viewable, shareable asset\",\"source\":\"prompts\",\"ref\":\"save-this-as-an-asset\",\"score\":0.3531462673600503,\"reference\":\"mcp:prompt:3866cf0b-6ac6-4566-8802-0eb0164375d4\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.20560343595431868,\"reference\":\"mcp:prompt:29eba056-5bd2-43bd-b144-3026e0296b61\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0,\"reference\":\"mcp:prompt:1e65fe82-a0df-43c2-8dd4-f77d9b10b7f5\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":15},{\"source\":\"prompts\",\"matched\":5,\"shown\":5}],\"count\":20,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_016dVLmgDrJZxVDzSkWT1ePZ",
+        "name": "mcp__bench__search",
+        "args": {
+          "intent": "corporate records schedule retention of controlled records",
+          "limit": 5,
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_016dVLmgDrJZxVDzSkWT1ePZ",
+        "text": "{\"groups\":[{\"source\":\"prompts\",\"hits\":[{\"text\":\"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\"source\":\"prompts\",\"ref\":\"capture-this-as-knowledge\",\"score\":1,\"reference\":\"mcp:prompt:413b4350-4754-4d8e-878d-c8de2a5a80be\"},{\"text\":\"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\"source\":\"prompts\",\"ref\":\"knowledge_capture_guidance\",\"score\":0.6519731969140903,\"reference\":\"mcp:prompt:1e65fe82-a0df-43c2-8dd4-f77d9b10b7f5\"},{\"text\":\"show-my-saved-assets\\nBrowse your saved assets\",\"source\":\"prompts\",\"ref\":\"show-my-saved-assets\",\"score\":0.5806482782814275,\"reference\":\"mcp:prompt:29eba056-5bd2-43bd-b144-3026e0296b61\"}]},{\"source\":\"knowledge_pages\",\"hits\":[{\"text\":\"Change Announcement Directory\\nHow governed-stream changes are announced: the bulletin, who receives it, and which record of it is authoritative.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_f44939d2-1860-4c08-a86e-c5eda4e5e57a\",\"score\":1,\"reference\":\"mcp:knowledge_page:kp_f44939d2-1860-4c08-a86e-c5eda4e5e57a\"},{\"text\":\"Corporate Records Retention Directory\\nThe records management directory: filing series, retention standing, and disposal review for controlled corporate records.\",\"source\":\"knowledge_pages\",\"ref\":\"kp_535b3fa4-feca-42aa-8451-58b4e122969e\",\"score\":0.11646540703303902,\"reference\":\"mcp:knowledge_page:kp_535b3fa4-feca-42aa-8451-58b4e122969e\"}]}],\"coverage\":[{\"source\":\"knowledge_pages\",\"matched\":25,\"shown\":2},{\"source\":\"prompts\",\"matched\":5,\"shown\":3}],\"count\":5,\"ranking\":\"hybrid\"}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01HNCcBd2ZXpLsNTzktYfKj5",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_1b7085d9-4689-46dd-b7fb-d00dfa413fdc",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01HNCcBd2ZXpLsNTzktYfKj5",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_1b7085d9-4689-46dd-b7fb-d00dfa413fdc\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_1b7085d9-4689-46dd-b7fb-d00dfa413fdc\",\"source\":\"knowledge_pages\",\"title\":\"Governed Tier Obligations\",\"body\":\"# Governed Tier Obligations\\n\\nA governed-tier stream feeds the statutory accounts, so its obligations are\\nstricter than ordinary operational care.\\n\\n## Changes\\n\\nEvery change to what a governed stream carries is classified before any work\\nbegins. An incompatible change to the record shape is class RB-7 under\\nthe change class directory, which also sets\\nwhat each class owes its consumers. The owner cannot waive a classification.\\n\\n## Attestation\\n\\nAfter any change lands, the producing service's owner re-attests the stream's\\ncompleteness under the attestation procedure.\\nAn unattested change is treated as unfinished however long it has been live.\\n\\n## Timing\\n\\nChange timing does not belong to the producing team alone: work on systems\\nthat feed the statutory accounts also observes\\nthe company close calendar, whose windows are set\\nby the finance organization, not by engineering.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01VbhTDv5KYxSEMUAUWzXENa",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_535b3fa4-feca-42aa-8451-58b4e122969e",
+          "session_id": "dps_6ad58a8f6fcf75e77d713a9391093201"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01VbhTDv5KYxSEMUAUWzXENa",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_535b3fa4-feca-42aa-8451-58b4e122969e\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_535b3fa4-feca-42aa-8451-58b4e122969e\",\"source\":\"knowledge_pages\",\"title\":\"Corporate Records Retention Directory\",\"body\":\"# Corporate Records Retention Directory\\n\\nThe records management office maintains the filing series every controlled\\ncorporate record belongs to. A record's series decides how long it is kept,\\nwhere it is filed, and who may dispose of it.\\n\\n## Series RR-21\\n\\nSeries RR-21 covers issued circulars and bulletins: formal\\ncorrespondence the firm sends out in its own name and must be able to\\nproduce later. Items in the series are filed with their delivery evidence at\\nthe time of issue — filing is part of issuing, not an afterthought — and are\\nkept for the period the directory lists for the series, with disposal\\nreviewed by the records office rather than by the issuing team.\\n\\n## Everything else\\n\\nMinutes, agreements and working papers carry their own series. A record that\\nfits no listed series is filed under the general series and flagged for the\\nnext directory review.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "# Onboarding Document — `invoice-adjustments` Nightly Feed\n\n**Status:** new feed, not yet recorded on the platform. A search of the platform's knowledge pages and catalog returns no existing entry for `invoice-adjustments`; everything below is the standing standard set that the `parcel-events` feed is operated under, applied to this feed.\n\n**Basis.** The `parcel-events` runbook holds almost nothing operational itself. It is explicit that *\"everything that makes it operable lives in the standards it follows rather than in this page\"* — its name follows the feed naming standard, its output lands as the landing zone layout prescribes, its storage is registered in the storage tier register, its landing time is declared in the delivery expectation standard, a bad night is repaired under the re-run procedure, and any copy off the platform runs through the off-platform copy policy. Operating `invoice-adjustments` \"exactly like `parcel-events`\" therefore means binding it to those same six standards, plus the registers each of them hands off to. This document walks them in order.\n\n---\n\n## 1. Naming\n\n**Standard:** Feed Naming Standard, pattern **FN-13**.\n\n- A feed's name is its contract with everyone who schedules against it.\n- FN-13 form: **the subject first, then the grain of the records, joined with a dash.** `parcel-events` is the named model for the pattern — subject `parcel`, grain `events`.\n- `invoice-adjustments` is well-formed under FN-13 on the same reading: subject `invoice`, grain `adjustments`. The name as proposed needs no change.\n- **The output carries the feed's name.** The standard's stated purpose for this is that *a consumer should never need a lookup table to connect the two* — so the output of this feed is named `invoice-adjustments`, not some separate product name.\n\n### Renames\n\nIf the feed is ever renamed:\n\n- The rename runs through an **alias period**. The old name keeps working while registered consumers move over.\n- The alias is retired **only when the delivery records show no reads against it** — not on a date chosen in advance.\n- Renaming without the alias period is not a rename. It is treated as decommissioning one feed and launching another, \"with everything that obliges.\"\n\nNote the dependency on consumer registration: \"registered consumers\" are those holding a **CA-9** agreement in the Consumer Agreement Ledger (see §7). A team that never registered is not tracked through the alias period.\n\n---\n\n## 2. Where the output lands, and how that area is organized\n\n**Standard:** Landing Zone Layout, layout **LZ-14**.\n\n- **One prefix per feed, named for the feed.** `invoice-adjustments` owns exactly one prefix in the landing area, named for the feed.\n- **Everything the feed writes lands under that prefix, partitioned by write date.** No other partitioning scheme is provided for by the layout.\n- **Nothing writes outside its own prefix.** The layout states the consequence directly: *\"a feed that needs a second area is two feeds.\"* If `invoice-adjustments` turns out to need a second landing area, that is a second feed to be named and onboarded under FN-13 in its own right, not an extension of this one.\n- **Nothing but the feed writes inside the prefix.** The design intent is that ownership of any object in the zone is readable from its path alone.\n- **Consumers read; they do not write.** Consumers must not place markers, checkpoints or scratch output inside the prefix. Consumer state lives with the consumer.\n\nThe literal root path / bucket of the landing area is not recorded in the material available (see Open items).\n\n---\n\n## 3. Storage registration and how long output lives\n\n**Standard:** Storage Tier Register, tier **ST-16**; capacity via Procurement Commitment Ledger line **PV-25**.\n\n### Registration\n\n- **Every feed registers its output in exactly one storage tier, and the tier decides the output's lifetime.** There is no per-feed retention setting to negotiate; the choice of tier *is* the retention decision.\n- **Nightly operational feeds register in tier ST-16.** `parcel-events` sits in ST-16, and the register states that *a feed operated like it registers here too*. `invoice-adjustments` registers in **ST-16**.\n\n### Lifetime\n\n- **Output in ST-16 is purged 47 days after its write date.**\n- Keeping anything longer is **not** an operational adjustment: it is a **re-registration into a retention tier**, reviewed by the register's owners, and is *not* granted by the feed team. If any consumer of `invoice-adjustments` needs adjustment records beyond 47 days, that requirement goes to the register's owners before launch, not to the feed operators afterwards.\n\n### Capacity\n\nRegistration is also the capacity event, and it reaches outside the platform:\n\n- Platform storage is bought ahead under a **standing vendor commitment**, so a new registration **draws against line PV-25** in the Procurement Commitment Ledger, maintained by the procurement office.\n- **Registering the feed is what makes the draw visible to procurement.** Draw-downs are recorded as internal registrations are made, and the office sizes the renewal from the recorded draws — *an unrecorded draw is capacity the renewal will not cover.* Registering `invoice-adjustments` properly is therefore the act that protects its own future capacity.\n- **New draws are confirmed with the vendor manager before they begin.**\n- **A draw that would take PV-25 past its committed volume waits for the renewal** rather than assuming it. Renewals run on the procurement office's own negotiation calendar.\n- **Teams planning a large draw talk to the office a cycle ahead.** Whether `invoice-adjustments` counts as a large draw depends on its expected nightly volume, which is not recorded (see Open items). If it is expected to be large, the conversation with procurement starts a cycle before launch, not at registration.\n\n---\n\n## 4. When it is expected to land, and repeated lateness\n\n**Standard:** Delivery Expectation Standard, table **LH-18**.\n\n### Declaration\n\n- **Every nightly feed declares its expected landing hour in table LH-18**, and **the declaration is what consumers schedule against.**\n- Declaring is not optional bookkeeping: *\"an undeclared feed has no lateness, only unpredictability.\"* Until `invoice-adjustments` has an LH-18 entry, no lateness can be asserted against it and consumers have nothing to schedule against. **Making the LH-18 declaration is a launch prerequisite.**\n- The specific hour to declare for `invoice-adjustments` is not determined by the material available (see Open items).\n\n### Lateness\n\n- **A feed landing after its declared hour is late**, and lateness is tracked **per morning, against the declaration.**\n- **One late morning is noted.**\n- **Repeated late mornings in the same week are raised with the owning team as a delivery matter.** The outcome is one of exactly two things:\n  1. **the window moves and the declaration is corrected**, or\n  2. **the cause is fixed.**\n  Continuing to watch repeated lateness without doing one of these is not an available option.\n- **Quietly re-declaring a later hour to absorb lateness is prohibited as a silent act.** A re-declaration \"is a change consumers must be told about like any other\" — so moving the LH-18 hour carries the consumer-notification obligation in §5, not just an edit to the table.\n\nNote the interaction with §6: `parcel-events` runs only after its upstream collectors drain, and the same dependency shape will govern `invoice-adjustments` lateness. A late upstream produces a late feed, and the delivery-matter conversation is where that is resolved — the standard does not exempt a feed from lateness because the cause was upstream.\n\n---\n\n## 5. Telling consumers about changes\n\n**Standards:** Change Announcement Directory (**AN-5**), Consumer Agreement Ledger (**CA-9**), Corporate Records Retention Directory (**RR-21**).\n\nThis applies whenever `invoice-adjustments` changes in a way consumers must be told about — the re-declaration case in §4 above is the one the delivery standard names explicitly.\n\n- **Notices are issued centrally**, so that no consumer's notice depends on which team is making the change.\n- A governed-stream change is announced as an **AN-5 bulletin**.\n- The bulletin is **delivered to every consumer the stream's agreement ledger lists**, and **posted against the stream's register entry**. Where a delivered copy and the register disagree, **the register entry is authoritative.**\n- **Bulletin retention is not the announcing team's decision.** Issued bulletins are corporate correspondence, filed under **series RR-21** with their delivery evidence **at the time of issue** — *\"filing is part of issuing, not an afterthought\"* — and disposal is reviewed by the records office, not the issuing team.\n\nThe Change Announcement Directory frames AN-5 around *governed-stream* changes. Whether `invoice-adjustments` is classed a governed-tier stream is not established (see §8 and Open items); the delivery expectation standard's own requirement that consumers be told about a re-declaration stands regardless.\n\n---\n\n## 6. Re-running after a bad night\n\n**Standard:** Feed Re-run Procedure, procedure **RP-22**.\n\nThe governing sentence: **a re-run repairs a bad night by replacing it, never by appending to it.**\n\n1. **Replace whole partitions.** The affected write-date partitions are replaced whole, under the feed's own prefix. Not merged, not topped up, not appended.\n2. **The original write date stays the partition's identity.** A re-run performed days later **still lands under the night it repairs**, so consumers re-reading the partition see the corrected records where the bad ones were.\n3. **A re-run that would change a partition's write date is not a re-run.** The procedure calls it *\"a new feed writing into an old feed's zone,\"* which the LZ-14 layout forbids outright. This is the single most important constraint to get right when repairing `invoice-adjustments`: dating a repair to the day it was run breaks both RP-22 and the landing zone layout at once.\n4. **Wait for upstream to drain first.** Re-runs happen **after the upstream collectors have drained for the affected window**; re-running ahead of the upstream repair simply reproduces the bad night.\n\n### The limit of a re-run\n\nThe `parcel-events` runbook is explicit about a boundary worth carrying over verbatim in spirit: that feed *runs only after the parcel collectors drain*, and **a missing hour in the output is a collector matter, not a feed matter — re-running the feed cannot supply records a collector never delivered.** For `invoice-adjustments`, the same logic applies to whatever upstream supplies it: if the upstream never delivered the adjustments, no re-run of this feed will produce them, and the repair belongs upstream. The identity of that upstream for `invoice-adjustments` is not recorded (see Open items).\n\nAlso note the retention interaction: ST-16 purges output 47 days after its write date. A partition older than that window is gone, and a re-run cannot restore what the tier has already purged.\n\n---\n\n## 7. Consumers\n\n**Standard:** Consumer Agreement Ledger, agreement **CA-9**.\n\nRelevant to `invoice-adjustments` because both the alias period (§1) and change notices (§5) are addressed to *registered* consumers.\n\n- **Each consuming team registers a CA-9 agreement per stream it reads.** The agreement names **the consuming service, its owner, and the fields it depends on.**\n- **Registration is a condition of read access**, and it is also **the notice boundary**: announcements go to registered consumers, and *\"a team that never registered is owed nothing, however long it has been reading.\"*\n- Agreements are **reviewed when a stream's shape changes.** A consumer whose declared fields are untouched by a change **may be notified without being waited for**, at the announcing owner's discretion.\n\nPractically: consumers of `invoice-adjustments` should be registered before or at launch, or they fall outside every notice this document promises them.\n\n---\n\n## 8. If `invoice-adjustments` is classed a governed-tier stream\n\nThe material does not say whether this feed is governed-tier, and the `parcel-events` runbook cites none of these obligations — so on a strict \"operated exactly like `parcel-events`\" reading, they do not apply. They are recorded here because a **governed-tier stream is defined as one that feeds the statutory accounts**, and an invoice-adjustments feed is the kind of feed for which that question should be answered deliberately rather than by default. **This must be confirmed before launch** (see Open items). If it is governed-tier, the following attach:\n\n- **Change classification.** Every change to what the stream carries is classified **before any work begins**. An incompatible change to the record shape is **class RB-7** under the change class directory, which also sets what each class owes its consumers. **The owner cannot waive a classification.**\n- **Attestation.** After any change lands, the producing service's owner **re-attests the stream's completeness** under the attestation procedure. *\"An unattested change is treated as unfinished however long it has been live.\"*\n- **Timing.** Change timing does not belong to the producing team alone: work on systems feeding the statutory accounts observes the **company close calendar**, whose windows are set by the finance organization, not by engineering.\n\n---\n\n## 9. If any output is copied outside the platform\n\n**Standards:** Off-platform Copy Policy (**EG-24**), Data Sharing Agreement Register (**SA-27**).\n\nThe policy opens with the operative rule: **no feed output leaves the platform on an operator's judgment alone.**\n\n### The approval\n\n- **Every copy outside the platform carries an EG-24 approval**, naming three things:\n  1. **the receiving party**,\n  2. **the purpose**, and\n  3. **the date the copy will be deleted.**\n- **An approval missing any of the three is returned unactioned.**\n- **The approval is filed before the copy is made** — not reconstructed afterwards.\n- **Re-copies under an existing approval are re-copies only while the purpose and recipient are unchanged.** A change to either means a new approval, not a repeat of the old one.\n\n### The covering instrument\n\n- An approval must also **cite the agreement that makes the transfer lawful.**\n- The covering instrument is looked up in the **Data Sharing Agreement Register**, maintained by the legal office. **A transfer with no instrument to cite does not proceed, whatever its purpose.**\n- Each instrument is registered as an **SA-27 entry**: **the counterparty, the categories of records covered, the permitted purposes, and the instrument's expiry.**\n- **The citation is checked against the entry's categories and purposes — not against the transferring team's intent.** A well-intentioned transfer outside the entry's categories does not qualify.\n- **An expired or absent instrument means the transfer waits for the legal office, however routine the request.**\n- **The register is the only authoritative list.** Copies of instruments held by teams are working copies, and **the register's expiry dates govern.**\n\nBecause invoice adjustments are financial records, the \"categories of records covered\" check is the likely point of friction for this feed: an SA-27 entry that covers, say, parcel or logistics records will not automatically cover invoice adjustment records. Confirm the covering entry's categories before promising any external recipient a delivery.\n\n---\n\n## 10. Launch checklist\n\nIn dependency order:\n\n1. Confirm the name `invoice-adjustments` against **FN-13** — done above; subject-then-grain, dash-joined.\n2. Confirm whether the feed is **governed-tier** (§8), since that decides whether classification, attestation and close-calendar obligations attach from day one.\n3. Create the feed's **single LZ-14 prefix**, named for the feed, partitioned by write date; confirm nothing else writes into it and the feed writes nowhere else.\n4. **Register the output in ST-16** — accepting 47-day purge from write date — and confirm the **PV-25 draw** with the vendor manager; talk to the procurement office a cycle ahead if the draw is large.\n5. **Declare the expected landing hour in LH-18** before consumers schedule against the feed.\n6. Get consumers **registered under CA-9**, naming service, owner, and depended-on fields.\n7. Establish the **upstream drain signal** the nightly run and any re-run waits on (§6).\n8. Confirm the **SA-27 covering instrument** in advance if any external delivery is contemplated; otherwise no output leaves the platform.\n\n---\n\n## Open items\n\nThe following are required by this document but are **not determined by anything recorded on the platform**. None of them has been guessed at above.\n\n1. **The expected landing hour to declare in LH-18 for `invoice-adjustments`.** The Delivery Expectation Standard describes the table and the lateness rules but does not carry hours; no LH-18 entry for `parcel-events` is recorded either, so there is no model hour to copy. This must be set with the owning team and declared before launch.\n2. **The owning team / operator for `invoice-adjustments`.** The `parcel-events` runbook does not name a team, so \"operated exactly like `parcel-events`\" supplies no owner. The lateness escalation in §4 (\"raised with the owning team\") and the attestation in §8 both need a named owner.\n3. **The upstream that `invoice-adjustments` waits on.** `parcel-events` runs only after the parcel collectors drain; the equivalent upstream for invoice adjustments — and the signal that it has drained — is not recorded. Both the nightly run condition and the RP-22 re-run precondition depend on it.\n4. **The literal landing-zone root.** LZ-14 specifies one prefix per feed named for the feed and partitioned by write date, but no bucket, root path, or partition-key spelling (e.g. the exact write-date format) is recorded.\n5. **What the output is, in record terms.** No schema, record shape, grain definition, file format, or catalog entry for `invoice-adjustments` exists on the platform. The naming standard fixes what the output is *called*; nothing fixes what it *contains*. CA-9 registration requires consumers to declare the fields they depend on, which presupposes a published field list.\n6. **Whether `invoice-adjustments` is a governed-tier stream** — i.e. whether it feeds the statutory accounts. This is the single decision that most changes the obligations in §8, and it is not answerable from the recorded material.\n7. **The numeric lateness threshold.** The standard says \"repeated late mornings in the same week\" are raised, without stating how many mornings constitute \"repeated.\"\n8. **Expected nightly volume, and whether the PV-25 draw fits inside the line's committed volume.** Needed to know whether this is a \"large draw\" requiring the procurement office a cycle ahead, and whether the draw must wait for renewal.\n9. **The retention period for series RR-21.** The Corporate Records Retention Directory says bulletins are kept \"for the period the directory lists for the series\" without stating that period. Only relevant if an AN-5 bulletin is issued for this feed.\n10. **Which SA-27 entry, if any, would cover invoice adjustment records.** No instrument covering this record category has been identified; until the legal office's register is checked, no external delivery of this feed's output can be committed to."
+  }
+]

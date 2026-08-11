@@ -2,11 +2,13 @@ package graphprobe
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/graphfix"
+	"github.com/txn2/mcp-data-platform/bench/internal/graphgen"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 )
 
@@ -86,18 +88,21 @@ func RereadLookup(dir string) ([]LookupAttempt, error) {
 // (for an eliciting run) completeness claims from its transcripts and
 // archived final documents, using the current classifier and grader.
 //
-// Rereads run over the compiled-in fixture corpus, and the archive must
-// actually have been produced from it: with generated corpora in play
-// (#1250), silently regrading a study archive over the wrong reference graph
-// would print coverage that contradicts the run's own numbers. A study
-// archive's manifest will carry its generator spec and reread will
-// regenerate that corpus instead (#1251).
+// A study archive's manifest carries its generator spec and reread
+// regenerates that exact corpus (#1251); a probe-era archive carries none
+// and rereads over the compiled-in fixture. Either way the archive must
+// actually match the corpus it grades over: silently regrading over the
+// wrong reference graph would print coverage that contradicts the run's own
+// numbers.
 func RereadCompletion(dir string) (*CompletionResults, error) {
 	var res CompletionResults
 	if err := readArchiveJSON(dir, &res); err != nil {
 		return nil, err
 	}
-	corpus := graphfix.Default()
+	corpus, err := archiveCorpus(res)
+	if err != nil {
+		return nil, err
+	}
 	if err := rereadCorpusMatches(res, corpus); err != nil {
 		return nil, err
 	}
@@ -113,17 +118,37 @@ func RereadCompletion(dir string) (*CompletionResults, error) {
 	return &res, nil
 }
 
-// rereadCorpusMatches refuses an archive the fixture corpus cannot vouch
-// for: the page count must match the plant and every archived cell must be a
-// fixture cell with its fixture entry page.
+// archiveCorpus resolves the corpus an archive grades over: the regenerated
+// study corpus when the manifest carries a generator spec, the compiled-in
+// fixture otherwise.
+func archiveCorpus(res CompletionResults) (graphfix.Corpus, error) {
+	if res.Manifest.Spec == nil {
+		return graphfix.Default(), nil
+	}
+	gen, err := graphgen.Generate(*res.Manifest.Spec)
+	if err != nil {
+		return graphfix.Corpus{}, fmt.Errorf("graphprobe: regenerating the archive's corpus from its spec: %w", err)
+	}
+	return gen.Corpus, nil
+}
+
+// rereadCorpusMatches refuses an archive its resolved corpus cannot vouch
+// for: the content fingerprint must match the manifest's when the archive
+// carries one (page counts, cell ids and entry keys are scale-invariant, so
+// only the hash catches a generator whose content drifted after the run),
+// the page count must match the plant, and every archived cell must be a
+// corpus cell with its corpus entry page.
 func rereadCorpusMatches(res CompletionResults, corpus graphfix.Corpus) error {
+	if want := res.Manifest.CorpusFingerprint; want != "" && want != corpus.Fingerprint() {
+		return errors.New("graphprobe: the corpus regenerated for this archive hashes differently from the one the run graded against; the generator (or fixture) content drifted since the run — reread from the archived commit instead")
+	}
 	if len(res.Planted.Pages) != len(corpus.Pages) {
-		return fmt.Errorf("graphprobe: archive planted %d pages but the fixture corpus holds %d; this archive was not produced from the compiled-in fixture and cannot be reread against it", len(res.Planted.Pages), len(corpus.Pages))
+		return fmt.Errorf("graphprobe: archive planted %d pages but its corpus holds %d; the archive was not produced from the corpus its manifest describes and cannot be reread against it", len(res.Planted.Pages), len(corpus.Pages))
 	}
 	for _, cell := range res.Cells {
-		fixture, ok := corpus.CellByID(cell.ID)
-		if !ok || fixture.EntryKey != cell.EntryKey {
-			return fmt.Errorf("graphprobe: archive cell %q is not the fixture's cell of that id; this archive was not produced from the compiled-in fixture", cell.ID)
+		own, ok := corpus.CellByID(cell.ID)
+		if !ok || own.EntryKey != cell.EntryKey {
+			return fmt.Errorf("graphprobe: archive cell %q is not its corpus's cell of that id; the archive was not produced from the corpus its manifest describes", cell.ID)
 		}
 	}
 	return nil

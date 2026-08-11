@@ -1,0 +1,359 @@
+[
+  {
+    "role": "user",
+    "text": "The operating runbook for the orders-ledger stream is mcp:knowledge_page:kp_9f86bf5e-4e4d-4898-8d6b-0e8979c66a9c.\n\nWe want to add a new field to the records on the orders-ledger stream. Write the complete change plan the stream's owner could execute as written: every step from proposal to the field being live, every approval the change needs, every rule that constrains when it can be applied, and everything the stream's consumers are owed along the way. Completeness matters more than brevity; the plan is the deliverable.\n\nEnd the document with a section titled \"Open items\": list each thing the document needs that you could not determine, or write \"None\" if nothing is outstanding."
+  },
+  {
+    "role": "assistant",
+    "text": "I'll start by getting the platform documentation and session context."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_017nW7ae4Av7V9iW6TUCFYQb",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 5,
+          "query": "select:mcp__bench__platform_info,mcp__bench__fetch,mcp__bench__list_connections"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_017nW7ae4Av7V9iW6TUCFYQb",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01JqFKLYKiDAEpBreCDyKcyj",
+        "name": "mcp__bench__platform_info",
+        "args": {}
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01JqFKLYKiDAEpBreCDyKcyj",
+        "text": "{\"name\":\"mcp-data-platform-bench-gt\",\"version\":\"v1.120.0-2-g7e441e30-dirty\",\"session_id\":\"dps_c9ed2416f22902daa9af2df26bb4fb10\",\"session_expires_at\":\"2026-08-11T05:20:50Z\",\"agent_instructions\":\"SESSION HANDLE: This call issued you session_id \\\"dps_c9ed2416f22902daa9af2df26bb4fb10\\\". Pass it as the session_id argument on EVERY subsequent tool call. Tool calls without it are refused (SESSION_REQUIRED). Do not call platform_info again unless a call returns SESSION_EXPIRED.\\n\\nHow to operate this platform:\\n- Discover before you act. Call `search` first: one query reveals what is already known across every source you can reach (the data catalog, its context documents, your memory, captured insights, knowledge pages, your feedback, saved assets, uploaded reference material, prompts, API endpoints, and connections). The answer may span several sources, or may not be in the data warehouse at all, so do not assume a backend and do not stop at the first result.\\n- Reuse what is known. Treat `search` results as the starting point and read a result in full with `fetch` (pass the result's `reference`), or drill in with the scoped tool a result points to, rather than re-deriving an answer or re-asking the user for something already recorded.\\n\\nUploaded reference material:\\nResources are human-uploaded inputs an agent uses as-is: report templates, brand files, data dictionaries, sample payloads, and reference documents. Assets are AI-generated outputs. Knowledge pages are curated facts to search and synthesize. Memory is per-user recall. If it existed before the conversation and the agent should use it verbatim, it is a resource.\\n- Before you format a deliverable, `search` for an applicable template or reference resource and follow it rather than inventing a layout.\\n- When the user names a company file (\\\"our template\\\", \\\"the checklist\\\", \\\"the brand header\\\"), resolve it with `search` and read it in full with `fetch` (pass the result's `reference`) instead of asking them to paste it.\\n- Material attached to a prompt is authoritative: use it as given rather than paraphrasing it or substituting your own.\",\"toolkits\":[\"platform\",\"mcp\",\"api\"],\"toolkit_descriptions\":{\"platform\":\"Core platform tools: deployment info, connection listing, and resource access.\"},\"persona\":{\"name\":\"admin\",\"display_name\":\"Bench Graph Traversal (GT)\"},\"prompts\":[{\"name\":\"knowledge_capture_guidance\",\"description\":\"Guidance on when and how to capture domain knowledge insights\",\"category\":\"toolkit\",\"content\":\"## Knowledge Capture Guidance\\n\\n### Default Behavior: Capture Proactively\\n\\nYou should capture knowledge automatically during normal conversation. Do not wait for the user to say \\\"capture this\\\" or \\\"remember that.\\\" When someone tells you a fact about their data, that is knowledge. Record it.\\n\\nUse memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.\\n\\nThe goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.\\n\\n### When to Capture an Insight\\n\\nUse memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:\\n\\n**Corrections**: The user corrects a column description, table purpose, or data interpretation.\\nExample: \\\"That column isn't actually revenue, it's gross margin before returns.\\\"\\n\\n**Business Context**: The user explains what data means in business terms not captured in metadata.\\nExample: \\\"We only count active subscriptions, not trial accounts, for MRR calculations.\\\"\\n\\n**Data Quality**: The user reports data quality issues or known limitations.\\nExample: \\\"The timestamps before March 2024 are in UTC but after that they switched to America/Chicago.\\\"\\n\\n**Usage Guidance**: The user shares tips on how to query or interpret data correctly.\\nExample: \\\"Always filter by status='active' on that table, otherwise you get duplicates from soft deletes.\\\"\\n\\n**Relationships**: The user explains connections between datasets not captured in lineage.\\nExample: \\\"The customer_id in orders joins to the legacy CRM export, not the new identity table.\\\"\\n\\n**Enhancements**: The user suggests improvements to existing documentation or metadata.\\nExample: \\\"It would help if the sales_daily table had a tag indicating it refreshes at 6 AM CT.\\\"\\n\\n### Agent-Discovered Insights\\n\\nYou can also capture insights you discover independently during data exploration. Set the source field to distinguish these from user-provided knowledge:\\n\\n**source: \\\"agent_discovery\\\"** — Use when you figure something out yourself during exploration:\\n- Discovering what a column actually contains by sampling data (e.g., \\\"column 'amt' appears to be in cents, not dollars, based on value ranges\\\")\\n- Finding join relationships not documented in lineage (e.g., \\\"orders.cust_id matches customers.legacy_id, not customers.id\\\")\\n- Identifying data quality patterns through queries (e.g., \\\"ship_date is NULL for 23% of completed orders since 2024-06\\\")\\n- Determining refresh cadence by observing max timestamps across multiple queries\\n\\n**source: \\\"enrichment_gap\\\"** — Use when flagging metadata gaps that need admin attention:\\n- A table has no description and you cannot determine its purpose from the data alone\\n- Column descriptions are missing or clearly outdated\\n- Lineage is incomplete or contradicts what the data shows\\n- Tags or glossary terms are absent for datasets that clearly belong to a domain\\n\\n**source: \\\"user\\\"** (default) — Use for insights the user explicitly shares with you.\\n\\n### When to Ask the User Instead\\n\\nDo NOT guess when:\\n- Enrichment metadata is insufficient and you cannot resolve the meaning from the data alone\\n- Multiple interpretations of a column or table are equally plausible\\n- The insight would have high impact if wrong (e.g., PII classification, deprecation status, compliance tagging)\\n\\nIn these cases, ask the user to clarify before capturing anything.\\n\\n### When NOT to Capture\\n\\nDo NOT capture insights for:\\n- Transient questions or debugging (\\\"why is my query slow?\\\")\\n- Personal preferences (\\\"I prefer using CTEs\\\")\\n- Information already present in the catalog metadata\\n- Vague or unverifiable claims without specific context\\n- Trivial observations that don't add catalog value\\n- Trivially obvious metadata gaps without adding what the data actually means\\n- Speculative interpretations you have not verified by querying the data\\n- The same gap repeatedly within a single session\\n\\n### Best Practices\\n\\n- Include specific entity URNs when the insight relates to known datasets\\n- Suggest concrete actions (add_tag, update_description) when applicable\\n- Set confidence to \\\"high\\\" only when the user is clearly authoritative\\n- For agent discoveries, set confidence based on evidence strength: \\\"high\\\" if verified by querying, \\\"medium\\\" if inferred from patterns, \\\"low\\\" if speculative\\n- Capture the insight promptly while context is fresh\\n- Use markdown formatting when it aids clarity: backticks for `column_name` and `table_name`, bullet lists for multi-point insights, fenced code blocks for SQL examples. Plain text is fine for simple observations.\"},{\"name\":\"knowledge_apply_guidance\",\"description\":\"How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\"category\":\"toolkit\",\"content\":\"## Reviewing Insights into Durable Knowledge\\n\\nYou hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as \\\"review and apply knowledge.\\\") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.\\n\\n### The loop, and why knowledge matters\\n\\n- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.\\n- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.\\n- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.\\n\\nAlways discover before you apply: search existing memory, insights, and knowledge first.\\n\\n### The expert review workflow\\n\\n1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.\\n2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.\\n3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.\\n4. **Route to the right home.**\\n   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.\\n   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.\\n5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:\u003cid\u003e, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).\\n6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).\\n7. **Close the loop.** Pass insight_ids on the apply call for the insights you are promoting, so they are marked applied and the resulting changeset is linked to them for traceability and rollback. An apply without insight_ids writes the changes but leaves the source insights pending, so the queue no longer reflects what is live. Reject or supersede the rest with review notes.\\n\\n### Structure knowledge as a navigable graph\\n\\nPrefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:\u003cid\u003e references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.\\n\\n### Routing examples\\n\\n- \\\"The amount column excludes returns\\\" applies to DataHub: update_description on that dataset column.\\n- \\\"We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning\\\" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.\\n- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.\\n- A broad \\\"retail operations\\\" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.\"},{\"name\":\"capture-this-as-knowledge\",\"description\":\"Record insights from this conversation for data catalog improvement\",\"category\":\"toolkit\",\"content\":\"Capture the key insights from this conversation as domain knowledge for the data catalog.\\n\\n1. Review our conversation for corrections, business context, data quality observations, or relationships discovered\\n2. Identify which datasets and columns the insights relate to\\n3. Record each insight with appropriate categorization and confidence level\\n4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)\"},{\"name\":\"save-this-as-an-asset\",\"description\":\"Save output from this conversation as a viewable, shareable asset\",\"category\":\"toolkit\",\"content\":\"Save the most recent output or analysis from this conversation as a shareable asset.\\n\\n1. Identify the key output from our conversation (dashboard, report, chart, or analysis)\\n2. Package it with an appropriate name, description, and tags\\n3. Save it as an asset so it can be viewed and shared\\n4. Return the link to the saved asset\"},{\"name\":\"show-my-saved-assets\",\"description\":\"Browse your saved assets\",\"category\":\"toolkit\",\"content\":\"List my saved assets.\\n\\n1. Retrieve all assets I have saved\\n2. Present them with names, descriptions, tags, and creation dates\\n3. Highlight the most recent items\"}],\"features\":{\"semantic_enrichment\":false,\"query_enrichment\":false,\"storage_enrichment\":false,\"audit_logging\":true,\"knowledge_capture\":false,\"managed_resources\":true},\"config_version\":{\"api_version\":\"v1\",\"supported_versions\":[\"v1\"],\"latest_version\":\"v1\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01VCRAnXwVmN4cAdu26Hgnxt",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 3,
+          "query": "select:search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01VCRAnXwVmN4cAdu26Hgnxt",
+        "text": "No matching deferred tools found",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01HHJrBe8vhkwfBHjXcHg7FQ",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 8,
+          "query": "search discover knowledge pages catalog"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01HHJrBe8vhkwfBHjXcHg7FQ",
+        "text": "",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01VJduLnXJJDCBHn5nLLU2QT",
+        "name": "ToolSearch",
+        "args": {
+          "max_results": 3,
+          "query": "select:mcp__bench__search"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01VJduLnXJJDCBHn5nLLU2QT",
+        "text": "No matching deferred tools found",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Vm9qEdFWKVnjZv4R12RBjM",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_9f86bf5e-4e4d-4898-8d6b-0e8979c66a9c",
+          "session_id": "dps_c9ed2416f22902daa9af2df26bb4fb10"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Vm9qEdFWKVnjZv4R12RBjM",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_9f86bf5e-4e4d-4898-8d6b-0e8979c66a9c\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_9f86bf5e-4e4d-4898-8d6b-0e8979c66a9c\",\"source\":\"knowledge_pages\",\"title\":\"Orders Ledger Stream Runbook\",\"body\":\"# Orders Ledger Stream Runbook\\n\\nThe orders-ledger stream carries the order lifecycle records every revenue\\nreport is built from. It is a governed-tier stream: its records feed the\\nstatutory accounts, and everything about how it changes is bound by\\nmcp:knowledge_page:kp_556b20a9-cd8d-4f96-b52d-1b448067d2d1 rather than by\\nthe producing team's own judgment.\\n\\n## Changing what the stream carries\\n\\nAny change to the record shape — a new field added to the records, a field\\nrenamed, retyped or removed — starts with a proposal against the stream's\\nregistered schema; versions and their compatibility standing live in\\nmcp:knowledge_page:kp_13b7dc19-5228-48c0-880f-c2f100fbb453. Nothing is\\nannounced by the producing team directly: consumer-facing notices go out\\nthrough mcp:knowledge_page:kp_a63610e2-b6ec-4f0b-9434-d0e8c281e08c,\\nwhich also says who must hear first.\\n\\n## Day to day\\n\\nThe stream settles during the overnight window and its lag is reviewed each\\nmorning. Operational questions land with the stream's owning team; the\\ngoverned-tier obligations above decide what the owner may approve alone.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_556b20a9-cd8d-4f96-b52d-1b448067d2d1\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_a63610e2-b6ec-4f0b-9434-d0e8c281e08c\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_13b7dc19-5228-48c0-880f-c2f100fbb453\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Hxsnmp8dL4V2WxksPAFpj1",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_556b20a9-cd8d-4f96-b52d-1b448067d2d1",
+          "session_id": "dps_c9ed2416f22902daa9af2df26bb4fb10"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Hxsnmp8dL4V2WxksPAFpj1",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_556b20a9-cd8d-4f96-b52d-1b448067d2d1\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_556b20a9-cd8d-4f96-b52d-1b448067d2d1\",\"source\":\"knowledge_pages\",\"title\":\"Governed Tier Obligations\",\"body\":\"# Governed Tier Obligations\\n\\nA governed-tier stream feeds the statutory accounts, so its obligations are\\nstricter than ordinary operational care.\\n\\n## Changes\\n\\nEvery change to what a governed stream carries is classified before any work\\nbegins. An incompatible change to the record shape is class RB-7 under\\nmcp:knowledge_page:kp_a94a266c-d1b9-4b61-a500-f761495e0a04, which also sets\\nwhat each class owes its consumers. The owner cannot waive a classification.\\n\\n## Attestation\\n\\nAfter any change lands, the producing service's owner re-attests the stream's\\ncompleteness under mcp:knowledge_page:kp_0b83d86f-9ced-43d2-97e4-610d151bc70e.\\nAn unattested change is treated as unfinished however long it has been live.\\n\\n## Timing\\n\\nChange timing does not belong to the producing team alone: work on systems\\nthat feed the statutory accounts also observes\\nmcp:knowledge_page:kp_29719c6d-04af-45a1-83b7-22002c325acd, whose windows are set\\nby the finance organization, not by engineering.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_29719c6d-04af-45a1-83b7-22002c325acd\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_a94a266c-d1b9-4b61-a500-f761495e0a04\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_0b83d86f-9ced-43d2-97e4-610d151bc70e\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0118mhy4Ey4euTTojZ5ZikWL",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_13b7dc19-5228-48c0-880f-c2f100fbb453",
+          "session_id": "dps_c9ed2416f22902daa9af2df26bb4fb10"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0118mhy4Ey4euTTojZ5ZikWL",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_13b7dc19-5228-48c0-880f-c2f100fbb453\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_13b7dc19-5228-48c0-880f-c2f100fbb453\",\"source\":\"knowledge_pages\",\"title\":\"Schema Version Register\",\"body\":\"# Schema Version Register\\n\\nThe register is the single record of what shape each governed stream's\\nrecords have ever had.\\n\\n## Registering a version\\n\\nA new version is registered before any producer writes it — a record shape\\nthat reaches the stream unregistered is an incident, not a shortcut. Each\\nstream declares a compatibility mode in the register, and every proposed\\nversion is checked against that mode at registration time. The orders and\\nsettlement streams sit in mode CM-3, the strictest: a new version must\\nbe readable by every consumer of the previous one without a code change.\\n\\n## Reading the register\\n\\nRegister entries are the authoritative answer to \\\"what changed and when\\\": the\\nentry carries the version, the classification of the change that produced it,\\nand who approved it.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01SYupz94m1M9W2X5XfLoL1g",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_a63610e2-b6ec-4f0b-9434-d0e8c281e08c",
+          "session_id": "dps_c9ed2416f22902daa9af2df26bb4fb10"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01SYupz94m1M9W2X5XfLoL1g",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_a63610e2-b6ec-4f0b-9434-d0e8c281e08c\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_a63610e2-b6ec-4f0b-9434-d0e8c281e08c\",\"source\":\"knowledge_pages\",\"title\":\"Change Announcement Directory\",\"body\":\"# Change Announcement Directory\\n\\nConsumer-facing change notices are issued centrally so no consumer's notice\\ndepends on which team is making the change.\\n\\n## The bulletin\\n\\nA governed-stream change is announced as an AN-5 bulletin. The bulletin\\nis delivered to every consumer the stream's agreement ledger lists — see\\nmcp:knowledge_page:kp_87005a0a-b2ae-43de-ad23-b3cb3a2ca6a5 — and posted\\nagainst the stream's register entry, which is the authoritative copy when a\\ndelivered copy and the register disagree.\\n\\n## Retention\\n\\nBulletin issues are corporate correspondence, and their retention is not the\\nannouncing team's decision: issued bulletins are filed under\\nmcp:knowledge_page:kp_5a1333db-d7ec-4b6c-aae9-752d189687ea like any\\nother controlled record.\",\"references\":[{\"reference\":\"mcp:knowledge_page:kp_5a1333db-d7ec-4b6c-aae9-752d189687ea\",\"type\":\"knowledge_page\"},{\"reference\":\"mcp:knowledge_page:kp_87005a0a-b2ae-43de-ad23-b3cb3a2ca6a5\",\"type\":\"knowledge_page\"}]}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "I'll continue traversing the reference graph in parallel."
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01UNiGMqMVuMgr4gVkJ7vwAs",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_a94a266c-d1b9-4b61-a500-f761495e0a04",
+          "session_id": "dps_c9ed2416f22902daa9af2df26bb4fb10"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01UNiGMqMVuMgr4gVkJ7vwAs",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_a94a266c-d1b9-4b61-a500-f761495e0a04\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_a94a266c-d1b9-4b61-a500-f761495e0a04\",\"source\":\"knowledge_pages\",\"title\":\"Change Class Directory\",\"body\":\"# Change Class Directory\\n\\nEvery governed-stream change carries exactly one class, and the class decides\\nthe notice its consumers are owed.\\n\\n## Class RB-7\\n\\nClass RB-7 covers incompatible changes to a stream's record shape: a\\nfield added, renamed, retyped or removed. Consumers of the stream are owed\\n17 business days of advance notice before the change is applied, counted in the\\nconsuming teams' working calendar. The notice runs from the day the\\nannouncement is actually delivered, and the class does not shorten for\\nchanges the producer considers small: compatibility is judged from the\\nconsumer's side.\\n\\n## Other classes\\n\\nCompatible additions and operational-only changes carry the lighter classes,\\nwhich owe an announcement but no waiting period. When in doubt between two\\nclasses, the heavier one applies until the owner of the consuming side agrees\\notherwise in writing.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_0133LauefUEF45kVDu4pwYVs",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_0b83d86f-9ced-43d2-97e4-610d151bc70e",
+          "session_id": "dps_c9ed2416f22902daa9af2df26bb4fb10"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_0133LauefUEF45kVDu4pwYVs",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_0b83d86f-9ced-43d2-97e4-610d151bc70e\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_0b83d86f-9ced-43d2-97e4-610d151bc70e\",\"source\":\"knowledge_pages\",\"title\":\"Attestation Procedure\",\"body\":\"# Attestation Procedure\\n\\nAttestation is how a governed stream's owner puts their name to the stream's\\ncompleteness after a change.\\n\\nThe producing service's owner files form AT-12 once the change is live\\nand the first full settlement has passed. The form states that the records\\nnow flowing match the registered version, that no consumer-visible field was\\ndropped along the way, and that the announced scope is the delivered scope.\\nThe signature is personal to the owner: it cannot be delegated below the\\nservice's named owner, and a vacancy in that role suspends changes rather\\nthan the attestation.\\n\\nAn unattested change stays open in the tier's books and is raised at every\\nreview until the form is filed.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01Khosq5ALYJneV52tzzJUfX",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_29719c6d-04af-45a1-83b7-22002c325acd",
+          "session_id": "dps_c9ed2416f22902daa9af2df26bb4fb10"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01Khosq5ALYJneV52tzzJUfX",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_29719c6d-04af-45a1-83b7-22002c325acd\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_29719c6d-04af-45a1-83b7-22002c325acd\",\"source\":\"knowledge_pages\",\"title\":\"Company Close Calendar\",\"body\":\"# Company Close Calendar\\n\\nThe close calendar is maintained by the financial control group and governs\\nthe accounting period end.\\n\\n## The close\\n\\nEach period closes on the working-day cadence the controller publishes:\\njournal cutoff first, then subledger agreement, then consolidation, then\\nsign-off of the statements. Between journal cutoff and sign-off the books are\\nclosing and the control group's attention is on agreement of balances, not on\\nnew activity.\\n\\n## The quiet window\\n\\nThe stretch from journal cutoff to statement sign-off is the QW-4 quiet\\nwindow. During QW-4, systems whose figures flow into the statements are\\nleft as they are: production alterations to those systems wait until the\\nbooks are signed, because an alteration mid-close turns every reconciliation\\ndifference into a question about the alteration. The controller's office\\ngrants exceptions in writing and treats them as findings in the close report.\\n\\nPeriod dates, cutoff times and the current window's standing are published on\\nthe finance group's internal page each period.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_011yXa3ZyEDt6faPUSSWVcsz",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_87005a0a-b2ae-43de-ad23-b3cb3a2ca6a5",
+          "session_id": "dps_c9ed2416f22902daa9af2df26bb4fb10"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_011yXa3ZyEDt6faPUSSWVcsz",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_87005a0a-b2ae-43de-ad23-b3cb3a2ca6a5\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_87005a0a-b2ae-43de-ad23-b3cb3a2ca6a5\",\"source\":\"knowledge_pages\",\"title\":\"Consumer Agreement Ledger\",\"body\":\"# Consumer Agreement Ledger\\n\\nThe ledger records who consumes each governed stream and under what\\nagreement.\\n\\nEach consuming team registers a CA-9 agreement per stream it reads. The\\nagreement names the consuming service, its owner, and the fields it depends\\non. Registration is a condition of read access, and it is also the notice\\nboundary: announcements are delivered to registered consumers, and a team\\nthat never registered is owed nothing, however long it has been reading.\\n\\nAgreements are reviewed when a stream's shape changes: a consumer whose\\ndeclared fields are untouched by a change may be notified without being\\nwaited for, at the announcing owner's discretion.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_014PVKMNGYRehMtTMD1gpEDz",
+        "name": "mcp__bench__fetch",
+        "args": {
+          "reference": "mcp:knowledge_page:kp_5a1333db-d7ec-4b6c-aae9-752d189687ea",
+          "session_id": "dps_c9ed2416f22902daa9af2df26bb4fb10"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_014PVKMNGYRehMtTMD1gpEDz",
+        "text": "{\"found\":true,\"reference\":\"mcp:knowledge_page:kp_5a1333db-d7ec-4b6c-aae9-752d189687ea\",\"document\":{\"reference\":\"mcp:knowledge_page:kp_5a1333db-d7ec-4b6c-aae9-752d189687ea\",\"source\":\"knowledge_pages\",\"title\":\"Corporate Records Retention Directory\",\"body\":\"# Corporate Records Retention Directory\\n\\nThe records management office maintains the filing series every controlled\\ncorporate record belongs to. A record's series decides how long it is kept,\\nwhere it is filed, and who may dispose of it.\\n\\n## Series RR-21\\n\\nSeries RR-21 covers issued circulars and bulletins: formal\\ncorrespondence the firm sends out in its own name and must be able to\\nproduce later. Items in the series are filed with their delivery evidence at\\nthe time of issue — filing is part of issuing, not an afterthought — and are\\nkept for the period the directory lists for the series, with disposal\\nreviewed by the records office rather than by the issuing team.\\n\\n## Everything else\\n\\nMinutes, agreements and working papers carry their own series. A record that\\nfits no listed series is filed under the general series and flagged for the\\nnext directory review.\"}}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "tool_calls": [
+      {
+        "id": "toolu_01D5KDkoZUm1irie2ha3nxpq",
+        "name": "mcp__bench__list_connections",
+        "args": {
+          "session_id": "dps_c9ed2416f22902daa9af2df26bb4fb10"
+        }
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "tool_results": [
+      {
+        "call_id": "toolu_01D5KDkoZUm1irie2ha3nxpq",
+        "text": "{\"connections\":[],\"count\":0}",
+        "is_error": false
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "text": "# Change Plan — Adding a Field to the orders-ledger Stream\n\n**Stream:** orders-ledger (governed tier)\n**Change type:** addition of a new field to the stream's records\n**Plan owner / executor:** the orders-ledger stream owner (the producing service's named owner)\n**Prepared:** 2026-08-10\n\n**Grounding.** Every rule, form, class and gate below is taken from the platform's recorded governance pages: the stream runbook (mcp:knowledge_page:kp_9f86bf5e-4e4d-4898-8d6b-0e8979c66a9c), Governed Tier Obligations (mcp:knowledge_page:kp_556b20a9-cd8d-4f96-b52d-1b448067d2d1), Change Class Directory (mcp:knowledge_page:kp_a94a266c-d1b9-4b61-a500-f761495e0a04), Schema Version Register (mcp:knowledge_page:kp_13b7dc19-5228-48c0-880f-c2f100fbb453), Change Announcement Directory (mcp:knowledge_page:kp_a63610e2-b6ec-4f0b-9434-d0e8c281e08c), Consumer Agreement Ledger (mcp:knowledge_page:kp_87005a0a-b2ae-43de-ad23-b3cb3a2ca6a5), Attestation Procedure (mcp:knowledge_page:kp_0b83d86f-9ced-43d2-97e4-610d151bc70e), Company Close Calendar (mcp:knowledge_page:kp_29719c6d-04af-45a1-83b7-22002c325acd), and the Corporate Records Retention Directory (mcp:knowledge_page:kp_5a1333db-d7ec-4b6c-aae9-752d189687ea). Where those pages are silent, this plan says so rather than filling the gap; the gaps are collected under **Open items**.\n\n---\n\n## 1. Classification — settle this before any work begins\n\nGoverned Tier Obligations requires that every change to what the stream carries is **classified before any work begins**. Classification is therefore step zero, not paperwork that follows a design.\n\n**Classification for this change: RB-7.**\n\nThe Change Class Directory defines class RB-7 as covering incompatible changes to a stream's record shape, and lists \"a field added\" explicitly among them. Adding a field to orders-ledger records is named by the class definition, so RB-7 is the starting classification.\n\nTwo rules make this classification hard to move:\n\n- **The owner cannot waive a classification** (Governed Tier Obligations). The stream owner has no authority to declassify this change, regardless of how small the addition is.\n- **RB-7 does not shorten for changes the producer considers small.** The Change Class Directory states compatibility is judged from the consumer's side, not the producer's.\n\nThere is one recorded route to a lighter class, and it is not the owner's to take alone. The Change Class Directory also says compatible additions carry the lighter classes (announcement, no waiting period), and that **when in doubt between two classes the heavier one applies until the owner of the consuming side agrees otherwise in writing**. So a field addition sits between two listed classes, and RB-7 governs by default until written agreement from the consuming side moves it. If the owner wants to pursue the lighter class, that written agreement must be obtained and filed *before* work begins, and the plan below must be re-run with the lighter class's obligations. The material does not say whether every registered consumer must agree or only one, so treat \"all registered consumers agree in writing\" as the safe reading (see Open items).\n\n**Do not begin design or implementation until the class is recorded.** Everything downstream — notice period, register entry contents, approvals — is derived from it.\n\n---\n\n## 2. Standing constraints that bound the whole change\n\nThese apply throughout and are not step-specific. Read them as the boundary conditions of the plan.\n\n| # | Constraint | Source |\n|---|---|---|\n| C1 | **CM-3 compatibility mode.** orders-ledger sits in the register's strictest mode: a new version must be **readable by every consumer of the previous version without a code change**. This is checked at registration time, and a version that fails the check does not get registered. | Schema Version Register |\n| C2 | **Register before write.** The new version must be registered **before any producer writes it**. A record shape reaching the stream unregistered is an **incident**, not a shortcut. | Schema Version Register |\n| C3 | **RB-7 waiting period.** Consumers are owed **17 business days of advance notice before the change is applied**, counted in the consuming teams' working calendar, running from the day the announcement is **actually delivered**. | Change Class Directory |\n| C4 | **QW-4 quiet window.** orders-ledger figures flow into the statements, so production alterations wait from **journal cutoff through statement sign-off**. Exceptions come **in writing from the controller's office** and are recorded as **findings in the close report**. Timing is the finance organization's call, not engineering's. | Company Close Calendar, Governed Tier Obligations |\n| C5 | **No classification waiver by the owner.** | Governed Tier Obligations |\n| C6 | **Announcement is central, not local.** The producing team does not announce anything directly; consumer-facing notice goes out through the Change Announcement Directory as an AN-5 bulletin. | Runbook, Change Announcement Directory |\n| C7 | **Notice boundary = the CA-9 ledger.** Announcements go to registered consumers. A team that never registered a CA-9 agreement **is owed nothing, however long it has been reading**. Conversely, registration is a condition of read access, so the ledger is the definitive audience list. | Consumer Agreement Ledger |\n| C8 | **Attestation is mandatory and personal.** An unattested change is **treated as unfinished however long it has been live**, and is raised at every tier review until filed. The signature cannot be delegated below the service's named owner; a **vacancy in the owner role suspends changes** rather than the attestation. | Governed Tier Obligations, Attestation Procedure |\n| C9 | **Filing is part of issuing.** The issued bulletin is filed under series RR-21 **with its delivery evidence at the time of issue** — not afterwards. Disposal is reviewed by the records office, never by the issuing or producing team. | Corporate Records Retention Directory |\n| C10 | **The register entry is the authoritative bulletin copy.** If a delivered copy and the register-posted copy disagree, the register wins. | Change Announcement Directory |\n\n**A note on C1 vs the RB-7 classification.** These are two different tests and both must pass. RB-7 classifies a field addition as an incompatible record-shape change for *notice* purposes; CM-3 independently requires the new version to be readable by existing consumers *without a code change* for *registration* purposes. Satisfying CM-3 does not reduce the RB-7 obligation, and carrying RB-7 does not excuse a version that fails CM-3. In practice this means the field must be designed so that every existing consumer keeps parsing records unchanged (per C1), and the change still serves the full 17-business-day notice (per C3).\n\n---\n\n## 3. Execution plan\n\n### Phase A — Classify and scope (before any work)\n\n**A1. Record the classification.** Classify the change as RB-7 (Section 1). Do not start design work first.\n\n**A2. Read the CA-9 agreement ledger for orders-ledger.** Extract, for every registered consumer: the consuming service, its owner, and **the fields it declares a dependency on**. Agreements are reviewed when a stream's shape changes, so this review is required, not optional.\n\n**A3. Classify each consumer against the change.** The ledger allows one discretionary distinction: a consumer whose **declared fields are untouched** by the change may be **notified without being waited for**, at the announcing owner's discretion. Produce a two-column list:\n\n- *Must be notified and waited for* — consumers whose declared fields the change touches.\n- *Notify only (candidate)* — consumers whose declared fields are untouched.\n\nTwo cautions before leaning on this. First, a pure field addition arguably touches no existing consumer's declared fields, which would place every consumer in the second column and collapse the waiting period — a reading large enough that it should be confirmed with whoever holds the discretion rather than assumed by the producing team. Second, the material does not say whether \"the announcing owner\" is the stream owner or the central announcing function that issues AN-5 bulletins; since announcement is deliberately taken out of the producing team's hands (C6), the stream owner should not assume the discretion is theirs. **Plan and schedule on the basis that the full 17 business days are owed**, and treat any reduction as a documented decision by the discretion-holder.\n\n**A4. Draft the proposal against the registered schema.** The runbook requires the change to start as a proposal against the stream's registered schema. The proposal should state at minimum: the new field, the class (RB-7), the target version, the CM-3 argument (below), and the consumer impact list from A3. The material does not name a form or route for this proposal — see Open items.\n\n**A5. Build the CM-3 argument.** Demonstrate, per registered consumer of the current version, that the new version is readable without a code change. This is the artefact the registration check in B1 will be judged against.\n\n**A6. Confirm the owner role is filled.** A vacancy in the producing service's named owner role **suspends changes** (C8). Confirm the named owner is in place before proceeding; if vacant, the change stops here until it is filled.\n\n### Phase B — Register the version\n\n**B1. Register the new version, and do it before any producer writes the new shape.** Registration is the gate that makes the shape legitimate (C2). At registration the proposed version is checked against CM-3 (C1); a version that fails the check must be redesigned and re-submitted, not applied.\n\n**B2. Ensure the entry carries its three mandatory contents.** Register entries are the authoritative answer to \"what changed and when\", and each entry carries: the **version**, the **classification of the change that produced it** (RB-7), and **who approved it**. The entry is incomplete without the approver recorded.\n\n**B3. Confirm the entry exists and is addressable before announcing.** The AN-5 bulletin is posted *against* the register entry (C10), so the entry must be live first. This fixes the order as register → announce, never the reverse.\n\n### Phase C — Announce to consumers\n\n**C1. Request an AN-5 bulletin through the Change Announcement Directory.** The producing team does not issue it (C6). Notices are issued centrally so that no consumer's notice depends on which team is making the change.\n\n**C2. Confirm the bulletin's audience is the full CA-9 list.** Delivery goes to **every consumer the stream's agreement ledger lists**. Cross-check the delivered audience against the A2 extract; a registered consumer missing from delivery is a defect in the notice, and the 17-day clock for that consumer has not started.\n\n**C3. Confirm the bulletin is posted against the register entry.** This is the authoritative copy in any later dispute (C10).\n\n**C4. Confirm RR-21 filing happened at issue.** The issued bulletin plus its **delivery evidence** must be filed under series RR-21 at the time of issue (C9). Retention and disposal belong to the records office; the producing and announcing teams have no say in either.\n\n**C5. Capture the actual delivery date per consumer.** The 17-business-day clock runs from **the day the announcement is actually delivered** — not the day it was drafted, requested or approved. The delivery evidence filed in C4 is the source of truth for this date.\n\n### Phase D — Serve the notice period and pick the apply window\n\n**D1. Compute the earliest permissible apply date.** For each consumer that must be waited for, count **17 business days in that consuming team's working calendar** from that consumer's delivery date. The earliest date on which the change may be applied is **the latest of those per-consumer dates** — the plan is only compliant when every waited-for consumer has had its full 17 days. (The pages state the count is in the consuming teams' calendar and give no rule for reconciling differing calendars; taking the latest is the reading that leaves no consumer short. See Open items.)\n\n**D2. Check the QW-4 standing for the intended window.** Period dates, cutoff times and the current window's standing are published on the finance group's internal page each period. The apply date must fall **outside** the stretch from journal cutoff to statement sign-off (C4). If the earliest permissible date from D1 lands inside QW-4, the default action is to **wait for statement sign-off** — the notice period sets a floor, not a licence to alter systems mid-close.\n\n**D3. If the change genuinely cannot wait, seek a written QW-4 exception from the controller's office.** Note before doing so: exceptions are granted in writing and are **treated as findings in the close report**. Requesting one is a decision to accept a close finding, and it belongs to the controller's office, not to engineering.\n\n**D4. Schedule against the stream's own rhythm.** The stream settles during the overnight window and its lag is reviewed each morning. Choose a window that lets the change be applied and then observed through a complete settlement and the following morning's lag review — Phase F depends on a completed settlement.\n\n### Phase E — Apply\n\n**E1. Confirm, immediately before applying, that: the register entry is live (B1–B3); the bulletin was delivered and filed (C2–C4); every waited-for consumer's 17 business days have elapsed (D1); the date is outside QW-4 or a written exception is in hand (D2–D3); and the owner role is filled (A6).** Any one of these failing means the apply does not proceed.\n\n**E2. Apply the change so that the shape reaching the stream is exactly the registered version.** No producer may emit a shape that differs from what is registered — a divergence is an incident (C2), and it also breaks the attestation in F1, which asserts the flowing records match the registered version.\n\n**E3. Verify the delivered scope equals the announced scope.** Confirm no consumer-visible field was dropped or altered in the course of adding the new one. This is the substance the owner will personally attest to in F1, so verify it against the announced scope rather than against the implementation intent.\n\n**E4. Watch the first overnight settlement and the following morning's lag review.** These are the stream's existing day-to-day controls and are the natural verification point for the change.\n\n### Phase F — Attest and close out\n\n**F1. File form AT-12 once the change is live and the first full settlement has passed.** The producing service's owner files it personally. The form states three things:\n\n- the records now flowing **match the registered version**;\n- **no consumer-visible field was dropped** along the way;\n- the **announced scope is the delivered scope**.\n\n**F2. Do not delegate the signature.** It cannot be delegated below the service's named owner (C8).\n\n**F3. Treat the change as unfinished until AT-12 is filed.** An unattested change stays open in the tier's books and is raised at every review, however long it has been live. The change is complete at F1, not at E2.\n\n---\n\n## 4. Approvals this change needs\n\n| Approval | Who gives it | When | Recorded where |\n|---|---|---|---|\n| Registration of the new version (includes the CM-3 compatibility check) | The register's registration process; the approving party is recorded in the entry but is **not named in the available material** | Phase B, before any producer writes the shape | The register entry, which must carry version, classification and **who approved it** |\n| Issue of the AN-5 bulletin | The central announcing function of the Change Announcement Directory — explicitly **not** the producing team | Phase C, after the register entry exists | The bulletin, posted against the register entry and filed under RR-21 |\n| Written agreement of the consuming side, **only if** a lighter class than RB-7 is sought | \"the owner of the consuming side\" per the Change Class Directory; whether that means all registered consumers or one is not stated | Before any work begins, since it changes the classification | Not stated in the available material |\n| Discretionary decision to notify a consumer **without** waiting for it | \"the announcing owner\" per the Consumer Agreement Ledger; whether that is the stream owner or the announcing function is not stated | Phase A/C, before the schedule is fixed | Not stated in the available material |\n| Written QW-4 exception, **only if** the apply must fall inside the quiet window | The controller's office | Phase D, before scheduling inside the window | The written grant, and as a **finding in the close report** |\n| AT-12 attestation | The producing service's **named owner**, personally, non-delegable | Phase F, after the first full settlement | Form AT-12; the change stays open in the tier's books until filed |\n\n**What the owner cannot approve alone:** the classification (cannot be waived — C5), the compatibility standing of the version (decided by the CM-3 check at registration), the notice period (set by the class, judged from the consumer's side), the announcement (central by design), the timing relative to close (set by the finance organization), and the retention of the bulletin (the records office's). The runbook is explicit that the governed-tier obligations, not the producing team's judgment, decide what the owner may approve alone — and those obligations do not enumerate an owner-alone set. Treat every item in the table above as requiring the named party.\n\n---\n\n## 5. What the consumers are owed\n\n1. **Registration in the CA-9 ledger is the boundary.** Every registered consumer is owed notice; an unregistered reader is owed nothing, however long it has been reading. The owner's obligation is to the ledger, and read access is conditioned on registration — so the ledger should be a complete audience list, and any consumer discovered reading without an agreement is an access-control matter to raise separately, not a notice recipient to add informally.\n2. **An AN-5 bulletin, issued centrally**, delivered to every consumer the ledger lists. Consumers are entitled to a notice that does not depend on which team is making the change.\n3. **17 business days of advance notice** before the change is applied, in their own working calendar, counted from actual delivery — for every consumer whose declared fields the change touches, and for every consumer generally unless the discretion in the ledger is properly exercised by whoever holds it.\n4. **An authoritative copy posted against the register entry**, which governs if a delivered copy differs.\n5. **A version they can read without a code change**, guaranteed by the CM-3 check at registration — this is a substantive entitlement of orders-ledger consumers, not a courtesy.\n6. **A review of their agreement**, since agreements are reviewed when the stream's shape changes. Consumers whose declared field dependencies are affected should come out of that review with their agreement current.\n7. **Delivered scope equal to announced scope**, with no consumer-visible field dropped — asserted personally by the owner in AT-12.\n8. **A durably filed, producible bulletin** under series RR-21, with its delivery evidence, retained on the records office's schedule.\n9. **A register they can consult** as the authoritative answer to what changed, when, under what class, and approved by whom.\n\n---\n\n## 6. Sequencing constraints, stated as hard orderings\n\n- Classification **before** any work begins.\n- Any class-lightening written agreement **before** work begins (it changes the obligations).\n- Owner-role confirmation **before** proceeding (a vacancy suspends changes).\n- Registration **before** any producer writes the new shape.\n- Register entry live **before** the bulletin is posted against it.\n- Bulletin delivered **before** the 17-business-day clock starts.\n- RR-21 filing with delivery evidence **at the time of issue**, not later.\n- 17 business days elapsed for every waited-for consumer **before** apply.\n- Outside QW-4, or written controller exception in hand, **before** apply.\n- First full settlement passed **before** AT-12 is filed.\n- AT-12 filed **before** the change counts as finished.\n\n---\n\n## 7. Failure and exception handling\n\n- **CM-3 check fails at registration:** the version is not registered. Redesign the field so existing consumers read the new version without a code change and re-submit. There is no path that applies an unregistered shape.\n- **A shape reaches the stream unregistered:** this is an **incident** under the Schema Version Register and must be handled as one, not retrofitted with a registration.\n- **A registered consumer was missed in delivery:** that consumer's 17-day clock never started. The apply date must be recomputed from their actual delivery date.\n- **Delivered bulletin and register copy disagree:** the register-posted copy is authoritative.\n- **The window falls inside QW-4:** default is to wait for statement sign-off; a written controller's-office exception is the only alternative and produces a close-report finding.\n- **The owner role falls vacant:** changes are suspended; the attestation is not waived or reassigned downward.\n- **AT-12 not yet filed:** the change is open in the tier's books and will be raised at every review until filed, regardless of how long the field has been live.\n- **Rollback:** the available material describes no rollback or reversion procedure for a governed-stream change. See Open items.\n\n---\n\n## Open items\n\nEach of the following is something this plan needs and the available material does not settle. None can be resolved from the pages linked off the orders-ledger runbook.\n\n1. **Who approves the change.** The register entry must carry \"who approved it\", but no page names the approving role or body for an RB-7 change, nor how the approval is requested. The runbook defers \"what the owner may approve alone\" to the governed-tier obligations, and those obligations do not enumerate it.\n2. **The identity of the orders-ledger stream owner / producing service's named owner.** Required for the AT-12 signature and for the A6 vacancy check. Not recorded in the available material.\n3. **The actual CA-9 ledger entries for orders-ledger.** The ledger page describes what an agreement contains, but the registered consumers, their owners, and their declared field dependencies are not in the material. Steps A2, A3, C2 and D1 cannot be completed without them.\n4. **The consuming teams' working calendars.** The 17-day count is in the consumers' calendar; without the calendars (and without the consumer list), no concrete apply date can be computed, and the \"latest of the per-consumer dates\" rule in D1 is this plan's reading rather than a stated rule.\n5. **The current period's QW-4 standing, journal cutoff and statement sign-off dates.** Published on the finance group's internal page each period; not reachable from the material here. The apply window cannot be fixed without them.\n6. **The class boundary for a field addition.** The Change Class Directory lists \"a field added\" under RB-7 while also assigning \"compatible additions\" to the lighter classes. This plan applies RB-7 on the directory's own heavier-class-in-doubt rule, but whether an addition engineered to pass CM-3 may be classified lighter — and whether that requires written agreement from every registered consumer or from one — is not stated.\n7. **Who holds the \"notify without waiting\" discretion, and whether a pure addition qualifies.** The ledger assigns it to \"the announcing owner\" without saying whether that is the stream owner or the central announcing function, and does not say whether adding a field counts as leaving every consumer's declared fields untouched. This is the single largest lever on the schedule and is unresolved.\n8. **The proposal mechanism.** The runbook requires a proposal against the registered schema but names no form, route, or required contents (unlike AT-12, AN-5, CA-9 and the class codes). The proposal contents in A4 are this plan's construction from what downstream steps need.\n9. **Where the register and the announcement channel physically live**, and how AN-5 delivery and its delivery evidence are produced.\n10. **The RR-21 retention period.** The directory states items are kept \"for the period the directory lists for the series\"; the period itself is not in the material.\n11. **Field-level design requirements.** Nothing recorded on naming conventions, typing, nullability, default values for records written before the change, backfill of historical records, or PII/classification/glossary tagging of a new field on a governed stream.\n12. **Whether non-production or staging writes of the new shape require prior registration.** The rule reads \"before any producer writes it\" without scoping to production.\n13. **Whether any consumer readiness confirmation is required before apply**, beyond serving the notice period. No page requires consumers to confirm they are ready.\n14. **Rollback procedure.** No recorded guidance on reverting a governed-stream shape change, whether a revert is itself a classifiable change, or how it interacts with an already-filed AT-12."
+  }
+]

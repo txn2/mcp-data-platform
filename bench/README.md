@@ -211,11 +211,18 @@ controlled scale, on the same stack:
 make bench-gs-certify BENCH_GS_SCALE=500       # offline embedding certification (ollama only)
 make bench-gs-plant   BENCH_GS_SCALE=500       # generate + plant (STRIP=1 for the stripped arm)
 make bench-gs-gate    BENCH_GS_SCALE=500       # live sweep gate, discontinuity requirement on
+make bench-gs-run     BENCH_GS_SCALE=500 K=5   # confirmatory cells (#1251; MODEL=, NOSEARCH=1)
 make bench-gs-reset   BENCH_GS_SCALE=500       # delete the plant
 ```
 
 `cd bench && go run ./graphstudy -mode table` prints every scale's corpus
-shape with no stack at all.
+shape with no stack at all, and `-mode reread -out <run dir>` recomputes an
+archived study run's readings offline, regenerating the exact corpus from
+the generator spec in the run's manifest. The whole pre-registered matrix —
+both arms at every scale, the auxiliary no-search check, the power audit's
+k rule — runs as one sequence via
+`scripts/graph-confirmatory-driver.sh` (from the repo root, stack up,
+`caffeinate -is` recommended).
 
 Every run writes into its own timestamped directory under
 `build/bench-results/`, and the runners refuse an output path that already

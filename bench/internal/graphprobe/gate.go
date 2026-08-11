@@ -60,9 +60,14 @@ type GateResult struct {
 type GateReport struct {
 	RanAt time.Time `json:"ran_at"`
 	// Stripped records which arm's plant was swept, from the plant record.
-	Stripped bool         `json:"stripped,omitempty"`
-	Limits   []int        `json:"limits"`
-	Results  []GateResult `json:"results"`
+	Stripped bool `json:"stripped,omitempty"`
+	// PlantedAt binds the report to the exact plant it swept: the study's
+	// cell ids and entry keys are identical at every scale, so without this
+	// a leftover report from another scale's corpus would validate a run it
+	// never gated (#1251). Zero in reports written before the field existed.
+	PlantedAt time.Time    `json:"planted_at,omitzero"`
+	Limits    []int        `json:"limits"`
+	Results   []GateResult `json:"results"`
 	// Pass is true only when every sweep reading passed and every cell's
 	// entry page surfaced for its prompt-derived query at the modal limit.
 	Pass bool `json:"pass"`
@@ -83,7 +88,7 @@ type GateReport struct {
 // (#1250). Other constraint pages surfacing is recorded as the enumeration
 // profile rather than failed on.
 func Gate(ctx context.Context, t target.Target, identityKeys int, corpus graphfix.Corpus, planted Planted, timeout time.Duration) (GateReport, error) {
-	report := GateReport{RanAt: time.Now().UTC(), Stripped: planted.Stripped, Limits: slices.Clone(GateLimits), Pass: true}
+	report := GateReport{RanAt: time.Now().UTC(), Stripped: planted.Stripped, PlantedAt: planted.PlantedAt, Limits: slices.Clone(GateLimits), Pass: true}
 	seq := 0
 	for _, cell := range corpus.Cells {
 		if err := gateCell(ctx, t, identityKeys, planted, cell, &seq, &report, timeout); err != nil {
@@ -91,6 +96,43 @@ func Gate(ctx context.Context, t target.Target, identityKeys int, corpus graphfi
 		}
 	}
 	return report, nil
+}
+
+// WithinCeilingReading reports whether a non-passing report carries exactly
+// the within-enumeration-ceiling reading (#1250): every failure is a
+// discontinuity source page surfacing, no signature leaked in any hit text,
+// and every cell's entry page still surfaced for its prompt-derived query at
+// the modal limit. At the study's smallest scale the sweep records
+// discontinuity hits by construction and a run there proceeds with the
+// discontinuity DV unread; a leak or a missing entry is still disqualifying.
+func (g GateReport) WithinCeilingReading(cells []graphfix.CompletionCell) bool {
+	for _, r := range g.Results {
+		if len(r.Leaks) > 0 {
+			return false
+		}
+	}
+	for _, cell := range cells {
+		if !g.entrySurfaced(cell) {
+			return false
+		}
+	}
+	return true
+}
+
+// entrySurfaced reports whether a cell's prompt-derived query (its first
+// authored gate query, by the fixture convention) surfaced its entry page
+// at the modal limit. Matching on the query text rather than result order
+// keeps the reading correct however the report was assembled.
+func (g GateReport) entrySurfaced(cell graphfix.CompletionCell) bool {
+	if len(cell.GateQueries) == 0 {
+		return false
+	}
+	for _, r := range g.Results {
+		if r.CellID == cell.ID && r.Limit == entryGateLimit && r.Query == cell.GateQueries[0] {
+			return r.EntryRank > 0
+		}
+	}
+	return false
 }
 
 // gateCell sweeps one cell's queries across the gate limits, folding each

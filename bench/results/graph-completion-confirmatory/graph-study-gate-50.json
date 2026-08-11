@@ -1,0 +1,933 @@
+{
+  "ran_at": "2026-08-10T17:50:29.540026Z",
+  "stripped": true,
+  "planted_at": "2026-08-10T17:49:12.544312Z",
+  "limits": [
+    5,
+    25,
+    100
+  ],
+  "results": [
+    {
+      "cell_id": "gs-change-plan",
+      "query": "orders-ledger stream add a field change plan",
+      "limit": 5,
+      "entry_rank": 1,
+      "page_ranks": {
+        "change-announcement-directory": 3,
+        "consumer-agreement-ledger": 2,
+        "orders-ledger-stream-runbook": 1
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "consumer-agreement-ledger",
+        "change-announcement-directory"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "orders-ledger stream add a field change plan",
+      "limit": 25,
+      "entry_rank": 1,
+      "page_ranks": {
+        "attestation-procedure": 6,
+        "change-announcement-directory": 3,
+        "change-class-directory": 4,
+        "consumer-agreement-ledger": 2,
+        "governed-tier-obligations": 7,
+        "orders-ledger-stream-runbook": 1,
+        "schema-version-register": 18
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "consumer-agreement-ledger",
+        "change-announcement-directory",
+        "change-class-directory",
+        "procurement-commitment-ledger",
+        "attestation-procedure",
+        "governed-tier-obligations",
+        "currency-backfill-checks",
+        "currency-backfill-window-notes",
+        "currency-backfill-runbook",
+        "currency-backfill-review-notes",
+        "currency-backfill-schema-notes",
+        "escalation-roster",
+        "worked-hours-ledger-practice",
+        "currency-backfill-tuning-notes",
+        "feed-naming-standard",
+        "currency-backfill-handling-guide",
+        "schema-version-register",
+        "storage-tier-register",
+        "webhook-enrichment-schema-notes"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "orders-ledger stream add a field change plan",
+      "limit": 100,
+      "entry_rank": 1,
+      "page_ranks": {
+        "attestation-procedure": 6,
+        "change-announcement-directory": 3,
+        "change-class-directory": 4,
+        "consumer-agreement-ledger": 2,
+        "governed-tier-obligations": 7,
+        "orders-ledger-stream-runbook": 1,
+        "records-retention-directory": 25,
+        "schema-version-register": 18
+      },
+      "discontinuity_hits": {
+        "records-retention-directory": 25
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "consumer-agreement-ledger",
+        "change-announcement-directory",
+        "change-class-directory",
+        "procurement-commitment-ledger",
+        "attestation-procedure",
+        "governed-tier-obligations",
+        "currency-backfill-checks",
+        "currency-backfill-window-notes",
+        "currency-backfill-runbook",
+        "currency-backfill-review-notes",
+        "currency-backfill-schema-notes",
+        "escalation-roster",
+        "worked-hours-ledger-practice",
+        "currency-backfill-tuning-notes",
+        "feed-naming-standard",
+        "currency-backfill-handling-guide",
+        "schema-version-register",
+        "storage-tier-register",
+        "webhook-enrichment-schema-notes",
+        "currency-backfill-history",
+        "feed-rerun-procedure",
+        "parcel-events-feed-runbook",
+        "offplatform-copy-policy",
+        "records-retention-directory"
+      ],
+      "pass": false
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "how is a change to a governed stream approved and announced",
+      "limit": 5,
+      "entry_rank": 1,
+      "page_ranks": {
+        "change-announcement-directory": 2,
+        "orders-ledger-stream-runbook": 1
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "change-announcement-directory"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "how is a change to a governed stream approved and announced",
+      "limit": 25,
+      "entry_rank": 1,
+      "page_ranks": {
+        "attestation-procedure": 5,
+        "change-announcement-directory": 2,
+        "change-class-directory": 4,
+        "consumer-agreement-ledger": 7,
+        "corp-close-calendar": 20,
+        "governed-tier-obligations": 3,
+        "orders-ledger-stream-runbook": 1,
+        "schema-version-register": 6
+      },
+      "discontinuity_hits": {
+        "corp-close-calendar": 20
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "change-announcement-directory",
+        "governed-tier-obligations",
+        "change-class-directory",
+        "attestation-procedure",
+        "schema-version-register",
+        "consumer-agreement-ledger",
+        "offplatform-copy-policy",
+        "regulator-notify-calendar",
+        "incident-comms-standard",
+        "feed-naming-standard",
+        "sharing-agreement-register",
+        "review-cleanse-handling-guide",
+        "escalation-roster",
+        "currency-backfill-runbook",
+        "incident-severity-standard",
+        "postmortem-record-standard",
+        "currency-backfill-window-notes",
+        "delivery-expectation-standard",
+        "corp-close-calendar"
+      ],
+      "pass": false
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "how is a change to a governed stream approved and announced",
+      "limit": 100,
+      "entry_rank": 1,
+      "page_ranks": {
+        "attestation-procedure": 5,
+        "change-announcement-directory": 2,
+        "change-class-directory": 4,
+        "consumer-agreement-ledger": 7,
+        "corp-close-calendar": 20,
+        "governed-tier-obligations": 3,
+        "orders-ledger-stream-runbook": 1,
+        "records-retention-directory": 23,
+        "schema-version-register": 6
+      },
+      "discontinuity_hits": {
+        "corp-close-calendar": 20,
+        "records-retention-directory": 23
+      },
+      "hits": [
+        "orders-ledger-stream-runbook",
+        "change-announcement-directory",
+        "governed-tier-obligations",
+        "change-class-directory",
+        "attestation-procedure",
+        "schema-version-register",
+        "consumer-agreement-ledger",
+        "offplatform-copy-policy",
+        "regulator-notify-calendar",
+        "incident-comms-standard",
+        "feed-naming-standard",
+        "sharing-agreement-register",
+        "review-cleanse-handling-guide",
+        "escalation-roster",
+        "currency-backfill-runbook",
+        "incident-severity-standard",
+        "postmortem-record-standard",
+        "currency-backfill-window-notes",
+        "delivery-expectation-standard",
+        "corp-close-calendar",
+        "acknowledgment-clocks",
+        "webhook-enrichment-schema-notes",
+        "records-retention-directory",
+        "closure-evidence-standard",
+        "webhook-enrichment-checks"
+      ],
+      "pass": false
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "stream schema change consumer notice requirements",
+      "limit": 5,
+      "entry_rank": 0,
+      "page_ranks": {
+        "change-announcement-directory": 2,
+        "change-class-directory": 1,
+        "schema-version-register": 3
+      },
+      "hits": [
+        "change-class-directory",
+        "change-announcement-directory",
+        "schema-version-register"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "stream schema change consumer notice requirements",
+      "limit": 25,
+      "entry_rank": 5,
+      "page_ranks": {
+        "attestation-procedure": 6,
+        "change-announcement-directory": 2,
+        "change-class-directory": 1,
+        "consumer-agreement-ledger": 4,
+        "governed-tier-obligations": 7,
+        "orders-ledger-stream-runbook": 5,
+        "schema-version-register": 3
+      },
+      "hits": [
+        "change-class-directory",
+        "change-announcement-directory",
+        "schema-version-register",
+        "consumer-agreement-ledger",
+        "orders-ledger-stream-runbook",
+        "attestation-procedure",
+        "governed-tier-obligations",
+        "webhook-enrichment-schema-notes",
+        "sharing-agreement-register",
+        "delivery-expectation-standard",
+        "currency-backfill-schema-notes",
+        "webhook-enrichment-checks",
+        "feed-naming-standard",
+        "review-cleanse-handling-guide",
+        "offplatform-copy-policy",
+        "incident-comms-standard",
+        "currency-backfill-window-notes",
+        "storage-tier-register",
+        "incident-severity-standard",
+        "regulator-notify-calendar"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-change-plan",
+      "query": "stream schema change consumer notice requirements",
+      "limit": 100,
+      "entry_rank": 5,
+      "page_ranks": {
+        "attestation-procedure": 6,
+        "change-announcement-directory": 2,
+        "change-class-directory": 1,
+        "consumer-agreement-ledger": 4,
+        "governed-tier-obligations": 7,
+        "orders-ledger-stream-runbook": 5,
+        "records-retention-directory": 24,
+        "schema-version-register": 3
+      },
+      "discontinuity_hits": {
+        "records-retention-directory": 24
+      },
+      "hits": [
+        "change-class-directory",
+        "change-announcement-directory",
+        "schema-version-register",
+        "consumer-agreement-ledger",
+        "orders-ledger-stream-runbook",
+        "attestation-procedure",
+        "governed-tier-obligations",
+        "webhook-enrichment-schema-notes",
+        "sharing-agreement-register",
+        "delivery-expectation-standard",
+        "currency-backfill-schema-notes",
+        "webhook-enrichment-checks",
+        "feed-naming-standard",
+        "review-cleanse-handling-guide",
+        "offplatform-copy-policy",
+        "incident-comms-standard",
+        "currency-backfill-window-notes",
+        "storage-tier-register",
+        "incident-severity-standard",
+        "regulator-notify-calendar",
+        "webhook-enrichment-handling-guide",
+        "currency-backfill-checks",
+        "escalation-roster",
+        "records-retention-directory",
+        "currency-backfill-review-notes"
+      ],
+      "pass": false
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "settlement-recon job failed several nights running what happens",
+      "limit": 5,
+      "entry_rank": 1,
+      "page_ranks": {
+        "settlement-recon-job-runbook": 1
+      },
+      "hits": [
+        "settlement-recon-job-runbook",
+        "feed-rerun-procedure"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "settlement-recon job failed several nights running what happens",
+      "limit": 25,
+      "entry_rank": 1,
+      "page_ranks": {
+        "acknowledgment-clocks": 6,
+        "closure-evidence-standard": 11,
+        "escalation-roster": 20,
+        "incident-comms-standard": 7,
+        "incident-severity-standard": 4,
+        "postmortem-record-standard": 3,
+        "regulator-notify-calendar": 14,
+        "settlement-recon-job-runbook": 1,
+        "worked-hours-ledger-practice": 10
+      },
+      "discontinuity_hits": {
+        "regulator-notify-calendar": 14,
+        "worked-hours-ledger-practice": 10
+      },
+      "hits": [
+        "settlement-recon-job-runbook",
+        "feed-rerun-procedure",
+        "postmortem-record-standard",
+        "incident-severity-standard",
+        "currency-backfill-runbook",
+        "acknowledgment-clocks",
+        "incident-comms-standard",
+        "currency-backfill-checks",
+        "parcel-events-feed-runbook",
+        "worked-hours-ledger-practice",
+        "closure-evidence-standard",
+        "corp-close-calendar",
+        "delivery-expectation-standard",
+        "regulator-notify-calendar",
+        "currency-backfill-handling-guide",
+        "currency-backfill-history",
+        "change-class-directory",
+        "records-retention-directory",
+        "currency-backfill-tuning-notes",
+        "escalation-roster"
+      ],
+      "pass": false
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "settlement-recon job failed several nights running what happens",
+      "limit": 100,
+      "entry_rank": 1,
+      "page_ranks": {
+        "acknowledgment-clocks": 6,
+        "closure-evidence-standard": 11,
+        "escalation-roster": 20,
+        "incident-comms-standard": 7,
+        "incident-severity-standard": 4,
+        "postmortem-record-standard": 3,
+        "regulator-notify-calendar": 14,
+        "settlement-recon-job-runbook": 1,
+        "worked-hours-ledger-practice": 10
+      },
+      "discontinuity_hits": {
+        "regulator-notify-calendar": 14,
+        "worked-hours-ledger-practice": 10
+      },
+      "hits": [
+        "settlement-recon-job-runbook",
+        "feed-rerun-procedure",
+        "postmortem-record-standard",
+        "incident-severity-standard",
+        "currency-backfill-runbook",
+        "acknowledgment-clocks",
+        "incident-comms-standard",
+        "currency-backfill-checks",
+        "parcel-events-feed-runbook",
+        "worked-hours-ledger-practice",
+        "closure-evidence-standard",
+        "corp-close-calendar",
+        "delivery-expectation-standard",
+        "regulator-notify-calendar",
+        "currency-backfill-handling-guide",
+        "currency-backfill-history",
+        "change-class-directory",
+        "records-retention-directory",
+        "currency-backfill-tuning-notes",
+        "escalation-roster",
+        "attestation-procedure",
+        "governed-tier-obligations",
+        "records-filing-practice-guide",
+        "currency-backfill-schema-notes",
+        "records-filing-practice-checklist"
+      ],
+      "pass": false
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "incident severity and escalation when nobody responds",
+      "limit": 5,
+      "entry_rank": 0,
+      "page_ranks": {
+        "acknowledgment-clocks": 3,
+        "incident-comms-standard": 1,
+        "incident-severity-standard": 2
+      },
+      "hits": [
+        "incident-comms-standard",
+        "incident-severity-standard",
+        "acknowledgment-clocks"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "incident severity and escalation when nobody responds",
+      "limit": 25,
+      "entry_rank": 7,
+      "page_ranks": {
+        "acknowledgment-clocks": 3,
+        "closure-evidence-standard": 4,
+        "escalation-roster": 5,
+        "incident-comms-standard": 1,
+        "incident-severity-standard": 2,
+        "postmortem-record-standard": 6,
+        "settlement-recon-job-runbook": 7
+      },
+      "hits": [
+        "incident-comms-standard",
+        "incident-severity-standard",
+        "acknowledgment-clocks",
+        "closure-evidence-standard",
+        "escalation-roster",
+        "postmortem-record-standard",
+        "settlement-recon-job-runbook",
+        "currency-backfill-handling-guide",
+        "delivery-expectation-standard",
+        "currency-backfill-checks",
+        "change-class-directory",
+        "attestation-procedure",
+        "webhook-enrichment-tuning-notes",
+        "governed-tier-obligations",
+        "change-announcement-directory",
+        "consumer-agreement-ledger",
+        "corp-close-calendar",
+        "feed-rerun-procedure",
+        "currency-backfill-history",
+        "offplatform-copy-policy"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "incident severity and escalation when nobody responds",
+      "limit": 100,
+      "entry_rank": 7,
+      "page_ranks": {
+        "acknowledgment-clocks": 3,
+        "closure-evidence-standard": 4,
+        "escalation-roster": 5,
+        "incident-comms-standard": 1,
+        "incident-severity-standard": 2,
+        "postmortem-record-standard": 6,
+        "settlement-recon-job-runbook": 7
+      },
+      "hits": [
+        "incident-comms-standard",
+        "incident-severity-standard",
+        "acknowledgment-clocks",
+        "closure-evidence-standard",
+        "escalation-roster",
+        "postmortem-record-standard",
+        "settlement-recon-job-runbook",
+        "currency-backfill-handling-guide",
+        "delivery-expectation-standard",
+        "currency-backfill-checks",
+        "change-class-directory",
+        "attestation-procedure",
+        "webhook-enrichment-tuning-notes",
+        "governed-tier-obligations",
+        "change-announcement-directory",
+        "consumer-agreement-ledger",
+        "corp-close-calendar",
+        "feed-rerun-procedure",
+        "currency-backfill-history",
+        "offplatform-copy-policy",
+        "feed-naming-standard",
+        "review-cleanse-handling-guide",
+        "webhook-enrichment-review-notes",
+        "parcel-events-feed-runbook",
+        "currency-backfill-runbook"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "how are control failure incidents communicated and closed",
+      "limit": 5,
+      "entry_rank": 0,
+      "page_ranks": {
+        "closure-evidence-standard": 2,
+        "incident-comms-standard": 1
+      },
+      "hits": [
+        "incident-comms-standard",
+        "closure-evidence-standard"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "how are control failure incidents communicated and closed",
+      "limit": 25,
+      "entry_rank": 5,
+      "page_ranks": {
+        "acknowledgment-clocks": 8,
+        "closure-evidence-standard": 2,
+        "escalation-roster": 13,
+        "incident-comms-standard": 1,
+        "incident-severity-standard": 4,
+        "postmortem-record-standard": 3,
+        "regulator-notify-calendar": 14,
+        "settlement-recon-job-runbook": 5
+      },
+      "discontinuity_hits": {
+        "regulator-notify-calendar": 14
+      },
+      "hits": [
+        "incident-comms-standard",
+        "closure-evidence-standard",
+        "postmortem-record-standard",
+        "incident-severity-standard",
+        "settlement-recon-job-runbook",
+        "corp-close-calendar",
+        "governed-tier-obligations",
+        "acknowledgment-clocks",
+        "feed-rerun-procedure",
+        "attestation-procedure",
+        "change-announcement-directory",
+        "offplatform-copy-policy",
+        "escalation-roster",
+        "regulator-notify-calendar",
+        "review-cleanse-handling-guide",
+        "parcel-events-feed-runbook",
+        "currency-backfill-handling-guide",
+        "consumer-agreement-ledger",
+        "landing-zone-layout",
+        "records-filing-practice-reference"
+      ],
+      "pass": false
+    },
+    {
+      "cell_id": "gs-incident",
+      "query": "how are control failure incidents communicated and closed",
+      "limit": 100,
+      "entry_rank": 5,
+      "page_ranks": {
+        "acknowledgment-clocks": 8,
+        "closure-evidence-standard": 2,
+        "escalation-roster": 13,
+        "incident-comms-standard": 1,
+        "incident-severity-standard": 4,
+        "postmortem-record-standard": 3,
+        "regulator-notify-calendar": 14,
+        "settlement-recon-job-runbook": 5
+      },
+      "discontinuity_hits": {
+        "regulator-notify-calendar": 14
+      },
+      "hits": [
+        "incident-comms-standard",
+        "closure-evidence-standard",
+        "postmortem-record-standard",
+        "incident-severity-standard",
+        "settlement-recon-job-runbook",
+        "corp-close-calendar",
+        "governed-tier-obligations",
+        "acknowledgment-clocks",
+        "feed-rerun-procedure",
+        "attestation-procedure",
+        "change-announcement-directory",
+        "offplatform-copy-policy",
+        "escalation-roster",
+        "regulator-notify-calendar",
+        "review-cleanse-handling-guide",
+        "parcel-events-feed-runbook",
+        "currency-backfill-handling-guide",
+        "consumer-agreement-ledger",
+        "landing-zone-layout",
+        "records-filing-practice-reference",
+        "change-class-directory",
+        "records-retention-directory",
+        "review-cleanse-runbook",
+        "feed-naming-standard",
+        "records-filing-practice-checklist"
+      ],
+      "pass": false
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "new nightly feed onboarding naming storage delivery",
+      "limit": 5,
+      "entry_rank": 3,
+      "page_ranks": {
+        "feed-naming-standard": 1,
+        "parcel-events-feed-runbook": 3,
+        "storage-tier-register": 2
+      },
+      "hits": [
+        "feed-naming-standard",
+        "storage-tier-register",
+        "parcel-events-feed-runbook"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "new nightly feed onboarding naming storage delivery",
+      "limit": 25,
+      "entry_rank": 3,
+      "page_ranks": {
+        "delivery-expectation-standard": 4,
+        "feed-naming-standard": 1,
+        "feed-rerun-procedure": 5,
+        "landing-zone-layout": 7,
+        "parcel-events-feed-runbook": 3,
+        "procurement-commitment-ledger": 20,
+        "storage-tier-register": 2
+      },
+      "discontinuity_hits": {
+        "procurement-commitment-ledger": 20
+      },
+      "hits": [
+        "feed-naming-standard",
+        "storage-tier-register",
+        "parcel-events-feed-runbook",
+        "delivery-expectation-standard",
+        "feed-rerun-procedure",
+        "orders-ledger-stream-runbook",
+        "landing-zone-layout",
+        "change-announcement-directory",
+        "currency-backfill-runbook",
+        "review-cleanse-handling-guide",
+        "currency-backfill-handling-guide",
+        "settlement-recon-job-runbook",
+        "change-class-directory",
+        "currency-backfill-tuning-notes",
+        "currency-backfill-history",
+        "consumer-agreement-ledger",
+        "currency-backfill-window-notes",
+        "currency-backfill-checks",
+        "currency-backfill-review-notes",
+        "procurement-commitment-ledger"
+      ],
+      "pass": false
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "new nightly feed onboarding naming storage delivery",
+      "limit": 100,
+      "entry_rank": 3,
+      "page_ranks": {
+        "delivery-expectation-standard": 4,
+        "feed-naming-standard": 1,
+        "feed-rerun-procedure": 5,
+        "landing-zone-layout": 7,
+        "parcel-events-feed-runbook": 3,
+        "procurement-commitment-ledger": 20,
+        "storage-tier-register": 2
+      },
+      "discontinuity_hits": {
+        "procurement-commitment-ledger": 20
+      },
+      "hits": [
+        "feed-naming-standard",
+        "storage-tier-register",
+        "parcel-events-feed-runbook",
+        "delivery-expectation-standard",
+        "feed-rerun-procedure",
+        "orders-ledger-stream-runbook",
+        "landing-zone-layout",
+        "change-announcement-directory",
+        "currency-backfill-runbook",
+        "review-cleanse-handling-guide",
+        "currency-backfill-handling-guide",
+        "settlement-recon-job-runbook",
+        "change-class-directory",
+        "currency-backfill-tuning-notes",
+        "currency-backfill-history",
+        "consumer-agreement-ledger",
+        "currency-backfill-window-notes",
+        "currency-backfill-checks",
+        "currency-backfill-review-notes",
+        "procurement-commitment-ledger",
+        "governed-tier-obligations",
+        "webhook-enrichment-schema-notes",
+        "escalation-roster",
+        "webhook-enrichment-window-notes",
+        "webhook-enrichment-checks"
+      ],
+      "pass": false
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "how are nightly feeds operated and registered",
+      "limit": 5,
+      "entry_rank": 1,
+      "page_ranks": {
+        "parcel-events-feed-runbook": 1,
+        "storage-tier-register": 2
+      },
+      "hits": [
+        "parcel-events-feed-runbook",
+        "storage-tier-register"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "how are nightly feeds operated and registered",
+      "limit": 25,
+      "entry_rank": 1,
+      "page_ranks": {
+        "delivery-expectation-standard": 4,
+        "feed-naming-standard": 5,
+        "feed-rerun-procedure": 3,
+        "landing-zone-layout": 12,
+        "parcel-events-feed-runbook": 1,
+        "storage-tier-register": 2
+      },
+      "hits": [
+        "parcel-events-feed-runbook",
+        "storage-tier-register",
+        "feed-rerun-procedure",
+        "delivery-expectation-standard",
+        "feed-naming-standard",
+        "orders-ledger-stream-runbook",
+        "currency-backfill-runbook",
+        "change-announcement-directory",
+        "webhook-enrichment-checks",
+        "corp-close-calendar",
+        "settlement-recon-job-runbook",
+        "landing-zone-layout",
+        "governed-tier-obligations",
+        "webhook-enrichment-window-notes",
+        "webhook-enrichment-runbook",
+        "currency-backfill-checks",
+        "regulator-notify-calendar",
+        "consumer-agreement-ledger",
+        "webhook-enrichment-handling-guide",
+        "review-cleanse-handling-guide"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "how are nightly feeds operated and registered",
+      "limit": 100,
+      "entry_rank": 1,
+      "page_ranks": {
+        "delivery-expectation-standard": 4,
+        "feed-naming-standard": 5,
+        "feed-rerun-procedure": 3,
+        "landing-zone-layout": 12,
+        "parcel-events-feed-runbook": 1,
+        "storage-tier-register": 2
+      },
+      "hits": [
+        "parcel-events-feed-runbook",
+        "storage-tier-register",
+        "feed-rerun-procedure",
+        "delivery-expectation-standard",
+        "feed-naming-standard",
+        "orders-ledger-stream-runbook",
+        "currency-backfill-runbook",
+        "change-announcement-directory",
+        "webhook-enrichment-checks",
+        "corp-close-calendar",
+        "settlement-recon-job-runbook",
+        "landing-zone-layout",
+        "governed-tier-obligations",
+        "webhook-enrichment-window-notes",
+        "webhook-enrichment-runbook",
+        "currency-backfill-checks",
+        "regulator-notify-calendar",
+        "consumer-agreement-ledger",
+        "webhook-enrichment-handling-guide",
+        "review-cleanse-handling-guide",
+        "currency-backfill-tuning-notes",
+        "webhook-enrichment-history",
+        "postmortem-record-standard",
+        "worked-hours-ledger-practice",
+        "attestation-procedure"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "feed output lifetime and delivery expectations",
+      "limit": 5,
+      "entry_rank": 2,
+      "page_ranks": {
+        "delivery-expectation-standard": 1,
+        "parcel-events-feed-runbook": 2
+      },
+      "hits": [
+        "delivery-expectation-standard",
+        "parcel-events-feed-runbook"
+      ],
+      "pass": true
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "feed output lifetime and delivery expectations",
+      "limit": 25,
+      "entry_rank": 2,
+      "page_ranks": {
+        "delivery-expectation-standard": 1,
+        "feed-naming-standard": 4,
+        "feed-rerun-procedure": 5,
+        "landing-zone-layout": 7,
+        "parcel-events-feed-runbook": 2,
+        "procurement-commitment-ledger": 18,
+        "storage-tier-register": 3
+      },
+      "discontinuity_hits": {
+        "procurement-commitment-ledger": 18
+      },
+      "hits": [
+        "delivery-expectation-standard",
+        "parcel-events-feed-runbook",
+        "storage-tier-register",
+        "feed-naming-standard",
+        "feed-rerun-procedure",
+        "orders-ledger-stream-runbook",
+        "landing-zone-layout",
+        "currency-backfill-runbook",
+        "consumer-agreement-ledger",
+        "currency-backfill-checks",
+        "currency-backfill-tuning-notes",
+        "governed-tier-obligations",
+        "currency-backfill-history",
+        "webhook-enrichment-runbook",
+        "review-cleanse-handling-guide",
+        "webhook-enrichment-history",
+        "currency-backfill-review-notes",
+        "procurement-commitment-ledger",
+        "settlement-recon-job-runbook",
+        "postmortem-record-standard"
+      ],
+      "pass": false
+    },
+    {
+      "cell_id": "gs-feed-onboarding",
+      "query": "feed output lifetime and delivery expectations",
+      "limit": 100,
+      "entry_rank": 2,
+      "page_ranks": {
+        "delivery-expectation-standard": 1,
+        "feed-naming-standard": 4,
+        "feed-rerun-procedure": 5,
+        "landing-zone-layout": 7,
+        "offplatform-copy-policy": 24,
+        "parcel-events-feed-runbook": 2,
+        "procurement-commitment-ledger": 18,
+        "storage-tier-register": 3
+      },
+      "discontinuity_hits": {
+        "procurement-commitment-ledger": 18
+      },
+      "hits": [
+        "delivery-expectation-standard",
+        "parcel-events-feed-runbook",
+        "storage-tier-register",
+        "feed-naming-standard",
+        "feed-rerun-procedure",
+        "orders-ledger-stream-runbook",
+        "landing-zone-layout",
+        "currency-backfill-runbook",
+        "consumer-agreement-ledger",
+        "currency-backfill-checks",
+        "currency-backfill-tuning-notes",
+        "governed-tier-obligations",
+        "currency-backfill-history",
+        "webhook-enrichment-runbook",
+        "review-cleanse-handling-guide",
+        "webhook-enrichment-history",
+        "currency-backfill-review-notes",
+        "procurement-commitment-ledger",
+        "settlement-recon-job-runbook",
+        "postmortem-record-standard",
+        "currency-backfill-handling-guide",
+        "webhook-enrichment-checks",
+        "currency-backfill-window-notes",
+        "offplatform-copy-policy",
+        "change-announcement-directory"
+      ],
+      "pass": false
+    }
+  ],
+  "pass": false
+}
