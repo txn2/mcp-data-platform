@@ -460,9 +460,10 @@ still running.
 | 4. Platform close | Audit flush, OAuth refresher stop, session cache flush, DB pool close, metrics provider shutdown. | a few seconds | n/a |
 
 The full budget for the defaults is `2 + 25 + 10 + ~3 ≈ 40s`. Set
-`terminationGracePeriodSeconds` accordingly. The default 30s in the
-example manifest is too tight for the default platform configuration;
-60s leaves comfortable headroom.
+`terminationGracePeriodSeconds` accordingly. Kubernetes' own default of
+30s is too tight for the default platform configuration, so the
+[deployment guide](../server/deployment.md) manifest sets 60s, which
+leaves comfortable headroom.
 
 For deployments with long-running tool calls (large Trino queries, slow
 upstream API gateway calls), raise `server.shutdown.grace_period` and
