@@ -1,5 +1,13 @@
 # Graph-completion probe (#1241 premise probe, corrected instrument)
 
+**Status: the study this probe piloted is published** as
+[`docs/reference/benchmark-report-graph-completion.md`](../../../docs/reference/benchmark-report-graph-completion.md)
+(version 1.0, 2026-08-10; DOI 10.5281/zenodo.21881798). In the published
+record this family is the pilot that validated the instruments and supplies
+the no-search floors; its search-arm numbers are ceiling-bound at 42 pages
+and are never headline claims. The confirmatory evidence is
+[`../graph-completion-confirmatory/`](../graph-completion-confirmatory/).
+
 Exploratory. The second premise probe for the graph-traversal candidate,
 built after the lookup-shaped attempt
 ([`../graph-traversal-probe/`](../graph-traversal-probe/)) was recorded as an

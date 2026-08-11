@@ -112,6 +112,7 @@ nav:
     - "Benchmark Report: Knowledge Layer": reference/benchmark-report.md
     - "Benchmark Report: Knowledge Use": reference/benchmark-report-knowledge-use.md
     - "Benchmark Report: Knowledge Pollution": reference/benchmark-report-knowledge-pollution.md
+    - "Benchmark Report: Graph Completion": reference/benchmark-report-graph-completion.md
   - Security:
     - Threat Model: security/threat-model.md
   - Go Library:

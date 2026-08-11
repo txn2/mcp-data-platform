@@ -15,18 +15,68 @@ answers "how much" (throughput, latency, memory). This one answers "how well".
 Every artifact belongs to exactly one study. Run-family directories under
 [`results/`](results/) are never shared between them.
 
-| | Knowledge-layer effectiveness | Knowledge use | Knowledge pollution | API-connection architecture |
-| --- | --- | --- | --- | --- |
-| **Question** | Does a semantic knowledge layer make an agent measurably more correct? | When an agent is handed stored knowledge, does it use it? | When a stored insight is wrong, do other identities adopt it over a co-present correct source? | Does connection architecture change an agent's accuracy over a large API? |
-| **Published report** | [`benchmark-report.md`](../docs/reference/benchmark-report.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report/)) | [`benchmark-report-knowledge-use.md`](../docs/reference/benchmark-report-knowledge-use.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-use/)) | [`benchmark-report-knowledge-pollution.md`](../docs/reference/benchmark-report-knowledge-pollution.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-pollution/)) | none |
-| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept) | [10.5281/zenodo.21614059](https://doi.org/10.5281/zenodo.21614059) | [10.5281/zenodo.21834813](https://doi.org/10.5281/zenodo.21834813) | none |
-| **Protocol** | [`docs/knowledge-layer-protocol.md`](docs/knowledge-layer-protocol.md) | [`docs/knowledge-use-protocol.md`](docs/knowledge-use-protocol.md) | [`docs/knowledge-pollution-study-design.md`](docs/knowledge-pollution-study-design.md) | [`docs/api-connection-study-design.md`](docs/api-connection-study-design.md) |
-| **Pre-registration** | issues #930, #942-#945 | [`docs/perishable-knowledge-study-design.md`](docs/perishable-knowledge-study-design.md), [fixture](docs/perishable-knowledge-fixture.md), [estimator audit](docs/perishable-knowledge-estimator-audit.md) | issue #1163 (filed after its premise probe held), then [`docs/knowledge-pollution-study-design.md`](docs/knowledge-pollution-study-design.md) (the confirmatory matrix, its estimator audit in section 6) | the protocol above |
-| **Toolchain** | [`reports/knowledge-layer/`](reports/knowledge-layer/) — `make bench-report-knowledge-layer-pdf` | [`reports/knowledge-use/`](reports/knowledge-use/) — `make bench-report-knowledge-use-pdf` | [`reports/knowledge-pollution/`](reports/knowledge-pollution/) — `make bench-report-knowledge-pollution-pdf` | none |
-| **Run data** | top-level families under [`results/`](results/) | [`results/knowledge-use/`](results/knowledge-use/) | [`results/knowledge-pollution/`](results/knowledge-pollution/) | [`results/api-study-pilot/`](results/api-study-pilot/) |
-| **Status** | published, report version 2.0 | published, report version 1.0, pinned to v1.116.0 | published, report version 1.0, commit-pinned builds | closed not planned; postmortem on #1027 |
+| Study | Question | Status |
+| --- | --- | --- |
+| [Knowledge-layer effectiveness](#knowledge-layer-effectiveness) | Does a semantic knowledge layer make an agent measurably more correct? | published, report version 2.0 |
+| [Knowledge use](#knowledge-use) | When an agent is handed stored knowledge, does it use it? | published, report version 1.0, pinned to v1.116.0 |
+| [Knowledge pollution](#knowledge-pollution) | When a stored insight is wrong, do other identities adopt it over a co-present correct source? | published, report version 1.0, commit-pinned builds |
+| [Graph completion](#graph-completion) | When a completion task's constraints live across a knowledge-page graph, do authored edges deliver what retrieval cannot? | published, report version 1.0, commit-pinned build |
+| [API-connection architecture](#api-connection-architecture) | Does connection architecture change an agent's accuracy over a large API? | closed not planned; postmortem on #1027 |
 
-A study earns a column once it has a protocol or a report.
+A study earns a row once it has a protocol or a report.
+
+### Knowledge-layer effectiveness
+
+| | |
+| --- | --- |
+| **Published report** | [`benchmark-report.md`](../docs/reference/benchmark-report.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report/)) |
+| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept) |
+| **Protocol** | [`docs/knowledge-layer-protocol.md`](docs/knowledge-layer-protocol.md) |
+| **Pre-registration** | issues #930, #942-#945 |
+| **Toolchain** | [`reports/knowledge-layer/`](reports/knowledge-layer/) — `make bench-report-knowledge-layer-pdf` |
+| **Run data** | top-level families under [`results/`](results/) |
+
+### Knowledge use
+
+| | |
+| --- | --- |
+| **Published report** | [`benchmark-report-knowledge-use.md`](../docs/reference/benchmark-report-knowledge-use.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-use/)) |
+| **DOI** | [10.5281/zenodo.21614059](https://doi.org/10.5281/zenodo.21614059) |
+| **Protocol** | [`docs/knowledge-use-protocol.md`](docs/knowledge-use-protocol.md) |
+| **Pre-registration** | [`docs/perishable-knowledge-study-design.md`](docs/perishable-knowledge-study-design.md), [fixture](docs/perishable-knowledge-fixture.md), [estimator audit](docs/perishable-knowledge-estimator-audit.md) |
+| **Toolchain** | [`reports/knowledge-use/`](reports/knowledge-use/) — `make bench-report-knowledge-use-pdf` |
+| **Run data** | [`results/knowledge-use/`](results/knowledge-use/) |
+
+### Knowledge pollution
+
+| | |
+| --- | --- |
+| **Published report** | [`benchmark-report-knowledge-pollution.md`](../docs/reference/benchmark-report-knowledge-pollution.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-knowledge-pollution/)) |
+| **DOI** | [10.5281/zenodo.21834813](https://doi.org/10.5281/zenodo.21834813) |
+| **Protocol** | [`docs/knowledge-pollution-study-design.md`](docs/knowledge-pollution-study-design.md) |
+| **Pre-registration** | issue #1163 (filed after its premise probe held), then [`docs/knowledge-pollution-study-design.md`](docs/knowledge-pollution-study-design.md) (the confirmatory matrix, its estimator audit in section 6) |
+| **Toolchain** | [`reports/knowledge-pollution/`](reports/knowledge-pollution/) — `make bench-report-knowledge-pollution-pdf` |
+| **Run data** | [`results/knowledge-pollution/`](results/knowledge-pollution/) |
+
+### Graph completion
+
+| | |
+| --- | --- |
+| **Published report** | [`benchmark-report-graph-completion.md`](../docs/reference/benchmark-report-graph-completion.md) ([site](https://mcp-data-platform.txn2.com/reference/benchmark-report-graph-completion/)) |
+| **DOI** | [10.5281/zenodo.21881798](https://doi.org/10.5281/zenodo.21881798) |
+| **Protocol** | [`docs/graph-completion-study-design.md`](docs/graph-completion-study-design.md) |
+| **Pre-registration** | probe pre-registered on #1241 before any episode; the stage-3 design (#1250) froze the matrix, certification horizons, and kill conditions; #1251 ran only what it froze |
+| **Toolchain** | [`reports/graph-completion/`](reports/graph-completion/) — `make bench-report-graph-completion-pdf` |
+| **Run data** | [`results/graph-completion-probe/`](results/graph-completion-probe/), [`results/graph-completion-separation/`](results/graph-completion-separation/), [`results/graph-completion-confirmatory/`](results/graph-completion-confirmatory/) |
+
+### API-connection architecture
+
+| | |
+| --- | --- |
+| **Published report** | none |
+| **Protocol** | [`docs/api-connection-study-design.md`](docs/api-connection-study-design.md) |
+| **Pre-registration** | the protocol above |
+| **Run data** | [`results/api-study-pilot/`](results/api-study-pilot/) |
 
 Negative results and evidence-backed platform decisions are indexed in
 [`docs/findings-register.md`](docs/findings-register.md) — a retired study
@@ -49,10 +99,10 @@ one-artifact-one-study rule stays exact.
 
 ## Reading the reports
 
-Both reports are neutral evaluations, not marketing pages: every statistic is
+Every report is a neutral evaluation, not a marketing page: every statistic is
 recomputed from raw run data committed under `results/` by a notebook that needs
 no network access and no API key, and every claim cites the run directory it
-comes from. Both carry a threats-to-validity section.
+comes from. Every report carries a threats-to-validity section.
 
 What each report holds fixed differs, and reading a number without that framing
 will mislead:
@@ -95,6 +145,13 @@ The knowledge-layer study predates the convention in two respects, both
 permanent and both recorded here rather than fixed: its published page is
 `benchmark-report.md` with no slug, and its `results/` families sit at the top
 level instead of under a slug directory. The deposited PDF cites those paths.
+The graph-completion study deviates in one respect, likewise permanent: its
+three run families sit at the top level as `results/graph-completion-probe/`,
+`results/graph-completion-separation/`, and
+`results/graph-completion-confirmatory/` rather than under one slug directory,
+because the pre-registrations on #1241/#1250/#1251, the archived summaries,
+and the archived analyzers all cite those paths and published archives are
+immutable.
 
 ### Re-analyzing another study's published archives
 

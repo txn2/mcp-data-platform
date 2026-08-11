@@ -1,9 +1,17 @@
 # Graph-completion study, stage 3: separation design (#1250)
 
-**Status: design merged; the confirmatory matrix runs under #1251 and only
-what this document freezes. Changing any frozen element (cells, mints,
-certification horizons, the elicitation string, kill conditions, the
-matrix) reopens this design.**
+**Status: study concluded (2026-08-10). The confirmatory matrix ran in full
+under #1251 — 99 episodes, no protocol amendment — and its pre-registered
+instrument kill fired: stripped-arm episodes grounded the certified
+discontinuity constraints at both certified scales through read-derived
+queries, so the certified-scale pairs are invalid for the discontinuity DV
+and no kill condition was read as a confirmatory finding (kill application
+in `../results/graph-completion-confirmatory/graph-confirmatory-SUMMARY.md`).
+Results are published as
+[`docs/reference/benchmark-report-graph-completion.md`](../../docs/reference/benchmark-report-graph-completion.md)
+(version 1.0, DOI 10.5281/zenodo.21881798), which claims cost and no-search
+robustness, not completeness delivery. This document is frozen as the
+pre-registration of record; published reports cite its section headings.**
 
 This is the stage-3 design for the graph-traversal candidate
 (`findings-register.md`, graph-traversal row), following the premise probe

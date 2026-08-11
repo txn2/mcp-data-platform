@@ -14,6 +14,7 @@
 [![Benchmark Report: Knowledge Layer](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21438044-blue?label=Report%3A%20Knowledge%20Layer)](https://doi.org/10.5281/zenodo.21438044)
 [![Benchmark Report: Knowledge Use](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21614058-blue?label=Report%3A%20Knowledge%20Use)](https://doi.org/10.5281/zenodo.21614058)
 [![Benchmark Report: Knowledge Pollution](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21834812-blue?label=Report%3A%20Knowledge%20Pollution)](https://doi.org/10.5281/zenodo.21834812)
+[![Benchmark Report: Graph Completion](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21881797-blue?label=Report%3A%20Graph%20Completion)](https://doi.org/10.5281/zenodo.21881797)
 
 **[Documentation](https://mcp-data-platform.txn2.com/)** | **[Installation](https://mcp-data-platform.txn2.com/server/installation/)** | **[Quick Start](#quick-start)** | **[Go Library](https://mcp-data-platform.txn2.com/library/overview/)**
 

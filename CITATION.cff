@@ -3,7 +3,7 @@
 # (https://citation-file-format.github.io).
 #
 # GitHub renders a "Cite this repository" button from this file. The top-level
-# entry below is the software, so that button cites the platform. The three
+# entry below is the software, so that button cites the platform. The four
 # benchmark reports are separate publications with their own Zenodo deposits and
 # are listed under `references:`; cite the report, not the repository, when the
 # thing being cited is a measurement.
@@ -103,4 +103,24 @@ references:
     identifiers:
       - type: doi
         value: 10.5281/zenodo.21834813
+        description: "Version DOI for the v1.0 snapshot"
+  - type: report
+    title: >-
+      Do Cross-References Help LLM Agents Complete Documents? Search Cost,
+      Robustness, and Unreachable Content on a Wiki-Style Corpus
+    authors:
+      - family-names: Johnston
+        given-names: Craig
+        email: cj@imti.co
+        affiliation: "Deasil Works, Inc."
+    year: 2026
+    month: 8
+    institution:
+      name: "Deasil Works, Inc. / txn2"
+    url: "https://mcp-data-platform.txn2.com/reference/benchmark-report-graph-completion/"
+    version: "1.0"
+    doi: 10.5281/zenodo.21881797
+    identifiers:
+      - type: doi
+        value: 10.5281/zenodo.21881798
         description: "Version DOI for the v1.0 snapshot"
