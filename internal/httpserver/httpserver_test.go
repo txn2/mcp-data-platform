@@ -1400,6 +1400,23 @@ func TestMcpappsBrandName(t *testing.T) {
 }
 
 func TestPortalBrandName(t *testing.T) {
+	t.Run("prefers portal brand_name", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "server-name"},
+			Portal: platform.PortalConfig{Title: "portal-title", BrandName: "Contoso"},
+			MCPApps: platform.MCPAppsConfig{
+				Apps: map[string]platform.AppConfig{
+					"platform-info": {Config: map[string]any{"brand_name": "ACME"}},
+				},
+			},
+		})
+		defer func() { _ = p.Close() }()
+
+		if got := portalBrandName(p); got != "Contoso" {
+			t.Errorf("portalBrandName() = %q, want %q", got, "Contoso")
+		}
+	})
+
 	t.Run("prefers mcpapps brand_name", func(t *testing.T) {
 		p := newTestPlatform(t, &platform.Config{
 			Server: platform.ServerConfig{Name: "server-name"},

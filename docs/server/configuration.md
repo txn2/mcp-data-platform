@@ -496,7 +496,10 @@ The `portal` block enables the asset portal - the web UI plus REST API that pers
 ```yaml
 portal:
   enabled: true
-  title: "ACME Data Platform"                     # Sidebar/branding title
+  brand_name: "ACME"                              # Deployment brand; the title becomes "ACME Portal"
+  brand_url: "https://acme.example.com"           # Brand site the portal's brand mark links to
+  version_url: "https://acme.example.com/changelog"  # Optional link target for the header version number
+  title: "ACME Data Platform"                     # Overrides the brand-composed title
   tagline: "Sign in to access your data."         # Login-screen subtitle
   oidc_button_label: "Sign in with ACME Keycloak" # Login-screen SSO button text
   logo: https://example.com/logo.svg              # Logo URL (fallback for both themes)
@@ -532,7 +535,10 @@ portal:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `false` | Enable the portal SPA frontend and asset API |
-| `title` | string | `MCP Data Platform` | Sidebar/branding title text |
+| `brand_name` | string | mcpapps `brand_name` | Deployment brand. Names the brand once and the portal title, the public-viewer header, the branded denial pages, and the built-in MCP Apps all follow it. Falls back to `brand_name` in the `mcpapps.apps.platform-info.config` block when that subsystem is enabled |
+| `brand_url` | string | mcpapps `brand_url` | Brand home page. The portal's brand mark (sidebar logo and name) links to it in a new tab; unset leaves the mark inert. Falls back to `brand_url` in the `mcpapps.apps.platform-info.config` block when that subsystem is enabled |
+| `version_url` | string | - | Link target for the version number in the portal header (release notes or a changelog). Unset leaves the version as plain text. Served on the unauthenticated branding endpoint, so point it at a URL you are willing to disclose publicly |
+| `title` | string | `<brand_name> Portal`, else `MCP Data Platform` | Sidebar/branding title text. Composed from `brand_name` when unset, so a branded deployment needs no second string to keep in sync. A brand already ending in "Portal" is not doubled. Only a `brand_name` set in the `portal` block composes the title: a brand inherited from the `mcpapps` block leaves an existing deployment's title unchanged |
 | `tagline` | string | `Sign in to access the platform.` | Login-screen subtitle text |
 | `oidc_button_label` | string | `Sign in with OIDC` | Login-screen SSO button text |
 | `logo` | string | - | URL to logo image (used for both themes if no theme-specific logo is set) |

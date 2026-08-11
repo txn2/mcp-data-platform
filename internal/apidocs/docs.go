@@ -15661,6 +15661,14 @@ const docTemplate = `{
         "admin.systemInfoResponse": {
             "type": "object",
             "properties": {
+                "brand_name": {
+                    "type": "string",
+                    "example": "ACME"
+                },
+                "brand_url": {
+                    "type": "string",
+                    "example": "https://acme.example.com"
+                },
                 "build_date": {
                     "type": "string",
                     "example": "2026-04-15T00:00:00Z"
@@ -15715,6 +15723,10 @@ const docTemplate = `{
                 "version": {
                     "type": "string",
                     "example": "1.55.11"
+                },
+                "version_url": {
+                    "type": "string",
+                    "example": "https://acme.example.com/changelog"
                 }
             }
         },

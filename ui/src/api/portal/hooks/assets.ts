@@ -37,6 +37,12 @@ export interface Branding {
   name: string;
   version: string;
   portal_title: string;
+  /** Deployment brand, e.g. "ACME". Empty when the deployment names no brand. */
+  brand_name?: string;
+  /** Brand home page the portal's brand mark links to. Empty means no link. */
+  brand_url?: string;
+  /** Link target for the version number in the header. Empty means no link. */
+  version_url?: string;
   portal_tagline?: string;
   oidc_button_label?: string;
   portal_logo: string;

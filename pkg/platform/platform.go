@@ -1937,6 +1937,8 @@ func (p *Platform) initMCPApps() error {
 	p.branding = branding.New(branding.Config{
 		PortalLogo:      p.config.Portal.Logo,
 		ImplementorLogo: p.config.Portal.Implementor.Logo,
+		BrandName:       p.config.Portal.BrandName,
+		BrandURL:        p.config.Portal.BrandURL,
 	})
 
 	if !p.config.MCPApps.IsEnabled() {
@@ -3215,9 +3217,9 @@ func (p *Platform) BrandLogoSVG() string {
 	return p.branding.BrandLogoSVG()
 }
 
-// BrandURL returns the resolved brand URL from the mcpapps platform-info
-// config (brand_url), or empty string if not configured. Delegates to the
-// branding owner.
+// BrandURL returns the resolved brand URL — portal.brand_url when set,
+// otherwise brand_url from the mcpapps platform-info config — or empty string
+// if neither is configured. Delegates to the branding owner.
 func (p *Platform) BrandURL() string {
 	return p.branding.BrandURL()
 }

@@ -12,6 +12,9 @@ export interface SystemInfo {
   transport: string;
   config_mode: string;
   portal_title: string;
+  brand_name?: string;
+  brand_url?: string;
+  version_url?: string;
   portal_logo: string;
   portal_logo_light: string;
   portal_logo_dark: string;

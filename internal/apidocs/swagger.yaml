@@ -956,6 +956,12 @@ definitions:
     type: object
   admin.systemInfoResponse:
     properties:
+      brand_name:
+        example: ACME
+        type: string
+      brand_url:
+        example: https://acme.example.com
+        type: string
       build_date:
         example: "2026-04-15T00:00:00Z"
         type: string
@@ -996,6 +1002,9 @@ definitions:
         type: string
       version:
         example: 1.55.11
+        type: string
+      version_url:
+        example: https://acme.example.com/changelog
         type: string
     type: object
   admin.testGatewayConnectionRequest:

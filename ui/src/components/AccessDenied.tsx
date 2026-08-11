@@ -2,11 +2,10 @@ import { useAuthStore } from "@/stores/auth";
 import { useResolvedDark } from "@/stores/theme";
 import { useBranding } from "@/api/portal/hooks";
 import { resolvePortalLogo } from "@/lib/portalLogo";
+import { usePortalTitle } from "@/hooks/usePortalTitle";
 import { ShieldOff } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-
-const DEFAULT_PORTAL_TITLE = "MCP Data Platform";
 
 /**
  * Shown when the caller authenticated but their roles map to no persona, which
@@ -25,7 +24,7 @@ export function AccessDenied() {
   const isDark = useResolvedDark();
 
   const portalLogo = resolvePortalLogo(branding ?? undefined, isDark);
-  const portalTitle = branding?.portal_title || DEFAULT_PORTAL_TITLE;
+  const { portalTitle } = usePortalTitle();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/40">

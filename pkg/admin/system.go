@@ -23,6 +23,9 @@ type systemInfoResponse struct {
 	Transport       string         `json:"transport" example:"http"`
 	ConfigMode      string         `json:"config_mode" example:"database"`
 	PortalTitle     string         `json:"portal_title" example:"ACME Data Platform"`
+	BrandName       string         `json:"brand_name" example:"ACME"`
+	BrandURL        string         `json:"brand_url" example:"https://acme.example.com"`
+	VersionURL      string         `json:"version_url" example:"https://acme.example.com/changelog"`
 	PortalLogo      string         `json:"portal_logo" example:"https://example.com/logo.svg"`
 	PortalLogoLight string         `json:"portal_logo_light" example:"https://example.com/logo-light.svg"`
 	PortalLogoDark  string         `json:"portal_logo_dark" example:"https://example.com/logo-dark.svg"`
@@ -63,6 +66,9 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, r *http.Request) {
 		resp.Description = cfg.ServerDescription(r.Context())
 		resp.Transport = cfg.Server.Transport
 		resp.PortalTitle = cfg.Portal.Title
+		resp.BrandName = cfg.Portal.BrandName
+		resp.BrandURL = cfg.Portal.BrandURL
+		resp.VersionURL = cfg.Portal.VersionURL
 		resp.PortalLogo = cfg.Portal.Logo
 		resp.PortalLogoLight = cfg.Portal.LogoLight
 		resp.PortalLogoDark = cfg.Portal.LogoDark
@@ -91,6 +97,9 @@ type publicBrandingResponse struct {
 	Name            string `json:"name" example:"acme-data-platform"`
 	Version         string `json:"version" example:"1.55.11"`
 	PortalTitle     string `json:"portal_title" example:"ACME Data Platform"`
+	BrandName       string `json:"brand_name" example:"ACME"`
+	BrandURL        string `json:"brand_url" example:"https://acme.example.com"`
+	VersionURL      string `json:"version_url" example:"https://acme.example.com/changelog"`
 	PortalTagline   string `json:"portal_tagline" example:"Sign in to access your data."`
 	OIDCButtonLabel string `json:"oidc_button_label" example:"Sign in with ACME Keycloak"`
 	PortalLogo      string `json:"portal_logo" example:"https://example.com/logo.svg"`
@@ -108,6 +117,9 @@ func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
 	if h.deps.Config != nil {
 		resp.Name = h.deps.Config.Server.Name
 		resp.PortalTitle = h.deps.Config.Portal.Title
+		resp.BrandName = h.deps.Config.Portal.BrandName
+		resp.BrandURL = h.deps.Config.Portal.BrandURL
+		resp.VersionURL = h.deps.Config.Portal.VersionURL
 		resp.PortalTagline = h.deps.Config.Portal.Tagline
 		resp.OIDCButtonLabel = h.deps.Config.Portal.OIDCButtonLabel
 		resp.PortalLogo = h.deps.Config.Portal.Logo
