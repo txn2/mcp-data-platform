@@ -1,5 +1,5 @@
 ---
-description: Deploy mcp-data-platform in development and production environments using Docker Compose or Kubernetes/Helm.
+description: Deploy mcp-data-platform in development and production environments using Docker Compose or plain Kubernetes manifests.
 ---
 
 # Deployment Guide
@@ -13,7 +13,7 @@ This guide covers deploying mcp-data-platform in various environments, from loca
 | Environment | Best For | Complexity |
 |-------------|----------|------------|
 | **Docker Compose** | Development, small teams, testing | Low |
-| **Kubernetes/Helm** | Production, multi-user, enterprise | Medium |
+| **Kubernetes (plain manifests)** | Production, multi-user, enterprise | Medium |
 
 ---
 
@@ -291,348 +291,427 @@ go run ./cmd/mcp-data-platform --config platform.yaml --transport http --address
 
 ---
 
-## Kubernetes/Helm (Production)
+## Kubernetes (Production)
 
-Production deployment using Helm charts with best practices for security, scaling, and monitoring.
+Production deployment is plain Kubernetes manifests applied with `kubectl`.
+This repository ships no Helm chart and no operator, and the observability
+manifests under
+[`deployments/observability/`](https://github.com/txn2/mcp-data-platform/tree/main/deployments/observability)
+follow the same shape. The manifests below are complete as written: save them
+into a directory, change the image tag, host names, and resource figures, and
+apply the directory.
 
 ### Prerequisites
 
 - Kubernetes 1.28+
-- Helm 3.12+
-- kubectl configured for your cluster
-- TLS certificates (cert-manager recommended)
+- `kubectl` configured for the target cluster
+- TLS certificates for the ingress (cert-manager recommended)
+- PostgreSQL reachable from the cluster. It backs audit, portal, knowledge,
+  memory, and the OAuth/PKCE state that multi-replica deployments share
 
-### Helm Chart Structure
+### Namespace and secrets
 
-Create a Helm chart at `charts/mcp-data-platform/`:
+```bash
+kubectl create namespace mcp-data-platform
 
-```
-charts/mcp-data-platform/
-├── Chart.yaml
-├── values.yaml
-├── templates/
-│   ├── _helpers.tpl
-│   ├── deployment.yaml
-│   ├── service.yaml
-│   ├── configmap.yaml
-│   ├── secret.yaml
-│   ├── ingress.yaml
-│   ├── hpa.yaml
-│   ├── pdb.yaml
-│   └── serviceaccount.yaml
+# Use external-secrets, sealed-secrets, or a secrets manager in production.
+kubectl create secret generic mcp-data-platform-secrets \
+  --namespace mcp-data-platform \
+  --from-literal=datahub-token="$DATAHUB_TOKEN" \
+  --from-literal=oauth-signing-key="$OAUTH_SIGNING_KEY" \
+  --from-literal=keycloak-client-secret="$KEYCLOAK_CLIENT_SECRET" \
+  --from-literal=encryption-key="$ENCRYPTION_KEY" \
+  --from-literal=database-url="$DATABASE_URL"
 ```
 
-### Chart.yaml
+`ENCRYPTION_KEY` is 32 bytes of key material (64 hex characters, 44-character
+base64, or 32 raw bytes) and encrypts stored connection credentials, gateway
+OAuth tokens, and PKCE state at rest. Without it the platform logs a warning at
+startup and stores those values in plaintext.
+
+### ServiceAccount
 
 ```yaml
-apiVersion: v2
-name: mcp-data-platform
-description: Semantic data platform MCP server
-type: application
-version: 1.0.0
-appVersion: "0.1.0"
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mcp-data-platform
+  namespace: mcp-data-platform
+  labels:
+    app.kubernetes.io/name: mcp-data-platform
+# The platform never calls the Kubernetes API; do not mount a token for it.
+automountServiceAccountToken: false
 ```
 
-### values.yaml
+### ConfigMap
+
+The platform reads its YAML from a file and expands `${VAR}` from the process
+environment, so credentials stay in the Secret and never enter the ConfigMap.
+The full schema is in the [Configuration reference](configuration.md).
 
 ```yaml
-replicaCount: 2
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-data-platform-config
+  namespace: mcp-data-platform
+  labels:
+    app.kubernetes.io/name: mcp-data-platform
+data:
+  platform.yaml: |
+    server:
+      name: mcp-data-platform
+      transport: http
+      address: ":8080"
+      tls:
+        enabled: false   # TLS terminates at the ingress
 
-image:
-  repository: ghcr.io/txn2/mcp-data-platform
-  pullPolicy: IfNotPresent
-  tag: "latest"
+    database:
+      dsn: ${DATABASE_URL}
 
-serviceAccount:
-  create: true
-  annotations: {}
-  name: ""
+    toolkits:
+      datahub:
+        enabled: true
+        instances:
+          primary:
+            url: http://datahub-gms.datahub:8080
+            token: ${DATAHUB_TOKEN}
+        default: primary
+      trino:
+        enabled: true
+        instances:
+          primary:
+            host: trino.trino
+            port: 8080
+            user: mcp-platform
+            catalog: hive
+            ssl: false
+        default: primary
 
-podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 65534
-  runAsGroup: 65534
-  fsGroup: 65534
+    semantic:
+      provider: datahub
+      instance: primary
 
-securityContext:
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: true
-  capabilities:
-    drop:
-      - ALL
+    enrichment:
+      trino_semantic_enrichment: true
+      datahub_query_enrichment: true
+      column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
-service:
-  type: ClusterIP
-  port: 8080
-
-ingress:
-  enabled: true
-  className: nginx
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
-  hosts:
-    - host: mcp.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: mcp-data-platform-tls
-      hosts:
-        - mcp.example.com
-
-resources:
-  limits:
-    cpu: 1000m
-    memory: 512Mi
-  requests:
-    cpu: 100m
-    memory: 128Mi
-
-autoscaling:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 10
-  targetCPUUtilizationPercentage: 70
-  targetMemoryUtilizationPercentage: 80
-
-pdb:
-  enabled: true
-  minAvailable: 1
-
-# Platform configuration
-config:
-  server:
-    name: mcp-data-platform
-    transport: http
-    address: ":8080"
-    tls:
-      enabled: false  # TLS terminates at ingress
-
-  toolkits:
-    datahub:
+    oauth:
       enabled: true
-      instances:
-        primary:
-          url: http://datahub-gms.datahub:8080
-      default: primary
-    trino:
+      issuer: "https://mcp.example.com"
+      signing_key: ${OAUTH_SIGNING_KEY}
+      # MCP clients either pre-register under `clients:` or register
+      # themselves through DCR; a deployment with neither admits no client.
+      # Constrain the redirect URIs a self-registering client may claim.
+      dcr:
+        enabled: true
+        allowed_redirect_patterns:
+          - "^http://localhost.*"
+          - "^http://127.0.0.1.*"
+      upstream:
+        issuer: "https://auth.example.com/realms/mcp"
+        client_id: "mcp-data-platform"
+        client_secret: ${KEYCLOAK_CLIENT_SECRET}
+        redirect_uri: "https://mcp.example.com/oauth/callback"
+
+    personas:
+      analyst:
+        display_name: "Data Analyst"
+        roles: ["analyst"]
+        tools:
+          allow: ["*"]
+          deny: ["*_delete_*"]
+        connections:
+          allow: ["*"]
+      admin:
+        display_name: "Administrator"
+        roles: ["admin"]
+        tools:
+          allow: ["*"]
+        connections:
+          allow: ["*"]
+
+    audit:
       enabled: true
-      instances:
-        primary:
-          host: trino.trino
-          port: 8080
-          user: mcp-platform
-          catalog: hive
-          ssl: false
-      default: primary
-
-  enrichment:
-    trino_semantic_enrichment: true
-    datahub_query_enrichment: true
-    column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
-
-  audit:
-    enabled: true
-    log_tool_calls: true
-
-# External secrets (use external-secrets operator or sealed-secrets in production)
-secrets:
-  datahubToken: ""
-  oauthSigningKey: ""
-  keycloakClientSecret: ""
-  databaseUrl: ""
-
-# Prometheus metrics
-metrics:
-  enabled: true
-  port: 9090
-  path: /metrics
-
-# Health checks
-probes:
-  liveness:
-    httpGet:
-      path: /health
-      port: http
-    initialDelaySeconds: 10
-    periodSeconds: 10
-  readiness:
-    httpGet:
-      path: /health
-      port: http
-    initialDelaySeconds: 5
-    periodSeconds: 5
+      log_tool_calls: true
 ```
 
-### templates/deployment.yaml
+A ConfigMap change does not restart the pods on its own. Roll them after
+editing it:
+
+```bash
+kubectl rollout restart deployment/mcp-data-platform -n mcp-data-platform
+```
+
+### Deployment
 
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "mcp-data-platform.fullname" . }}
+  name: mcp-data-platform
+  namespace: mcp-data-platform
   labels:
-    {{- include "mcp-data-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/name: mcp-data-platform
 spec:
-  {{- if not .Values.autoscaling.enabled }}
-  replicas: {{ .Values.replicaCount }}
-  {{- end }}
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
-      {{- include "mcp-data-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: mcp-data-platform
   template:
     metadata:
-      annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
       labels:
-        {{- include "mcp-data-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/name: mcp-data-platform
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
-      serviceAccountName: {{ include "mcp-data-platform.serviceAccountName" . }}
+      serviceAccountName: mcp-data-platform
+      automountServiceAccountToken: false
+      # Defaults total ~40s (2s pre-shutdown + 25s drain + 10s lifecycle stop
+      # + a few seconds of close). See the Tuning and Scaling guide.
+      terminationGracePeriodSeconds: 60
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: mcp-data-platform
+                topologyKey: kubernetes.io/hostname
       containers:
-        - name: {{ .Chart.Name }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+        - name: mcp-data-platform
+          image: ghcr.io/txn2/mcp-data-platform:v1.120.0
+          imagePullPolicy: IfNotPresent
           args:
             - --config
-            - /etc/mcp/platform.yaml
+            - /etc/mcp-data-platform/platform.yaml
             - --transport
             - http
             - --address
             - :8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
-            {{- if .Values.metrics.enabled }}
             - name: metrics
-              containerPort: {{ .Values.metrics.port }}
+              containerPort: 9090
               protocol: TCP
-            {{- end }}
-          livenessProbe:
-            {{- toYaml .Values.probes.liveness | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.probes.readiness | nindent 12 }}
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
           env:
+            # The Go runtime is not cgroup-aware; match it to the limits below.
+            - name: GOMEMLIMIT
+              value: "450MiB"   # ~90% of limits.memory
+            - name: GOMAXPROCS
+              value: "1"        # limits.cpu rounded up
+            - name: LOG_LEVEL
+              value: "info"
+            - name: OTEL_METRICS_ENABLED
+              value: "true"
+            - name: OTEL_METRICS_ADDR
+              value: ":9090"
             - name: DATAHUB_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "mcp-data-platform.fullname" . }}
+                  name: mcp-data-platform-secrets
                   key: datahub-token
             - name: OAUTH_SIGNING_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "mcp-data-platform.fullname" . }}
+                  name: mcp-data-platform-secrets
                   key: oauth-signing-key
             - name: KEYCLOAK_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "mcp-data-platform.fullname" . }}
+                  name: mcp-data-platform-secrets
                   key: keycloak-client-secret
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-data-platform-secrets
+                  key: encryption-key
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "mcp-data-platform.fullname" . }}
+                  name: mcp-data-platform-secrets
                   key: database-url
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
           volumeMounts:
             - name: config
-              mountPath: /etc/mcp
+              mountPath: /etc/mcp-data-platform
               readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
         - name: config
           configMap:
-            name: {{ include "mcp-data-platform.fullname" . }}
+            name: mcp-data-platform-config
         - name: tmp
           emptyDir: {}
 ```
 
-### templates/hpa.yaml
+`/readyz` reports `draining` (503) as soon as SIGTERM arrives, so the load
+balancer stops routing to a terminating pod before the drain begins;
+`/healthz` stays 200 for as long as the process is alive. Size the probe and
+resource figures from the
+[Tuning and Scaling guide](../reference/tuning-and-scaling.md), which covers
+`GOMEMLIMIT`/`GOMAXPROCS` selection, the four-stage shutdown budget, and
+measured per-replica throughput.
+
+### Service
 
 ```yaml
-{{- if .Values.autoscaling.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-data-platform
+  namespace: mcp-data-platform
+  labels:
+    app.kubernetes.io/name: mcp-data-platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: mcp-data-platform
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+```
+
+### Ingress
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcp-data-platform
+  namespace: mcp-data-platform
+  labels:
+    app.kubernetes.io/name: mcp-data-platform
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # SSE and streamable HTTP hold the response open; a short read timeout
+    # cuts live MCP sessions.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - secretName: mcp-data-platform-tls
+      hosts:
+        - mcp.example.com
+  rules:
+    - host: mcp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mcp-data-platform
+                port:
+                  name: http
+```
+
+The metrics port is deliberately not routed through the ingress. It carries no
+authentication of its own, and keeping it cluster-internal is what makes that
+acceptable; see [Observability](observability.md).
+
+### HorizontalPodAutoscaler
+
+```yaml
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "mcp-data-platform.fullname" . }}
-  labels:
-    {{- include "mcp-data-platform.labels" . | nindent 4 }}
+  name: mcp-data-platform
+  namespace: mcp-data-platform
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "mcp-data-platform.fullname" . }}
-  minReplicas: {{ .Values.autoscaling.minReplicas }}
-  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+    name: mcp-data-platform
+  minReplicas: 2
+  maxReplicas: 10
   metrics:
-    {{- if .Values.autoscaling.targetCPUUtilizationPercentage }}
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
-    {{- end }}
-    {{- if .Values.autoscaling.targetMemoryUtilizationPercentage }}
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
-    {{- end }}
-{{- end }}
+          averageUtilization: 70
 ```
 
-### templates/pdb.yaml
+CPU-driven autoscaling is only meaningful once `GOMAXPROCS` matches the CPU
+limit; without it the runtime sizes itself from the node's core count and the
+utilization figure is not comparable across nodes.
+
+### PodDisruptionBudget
 
 ```yaml
-{{- if .Values.pdb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "mcp-data-platform.fullname" . }}
-  labels:
-    {{- include "mcp-data-platform.labels" . | nindent 4 }}
+  name: mcp-data-platform
+  namespace: mcp-data-platform
 spec:
-  minAvailable: {{ .Values.pdb.minAvailable }}
+  minAvailable: 1
   selector:
     matchLabels:
-      {{- include "mcp-data-platform.selectorLabels" . | nindent 6 }}
-{{- end }}
+      app.kubernetes.io/name: mcp-data-platform
 ```
 
-### Deploy to Kubernetes
+### Apply
 
 ```bash
-# Create namespace
-kubectl create namespace mcp-data-platform
+kubectl apply -f ./manifests -n mcp-data-platform
 
-# Create secrets (use external-secrets or sealed-secrets in production)
-kubectl create secret generic mcp-data-platform-secrets \
-  --namespace mcp-data-platform \
-  --from-literal=datahub-token="$DATAHUB_TOKEN" \
-  --from-literal=oauth-signing-key="$OAUTH_SIGNING_KEY" \
-  --from-literal=keycloak-client-secret="$KEYCLOAK_CLIENT_SECRET" \
-  --from-literal=database-url="$DATABASE_URL"
-
-# Install the chart
-helm upgrade --install mcp-data-platform ./charts/mcp-data-platform \
-  --namespace mcp-data-platform \
-  --values values-production.yaml
-
-# Verify deployment
-kubectl get pods -n mcp-data-platform
-kubectl get hpa -n mcp-data-platform
+kubectl rollout status deployment/mcp-data-platform -n mcp-data-platform
+kubectl get pods,hpa -n mcp-data-platform
 ```
 
 ---
@@ -775,11 +854,17 @@ spec:
 
 Key metrics to monitor:
 
-- **Request rate**: `sum(rate(mcp_requests_total[5m]))`
-- **Error rate**: `sum(rate(mcp_requests_total{status="error"}[5m]))`
-- **Latency**: `histogram_quantile(0.99, rate(mcp_request_duration_seconds_bucket[5m]))`
-- **Enrichment latency**: `histogram_quantile(0.99, rate(mcp_enrichment_duration_seconds_bucket[5m]))`
-- **Active connections**: `mcp_active_connections`
+- **Tool-call rate**: `sum(rate(mcp_tool_calls_total[5m]))`
+- **Error rate**: `sum(rate(mcp_tool_calls_total{status_category!="ok"}[5m])) / sum(rate(mcp_tool_calls_total[5m]))`
+- **Latency**: `histogram_quantile(0.99, sum by (le) (rate(mcp_tool_call_duration_seconds_bucket[5m])))`
+- **Enrichment overhead**: `rate(mcp_enrichment_bytes_total[5m]) / rate(mcp_tool_calls_total[5m])`
+- **In-flight tool calls**: `mcp_inflight_tool_calls`
+- **Dropped audit events**: `rate(audit_events_dropped_total[5m])`
+
+Starter recording and alert rules covering these, as ConfigMaps that load
+without the Prometheus Operator, ship in
+[`deployments/observability/`](https://github.com/txn2/mcp-data-platform/tree/main/deployments/observability).
+The full metric and label reference is in [Observability](observability.md).
 
 ---
 

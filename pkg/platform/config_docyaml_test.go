@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -24,8 +25,12 @@ import (
 // top-level key and every top-level key maps to a known Config field. That
 // naturally excludes Kubernetes manifests, docker-compose, and CI YAML (whose
 // top-level keys are not Config fields) and indented fragments (no top-level
-// key). To deliberately exclude a config-shaped block, put an HTML comment
-// containing "config-test: skip" on the line immediately before the fence.
+// key). A Kubernetes ConfigMap is unwrapped before that classification runs:
+// each of its YAML-valued data entries is classified on its own, so a platform
+// config embedded in a manifest (as the deployment guide embeds it) is checked
+// like any other example. To deliberately exclude a config-shaped block, put an
+// HTML comment containing "config-test: skip" on the line immediately before
+// the fence.
 
 // reservedToolkitKeys are the only keys the registry loader reads directly
 // under a toolkit kind (pkg/registry/loader.go). Any other direct child is a
@@ -163,6 +168,57 @@ func checkToolkitShape(block string) string {
 	return ""
 }
 
+// nestedConfigMapBlocks returns the YAML-valued data entries of a Kubernetes
+// ConfigMap manifest. The deployment guide carries the platform config as a
+// `data: platform.yaml: |` literal, whose enclosing block is classified by its
+// manifest keys (apiVersion, kind, metadata) and would otherwise escape every
+// check in this file. Non-ConfigMap and unparsable blocks yield nothing.
+func nestedConfigMapBlocks(block string) []string {
+	var doc struct {
+		Kind string            `yaml:"kind"`
+		Data map[string]string `yaml:"data"`
+	}
+	if err := yaml.Unmarshal([]byte(block), &doc); err != nil || doc.Kind != "ConfigMap" {
+		return nil
+	}
+	keys := make([]string, 0, len(doc.Data))
+	for k := range doc.Data {
+		if strings.HasSuffix(k, ".yaml") || strings.HasSuffix(k, ".yml") {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys) // deterministic report order across runs
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, doc.Data[k])
+	}
+	return out
+}
+
+// checkDocConfigBlock runs the three drift checks against one candidate block,
+// skipping blocks that are not current-schema platform config.
+func checkDocConfigBlock(t *testing.T, rel, block string, known map[string]bool) {
+	t.Helper()
+	if !isPlatformConfigBlock(block, known) {
+		return
+	}
+	if blockTargetsOtherSchema(block) {
+		return
+	}
+
+	expanded := []byte(expandEnvVars(block))
+	if unknown := detectUnknownFields(expanded); len(unknown) > 0 {
+		t.Errorf("%s: config example has unrecognized keys: %s\n---\n%s\n---",
+			rel, strings.Join(unknown, "; "), block)
+	}
+	if _, err := LoadConfigFromBytes(expanded); err != nil {
+		t.Errorf("%s: config example fails to load: %v\n---\n%s\n---", rel, err, block)
+	}
+	if problem := checkToolkitShape(block); problem != "" {
+		t.Errorf("%s: %s\n---\n%s\n---", rel, problem, block)
+	}
+}
+
 func TestDocsYAMLExamplesMatchConfig(t *testing.T) {
 	root := repoRootFromTest(t)
 	known := knownConfigTopKeys()
@@ -185,23 +241,9 @@ func TestDocsYAMLExamplesMatchConfig(t *testing.T) {
 				continue
 			}
 
-			if !isPlatformConfigBlock(block, known) {
-				continue
-			}
-			if blockTargetsOtherSchema(block) {
-				continue
-			}
-
-			expanded := []byte(expandEnvVars(block))
-			if unknown := detectUnknownFields(expanded); len(unknown) > 0 {
-				t.Errorf("%s: config example has unrecognized keys: %s\n---\n%s\n---",
-					rel, strings.Join(unknown, "; "), block)
-			}
-			if _, err := LoadConfigFromBytes(expanded); err != nil {
-				t.Errorf("%s: config example fails to load: %v\n---\n%s\n---", rel, err, block)
-			}
-			if problem := checkToolkitShape(block); problem != "" {
-				t.Errorf("%s: %s\n---\n%s\n---", rel, problem, block)
+			checkDocConfigBlock(t, rel, block, known)
+			for _, nested := range nestedConfigMapBlocks(block) {
+				checkDocConfigBlock(t, rel, nested, known)
 			}
 		}
 	}
