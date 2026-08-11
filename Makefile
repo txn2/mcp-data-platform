@@ -1487,12 +1487,20 @@ bench-report-knowledge-use-pdf:
 bench-report-knowledge-pollution-pdf:
 	@bash bench/reports/knowledge-pollution/render-report.sh
 
+## bench-report-graph-completion-pdf: Render the graph-completion benchmark report to PDF + HTML in build/report-graph-completion/ (needs pandoc + tectonic; not part of verify)
+bench-report-graph-completion-pdf:
+	@bash bench/reports/graph-completion/render-report.sh
+
 ## bench-report-check: Recompute the published benchmark reports from the committed archives and pin the headline numbers (stdlib python3, offline; part of verify)
 bench-report-check:
+	@echo "Recomputing the graph-completion report from bench/results/ (pins the published headline numbers, including the recorded instrument kill)..."
+	@python3 bench/reports/graph-completion/graph_tables.py > /dev/null || \
+		{ echo "FAIL: bench/reports/graph-completion/graph_tables.py — the archives no longer reproduce the published report."; \
+		  python3 bench/reports/graph-completion/graph_tables.py | grep -A20 "T7"; exit 1; }
 	@echo "Recomputing the knowledge-pollution report from bench/results/ (pins the published headline numbers)..."
 	@python3 bench/reports/knowledge-pollution/pollution_tables.py > /dev/null || \
 		{ echo "FAIL: bench/reports/knowledge-pollution/pollution_tables.py — the archives no longer reproduce the published report."; \
-		  python3 bench/reports/knowledge-pollution/pollution_tables.py | grep -A2 "T13"; exit 1; }
+		  python3 bench/reports/knowledge-pollution/pollution_tables.py | grep -A15 "T13"; exit 1; }
 	@echo "Recomputing the knowledge-use report tables (smoke: script must run clean)..."
 	@python3 bench/reports/knowledge-use/pk_tables.py > /dev/null || \
 		{ echo "FAIL: bench/reports/knowledge-use/pk_tables.py no longer runs against bench/results/knowledge-use/."; exit 1; }

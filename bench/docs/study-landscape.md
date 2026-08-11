@@ -205,15 +205,32 @@ reason to run a probe, not evidence the effect exists.
     Informs the graph-traversal candidate and matches this program's
     tier-inversion findings.
 
-    Gaps 7 to 10 remain open in the literature and open as candidates here.
-    A first premise probe of the traversal candidate ran in full and could
-    not speak to them: its cells posed single-fact lookup questions, which
-    search answers directly, so the design never varied the condition a
-    reference graph exists for. The instrument-defect row in
-    [`findings-register.md`](findings-register.md) records what it did and
-    did not measure. A gap being open externally was never a reason to expect
-    the effect, and a probe that cannot elicit the behavior is not evidence
-    that the behavior is absent.
+    Gaps 7 to 10 are now partially measured by the graph-completion study
+    (`docs/reference/benchmark-report-graph-completion.md`, 2026-08-10;
+    register row in [`findings-register.md`](findings-register.md)), after a
+    first lookup-shaped probe could not speak to them (its instrument-defect
+    row remains in the register). What is now measured: gap 8's quantity
+    exists — voluntary traversal depth with the agent choosing when to stop,
+    read as grounded closure coverage: full-depth walks at 0.96/0.42 across
+    two reading budgets on 42 pages and 1.00 at 5000 pages with search
+    removed, so voluntary traversal is scale-invariant around a closure. Gap
+    10's empty space — interlinked authored notes, between typed triples and
+    rendered web pages — now has controlled readings: the same content with
+    edges present versus rendered to prose, at three corpus scales, with the
+    result that edges buy search cost (flat versus roughly doubling across
+    two orders of magnitude) and search-absent robustness, not coverage; the
+    study deliberately replaced tier framing with reading-budget-to-corpus
+    framing, so gap 10's tier axis is reframed rather than filled. Gap 7
+    (density as a varied axis) remains unmeasured: the study fixed
+    EdgeDensity at 3 and varied presence versus absence, the axis's
+    endpoints, and its result — coverage at ceiling in every cell — says a
+    density sweep at these scales would re-measure the ceiling. Gap 9 (page
+    size for reading agents) remains unmeasured, held constant by design.
+    The study also recorded a boundary the gap list did not anticipate: an
+    "unreachable by search" certification sampling task-derived phrasings is
+    defeated by read-derived queries, so any future design posing gap-style
+    reachability questions must certify against what the agent reads, not
+    only what the task says.
 11. **Reproducibility discipline.** The flagship MCP discovery benchmark
     shows an 18.9-point spread across identical reruns; any new measurement
     needs repeated trials (pass^k-style) and pre-stated decision rules —

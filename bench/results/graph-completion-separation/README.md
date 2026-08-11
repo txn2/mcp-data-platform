@@ -1,5 +1,16 @@
 # Graph-completion study: separation validation record (#1250)
 
+**Status: the study is published** as
+[`docs/reference/benchmark-report-graph-completion.md`](../../../docs/reference/benchmark-report-graph-completion.md)
+(version 1.0, 2026-08-10; DOI 10.5281/zenodo.21881798). The confirmatory
+matrix (#1251, [`../graph-completion-confirmatory/`](../graph-completion-confirmatory/))
+later showed that what this record certifies is unreachability for
+task-derived queries only — stripped-arm agents defeated it with
+read-derived queries, the study's pre-registered instrument kill and the
+report's headline. This record is unchanged: it is the archived proof that
+both instruments passed before any episode, which is what makes the kill a
+finding about the construct rather than a harness leak.
+
 The stage-3 deliverable of
 [`../../docs/graph-completion-study-design.md`](../../docs/graph-completion-study-design.md):
 both discontinuity certification gates run against the generated study corpus

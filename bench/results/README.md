@@ -8,8 +8,12 @@ what it does and does not establish.
 
 Directory naming is the one place the series convention is not uniform. The
 knowledge-layer families sit at the top level rather than under a slug
-directory, because the deposited report PDF cites those paths; that exception is
-permanent and is recorded in [`../README.md`](../README.md).
+directory, because the deposited report PDF cites those paths; the
+graph-completion study's three families likewise sit at the top level
+(`graph-completion-probe/`, `graph-completion-separation/`,
+`graph-completion-confirmatory/`), because the pre-registrations and archived
+summaries cite those paths. Both exceptions are permanent and recorded in
+[`../README.md`](../README.md).
 
 ## Knowledge-layer effectiveness
 
@@ -74,19 +78,27 @@ instrument-defect record and for the boundary condition it does establish.
 | --- | --- |
 | [`graph-traversal-probe/`](graph-traversal-probe/) | Depth 0-3 cells over a 42-page planted page corpus, two capability tiers: 162 dereferences across 76 episodes, of which 160 used a reference search had already returned. The cells posed single-fact lookup questions, which search answers directly, so the design never varied the condition a reference graph exists for. Seven runs over three fixture generations, with summary, offline analyzer, fixture-gate reading and plant record. |
 
-## Graph-completion probe (premise held; candidate proceeds)
+## Graph completion (published)
 
-Summary: [`graph-completion-probe/graph-completion-SUMMARY.md`](graph-completion-probe/graph-completion-SUMMARY.md).
-Not a study; the corrected premise probe for the same candidate (#1241),
-pre-registered on the ticket before any episode ran. No kill condition fired:
-agents traverse the reference graph when it is the only route (0.96 of the
-spread constraint set for the strong tier, 0.42 for the weak, by pure
-edge-following), and with search available the graph's value concentrates in
-the weaker tier. The candidate proceeds toward a density design.
+Epic: issue #1254. Published as
+[`docs/reference/benchmark-report-graph-completion.md`](../../docs/reference/benchmark-report-graph-completion.md)
+(version 1.0, 2026-08-10; DOI 10.5281/zenodo.21881798). The protocol is
+pre-registered in
+[`docs/graph-completion-study-design.md`](../docs/graph-completion-study-design.md)
+(#1250) and the confirmatory matrix (#1251) ran in full; its pre-registered
+instrument kill fired and is the report's headline, applied in writing in
+[`graph-completion-confirmatory/graph-confirmatory-SUMMARY.md`](graph-completion-confirmatory/graph-confirmatory-SUMMARY.md).
+Every table recomputes offline via
+`bench/reports/graph-completion/graph_tables.py`.
+
+The study's three families sit at the top level (the naming exception recorded
+above):
 
 | Directory | What it is |
 | --- | --- |
-| [`graph-completion-probe/`](graph-completion-probe/) | Three completion cells over the 42-page corpus, 2x2 of corpus arm (graph vs stripped-to-prose) and search condition (on vs client-disallowed), two capability tiers, k=3: 72 episodes, 8 runs, zero failures, with design doc, pre-stated kill conditions, per-arm plant and sweep-gate records, offline analyzer and driver log. |
+| [`graph-completion-probe/`](graph-completion-probe/) | The pilot (#1241, pre-registered on the ticket before any episode): three completion cells over the 42-page corpus, 2x2 of corpus arm (graph vs stripped-to-prose) and search condition, two reading budgets, k=3 — 72 episodes, 8 runs, zero failures. Validated the instruments and supplies the no-search floors (graph 0.96/0.42 grounded vs stripped 0.00); its search-arm numbers are ceiling-bound at 42 pages and are never headline claims. |
+| [`graph-completion-separation/`](graph-completion-separation/) | The stage-3 separation record (#1250): no episodes — per-scale twofold certification (offline embedding rank + live sweep gate) and plant records at 50/500/5000, archived before the matrix was proposed. Scale 50 recorded unsatisfiable-by-construction; 500 and 5000 certified by both instruments. |
+| [`graph-completion-confirmatory/`](graph-completion-confirmatory/) | The confirmatory matrix (#1251): 99 episodes (98 graded, 1 recorded client failure) across seven runs — graph vs stripped, search on, at 50/500/5000, plus the graph/no-search auxiliary at 5000 — with per-run manifests, embedded gate and plant records, full transcripts, the offline analyzer (exits non-zero by design: the instrument kill is present in the data), its archived output, and the summary with the kill application. |
 
 ## API-connection architecture (closed)
 
