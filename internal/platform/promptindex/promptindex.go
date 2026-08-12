@@ -1,8 +1,10 @@
 // Package promptindex is the prompt-library consumer of the shared indexjobs
 // framework (#557, epic #525 phase 4). It registers a Source/Sink pair under
-// source_kind = "prompts" so the reconciler embeds prompts off the request
-// path: a freshly created prompt (whose vector is still NULL) or one left
-// stale by a provider model swap self-heals on the next sweep.
+// source_kind = "prompts" so prompts are embedded off the request path. A
+// freshly created prompt, an edited one, and one whose reviewed draft was just
+// approved enqueue their own job at write time (#1256); the reconciler is the
+// backstop for those a write could not produce and for the corpus a provider
+// model swap invalidates.
 //
 // Like the memory consumer, and unlike api-catalog/tools, prompts store their
 // vectors inline on the prompts table (one embedding per row), not in a

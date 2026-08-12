@@ -32,8 +32,10 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/promptindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/notifystore"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
@@ -142,6 +144,12 @@ type Handle struct {
 
 	promptInfosMu sync.RWMutex
 	promptInfos   []registry.PromptInfo
+
+	// indexProducer is the write-path index-job producer the Postgres prompt
+	// store was built with, exposed for the index-jobs queue to bind once it
+	// exists. Nil when no database is configured, or when the caller injected
+	// its own store (which owns its own indexing arrangements).
+	indexProducer *indexjobs.Producer
 }
 
 // New assembles the prompt layer. It always returns a non-nil Handle: prompts
@@ -165,7 +173,11 @@ func New(cfg Config) *Handle {
 	case cfg.Store != nil:
 		base = cfg.Store
 	case cfg.DB != nil:
-		base = promptpostgres.New(cfg.DB)
+		// The producer is unbound until the index-jobs queue binds it (the queue
+		// is assembled after this layer), and a no-op if no queue is ever wired:
+		// prompts then reach the index on the reconciler's next sweep (#1256).
+		h.indexProducer = indexjobs.NewProducer(promptindex.SourceKind)
+		base = promptpostgres.New(cfg.DB, indexjobs.WithProducer(h.indexProducer))
 		slog.Info("prompt store: postgres")
 	}
 	if base != nil {
@@ -223,6 +235,16 @@ func (h *Handle) Store() prompt.Store {
 		return nil
 	}
 	return h.store
+}
+
+// IndexProducer returns the write-path index-job producer behind the
+// Postgres prompt store, for the index-jobs queue to bind. Nil on a nil Handle,
+// with no database, or when the caller injected its own store.
+func (h *Handle) IndexProducer() *indexjobs.Producer {
+	if h == nil {
+		return nil
+	}
+	return h.indexProducer
 }
 
 // LoadPrompts loads the file-based tuning prompts from the configured directory.

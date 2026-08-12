@@ -169,7 +169,8 @@ func requireUngated(locked, p *prompt.Prompt) error {
 // lock (see requireUngated).
 func (s *Store) UpdateWithVersion(ctx context.Context, p *prompt.Prompt, author string) error {
 	normalizeSlices(p)
-	return s.withTx(ctx, "update prompt with version", func(tx *sql.Tx) error {
+	indexedChanged := false
+	if err := s.withTx(ctx, "update prompt with version", func(tx *sql.Tx) error {
 		before, err := lockPrompt(ctx, tx, p.ID)
 		if err != nil {
 			return err
@@ -177,6 +178,7 @@ func (s *Store) UpdateWithVersion(ctx context.Context, p *prompt.Prompt, author 
 		if err := requireUngated(before, p); err != nil {
 			return err
 		}
+		indexedChanged = indexTextChanged(before, p)
 		if prompt.SnapshotChanged(before, p) && p.Source != prompt.SourceSystem {
 			n, err := nextVersionNumber(ctx, tx, p.ID)
 			if err != nil {
@@ -194,7 +196,13 @@ func (s *Store) UpdateWithVersion(ctx context.Context, p *prompt.Prompt, author 
 			return err
 		}
 		return stampApprovalTransition(ctx, tx, p, before.Status)
-	})
+	}); err != nil {
+		return err
+	}
+	if indexedChanged {
+		s.index.NotifyWrite(ctx, p.ID)
+	}
+	return nil
 }
 
 // CreateDraftVersion snapshots proposed's versioned fields as a new draft
@@ -318,14 +326,19 @@ func applyDraftSnapshot(p *prompt.Prompt, v *prompt.Version, approver string, no
 // version row, and supersedes any other pending drafts. Returns the updated
 // prompt.
 func (s *Store) ApproveVersion(ctx context.Context, promptID string, version int, approver string) (*prompt.Prompt, error) {
-	var out *prompt.Prompt
+	var (
+		out            *prompt.Prompt
+		indexedChanged bool
+	)
 	err := s.withTx(ctx, "approve version", func(tx *sql.Tx) error {
 		p, v, err := lockApprovableDraft(ctx, tx, promptID, version)
 		if err != nil {
 			return err
 		}
 		now := time.Now().UTC()
+		before := *p
 		applyDraftSnapshot(p, v, approver, now)
+		indexedChanged = indexTextChanged(&before, p)
 		if err := updateTx(ctx, tx, p); err != nil {
 			return err
 		}
@@ -348,6 +361,9 @@ func (s *Store) ApproveVersion(ctx context.Context, promptID string, version int
 	})
 	if err != nil {
 		return nil, err
+	}
+	if indexedChanged {
+		s.index.NotifyWrite(ctx, promptID)
 	}
 	return out, nil
 }

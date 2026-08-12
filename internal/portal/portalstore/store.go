@@ -19,6 +19,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
 )
 
@@ -50,11 +51,18 @@ func nullString(v string) sql.NullString {
 
 type postgresAssetStore struct {
 	db *sql.DB
+	// index receives a write-path index-job enqueue after an asset write
+	// commits, so a saved or renamed asset enters ranked search in roughly
+	// the time one embed takes rather than on the reconciler's next sweep
+	// (#1256). Nil when no queue is wired; every call on it is nil-safe.
+	index *indexjobs.Producer
 }
 
-// NewPostgresAssetStore creates a new PostgreSQL asset store.
-func NewPostgresAssetStore(db *sql.DB) portaldomain.AssetStore {
-	return &postgresAssetStore{db: db}
+// NewPostgresAssetStore creates a new PostgreSQL asset store. Pass
+// indexjobs.WithProducer to have asset writes enqueue their own index job;
+// without it, assets are indexed on the reconciler's next sweep.
+func NewPostgresAssetStore(db *sql.DB, opts ...indexjobs.StoreOption) portaldomain.AssetStore {
+	return &postgresAssetStore{db: db, index: indexjobs.ResolveStoreOptions(opts).Producer}
 }
 
 func (s *postgresAssetStore) Insert(ctx context.Context, asset portaldomain.Asset) error { //nolint:revive // interface impl
@@ -96,6 +104,9 @@ func (s *postgresAssetStore) Insert(ctx context.Context, asset portaldomain.Asse
 	if err != nil {
 		return fmt.Errorf("inserting asset: %w", err)
 	}
+	// After the write, never before: a job claimed while the row still holds its
+	// pre-write text would have the worker stamp that snapshot as current.
+	s.index.NotifyWrite(ctx, asset.ID)
 	return nil
 }
 
@@ -369,6 +380,9 @@ func (s *postgresAssetStore) Update(ctx context.Context, id string, updates port
 		return fmt.Errorf("asset not found or deleted: %s", id)
 	}
 
+	if assetIndexTextChanged(updates) {
+		s.index.NotifyWrite(ctx, id)
+	}
 	return nil
 }
 
@@ -400,18 +414,24 @@ func applyScalarUpdates(qb sq.UpdateBuilder, updates portaldomain.AssetUpdate) (
 	return qb, changed
 }
 
+// assetIndexTextChanged reports whether an update touches a field
+// portal.AssetIndexText composes, which is both the signal to drop the stored
+// vector and the signal to enqueue the row's re-embed. One definition so the
+// clear and the enqueue cannot disagree about what "the indexed text moved"
+// means.
+func assetIndexTextChanged(updates portaldomain.AssetUpdate) bool {
+	return updates.Name != nil || updates.Description != nil || updates.Tags != nil
+}
+
 func applyUpdateFields(qb sq.UpdateBuilder, updates portaldomain.AssetUpdate) (sq.UpdateBuilder, error) {
 	hasUpdates := false
-	indexedChanged := false
 	if updates.Name != nil {
 		qb = qb.Set("name", *updates.Name)
 		hasUpdates = true
-		indexedChanged = true
 	}
 	if updates.Description != nil {
 		qb = qb.Set("description", *updates.Description)
 		hasUpdates = true
-		indexedChanged = true
 	}
 	if updates.Tags != nil {
 		tags, err := json.Marshal(updates.Tags)
@@ -420,7 +440,6 @@ func applyUpdateFields(qb sq.UpdateBuilder, updates portaldomain.AssetUpdate) (s
 		}
 		qb = qb.Set("tags", tags)
 		hasUpdates = true
-		indexedChanged = true
 	}
 	var scalarChanged bool
 	qb, scalarChanged = applyScalarUpdates(qb, updates)
@@ -431,12 +450,14 @@ func applyUpdateFields(qb sq.UpdateBuilder, updates portaldomain.AssetUpdate) (s
 		return qb, errors.New("no fields to update")
 	}
 	// When an indexed field (name, description, tags) changes, drop the
-	// embedding so the reconciler re-embeds against the new text off the
-	// request path; a content-only or thumbnail edit leaves the vector intact.
+	// embedding; the write path then enqueues the row's own index job, so the
+	// re-embed happens off the request path but within one embed rather than on
+	// the reconciler's next sweep. A content-only or thumbnail edit leaves the
+	// vector intact.
 	// The embedding columns are added by migration 000063, which (like all
 	// migrations) runs at startup before any request is served, so they always
 	// exist when this code path executes.
-	if indexedChanged {
+	if assetIndexTextChanged(updates) {
 		// Use literal NULL (not a bound nil parameter) for the vector and hash
 		// columns so the clear matches the collection and prompt stores and never
 		// relies on the driver inferring a parameter type for the vector column.

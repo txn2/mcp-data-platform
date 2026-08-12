@@ -1,9 +1,11 @@
 // Package knowledgepageindex is the knowledge-page consumer of the shared
 // indexjobs framework (#633). It registers a Source/Sink pair under
-// source_kind = "portal-knowledge-pages" so the reconciler embeds canonical
-// knowledge pages off the request path: a newly created page (which has no
-// vectors yet) or one left stale by a content edit or a provider model swap
-// self-heals on the next sweep.
+// source_kind = "portal-knowledge-pages" so canonical knowledge pages are
+// embedded off the request path. A newly created page and a content edit each
+// enqueue their own job at write time (#1256), so a page a session just wrote is
+// findable through ranked search in that same session; the reconciler is the
+// backstop for those a write could not produce and for the corpus a provider
+// model swap invalidates.
 //
 // SourceID is the page id, and a unit yields one Item per CHUNK of the page's
 // composed text (title + body + tags, split by knowledgepage.IndexChunks to the

@@ -9,6 +9,7 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -145,4 +146,22 @@ func TestNewFromInsightStore_ApplyRequiresDB(t *testing.T) {
 		ApplyEnabled: true,
 	})
 	require.Error(t, err, "apply enabled with a nil db must fail construction")
+}
+
+// TestPageIndexProducer covers the write-path index-job seam the queue binds
+// (#1256): the apply path's page writer carries a producer for the
+// knowledge-pages kind, and there is nothing to bind when apply is off (no page
+// writer) or when no layer was built at all.
+func TestPageIndexProducer(t *testing.T) {
+	h, err := New(dummyDB(t), nil, nil, Config{ToolkitName: "default", ApplyEnabled: true})
+	require.NoError(t, err)
+	require.NotNil(t, h.PageIndexProducer())
+	assert.Equal(t, knowledgepageindex.SourceKind, h.PageIndexProducer().Kind())
+
+	off, err := New(dummyDB(t), nil, nil, Config{ToolkitName: "default"})
+	require.NoError(t, err)
+	assert.Nil(t, off.PageIndexProducer(), "no page writer when apply is disabled")
+
+	var nilHandle *Handle
+	assert.Nil(t, nilHandle.PageIndexProducer())
 }

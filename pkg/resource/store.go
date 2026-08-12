@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
 // Store persists and queries resource metadata.
@@ -53,11 +55,22 @@ const (
 
 type postgresStore struct {
 	db *sql.DB
+	// index receives a write-path index-job enqueue after a resource write
+	// commits, so an uploaded or re-described resource enters ranked search in
+	// roughly the time one embed takes rather than on the reconciler's next
+	// sweep (#1256). Nil when no queue is wired; every call on it is nil-safe.
+	index *indexjobs.Producer
 }
 
-// NewPostgresStore creates a resource store backed by PostgreSQL.
-func NewPostgresStore(db *sql.DB) Store {
-	return &postgresStore{db: db}
+// NewPostgresStore creates a resource store backed by PostgreSQL. Pass
+// indexjobs.WithProducer to have resource writes enqueue their own index job;
+// without it, resources are indexed on the reconciler's next sweep.
+//
+// Every notify fires after the write commits, never before: a job claimed while
+// the row still holds its pre-write text (or its previous blob) would have the
+// worker stamp that snapshot as current.
+func NewPostgresStore(db *sql.DB, opts ...indexjobs.StoreOption) Store {
+	return &postgresStore{db: db, index: indexjobs.ResolveStoreOptions(opts).Producer}
 }
 
 func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint:revive // interface impl
@@ -83,6 +96,7 @@ func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint
 	if err != nil {
 		return fmt.Errorf("inserting resource: %w", err)
 	}
+	s.index.NotifyWrite(ctx, r.ID)
 	return nil
 }
 
@@ -165,9 +179,10 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 func (s *postgresStore) Update(ctx context.Context, id string, u Update) error { //nolint:revive // interface impl
 	// Every mutable field (display name, description, tags, category) is part of
 	// the indexed text, so a metadata edit invalidates the stored vector. Clearing
-	// the embedding columns here makes the row a gap the indexjobs reconciler
-	// re-embeds off the request path, exactly as the portal asset store does
-	// (#1012); leaving them would rank the resource on its pre-edit text forever.
+	// the embedding columns here makes the row a gap, and the enqueue below hands
+	// that gap straight to the index worker instead of waiting for a reconciler
+	// sweep, exactly as the portal asset store does (#1012, #1256); leaving them
+	// would rank the resource on its pre-edit text forever.
 	setClauses := []string{"updated_at = $1", "embedding = NULL", "embedding_model = ''", "embedding_text_hash = NULL"}
 	args := []any{time.Now().UTC()}
 	idx := 2
@@ -205,6 +220,7 @@ func (s *postgresStore) Update(ctx context.Context, id string, u Update) error {
 	if n == 0 {
 		return fmt.Errorf("resource not found: %s", id)
 	}
+	s.index.NotifyWrite(ctx, id)
 	return nil
 }
 

@@ -1,9 +1,11 @@
 // Package resourceindex is the managed-resource consumer of the shared
 // indexjobs framework (#1012). It registers a Source/Sink pair under
 // source_kind = "resources" so uploaded reference material is embedded off the
-// request path: a newly uploaded resource (whose vector is still NULL), one
-// whose metadata was edited (the request-path Update clears the vector), and one
-// left stale by a provider model swap all self-heal on the next sweep.
+// request path. A newly uploaded resource, one whose metadata was edited (the
+// request-path Update clears the vector), and one whose content was revised each
+// enqueue their own job at write time (#1256); the reconciler is the backstop for
+// those a write could not produce and for the corpus a provider model swap
+// invalidates.
 //
 // Like the prompt, memory, and portal-asset consumers, resources store their
 // vectors inline on the resources table (one embedding per row), not in a

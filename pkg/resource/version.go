@@ -153,8 +153,8 @@ const insertRevisionQuery = `
 // signals are cleared, not just the embedding: the extracted content_text now
 // describes bytes that are no longer the resource's, so leaving it would keep
 // matching the old file's terms, and clearing content_indexed_at is what
-// re-opens the content gap the indexjobs reconciler fills off the request path
-// (#1012).
+// re-opens the content gap the index worker fills off the request path — on the
+// job AddRevision enqueues, with the reconciler as the backstop (#1012, #1256).
 const updateHeadQuery = `
 	UPDATE resources
 	   SET mime_type = $1, size_bytes = $2, s3_key = $3, updated_at = $4,
@@ -199,6 +199,10 @@ func (s *postgresStore) AddRevision(ctx context.Context, rev Revision) (*Version
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("committing resource revision: %w", err)
 	}
+	// The revision replaced the resource's blob, so both the extracted content
+	// text and the vector are gone (updateHeadQuery): the row owes a fresh
+	// content extract plus embed, not just a re-embed.
+	s.index.NotifyWrite(ctx, rev.ResourceID)
 	return v, nil
 }
 

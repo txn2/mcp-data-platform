@@ -12,6 +12,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
 // Sentinel errors for collection store operations.
@@ -29,11 +30,23 @@ func wrapRowsAffected(err error) error {
 
 type postgresCollectionStore struct {
 	db *sql.DB
+	// index receives a write-path index-job enqueue after a write that moves
+	// the collection's indexed text (name, description, section text), so a
+	// curated collection enters ranked search in roughly the time one embed
+	// takes rather than on the reconciler's next sweep (#1256). Nil when no
+	// queue is wired; every call on it is nil-safe.
+	index *indexjobs.Producer
 }
 
-// NewPostgresCollectionStore creates a new PostgreSQL collection store.
-func NewPostgresCollectionStore(db *sql.DB) portaldomain.CollectionStore {
-	return &postgresCollectionStore{db: db}
+// NewPostgresCollectionStore creates a new PostgreSQL collection store. Pass
+// indexjobs.WithProducer to have collection writes enqueue their own index job;
+// without it, collections are indexed on the reconciler's next sweep.
+//
+// Only the writes that move the indexed text notify: UpdateConfig and
+// UpdateThumbnail leave name, description and section text alone, so they leave
+// the stored vector valid and owe no re-embed.
+func NewPostgresCollectionStore(db *sql.DB, opts ...indexjobs.StoreOption) portaldomain.CollectionStore {
+	return &postgresCollectionStore{db: db, index: indexjobs.ResolveStoreOptions(opts).Producer}
 }
 
 func (s *postgresCollectionStore) Insert(ctx context.Context, c portaldomain.Collection) error { //nolint:revive // interface impl
@@ -49,6 +62,9 @@ func (s *postgresCollectionStore) Insert(ctx context.Context, c portaldomain.Col
 	if err != nil {
 		return fmt.Errorf("inserting collection: %w", err)
 	}
+	// After the write, never before: a job claimed while the row still holds its
+	// pre-write text would have the worker stamp that snapshot as current.
+	s.index.NotifyWrite(ctx, c.ID)
 	return nil
 }
 
@@ -337,8 +353,9 @@ func (s *postgresCollectionStore) populateAssetTags(ctx context.Context, collect
 }
 
 func (s *postgresCollectionStore) Update(ctx context.Context, id, name, description string) error { //nolint:revive // interface impl
-	// Drop the embedding so the reconciler re-embeds against the new name +
-	// description off the request path (these feed CollectionIndexText). The
+	// Drop the embedding, then enqueue the row's own index job below, so the new
+	// name + description (these feed CollectionIndexText) are re-embedded off the
+	// request path within one embed rather than on the next sweep. The
 	// embedding columns are added by migration 000063, which runs at startup
 	// before any request is served, so they always exist here.
 	query := `UPDATE portal_collections
@@ -356,6 +373,7 @@ func (s *postgresCollectionStore) Update(ctx context.Context, id, name, descript
 	if affected == 0 {
 		return errCollStoreNotFound
 	}
+	s.index.NotifyWrite(ctx, id)
 	return nil
 }
 
@@ -425,6 +443,7 @@ func (s *postgresCollectionStore) SetSections(ctx context.Context, collectionID 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("committing transaction: %w", err)
 	}
+	s.index.NotifyWrite(ctx, collectionID)
 	return nil
 }
 
@@ -460,8 +479,9 @@ func (*postgresCollectionStore) replaceSections(ctx context.Context, tx *sql.Tx,
 	}
 
 	// Refresh the denormalized sections_text (the lexical FTS source for section
-	// content) and drop the embedding so the reconciler re-embeds against the new
-	// section text off the request path. Touches updated_at in the same write.
+	// content) and drop the embedding; SetSections enqueues the row's own index
+	// job after the commit, so the new section text is re-embedded off the request
+	// path within one embed. Touches updated_at in the same write.
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE portal_collections
 		    SET sections_text = $1, embedding = NULL, embedding_model = '',

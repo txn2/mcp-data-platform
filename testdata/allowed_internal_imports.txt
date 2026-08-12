@@ -147,7 +147,9 @@ internal/platform/indexqueue -> pkg/toolkits/apigateway
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalog
 internal/platform/indexqueue -> pkg/toolkits/apigateway/catalogindex
 internal/platform/indexqueue -> pkg/toolkits/tools/toolsindex
+internal/platform/knowledgelayer -> internal/platform/knowledgepageindex
 internal/platform/knowledgelayer -> pkg/embedding
+internal/platform/knowledgelayer -> pkg/indexjobs
 internal/platform/knowledgelayer -> pkg/memory
 internal/platform/knowledgelayer -> pkg/portal/knowledgepage
 internal/platform/knowledgelayer -> pkg/toolkits/knowledge
@@ -176,15 +178,21 @@ internal/platform/oauthserver -> pkg/oauth
 internal/platform/oauthserver -> pkg/oauth/postgres
 internal/platform/oauthserver -> pkg/observability
 internal/platform/obs -> pkg/observability
+internal/platform/portalstore -> internal/platform/assetindex
+internal/platform/portalstore -> internal/platform/collectionindex
+internal/platform/portalstore -> internal/platform/knowledgepageindex
 internal/platform/portalstore -> pkg/embedding
+internal/platform/portalstore -> pkg/indexjobs
 internal/platform/portalstore -> pkg/portal
 internal/platform/portalstore -> pkg/portal/knowledgepage
 internal/platform/portalstore -> pkg/toolkits/portal
 internal/platform/promptindex -> pkg/indexjobs
 internal/platform/promptindex -> pkg/prompt
+internal/platform/promptlayer -> internal/platform/promptindex
 internal/platform/promptlayer -> internal/platform/promptlayer/notifystore
 internal/platform/promptlayer -> pkg/audit
 internal/platform/promptlayer -> pkg/embedding
+internal/platform/promptlayer -> pkg/indexjobs
 internal/platform/promptlayer -> pkg/middleware
 internal/platform/promptlayer -> pkg/portal
 internal/platform/promptlayer -> pkg/prompt
@@ -206,7 +214,9 @@ internal/platform/resourceaudit -> pkg/resource
 internal/platform/resourceindex -> pkg/contenttype
 internal/platform/resourceindex -> pkg/indexjobs
 internal/platform/resourceindex -> pkg/resource
+internal/platform/resourcelayer -> internal/platform/resourceindex
 internal/platform/resourcelayer -> internal/platform/toolkitcfg
+internal/platform/resourcelayer -> pkg/indexjobs
 internal/platform/resourcelayer -> pkg/portal/s3adapter
 internal/platform/resourcelayer -> pkg/resource
 internal/platform/reviewalert -> internal/logsan
@@ -259,6 +269,7 @@ internal/portal/portaldomain -> pkg/contenttype
 internal/portal/portaldomain -> pkg/portal/shareaccess
 internal/portal/portalnoop -> internal/portal/portaldomain
 internal/portal/portalstore -> internal/portal/portaldomain
+internal/portal/portalstore -> pkg/indexjobs
 internal/portal/portalstore -> pkg/portal/shareaccess
 internal/portal/portalversions -> internal/portal/portaldomain
 internal/portal/sharecache -> pkg/blobserve
@@ -326,6 +337,7 @@ pkg/connreconcile -> pkg/toolkit
 pkg/connview -> pkg/portal/knowledgepage
 pkg/connview -> pkg/registry
 pkg/connview -> pkg/toolkit
+pkg/indexjobs -> internal/logsan
 pkg/indexjobs -> pkg/embedding
 pkg/knowledge -> internal/tableavail
 pkg/knowledge -> pkg/contenttype
@@ -472,6 +484,7 @@ pkg/portal -> pkg/blobserve
 pkg/portal -> pkg/browsersession
 pkg/portal -> pkg/contenttype
 pkg/portal -> pkg/embedding
+pkg/portal -> pkg/indexjobs
 pkg/portal -> pkg/memory
 pkg/portal -> pkg/middleware
 pkg/portal -> pkg/portal/knowledgepage
@@ -483,6 +496,7 @@ pkg/portal -> pkg/ratelimit
 pkg/portal -> pkg/registry
 pkg/portal -> pkg/toolkits/knowledge
 pkg/portal/knowledgepage -> pkg/embedding
+pkg/portal/knowledgepage -> pkg/indexjobs
 pkg/portal/mention -> internal/logsan
 pkg/portal/threads -> pkg/portal/mention
 pkg/prompt/attachserve -> pkg/contenttype
@@ -503,6 +517,7 @@ pkg/registry -> pkg/toolkits/trino
 pkg/resource -> internal/logsan
 pkg/resource -> pkg/blobserve
 pkg/resource -> pkg/contenttype
+pkg/resource -> pkg/indexjobs
 pkg/semantic/datahub -> pkg/observability
 pkg/semantic/datahub -> pkg/semantic
 pkg/semantic/datahub -> pkg/urnbuild

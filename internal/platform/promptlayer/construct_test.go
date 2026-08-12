@@ -4,10 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/promptindex"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
@@ -123,3 +125,24 @@ func (*stubEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32,
 }
 func (*stubEmbedder) Dimension() int { return 1 }
 func (*stubEmbedder) Kind() string   { return "stub" }
+
+// TestIndexProducer covers the write-path index-job seam the queue binds
+// (#1256): the Postgres store carries a producer for the prompts kind, and there
+// is nothing to bind when the layer has no database-backed store of its own.
+func TestIndexProducer(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	h := New(Config{DB: db, Registry: registry.NewRegistry()})
+	require.NotNil(t, h.IndexProducer())
+	assert.Equal(t, promptindex.SourceKind, h.IndexProducer().Kind())
+
+	assert.Nil(t, New(Config{Registry: registry.NewRegistry()}).IndexProducer(),
+		"no database means no store to notify for")
+	assert.Nil(t, New(Config{Store: newMockPromptStore(), Registry: registry.NewRegistry()}).IndexProducer(),
+		"an injected store owns its own indexing arrangements")
+
+	var nilHandle *Handle
+	assert.Nil(t, nilHandle.IndexProducer())
+}

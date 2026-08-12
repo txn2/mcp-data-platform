@@ -21,11 +21,23 @@ var _ prompt.Store = (*Store)(nil)
 // Store implements prompt.Store using PostgreSQL.
 type Store struct {
 	db *sql.DB
+	// index receives a write-path index-job enqueue after a write that moves
+	// the prompt's indexed text, so a created, edited or newly approved prompt
+	// enters ranked search in roughly the time one embed takes rather than on
+	// the reconciler's next sweep (#1256). Nil when no queue is wired; every
+	// call on it is nil-safe.
+	index *indexjobs.Producer
 }
 
-// New creates a new PostgreSQL prompt store.
-func New(db *sql.DB) *Store {
-	return &Store{db: db}
+// New creates a new PostgreSQL prompt store. Pass indexjobs.WithProducer to
+// have prompt writes enqueue their own index job; without it, prompts are
+// indexed on the reconciler's next sweep.
+//
+// Every notify fires after the transaction commits, not inside it: a job
+// enqueued before the commit could be claimed while the row still holds its
+// pre-write text, and the worker would then stamp that snapshot as current.
+func New(db *sql.DB, opts ...indexjobs.StoreOption) *Store {
+	return &Store{db: db, index: indexjobs.ResolveStoreOptions(opts).Producer}
 }
 
 // promptColumns is the column list read by every SELECT, kept in one place so
@@ -127,7 +139,7 @@ func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
 		        $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		RETURNING id, version, created_at, updated_at`
 
-	return s.withTx(ctx, "create prompt", func(tx *sql.Tx) error {
+	if err := s.withTx(ctx, "create prompt", func(tx *sql.Tx) error {
 		err := tx.QueryRowContext(ctx, query,
 			p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
 			p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
@@ -152,7 +164,11 @@ func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
 			ApprovedBy: p.ApprovedBy,
 			ApprovedAt: p.ApprovedAt,
 		})
-	})
+	}); err != nil {
+		return err
+	}
+	s.index.NotifyWrite(ctx, p.ID)
+	return nil
 }
 
 // Get retrieves a non-personal (global or persona) prompt by name. Personal
@@ -227,7 +243,8 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 	// See Create: nil slices must be normalized to empty so pq.Array binds '{}'
 	// rather than NULL into the NOT NULL personas/tags/requested_personas columns.
 	normalizeSlices(p)
-	return s.withTx(ctx, "update prompt", func(tx *sql.Tx) error {
+	indexedChanged := false
+	if err := s.withTx(ctx, "update prompt", func(tx *sql.Tx) error {
 		before, err := lockPrompt(ctx, tx, p.ID)
 		if err != nil {
 			return err
@@ -235,11 +252,28 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 		if err := requireUngated(before, p); err != nil {
 			return err
 		}
+		indexedChanged = indexTextChanged(before, p)
 		if err := updateTx(ctx, tx, p); err != nil {
 			return err
 		}
 		return stampApprovalTransition(ctx, tx, p, before.Status)
-	})
+	}); err != nil {
+		return err
+	}
+	if indexedChanged {
+		s.index.NotifyWrite(ctx, p.ID)
+	}
+	return nil
+}
+
+// indexTextChanged reports whether a write moves the text the prompts index is
+// built from. It is the Go-side twin of the embedding-invalidation CASE in
+// updateTx: the same condition clears the vector and enqueues the re-embed, so a
+// metadata-only write (a status transition, a persona change, or the startup
+// re-ingest of an unchanged system prompt) neither drops a valid vector nor
+// queues a job that would find nothing to do.
+func indexTextChanged(before, after *prompt.Prompt) bool {
+	return prompt.IndexText(before) != prompt.IndexText(after)
 }
 
 // updateTx writes every prompt column within the caller's transaction. Shared
@@ -255,9 +289,10 @@ func updateTx(ctx context.Context, tx *sql.Tx, p *prompt.Prompt) error {
 	// leaves a stale vector ranking against the old text. The CASE compares the
 	// stored hash against the new text's hash (both reference the pre-update
 	// row), so a metadata-only edit (status, personas) preserves the embedding
-	// and avoids needless re-embedding; an actual text change drops it to NULL
-	// for the reconciler to backfill. The hash is indexjobs.TextHash, the exact
-	// hash the worker stores, so the two definitions cannot diverge.
+	// and avoids needless re-embedding; an actual text change drops it to NULL,
+	// which the caller's post-commit enqueue hands straight to the index worker
+	// (the reconciler stays the backstop). The hash is indexjobs.TextHash, the
+	// exact hash the worker stores, so the two definitions cannot diverge.
 	newHash := indexjobs.TextHash(prompt.IndexText(p))
 
 	query := `

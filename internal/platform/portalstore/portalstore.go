@@ -22,7 +22,11 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/assetindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/collectionindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
@@ -61,6 +65,11 @@ type Handle struct {
 	knowledgePageStore knowledgepage.Store
 	s3Client           portal.S3Client
 	toolkit            *portalkit.Toolkit
+	// indexProducers are the write-path index-job producers the Postgres
+	// stores were built with, exposed for the index-jobs queue to bind once it
+	// exists. Empty when the Handle was assembled from injected stores
+	// (NewFromStores), which own their own indexing arrangements.
+	indexProducers []*indexjobs.Producer
 }
 
 // Stores bundles the six store implementations and the S3 blob client the
@@ -86,15 +95,26 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 	if db == nil {
 		return nil
 	}
-	return NewFromStores(Stores{
-		Asset:         portal.NewPostgresAssetStore(db),
+	// One write-path index-job producer per indexed kind, handed to the store
+	// that writes that kind and left unbound until the index-jobs queue is
+	// assembled (it is built after this layer, from it). Until then — and on a
+	// deployment with no queue at all — the stores' notify calls are no-ops and
+	// the reconciler remains the only path to the index (#1256).
+	assets := indexjobs.NewProducer(assetindex.SourceKind)
+	collections := indexjobs.NewProducer(collectionindex.SourceKind)
+	pages := indexjobs.NewProducer(knowledgepageindex.SourceKind)
+
+	h := NewFromStores(Stores{
+		Asset:         portal.NewPostgresAssetStore(db, indexjobs.WithProducer(assets)),
 		Share:         portal.NewPostgresShareStore(db),
 		Version:       portal.NewPostgresVersionStore(db),
-		Collection:    portal.NewPostgresCollectionStore(db),
+		Collection:    portal.NewPostgresCollectionStore(db, indexjobs.WithProducer(collections)),
 		Thread:        portal.NewPostgresThreadStore(db),
-		KnowledgePage: knowledgepage.NewPostgresStore(db),
+		KnowledgePage: knowledgepage.NewPostgresStore(db, indexjobs.WithProducer(pages)),
 		S3Client:      s3Client,
 	}, embedder, cfg)
+	h.indexProducers = []*indexjobs.Producer{assets, collections, pages}
+	return h
 }
 
 // NewFromStores assembles the Handle and its asset toolkit from already-built
@@ -176,6 +196,17 @@ func (h *Handle) KnowledgePageStore() knowledgepage.Store {
 		return nil
 	}
 	return h.knowledgePageStore
+}
+
+// IndexProducers returns the write-path index-job producers for the asset,
+// collection and knowledge-page stores this Handle built, for the index-jobs
+// queue to bind. Nil on a nil Handle or one assembled from injected stores; the
+// result is a fresh slice, so a caller may append to it.
+func (h *Handle) IndexProducers() []*indexjobs.Producer {
+	if h == nil {
+		return nil
+	}
+	return append([]*indexjobs.Producer(nil), h.indexProducers...)
 }
 
 // S3Client returns the portal S3 blob backend, or nil on a nil Handle or in
