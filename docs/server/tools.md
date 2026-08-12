@@ -847,8 +847,10 @@ that moves its indexed text, enqueues that page's own index job at write time
 (trigger `write`), so it enters ranked `search` in roughly the time one embed
 takes rather than on the next reconciler sweep; the edit also clears the page's
 vector in the same transaction, so it never ranks semantically on its old
-content. The reconciler remains the backstop for what a write could not produce
-(a page saved while the embedding provider was down, a restore, a model swap).
+content. The reconciler remains the backstop for what a write could not produce:
+a page saved or edited while the embedding provider was unavailable, a provider
+model swap, and chunk rows lost outside the write path (a database restore, or a
+manual prune).
 
 The graph read returns the pages plus every entity their references point at, as
 one access-filtered response, so a client draws the whole corpus without an N+1

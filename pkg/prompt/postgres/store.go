@@ -267,11 +267,19 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 }
 
 // indexTextChanged reports whether a write moves the text the prompts index is
-// built from. It is the Go-side twin of the embedding-invalidation CASE in
-// updateTx: the same condition clears the vector and enqueues the re-embed, so a
-// metadata-only write (a status transition, a persona change, or the startup
-// re-ingest of an unchanged system prompt) neither drops a valid vector nor
-// queues a job that would find nothing to do.
+// built from, so a metadata-only write (a status transition, a persona change, or
+// the startup re-ingest of an unchanged system prompt) does not queue a job that
+// would find nothing to re-embed.
+//
+// It is deliberately close to, but not the same as, the embedding-invalidation
+// CASE in updateTx: this compares the composed text before and after the write,
+// while the SQL compares the row's STORED text hash against the new text's hash.
+// The two diverge only where it costs nothing. A row whose hash is NULL (never
+// embedded, or cleared by an earlier edit) under a metadata-only write satisfies
+// the SQL condition but not this one, and it needs no job from here because it is
+// already a gap the reconciler owes. Text edited back to a previously embedded
+// value satisfies this one but not the SQL, and the resulting job re-embeds
+// nothing: the worker's text-hash dedup pass matches the stored vector.
 func indexTextChanged(before, after *prompt.Prompt) bool {
 	return prompt.IndexText(before) != prompt.IndexText(after)
 }
