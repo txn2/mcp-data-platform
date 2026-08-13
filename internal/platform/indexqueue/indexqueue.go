@@ -98,6 +98,13 @@ type Config struct {
 	// Consumers gates the optional DB-backed consumers.
 	Consumers Consumers
 
+	// Producers are the write-path index-job producers the consumers' stores
+	// were built with (#1256). New binds each one whose kind actually
+	// registered, which is what turns a row write into an index job instead of
+	// leaving it for the reconciler's next sweep. Nil entries are skipped, so a
+	// caller can pass the accessors of subsystems that are not wired.
+	Producers []*indexjobs.Producer
+
 	// CatalogLister enumerates the semantic catalog for the catalog-dataset
 	// consumer, and CatalogIndex carries that consumer's operator tuning (sweep
 	// interval, entry cap). Both are used only when Consumers.CatalogDatasets is
@@ -161,6 +168,7 @@ func New(cfg Config) *Handle {
 		slog.Info("index jobs: skipped (no consumers registered)")
 		return nil
 	}
+	h.bindProducers(cfg.Producers)
 
 	h.worker = indexjobs.NewWorker(indexjobs.WorkerConfig{
 		Store:         store,
@@ -188,6 +196,32 @@ func New(cfg Config) *Handle {
 	}
 
 	return h
+}
+
+// bindProducers points each caller-supplied write-path producer at the job
+// store, so a row write enqueues its own index job instead of waiting up to a
+// reconciler interval (#1256).
+//
+// A producer whose kind did not register is left unbound: its consumer is not
+// wired here, so a job for that kind would only be a row no worker could route
+// (the worker fails an unregistered kind terminally). A nil producer is skipped,
+// which is how a subsystem that never assembled reports "nothing to bind".
+func (h *Handle) bindProducers(producers []*indexjobs.Producer) {
+	registered := make(map[string]bool, len(h.registry.Kinds()))
+	for _, kind := range h.registry.Kinds() {
+		registered[kind] = true
+	}
+	var bound []string
+	for _, p := range producers {
+		if p == nil || !registered[p.Kind()] {
+			continue
+		}
+		p.Bind(h.store)
+		bound = append(bound, p.Kind())
+	}
+	if len(bound) > 0 {
+		slog.Info("index jobs: write-path producers bound", "kinds", bound)
+	}
 }
 
 // registerConsumers registers every enabled consumer on the registry. The
@@ -228,10 +262,11 @@ func (h *Handle) registerConsumers(cfg Config) {
 
 // registerDataConsumers registers the DB-backed data consumers (memory,
 // prompts, portal assets/collections/knowledge-pages). Each registers only
-// when the caller reports its store is wired. Every one relies on the
-// reconciler to discover gaps from its own table, so none needs a bootstrap
-// enqueue. Split from registerConsumers, and driven through tryRegister, to
-// keep each method's cyclomatic complexity within budget.
+// when the caller reports its store is wired. None needs a bootstrap enqueue:
+// each one's corpus is a table the reconciler can diff on its own, and new rows
+// arrive as write-path jobs from the producers bindProducers wires (#1256).
+// Split from registerConsumers, and driven through tryRegister, to keep each
+// method's cyclomatic complexity within budget.
 func (h *Handle) registerDataConsumers(cfg Config) {
 	// Memory consumer: backfills embeddings the synchronous write path could
 	// not produce (saved during an embedder outage) or that a model swap left

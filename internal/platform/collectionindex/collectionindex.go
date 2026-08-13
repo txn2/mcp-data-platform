@@ -1,9 +1,10 @@
 // Package collectionindex is the curated-collection consumer of the shared
 // indexjobs framework (#550). It registers a Source/Sink pair under source_kind
-// = "portal-collections" so the reconciler embeds collections off the request
-// path: a newly created collection (whose vector is still NULL), one whose
-// sections changed, or one left stale by a provider model swap self-heals on the
-// next sweep.
+// = "portal-collections" so collections are embedded off the request path. A
+// newly created collection, one whose name/description changed, and one whose
+// sections changed each enqueue their own job at write time (#1256); the
+// reconciler is the backstop for those a write could not produce and for the
+// corpus a provider model swap invalidates.
 //
 // Like the prompt, memory, and asset consumers, collections store their vectors
 // inline on the portal_collections table (one embedding per row). So this

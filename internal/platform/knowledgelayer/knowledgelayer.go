@@ -31,7 +31,9 @@ import (
 
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
@@ -85,6 +87,10 @@ type Handle struct {
 	changesetStore knowledgekit.ChangesetStore
 	toolkit        *knowledgekit.Toolkit
 	dataHubWriter  knowledgekit.DataHubWriter
+	// pageProducer is the write-path index-job producer the apply path's page
+	// writer was built with, exposed for the index-jobs queue to bind once it
+	// exists. Nil when apply is disabled (no page writer to notify for).
+	pageProducer *indexjobs.Producer
 }
 
 // New assembles the insight store (the memory-backed adapter when memStore is
@@ -162,7 +168,13 @@ func (h *Handle) configureApply(db *sql.DB, embeddingProv embedding.Provider, cf
 	// to canonical knowledge pages. Built directly from the DB (the portal handle
 	// is not yet available when knowledge initializes) because apply requires the
 	// same DB the changeset store already uses.
-	h.toolkit.SetPageWriter(knowledgepage.NewPostgresStoreSearcher(db))
+	// The apply path writes pages through its own store instance, so it carries
+	// its own producer: a promoted page enqueues its index job the same way a
+	// page saved through the portal does (#1256). Unbound until the index-jobs
+	// queue binds it, and a no-op if no queue is ever wired.
+	h.pageProducer = indexjobs.NewProducer(knowledgepageindex.SourceKind)
+	h.toolkit.SetPageWriter(knowledgepage.NewPostgresStoreSearcher(db,
+		indexjobs.WithProducer(h.pageProducer)))
 	// Knowledge-page write guards (#705); the embedding provider powers the dedup
 	// probe and is inactive under a noop provider.
 	h.toolkit.SetPageGuards(cfg.PageGuards, embeddingProv)
@@ -234,4 +246,14 @@ func (h *Handle) DataHubWriter() knowledgekit.DataHubWriter {
 		return nil
 	}
 	return h.dataHubWriter
+}
+
+// PageIndexProducer returns the write-path index-job producer behind the apply
+// path's knowledge-page writer, for the index-jobs queue to bind. Nil on a nil
+// Handle or when apply is disabled.
+func (h *Handle) PageIndexProducer() *indexjobs.Producer {
+	if h == nil {
+		return nil
+	}
+	return h.pageProducer
 }

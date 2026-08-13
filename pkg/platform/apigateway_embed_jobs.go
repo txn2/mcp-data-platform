@@ -89,6 +89,8 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 			Resources:            p.resources.Store() != nil,
 			CatalogDatasets:      p.config.Semantic.Provider == kindDataHub && p.config.Knowledge.CatalogIndex.IsEnabled(),
 		},
+		Producers: append(p.portalStore.IndexProducers(), p.knowledge.PageIndexProducer(),
+			p.prompts.IndexProducer(), p.resources.IndexProducer()),
 		CatalogLister:      p.semanticProvider,
 		CatalogIndexConfig: p.config.Knowledge.CatalogIndex,
 		ResourceBlobs:      p.resources.S3Client(),

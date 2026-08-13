@@ -11,6 +11,8 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
+
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
 // NewID returns a unique id for a knowledge page ("kp_<uuid>").
@@ -68,8 +70,9 @@ type Filter struct {
 
 // Update carries the editable fields of a page. A nil pointer means
 // "leave unchanged"; a non-nil pointer (including empty string) sets the field.
-// Whenever Title, Body, or Tags change, the store clears the embedding columns so
-// the indexjobs reconciler re-embeds the new content off the request path.
+// Whenever Title, Body, or Tags change, the store clears the embedding columns and
+// enqueues the page's own index job, so the new content is re-embedded off the
+// request path within one embed rather than on the reconciler's next sweep.
 type Update struct {
 	Slug          *string
 	Title         *string
@@ -136,11 +139,26 @@ const pageColumns = `id, COALESCE(slug, ''), title, summary, body, tags, ` +
 
 type postgresStore struct {
 	db *sql.DB
+	// index receives a write-path index-job enqueue after a page write
+	// commits, so a new or edited page enters ranked search in roughly the
+	// time one embed takes rather than on the reconciler's next sweep
+	// (#1256). Nil when no queue is wired, which leaves the reconciler as
+	// the only path; every call on it is nil-safe.
+	index *indexjobs.Producer
 }
 
-// NewPostgresStore creates a PostgreSQL knowledge page store.
-func NewPostgresStore(db *sql.DB) Store {
-	return &postgresStore{db: db}
+// NewPostgresStore creates a PostgreSQL knowledge page store. Pass
+// indexjobs.WithProducer to have page writes enqueue their own index job;
+// without it, pages are indexed on the reconciler's next sweep.
+func NewPostgresStore(db *sql.DB, opts ...indexjobs.StoreOption) Store {
+	return buildStore(db, opts)
+}
+
+// buildStore is the shared constructor behind NewPostgresStore and
+// NewPostgresStoreSearcher, so both entry points resolve options identically.
+func buildStore(db *sql.DB, opts []indexjobs.StoreOption) *postgresStore {
+	resolved := indexjobs.ResolveStoreOptions(opts)
+	return &postgresStore{db: db, index: resolved.Producer}
 }
 
 // StoreSearcher is a Store that also ranks pages by relevance (Searcher) and by
@@ -156,8 +174,8 @@ type StoreSearcher interface {
 
 // NewPostgresStoreSearcher is NewPostgresStore typed as a StoreSearcher, for the
 // apply path which needs Search (the dedup gate) alongside the write methods.
-func NewPostgresStoreSearcher(db *sql.DB) StoreSearcher {
-	return &postgresStore{db: db}
+func NewPostgresStoreSearcher(db *sql.DB, opts ...indexjobs.StoreOption) StoreSearcher {
+	return buildStore(db, opts)
 }
 
 // Compile-time checks.
@@ -167,8 +185,9 @@ var (
 )
 
 // Insert creates a page at version 1 and snapshots that initial version, in one
-// transaction. The embedding columns are left NULL so the reconciler embeds the
-// page on its next sweep.
+// transaction. The embedding columns are left NULL and the page's index job is
+// enqueued once the transaction commits, so a new page becomes searchable in
+// roughly the time one embed takes.
 func (s *postgresStore) Insert(ctx context.Context, page Page) error { //nolint:revive // interface impl
 	if page.Tags == nil {
 		page.Tags = []string{}
@@ -208,6 +227,10 @@ func (s *postgresStore) Insert(ctx context.Context, page Page) error { //nolint:
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("committing knowledge page insert: %w", err)
 	}
+	// After the commit, not inside the transaction: a job enqueued before the
+	// commit could be claimed while the page still holds its pre-write text, and
+	// the worker would then stamp that snapshot as current.
+	s.index.NotifyWrite(ctx, page.ID)
 	return nil
 }
 
@@ -307,9 +330,9 @@ func (s *postgresStore) countPages(ctx context.Context, filter Filter) (int, err
 }
 
 // Update applies the changed fields, snapshots the new content as the next
-// version, and (when the indexed text changes) clears the embedding so the
-// reconciler re-embeds. All in one transaction. Returns ErrNotFound
-// if the page is missing or already deleted.
+// version, and (when the indexed text changes) clears the embedding and enqueues
+// the page's re-embed. The writes are one transaction; the enqueue follows its
+// commit. Returns ErrNotFound if the page is missing or already deleted.
 func (s *postgresStore) Update(ctx context.Context, id string, updates Update) error { //nolint:revive // interface impl
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -341,6 +364,12 @@ func (s *postgresStore) Update(ctx context.Context, id string, updates Update) e
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("committing knowledge page update: %w", err)
+	}
+	// Only when the indexed text moved: that is the same condition under which
+	// the update cleared the page's index marker, so the enqueue and the
+	// invalidation cannot disagree about which edits owe a re-embed.
+	if indexedChanged {
+		s.index.NotifyWrite(ctx, id)
 	}
 	return nil
 }
@@ -380,7 +409,8 @@ type pageUpdateRow struct {
 
 // applyPageUpdate writes the merged content back to the page row and, when the
 // indexed text changed, drops the page's embedding chunks and clears the
-// set-level index marker so the reconciler re-embeds. Deleting the chunks in the
+// set-level index marker so the page owes a fresh chunk set (which the caller's
+// post-commit enqueue hands straight to the worker). Deleting the chunks in the
 // SAME transaction as the content change is what keeps a stale vector from
 // outliving the text it was computed from: until the re-embed lands the page
 // ranks lexically, never semantically on its old content (#1242).

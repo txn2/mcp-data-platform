@@ -289,6 +289,8 @@ GET /api/v1/admin/index-jobs/jobs?kind=&status=&source_id=&limit=
 
 Returns `index_jobs` rows newest first. All filters are optional; an omitted `kind` lists across every kind. `status` must be one of `pending`, `running`, `succeeded`, `failed`. `limit` defaults to 50 and is capped at 500.
 
+`trigger` reports what produced the row: `write` (the consumer's own write path enqueued it when the source row was created or its indexed text changed), `reconciler` (the periodic gap sweep), or `manual_retry` (the re-index escape hatch, which skips the worker's text-hash dedup).
+
 **Response:**
 
 ```json

@@ -35,7 +35,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/resourceindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
@@ -77,6 +79,9 @@ type Handle struct {
 	uriScheme    string
 	listChanged  ListChangedNotifier
 	readRecorder resource.ReadRecorder
+	// indexProducer is the write-path index-job producer the resource store was
+	// built with, exposed for the index-jobs queue to bind once it exists.
+	indexProducer *indexjobs.Producer
 }
 
 // ListChangedNotifier schedules a debounced resources/list_changed notification.
@@ -169,9 +174,14 @@ func New(db *sql.DB, cfg Config) (*Handle, error) {
 		return nil, nil //nolint:nilnil // nil handle = managed resources disabled (no database)
 	}
 
+	// Unbound until the index-jobs queue binds it (the queue is assembled after
+	// this layer), and a no-op if no queue is ever wired: resources then reach
+	// the index on the reconciler's next sweep (#1256).
+	producer := indexjobs.NewProducer(resourceindex.SourceKind)
 	h := &Handle{
-		store:     resource.NewPostgresStore(db),
-		uriScheme: uriScheme(cfg),
+		store:         resource.NewPostgresStore(db, indexjobs.WithProducer(producer)),
+		uriScheme:     uriScheme(cfg),
+		indexProducer: producer,
 	}
 
 	connName := s3Connection(cfg)
@@ -255,6 +265,15 @@ func (h *Handle) Store() resource.Store {
 		return nil
 	}
 	return h.store
+}
+
+// IndexProducer returns the write-path index-job producer behind the resource
+// store, for the index-jobs queue to bind. Nil on a nil Handle (no database).
+func (h *Handle) IndexProducer() *indexjobs.Producer {
+	if h == nil {
+		return nil
+	}
+	return h.indexProducer
 }
 
 // S3Client returns the S3 blob client for managed resources, or nil on a nil

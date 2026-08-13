@@ -7,6 +7,7 @@ import (
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/resourceindex"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -382,4 +383,28 @@ func TestStoreCapabilities(t *testing.T) {
 			t.Error("the postgres store implements ReadTracker; last-read sorting depends on this assertion")
 		}
 	})
+}
+
+// TestIndexProducer covers the write-path index-job seam the queue binds
+// (#1256): the resource store carries a producer for the resources kind, and a
+// nil handle (no database) exposes nothing to bind.
+func TestIndexProducer(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	h, err := New(db, Config{})
+	if err != nil {
+		t.Fatalf("New = %v, want nil error", err)
+	}
+	if got := h.IndexProducer().Kind(); got != resourceindex.SourceKind {
+		t.Errorf("IndexProducer().Kind() = %q, want %q", got, resourceindex.SourceKind)
+	}
+
+	var nilHandle *Handle
+	if nilHandle.IndexProducer() != nil {
+		t.Error("nil handle IndexProducer() should be nil")
+	}
 }

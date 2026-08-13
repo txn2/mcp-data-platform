@@ -6,6 +6,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/portal/portalnoop"
 	"github.com/txn2/mcp-data-platform/internal/portal/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/portal/portalversions"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
 // JSON field names reused across handler payloads. They match the SQL column
@@ -38,8 +39,12 @@ const (
 	thumbSizeLarge = "large"
 )
 
-// NewPostgresAssetStore creates a new PostgreSQL asset store.
-func NewPostgresAssetStore(db *sql.DB) AssetStore { return portalstore.NewPostgresAssetStore(db) }
+// NewPostgresAssetStore creates a new PostgreSQL asset store. Pass
+// indexjobs.WithProducer to have asset writes enqueue their own index job
+// instead of waiting for the reconciler's next sweep.
+func NewPostgresAssetStore(db *sql.DB, opts ...indexjobs.StoreOption) AssetStore {
+	return portalstore.NewPostgresAssetStore(db, opts...)
+}
 
 // NewPostgresShareStore creates a new PostgreSQL share store.
 func NewPostgresShareStore(db *sql.DB) ShareStore { return portalstore.NewPostgresShareStore(db) }
@@ -49,9 +54,11 @@ func NewPostgresVersionStore(db *sql.DB) VersionStore {
 	return portalversions.NewPostgres(db)
 }
 
-// NewPostgresCollectionStore creates a new PostgreSQL collection store.
-func NewPostgresCollectionStore(db *sql.DB) CollectionStore {
-	return portalstore.NewPostgresCollectionStore(db)
+// NewPostgresCollectionStore creates a new PostgreSQL collection store. Pass
+// indexjobs.WithProducer to have collection writes enqueue their own index
+// job instead of waiting for the reconciler's next sweep.
+func NewPostgresCollectionStore(db *sql.DB, opts ...indexjobs.StoreOption) CollectionStore {
+	return portalstore.NewPostgresCollectionStore(db, opts...)
 }
 
 // NewNoopAssetStore creates a no-op AssetStore for use when no database is available.

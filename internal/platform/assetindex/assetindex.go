@@ -1,8 +1,9 @@
 // Package assetindex is the saved-asset consumer of the shared indexjobs
 // framework (#550). It registers a Source/Sink pair under source_kind =
-// "portal-assets" so the reconciler embeds saved assets off the request path: a
-// newly saved asset (whose vector is still NULL) or one left stale by a provider
-// model swap self-heals on the next sweep.
+// "portal-assets" so saved assets are embedded off the request path. A newly
+// saved asset, and one whose name/description/tags changed, enqueue their own job
+// at write time (#1256); the reconciler is the backstop for those a write could
+// not produce and for the corpus a provider model swap invalidates.
 //
 // Like the prompt and memory consumers, assets store their vectors inline on the
 // portal_assets table (one embedding per row), not in a dedicated vector table.
