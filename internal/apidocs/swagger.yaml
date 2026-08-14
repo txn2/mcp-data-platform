@@ -4317,6 +4317,38 @@ definitions:
           type: string
         type: array
     type: object
+  script.Destination:
+    properties:
+      bucket:
+        description: Bucket is the bucket objects land in, empty for the portal.
+        example: acme-exports
+        type: string
+      connection:
+        description: |-
+          Connection is the named platform S3 connection the object is written
+          over, empty for the portal. It is also the name the authorization
+          middleware checks independently when the write is issued, so a
+          destination whose connection the script's persona cannot reach is
+          refused a second time, by the authority of record.
+        example: acme-s3
+        type: string
+      kind:
+        description: Kind is one of DestinationKinds.
+        example: s3
+        type: string
+      name:
+        description: Name is what a script writes as destination="...", unique within
+          a grant.
+        example: acme-drop
+        type: string
+      prefix:
+        description: |-
+          Prefix is the key prefix every object written here sits under, empty for
+          the portal and optional for a bucket. It is the boundary of the grant:
+          the script chooses a key beneath it and can never write outside it.
+        example: weekly
+        type: string
+    type: object
   script.Grants:
     properties:
       capabilities:
@@ -4334,10 +4366,11 @@ definitions:
         type: array
       destinations:
         description: |-
-          Destinations is the set of places the script may write output. An empty
-          list means the script may compute but not persist.
+          Destinations is the set of places the script may write output, each one a
+          resolved address rather than a label. An empty list means the script may
+          compute but not persist.
         items:
-          type: string
+          $ref: '#/definitions/script.Destination'
         type: array
       roles:
         description: |-
@@ -4648,7 +4681,7 @@ definitions:
         type: array
       destinations:
         items:
-          type: string
+          $ref: '#/definitions/script.Destination'
         type: array
     type: object
   scripthttp.approvedBaseline:
@@ -4699,11 +4732,22 @@ definitions:
         items:
           type: string
         type: array
+      destinations:
+        description: |-
+          Destinations are the destination names the source writes to, with the
+          portal counted for any export that names none, because that is where such
+          an export lands.
+        items:
+          type: string
+        type: array
       dynamic_connections:
         description: |-
           DynamicConnections is true when at least one call computes its connection
-          instead of naming one, which makes the connection list incomplete — and
-          means the grant cannot be checked against the code by reading it.
+          instead of naming one, and DynamicDestinations when one computes its
+          destination. Either makes that list incomplete — and means the grant
+          cannot be checked against the code by reading it.
+        type: boolean
+      dynamic_destinations:
         type: boolean
     type: object
   scripthttp.scheduleListResponse:
@@ -4776,10 +4820,10 @@ definitions:
         type: array
       missing_capabilities:
         description: |-
-          MissingCapabilities and MissingConnections are what the code reaches for
-          that the current grant does not cover. On an unapproved version that is
-          everything, which is the point: it is the grant a reviewer would have to
-          bind for this code to work.
+          MissingCapabilities, MissingConnections and MissingDestinations are what
+          the code reaches for that the current grant does not cover. On an
+          unapproved version that is everything, which is the point: it is the
+          grant a reviewer would have to bind for this code to work.
         items:
           type: string
         type: array
@@ -4787,12 +4831,16 @@ definitions:
         items:
           type: string
         type: array
+      missing_destinations:
+        items:
+          type: string
+        type: array
       referenced:
         allOf:
         - $ref: '#/definitions/scripthttp.referenced'
         description: |-
-          Referenced is what a static read of the source says the script calls and
-          which connections it names.
+          Referenced is what a static read of the source says the script calls,
+          which connections it names, and where it writes.
       version:
         $ref: '#/definitions/script.Version'
     type: object

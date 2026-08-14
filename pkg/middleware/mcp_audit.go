@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -71,15 +72,36 @@ func applyParamPolicy(params map[string]any, policy auditParamPolicy) map[string
 	if !policy.logParameters {
 		return nil
 	}
-	if len(params) == 0 || len(policy.redactKeys) == 0 {
-		return params
-	}
-	for k := range params {
+	for k, v := range params {
 		if _, ok := policy.redactKeys[strings.ToLower(k)]; ok {
 			params[k] = redactedPlaceholder
+			continue
 		}
+		params[k] = boundValue(v)
 	}
 	return params
+}
+
+// maxAuditValueBytes bounds one captured argument value. It is generous on
+// purpose: a query, a prompt, or a path is worth recording in full, and none of
+// them is anywhere near this size.
+const maxAuditValueBytes = 16 << 10
+
+// boundValue replaces an argument value too large to belong in an audit row
+// with a note of its size.
+//
+// An audit row records what was called, not what was carried. Some tools take a
+// payload as an argument — an object body written to storage, a file uploaded —
+// and a managed script delivering a report writes one on every scheduled fire.
+// Storing those verbatim puts a copy of the data in the audit table (and in the
+// async writer's queue on the way there), which is both a size problem and a
+// second, unintended copy of content whose access is governed elsewhere.
+func boundValue(v any) any {
+	s, ok := v.(string)
+	if !ok || len(s) <= maxAuditValueBytes {
+		return v
+	}
+	return fmt.Sprintf("[TRUNCATED: %d bytes]", len(s))
 }
 
 // MCPAuditMiddleware creates MCP protocol-level middleware that logs tool calls

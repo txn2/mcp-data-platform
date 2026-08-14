@@ -19,12 +19,13 @@ import { DiffView, SourceView } from "./DiffView";
 import {
   AuthorityNote,
   ConnectionsEditor,
+  DestinationsEditor,
   GrantAxis,
 } from "./ScriptGrantEditor";
 import {
   CAPABILITIES,
-  DESTINATIONS,
   EMPTY_GRANT,
+  incompleteDestinations,
   proposedGrant,
   widensAuthority,
 } from "./scriptGrants";
@@ -106,6 +107,7 @@ export function ScriptReviewDrawer({
           review={review}
           busy={busy}
           error={actionError}
+          incomplete={incompleteDestinations(grant)}
           onApprove={handleApprove}
           onReject={handleReject}
         />
@@ -223,10 +225,7 @@ function GrantSection({
           </AlertDescription>
         </Alert>
       )}
-      <GrantAxis
-        label="Output destinations"
-        help="Where output may be written. An empty list means the script may compute but not persist."
-        options={DESTINATIONS}
+      <DestinationsEditor
         granted={grant.destinations}
         previous={approved?.grants.destinations ?? []}
         hasBaseline={!!approved}
@@ -234,6 +233,16 @@ function GrantSection({
           onGrantChange((g) => ({ ...g, destinations }))
         }
       />
+      {review.referenced.dynamic_destinations && (
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertDescription>
+            This version computes at least one destination name instead of naming
+            it, so the list above is not the whole list. Where it sends data
+            cannot be checked by reading the code.
+          </AlertDescription>
+        </Alert>
+      )}
     </section>
   );
 }
@@ -331,18 +340,23 @@ function ReviewActions({
   review,
   busy,
   error,
+  incomplete,
   onApprove,
   onReject,
 }: {
   review: VersionReview | undefined;
   busy: boolean;
   error: string | null;
+  // incomplete names the granted destinations that do not yet say where they
+  // write. The server refuses them, so the refusal is stated here instead,
+  // next to the fields that answer it.
+  incomplete: string[];
   onApprove: () => void;
   onReject: () => void;
 }) {
   const status = review?.version.status;
   const rejectable = status === "draft";
-  const refusal = approvalRefusal(status);
+  const refusal = approvalRefusal(status) || incompleteRefusal(incomplete);
   return (
     <div className="space-y-2">
       {error && (
@@ -377,16 +391,29 @@ function DecisionNote({
   rejectable: boolean;
   refusal: string;
 }) {
-  if (refusal) {
-    return <p className="text-xs text-muted-foreground">{refusal}</p>;
-  }
-  if (rejectable || !review) return null;
+  // Both can be true at once — a first approval of a script whose destination
+  // has no address yet is exactly that case — and each explains a different
+  // missing button, so neither may hide the other.
+  const nothingToReject = !rejectable && !!review;
+  if (!refusal && !nothingToReject) return null;
   return (
-    <p className="text-xs text-muted-foreground">
-      There is nothing to reject here: this version is what the script already serves,
-      and declining it leaves it unapproved, which is what it is now.
-    </p>
+    <div className="space-y-1 text-xs text-muted-foreground">
+      {refusal && <p>{refusal}</p>}
+      {nothingToReject && (
+        <p>
+          There is nothing to reject here: this version is what the script already serves,
+          and declining it leaves it unapproved, which is what it is now.
+        </p>
+      )}
+    </div>
   );
+}
+
+// incompleteRefusal names the destinations still missing an address, which is
+// the one refusal a reviewer can clear without leaving the drawer.
+function incompleteRefusal(incomplete: string[]): string {
+  if (incomplete.length === 0) return "";
+  return `Say where ${incomplete.join(", ")} writes — a connection and a bucket — before approving. A destination without an address is a place nobody agreed to.`;
 }
 
 // approvalRefusal names why a version cannot be approved, or "" when it can.

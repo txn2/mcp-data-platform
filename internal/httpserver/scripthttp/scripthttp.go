@@ -155,15 +155,16 @@ func (h *Handler) listVersions(w http.ResponseWriter, r *http.Request) {
 // with the grant it already carries.
 type versionReviewResponse struct {
 	Version script.Version `json:"version"`
-	// Referenced is what a static read of the source says the script calls and
-	// which connections it names.
+	// Referenced is what a static read of the source says the script calls,
+	// which connections it names, and where it writes.
 	Referenced referenced `json:"referenced"`
-	// MissingCapabilities and MissingConnections are what the code reaches for
-	// that the current grant does not cover. On an unapproved version that is
-	// everything, which is the point: it is the grant a reviewer would have to
-	// bind for this code to work.
+	// MissingCapabilities, MissingConnections and MissingDestinations are what
+	// the code reaches for that the current grant does not cover. On an
+	// unapproved version that is everything, which is the point: it is the
+	// grant a reviewer would have to bind for this code to work.
 	MissingCapabilities []string `json:"missing_capabilities,omitempty"`
 	MissingConnections  []string `json:"missing_connections,omitempty"`
+	MissingDestinations []string `json:"missing_destinations,omitempty"`
 	// Findings are the validator's complaints about the source.
 	Findings []scriptrun.Finding `json:"findings,omitempty"`
 	// Approved is the version the script executes today, with the grant it
@@ -177,10 +178,16 @@ type versionReviewResponse struct {
 type referenced struct {
 	Capabilities []string `json:"capabilities"`
 	Connections  []string `json:"connections"`
+	// Destinations are the destination names the source writes to, with the
+	// portal counted for any export that names none, because that is where such
+	// an export lands.
+	Destinations []string `json:"destinations"`
 	// DynamicConnections is true when at least one call computes its connection
-	// instead of naming one, which makes the connection list incomplete — and
-	// means the grant cannot be checked against the code by reading it.
-	DynamicConnections bool `json:"dynamic_connections"`
+	// instead of naming one, and DynamicDestinations when one computes its
+	// destination. Either makes that list incomplete — and means the grant
+	// cannot be checked against the code by reading it.
+	DynamicConnections  bool `json:"dynamic_connections"`
+	DynamicDestinations bool `json:"dynamic_destinations"`
 }
 
 // getVersion returns one version with its capability diff.
@@ -203,17 +210,20 @@ func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	report := scriptrun.Validate(v.Source)
-	missingCapabilities, missingConnections := v.Grants.MissingFor(report.Capabilities, report.Connections)
+	missing := v.Grants.MissingFor(report.Capabilities, report.Connections, report.Destinations)
 	httpjson.WriteJSON(w, http.StatusOK, versionReviewResponse{
 		Version:  *v,
 		Approved: h.baselineFor(r, sc, v),
 		Referenced: referenced{
-			Capabilities:       report.Capabilities,
-			Connections:        report.Connections,
-			DynamicConnections: report.DynamicConnections,
+			Capabilities:        report.Capabilities,
+			Connections:         report.Connections,
+			Destinations:        report.Destinations,
+			DynamicConnections:  report.DynamicConnections,
+			DynamicDestinations: report.DynamicDestinations,
 		},
-		MissingCapabilities: missingCapabilities,
-		MissingConnections:  missingConnections,
+		MissingCapabilities: missing.Capabilities,
+		MissingConnections:  missing.Connections,
+		MissingDestinations: missing.Destinations,
 		Findings:            report.Findings,
 	})
 }
@@ -225,9 +235,9 @@ func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
 // authority it holds; a request that could name roles would turn approval into
 // a way to hand a script more access than the person who wrote it.
 type approveRequest struct {
-	Connections  []string `json:"connections"`
-	Capabilities []string `json:"capabilities"`
-	Destinations []string `json:"destinations"`
+	Connections  []string             `json:"connections"`
+	Capabilities []string             `json:"capabilities"`
+	Destinations []script.Destination `json:"destinations"`
 }
 
 // approveVersion approves a version and binds its capability grant.
@@ -261,7 +271,7 @@ func (h *Handler) approveVersion(w http.ResponseWriter, r *http.Request) {
 	grants := script.Grants{
 		Connections:  req.Connections,
 		Capabilities: req.Capabilities,
-		Destinations: req.Destinations,
+		Destinations: normalizeDestinations(req.Destinations),
 	}
 	if detail := refuseUnreachableGrant(v, grants); detail != "" {
 		httpjson.WriteError(w, http.StatusBadRequest, detail)
@@ -286,14 +296,28 @@ func (h *Handler) approveVersion(w http.ResponseWriter, r *http.Request) {
 // at here.
 func refuseUnreachableGrant(v *script.Version, grants script.Grants) string {
 	report := scriptrun.Validate(v.Source)
-	missingCapabilities, missingConnections := grants.MissingFor(report.Capabilities, report.Connections)
+	missing := grants.MissingFor(report.Capabilities, report.Connections, report.Destinations)
 	switch {
-	case len(missingCapabilities) > 0:
-		return "the grant does not cover capabilities this version calls: " + join(missingCapabilities)
-	case len(missingConnections) > 0:
-		return "the grant does not cover connections this version queries: " + join(missingConnections)
+	case len(missing.Capabilities) > 0:
+		return "the grant does not cover capabilities this version calls: " + join(missing.Capabilities)
+	case len(missing.Connections) > 0:
+		return "the grant does not cover connections this version queries: " + join(missing.Connections)
+	case len(missing.Destinations) > 0:
+		return "the grant does not cover destinations this version writes to: " + join(missing.Destinations)
 	}
 	return ""
+}
+
+// normalizeDestinations puts every submitted destination into the one canonical
+// form the store keeps, so a prefix a reviewer typed as "/weekly/" and one they
+// typed as "weekly" are the same grant rather than a widening of each other in
+// the next version's diff.
+func normalizeDestinations(destinations []script.Destination) []script.Destination {
+	out := make([]script.Destination, 0, len(destinations))
+	for _, d := range destinations {
+		out = append(out, d.Normalized())
+	}
+	return out
 }
 
 // join renders a list for an error detail.

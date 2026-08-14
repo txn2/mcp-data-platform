@@ -42,7 +42,7 @@ func fullGrant() *script.Grants {
 		Roles:        []string{"analyst"},
 		Connections:  []string{"warehouse"},
 		Capabilities: script.Capabilities,
-		Destinations: script.Destinations,
+		Destinations: []script.Destination{script.PortalDestination()},
 	}
 }
 
@@ -87,9 +87,14 @@ func TestGrantEnforcement_RefusesWhatWasNotApproved(t *testing.T) {
 			wantErr: "approved with no output destinations",
 		},
 		{
-			name:    "destination not granted",
-			source:  `platform.export(name="daily", rows=[])`,
-			mutate:  func(g *script.Grants) { g.Destinations = []string{"elsewhere"} },
+			name:   "destination not granted",
+			source: `platform.export(name="daily", rows=[])`,
+			mutate: func(g *script.Grants) {
+				g.Destinations = []script.Destination{{
+					Name: "elsewhere", Kind: script.DestinationKindS3,
+					Connection: "acme-s3", Bucket: "exports",
+				}}
+			},
 			wantErr: `destination "portal" is not in this script's approved grant`,
 		},
 	}
@@ -201,4 +206,128 @@ func TestApprovedLimits_AreLooserThanADraftOnEveryAxis(t *testing.T) {
 	assert.Greater(t, limits.MaxRows, DraftMaxRows)
 	assert.Greater(t, limits.MaxResultBytes, DraftMaxResultBytes)
 	assert.Equal(t, MaxLogBytes, limits.MaxLogBytes)
+}
+
+// deliveryGrant permits everything fullGrant does, plus one external
+// destination.
+func deliveryGrant() *script.Grants {
+	grants := fullGrant()
+	grants.Destinations = append(grants.Destinations, script.Destination{
+		Name: "acme-drop", Kind: script.DestinationKindS3,
+		Connection: "acme-s3", Bucket: "acme-exports", Prefix: "weekly",
+	})
+	return grants
+}
+
+// TestExport_ResolvesTheDestinationItsApprovalPinned pins what the engine hands
+// the writer: the address the grant carries, never a name the script could
+// point somewhere else.
+func TestExport_ResolvesTheDestinationItsApprovalPinned(t *testing.T) {
+	exporter := &recordingExporter{}
+	_, err := grantedRun(t, `
+platform.export(name="daily", rows=[{"a": 1}])
+platform.export(name="daily", rows=[{"a": 1}], destination="acme-drop", key="2026/08/sales.csv")
+`, deliveryGrant(), exporter)
+	require.NoError(t, err)
+	require.Len(t, exporter.requests, 2)
+
+	assert.Equal(t, script.PortalDestination(), exporter.requests[0].Destination,
+		"an export naming no destination goes to the portal")
+	assert.Empty(t, exporter.requests[0].Key)
+
+	delivered := exporter.requests[1]
+	assert.Equal(t, "acme-s3", delivered.Destination.Connection)
+	assert.Equal(t, "acme-exports", delivered.Destination.Bucket)
+	assert.Equal(t, "weekly", delivered.Destination.Prefix)
+	assert.Equal(t, "2026/08/sales.csv", delivered.Key)
+}
+
+// TestExport_RefusesAKeyThatCouldNotBeWritten covers the two ways a key is
+// wrong: aimed at a destination that names its own objects, and shaped so it
+// could climb out of the prefix it was granted under.
+func TestExport_RefusesAKeyThatCouldNotBeWritten(t *testing.T) {
+	tests := []struct {
+		name    string
+		source  string
+		wantErr string
+	}{
+		{
+			"a key aimed at the portal",
+			`platform.export(name="daily", rows=[], key="sales.csv")`,
+			"stores its own objects and takes no key",
+		},
+		{
+			"a key climbing out of the prefix",
+			`platform.export(name="daily", rows=[], destination="acme-drop", key="../elsewhere.csv")`,
+			"'.' or '..'",
+		},
+		{
+			"an absolute key",
+			`platform.export(name="daily", rows=[], destination="acme-drop", key="/etc/passwd")`,
+			"cannot start with '/'",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exporter := &recordingExporter{}
+			_, err := grantedRun(t, tt.source, deliveryGrant(), exporter)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+			assert.Empty(t, exporter.requests, "the write was never issued")
+		})
+	}
+}
+
+// TestExport_DraftPreviewsWhereverItIsAddressed pins that a draft moves no data
+// even when it names an external destination: an author iterating on a report
+// must not be delivering files to another system while they do it.
+func TestExport_DraftPreviewsWhereverItIsAddressed(t *testing.T) {
+	result, err := Run(context.Background(), Options{
+		Source: `platform.export(name="daily", rows=[{"a": 1}], destination="acme-drop")`,
+		Name:   "test", RunID: "dpx_1", FireTime: fireTime, Caller: &recordingCaller{},
+	})
+	require.NoError(t, err)
+	require.Len(t, result.Exports, 1)
+	assert.True(t, result.Exports[0].Preview)
+	assert.Equal(t, "acme-drop", result.Exports[0].Destination)
+	assert.Empty(t, result.Exports[0].Key)
+}
+
+// TestExport_ADraftAnswersTheSameArgumentChecks pins the authoring loop against
+// the run it is preparing for: a draft resolves no address, but it must refuse
+// exactly what an approved run would refuse, or an author finishes a script the
+// approval then breaks.
+func TestExport_ADraftAnswersTheSameArgumentChecks(t *testing.T) {
+	_, err := Run(context.Background(), Options{
+		Source: `platform.export(name="daily", rows=[], key="sales.csv")`,
+		Name:   "test", RunID: "dpx_1", FireTime: fireTime, Caller: &recordingCaller{},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stores its own objects and takes no key")
+
+	_, err = Run(context.Background(), Options{
+		Source: `platform.export(name="daily", rows=[], destination="acme-drop", key="../out.csv")`,
+		Name:   "test", RunID: "dpx_1", FireTime: fireTime, Caller: &recordingCaller{},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "'.' or '..'")
+}
+
+// TestExport_RefusesAPositionalDestination pins the engine half of the same
+// rule the validator reports: where a script writes has to be readable from its
+// source, so the arguments that decide it must be named.
+func TestExport_RefusesAPositionalDestination(t *testing.T) {
+	exporter := &recordingExporter{}
+	_, err := grantedRun(t, `platform.export("daily", [], "csv", "acme-drop")`,
+		deliveryGrant(), exporter)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pass destination and key by name")
+	assert.Empty(t, exporter.requests)
+
+	// The three that were always positional still are: this refuses the
+	// arguments that decide where output goes, not the ones that produce it.
+	_, err = grantedRun(t, `platform.export("daily", [{"a": 1}], "csv")`, deliveryGrant(), exporter)
+	require.NoError(t, err)
+	require.Len(t, exporter.requests, 1)
+	assert.Equal(t, script.PortalDestination(), exporter.requests[0].Destination)
 }

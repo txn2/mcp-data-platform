@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 // recordingCaller answers every tool call with a canned query result and
@@ -218,7 +220,10 @@ print(json.encode(out))
 `, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, result.Exports, 1)
-	assert.Equal(t, ExportRecord{Name: "daily", Format: "json", RowCount: 1, Bytes: 9, Preview: true}, result.Exports[0],
+	assert.Equal(t, ExportRecord{
+		Name: "daily", Destination: script.DestinationPortal,
+		Format: "json", RowCount: 1, Bytes: 9, Preview: true,
+	}, result.Exports[0],
 		"a run given no Exporter previews: it measures the output and writes nothing")
 	assert.Contains(t, result.Log, `"preview":true`)
 

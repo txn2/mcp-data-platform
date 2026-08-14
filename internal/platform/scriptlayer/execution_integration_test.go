@@ -2,6 +2,7 @@ package scriptlayer
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -277,6 +278,37 @@ func (a *connectionAuthz) IsAuthorized(_ context.Context, _ string, _ []string, 
 	return true, "analyst", ""
 }
 
+// putObjectInput mirrors the s3 toolkit's s3_put_object argument shape, which
+// is the tool a delivery is issued as. Delivery is not a private route to a
+// bucket: it is one ordinary tool call over the run's session, so it is served
+// here by a tool of the same name and the same arguments.
+type putObjectInput struct {
+	Bucket      string `json:"bucket"`
+	Key         string `json:"key"`
+	Content     string `json:"content"`
+	ContentType string `json:"content_type,omitempty"`
+	IsBase64    bool   `json:"is_base64,omitempty"`
+	Connection  string `json:"connection,omitempty"`
+}
+
+// recordingPuts collects what the delivery tool was asked to write.
+type recordingPuts struct {
+	mu   sync.Mutex
+	seen []putObjectInput
+}
+
+func (p *recordingPuts) record(in putObjectInput) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.seen = append(p.seen, in)
+}
+
+func (p *recordingPuts) calls() []putObjectInput {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]putObjectInput(nil), p.seen...)
+}
+
 // execHarness is the assembled system: the tool layer, the run worker, and the
 // stores each of them writes to.
 type execHarness struct {
@@ -289,6 +321,7 @@ type execHarness struct {
 	s3       *memS3
 	audit    *recordingAudit
 	queries  *recordingQueries
+	puts     *recordingPuts
 	worker   *scriptexec.Handle
 }
 
@@ -332,6 +365,23 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, out, nil
 		})
 
+	puts := &recordingPuts{}
+	mcp.AddTool(server, &mcp.Tool{Name: "s3_put_object", Description: "put"},
+		func(_ context.Context, _ *mcp.CallToolRequest, in putObjectInput) (*mcp.CallToolResult, any, error) {
+			puts.record(in)
+			decoded, err := base64.StdEncoding.DecodeString(in.Content)
+			if err != nil {
+				// A tool reports its own failure as an error RESULT, not as a Go
+				// error: a Go error is a transport failure, and this is the
+				// caller sending something the tool cannot use.
+				return &mcp.CallToolResult{ //nolint:nilerr // an MCP tool failure is an error result, never a returned error
+					IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "content is not base64"}},
+				}, nil, nil
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}},
+				map[string]any{"bucket": in.Bucket, "key": in.Key, "size": len(decoded)}, nil
+		})
+
 	allowed := map[string]bool{}
 	for _, c := range allowedConnections {
 		allowed[c] = true
@@ -363,7 +413,8 @@ func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...str
 
 	return execHarness{
 		server: server, handle: h, store: store, runs: runs,
-		assets: assets, versions: versions, s3: s3, audit: audit, queries: queries, worker: worker,
+		assets: assets, versions: versions, s3: s3, audit: audit,
+		queries: queries, puts: puts, worker: worker,
 	}
 }
 
@@ -400,7 +451,7 @@ func analystGrant() script.Grants {
 	return script.Grants{
 		Connections:  []string{"warehouse"},
 		Capabilities: script.Capabilities,
-		Destinations: []string{script.DestinationPortal},
+		Destinations: []script.Destination{script.PortalDestination()},
 	}
 }
 
@@ -494,6 +545,155 @@ func TestIntegration_UnapprovedScriptRefuses(t *testing.T) {
 	require.True(t, isErr)
 	assert.Contains(t, out["error"], "no approved version")
 	assert.Contains(t, out["error"], "run_draft", "the refusal names the path that does work")
+}
+
+// deliverySource is a script that computes one result and both refreshes its
+// portal asset and delivers the same rows to an external system — the shape the
+// destination axis exists for.
+const deliverySource = `res = platform.query(
+    connection = "warehouse",
+    sql = "SELECT region, total FROM sales WHERE d = :day",
+    params = {"day": run.params["day"]},
+)
+platform.export(name="daily-sales", rows=res["rows"], format="csv")
+platform.export(
+    name = "daily-sales",
+    rows = res["rows"],
+    format = "csv",
+    destination = "acme-drop",
+    key = "2026/08/sales.csv",
+)
+`
+
+// acmeDrop is the granted external destination: a named platform connection, a
+// bucket, and the prefix everything this script writes sits under.
+func acmeDrop() script.Destination {
+	return script.Destination{
+		Name: "acme-drop", Kind: script.DestinationKindS3,
+		Connection: "acme-s3", Bucket: "acme-exports", Prefix: "weekly",
+	}
+}
+
+// deliveryGrant is what a reviewer binds for a script that also delivers.
+func deliveryGrant() script.Grants {
+	grant := analystGrant()
+	grant.Destinations = append(grant.Destinations, acmeDrop())
+	return grant
+}
+
+// TestIntegration_ApprovedRunDeliversToAGrantedBucket is external delivery end
+// to end: one computed result becomes a new version of the script's portal
+// asset AND an object in the bucket its approval named, written as an ordinary
+// platform tool call under the script's own principal.
+func TestIntegration_ApprovedRunDeliversToAGrantedBucket(t *testing.T) {
+	ctx := context.Background()
+	h := executionServer(t, "warehouse", "acme-s3")
+	authorAndApprove(ctx, t, h, deliverySource, deliveryGrant())
+	session := connectAgent(ctx, t, h.server)
+
+	out, isErr := runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+	})
+	require.False(t, isErr, out["error"])
+	require.Equal(t, script.RunStatusSucceeded, out["status"], out)
+
+	// The object landed under the granted prefix, at the key the script chose
+	// beneath it, over the connection the approval named.
+	puts := h.puts.calls()
+	require.Len(t, puts, 1)
+	assert.Equal(t, "acme-s3", puts[0].Connection)
+	assert.Equal(t, "acme-exports", puts[0].Bucket)
+	assert.Equal(t, "weekly/2026/08/sales.csv", puts[0].Key)
+	assert.Equal(t, "text/csv", puts[0].ContentType)
+	require.True(t, puts[0].IsBase64)
+	decoded, err := base64.StdEncoding.DecodeString(puts[0].Content)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(string(decoded), "region,total"), string(decoded))
+
+	// The same result also refreshed the portal asset: one name, two places.
+	require.Len(t, h.versions.created, 1)
+
+	outputs, ok := out["outputs"].([]any)
+	require.True(t, ok, out["outputs"])
+	require.Len(t, outputs, 2, "one output name written to two destinations is two records")
+	delivered, ok := outputs[1].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "daily-sales", delivered["name"])
+	assert.Equal(t, "acme-drop", delivered["destination"])
+	assert.Equal(t, "acme-exports", delivered["bucket"])
+	assert.Equal(t, "weekly/2026/08/sales.csv", delivered["key"])
+	assert.Positive(t, delivered["bytes"])
+
+	// The delivery is audited like every other capability call: under the
+	// script principal, on the connection it wrote over, in the run's session.
+	runID, _ := out["run_id"].(string)
+	require.NotEmpty(t, runID)
+	put := h.audit.waitFor(t, "s3_put_object")
+	assert.Equal(t, "script:daily", put.UserID)
+	assert.Equal(t, middleware.SourceScript, put.Source)
+	assert.Equal(t, "acme-s3", put.Connection)
+	assert.Equal(t, runID, put.SessionID)
+}
+
+// TestIntegration_DeliveryUsesTheOutputNameWhenTheScriptNamesNoKey covers the
+// simpler arrangement: a consumer reading one fixed path, refreshed each run.
+func TestIntegration_DeliveryUsesTheOutputNameWhenTheScriptNamesNoKey(t *testing.T) {
+	ctx := context.Background()
+	h := executionServer(t, "warehouse", "acme-s3")
+	source := strings.Replace(deliverySource, "    key = \"2026/08/sales.csv\",\n", "", 1)
+	authorAndApprove(ctx, t, h, source, deliveryGrant())
+	session := connectAgent(ctx, t, h.server)
+
+	out, isErr := runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+	})
+	require.False(t, isErr, out["error"])
+	require.Equal(t, script.RunStatusSucceeded, out["status"], out)
+
+	puts := h.puts.calls()
+	require.Len(t, puts, 1)
+	assert.Equal(t, "weekly/daily-sales.csv", puts[0].Key)
+}
+
+// TestIntegration_UndeclaredDestinationIsRefusedAtBothLayers is the layered
+// enforcement claim for the sharpest surface in the feature: the facade refuses
+// a destination the approval did not name, and the middleware refuses the write
+// independently of whatever the approval said.
+func TestIntegration_UndeclaredDestinationIsRefusedAtBothLayers(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("the grant refuses it inside the interpreter", func(t *testing.T) {
+		// The middleware would allow this connection; the approval never named
+		// the destination, so nothing is issued at all.
+		h := executionServer(t, "warehouse", "acme-s3")
+		authorAndApprove(ctx, t, h, deliverySource, analystGrant())
+		session := connectAgent(ctx, t, h.server)
+
+		out, isErr := runScript(ctx, t, session, map[string]any{
+			"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+		})
+		require.False(t, isErr, out["error"])
+		assert.Equal(t, script.RunStatusFailed, out["status"], out)
+		assert.Contains(t, out["error"], `destination "acme-drop" is not in this script's approved grant`)
+		assert.Empty(t, h.puts.calls(), "nothing left the platform")
+	})
+
+	t.Run("the middleware refuses the write independently of the grant", func(t *testing.T) {
+		// The approval named the destination and its connection; the persona
+		// the script's roles resolve to does not hold that connection.
+		h := executionServer(t, "warehouse")
+		authorAndApprove(ctx, t, h, deliverySource, deliveryGrant())
+		session := connectAgent(ctx, t, h.server)
+
+		out, isErr := runScript(ctx, t, session, map[string]any{
+			"name": "daily", "args": map[string]any{"day": "2026-08-12"},
+		})
+		require.False(t, isErr, out["error"])
+		assert.Equal(t, script.RunStatusFailed, out["status"], out)
+		assert.Contains(t, out["error"], "not authorized",
+			"the authorization middleware is the authority of record, whatever the grant says")
+		assert.Empty(t, h.puts.calls(), "the refusal happened before the tool ran")
+	})
 }
 
 // TestIntegration_UngrantedConnectionIsRefusedAtBothLayers is the layered

@@ -93,14 +93,27 @@ func TestRun_Terminal(t *testing.T) {
 // an output twice: the run's own record of what it already wrote.
 func TestRun_OutputIsTheReclaimGuard(t *testing.T) {
 	run := &script.Run{Outputs: []script.RunOutput{
+		// The first row carries no destination, which is how every output
+		// recorded before delivery existed reads: the portal was the only place
+		// an output could go.
 		{Name: "daily", AssetID: "asset_1", AssetVersion: 4},
+		{Name: "daily", Destination: "acme-drop", Bucket: "exports", Key: "weekly/daily.csv"},
 	}}
-	found := run.Output("daily")
+	found := run.Output("daily", script.DestinationPortal)
 	require.NotNil(t, found)
 	assert.Equal(t, "asset_1", found.AssetID)
 	assert.Equal(t, 4, found.AssetVersion)
-	assert.Nil(t, run.Output("weekly"))
-	assert.Nil(t, (&script.Run{}).Output("daily"))
+
+	// The same name at another destination is a different write, not a repeat
+	// of this one: matching on the name alone would report the delivery as
+	// already done and silently skip it.
+	delivered := run.Output("daily", "acme-drop")
+	require.NotNil(t, delivered)
+	assert.Equal(t, "weekly/daily.csv", delivered.Key)
+
+	assert.Nil(t, run.Output("daily", "somewhere-else"))
+	assert.Nil(t, run.Output("weekly", script.DestinationPortal))
+	assert.Nil(t, (&script.Run{}).Output("daily", script.DestinationPortal))
 }
 
 // TestRun_LeaseIsTheFencingToken pins the triple a write is fenced on: a worker

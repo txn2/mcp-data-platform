@@ -20,51 +20,61 @@ import (
 // exported by hand.
 const maxOutputBytes = 100 << 20
 
-// outputWriter persists one run's outputs as portal assets.
+// outputWriter persists one run's outputs, to the portal or to a granted
+// bucket.
 //
-// Output identity is stable across runs: the pair (script, output name) maps to
-// ONE asset, and each run writes a new VERSION of it. A daily report therefore
-// keeps its identity, its shares, and its history instead of minting a new
-// asset every morning — which is both what a person subscribing to a dashboard
-// expects and the difference between a year of scheduled runs producing one
-// asset and producing three hundred and sixty-five.
+// Portal output identity is stable across runs: the pair (script, output name)
+// maps to ONE asset, and each run writes a new VERSION of it. A daily report
+// therefore keeps its identity, its shares, and its history instead of minting a
+// new asset every morning — which is both what a person subscribing to a
+// dashboard expects and the difference between a year of scheduled runs
+// producing one asset and producing three hundred and sixty-five.
+//
+// Delivery to a bucket shares everything up to the bytes: the same formatter,
+// the same size ceiling, the same exactly-once rule, the same record on the run.
+// Only the sink differs, and the sink an output goes to is decided by the
+// destination its approval bound — never by the script's own address.
 type outputWriter struct {
 	deps   ExportDeps
 	runs   script.RunStore
 	run    *script.Run
 	script *script.Script
-	// written names the outputs THIS attempt produced, which is what separates
-	// the two ways an output name can already be present: the run row carries
-	// what an earlier attempt wrote (idempotency, skip it), and this set carries
-	// what the script has written since the interpreter started (a second call
-	// under the same name, which is a bug in the script and must not be
-	// swallowed).
+	// caller issues the delivery as an ordinary platform tool call over the
+	// run's own MCP session, so an object leaving the platform crosses the same
+	// authorization and audit middleware every other call crosses. Nil on a
+	// deployment with no assembled server, which delivery reports rather than
+	// working around.
+	caller scriptrun.Caller
+	// written names the (output, destination) pairs THIS attempt produced,
+	// which is what separates the two ways one can already be present: the run
+	// row carries what an earlier attempt wrote (idempotency, skip it), and this
+	// set carries what the script has written since the interpreter started (a
+	// second call to the same place, which is a bug in the script and must not
+	// be swallowed).
 	written map[string]bool
+	// delivered maps the address of every object this attempt put in a bucket to
+	// the output that wrote it, because the object KEY is what identifies a
+	// delivered file — two output names can arrive at one key, and the second
+	// write would silently replace the first.
+	delivered map[string]string
 }
 
 // newOutputWriter builds the writer for one claimed run.
-func newOutputWriter(deps ExportDeps, runs script.RunStore, run *script.Run, sc *script.Script) *outputWriter {
-	return &outputWriter{deps: deps, runs: runs, run: run, script: sc, written: map[string]bool{}}
+func newOutputWriter(deps ExportDeps, runs script.RunStore, run *script.Run, sc *script.Script, caller scriptrun.Caller) *outputWriter {
+	return &outputWriter{
+		deps: deps, runs: runs, run: run, script: sc, caller: caller,
+		written: map[string]bool{}, delivered: map[string]string{},
+	}
 }
 
-// Export writes one output and records it on the run.
+// Export writes one output to the destination its approval bound, and records
+// it on the run.
 func (w *outputWriter) Export(ctx context.Context, req scriptrun.ExportRequest) (*scriptrun.ExportResult, error) {
-	// One name, one output, per run. A script that exports the same name twice
-	// means two different results to store under one identity, and the honest
-	// answer is to fail rather than to keep the first and drop the second.
-	if w.written[req.Name] {
-		return nil, fmt.Errorf("output %q was already written by this run; each output name may be written once, so give the second one its own name",
-			req.Name)
+	if err := w.refuseRepeat(req); err != nil {
+		return nil, err
 	}
-	// A run reclaimed after its worker died re-executes from the top, so an
-	// output an EARLIER attempt persisted must not be written a second time. The
-	// run row is the record of that, written as each output landed.
-	if prior := w.run.Output(req.Name); prior != nil {
-		slog.Info("scripts: output already written by an earlier attempt of this run",
-			logKeyRunID, w.run.ID, "output", req.Name, "asset_id", prior.AssetID)
-		return &scriptrun.ExportResult{
-			AssetID: prior.AssetID, AssetVersion: prior.AssetVersion, Bytes: prior.Bytes,
-		}, nil
+	if prior := w.priorAttempt(req); prior != nil {
+		return prior, nil
 	}
 
 	formatter, err := trinokit.NewFormatter(req.Format)
@@ -80,13 +90,97 @@ func (w *outputWriter) Export(ctx context.Context, req scriptrun.ExportRequest) 
 			req.Name, len(data), maxOutputBytes)
 	}
 
-	asset, err := w.assetFor(ctx, req.Name, formatter.ContentType())
+	written, out, err := w.write(ctx, req, formatter, data)
 	if err != nil {
 		return nil, err
 	}
+	w.record(ctx, req, out)
+	return written, nil
+}
+
+// write sends one formatted output to its destination.
+func (w *outputWriter) write(ctx context.Context, req scriptrun.ExportRequest, formatter trinokit.Formatter, data []byte) (*scriptrun.ExportResult, script.RunOutput, error) {
+	if req.Destination.IsPortal() {
+		return w.writePortal(ctx, req, formatter, data)
+	}
+	return w.deliver(ctx, req, formatter, data)
+}
+
+// refuseRepeat refuses a second write of one output name to one destination
+// within a single execution.
+//
+// One name, one output, per destination, per run. A script that exports the
+// same name to the same place twice means two different results to store under
+// one identity, and the honest answer is to fail rather than to keep the first
+// and drop the second. The same name to a DIFFERENT destination is the
+// supported case — a dashboard asset and a file for another system, from one
+// computed result — so the key is the pair.
+func (w *outputWriter) refuseRepeat(req scriptrun.ExportRequest) error {
+	if !w.written[outputKey(req.Name, req.Destination.Name)] {
+		return nil
+	}
+	return fmt.Errorf("output %q was already written to %q by this run; each output name may be written once per destination, so give the second one its own name",
+		req.Name, req.Destination.Name)
+}
+
+// priorAttempt reports what an EARLIER attempt of this run already wrote for
+// one output, or nil.
+//
+// A run reclaimed after its worker died re-executes from the top, so an output
+// a previous attempt persisted must not be written a second time — least of all
+// one delivered out of the platform. The run row is the record of that, written
+// as each output landed.
+func (w *outputWriter) priorAttempt(req scriptrun.ExportRequest) *scriptrun.ExportResult {
+	destination := req.Destination.Name
+	prior := w.run.Output(req.Name, destination)
+	if prior == nil {
+		return nil
+	}
+	slog.Info("scripts: output already written by an earlier attempt of this run",
+		logKeyRunID, w.run.ID, "output", req.Name, "destination", destination,
+		"asset_id", prior.AssetID, "key", prior.Key)
+	// Marked as handled by this attempt too, so a script that writes one name to
+	// one place twice is refused the same way whether or not the run it is
+	// executing in was reclaimed. Without this the second call would find the
+	// same prior record and be answered with it, and the script bug the first
+	// attempt would have failed on would pass silently.
+	w.written[outputKey(req.Name, destination)] = true
+	return &scriptrun.ExportResult{
+		AssetID: prior.AssetID, AssetVersion: prior.AssetVersion,
+		Bucket: prior.Bucket, Key: prior.Key, Bytes: prior.Bytes,
+	}
+}
+
+// record notes one written output on the run row and on this attempt.
+func (w *outputWriter) record(ctx context.Context, req scriptrun.ExportRequest, out script.RunOutput) {
+	if err := w.runs.RecordOutput(ctx, w.run.Lease(), out); err != nil {
+		// The output exists and is correct; only the run's record of it failed.
+		// Failing the run here would report a write that did happen as a write
+		// that did not, so the run continues and the gap is logged.
+		slog.Error("scripts: recording an output on the run failed",
+			logKeyRunID, w.run.ID, "output", req.Name, logKeyError, err)
+	}
+	w.run.Outputs = append(w.run.Outputs, out)
+	w.written[outputKey(req.Name, req.Destination.Name)] = true
+}
+
+// outputKey identifies one write: an output name at one destination.
+func outputKey(name, destination string) string {
+	return name + "\x00" + destination
+}
+
+// writePortal stores one output as a new version of the script's asset.
+func (w *outputWriter) writePortal(ctx context.Context, req scriptrun.ExportRequest, formatter trinokit.Formatter, data []byte) (*scriptrun.ExportResult, script.RunOutput, error) {
+	if !w.deps.ready() {
+		return nil, script.RunOutput{}, fmt.Errorf("output %q cannot be written: this deployment has no portal asset store or object storage configured", req.Name)
+	}
+	asset, err := w.assetFor(ctx, req.Name, formatter.ContentType())
+	if err != nil {
+		return nil, script.RunOutput{}, err
+	}
 	key := w.objectKey(asset.ID, formatter.FileExtension())
 	if err := w.deps.S3.PutObject(ctx, w.deps.Bucket, key, data, formatter.ContentType()); err != nil {
-		return nil, fmt.Errorf("uploading output %q: %w", req.Name, err)
+		return nil, script.RunOutput{}, fmt.Errorf("uploading output %q: %w", req.Name, err)
 	}
 	version, err := w.deps.Versions.CreateVersion(ctx, portal.AssetVersion{
 		ID:          uuid.New().String(),
@@ -100,23 +194,14 @@ func (w *outputWriter) Export(ctx context.Context, req scriptrun.ExportRequest) 
 			w.script.Name, w.run.Version, w.run.ID),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("recording output %q: %w", req.Name, err)
+		return nil, script.RunOutput{}, fmt.Errorf("recording output %q: %w", req.Name, err)
 	}
-
 	out := script.RunOutput{
-		Name: req.Name, AssetID: asset.ID, AssetVersion: version,
+		Name: req.Name, Destination: req.Destination.Name,
+		AssetID: asset.ID, AssetVersion: version,
 		Format: req.Format, RowCount: len(req.Rows), Bytes: len(data),
 	}
-	if err := w.runs.RecordOutput(ctx, w.run.Lease(), out); err != nil {
-		// The asset version exists and is correct; only the run's record of it
-		// failed. Failing the run here would report a write that did happen as a
-		// write that did not, so the run continues and the gap is logged.
-		slog.Error("scripts: recording an output on the run failed",
-			logKeyRunID, w.run.ID, "output", req.Name, logKeyError, err)
-	}
-	w.run.Outputs = append(w.run.Outputs, out)
-	w.written[req.Name] = true
-	return &scriptrun.ExportResult{AssetID: asset.ID, AssetVersion: version, Bytes: len(data)}, nil
+	return &scriptrun.ExportResult{AssetID: asset.ID, AssetVersion: version, Bytes: len(data)}, out, nil
 }
 
 // assetFor finds the asset this output name maps to, creating it the first time

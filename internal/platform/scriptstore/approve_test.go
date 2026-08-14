@@ -21,7 +21,7 @@ func approvalGrant() script.Grants {
 	return script.Grants{
 		Connections:  []string{"warehouse"},
 		Capabilities: []string{script.CapabilityQuery, script.CapabilityExport},
-		Destinations: []string{script.DestinationPortal},
+		Destinations: []script.Destination{script.PortalDestination()},
 	}
 }
 

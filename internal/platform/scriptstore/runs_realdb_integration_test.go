@@ -35,7 +35,7 @@ func approvedScript(ctx context.Context, t *testing.T, s *Store, name string) (*
 	version, err := s.ApproveVersion(ctx, sc.ID, 1, "admin@example.com", script.Grants{
 		Connections:  []string{"warehouse"},
 		Capabilities: []string{script.CapabilityQuery},
-		Destinations: []string{script.DestinationPortal},
+		Destinations: []script.Destination{script.PortalDestination()},
 	})
 	require.NoError(t, err)
 
@@ -151,24 +151,34 @@ func TestRealDB_RecordOutputAppendsAndRetryRequeues(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, s.RecordOutput(ctx, run.Lease(), script.RunOutput{
-		Name: "daily", AssetID: "asset_1", AssetVersion: 1, Format: "csv", RowCount: 2, Bytes: 40,
+		Name: "daily", Destination: script.DestinationPortal,
+		AssetID: "asset_1", AssetVersion: 1, Format: "csv", RowCount: 2, Bytes: 40,
 	}))
 	require.NoError(t, s.RecordOutput(ctx, run.Lease(), script.RunOutput{
-		Name: "weekly", AssetID: "asset_2", AssetVersion: 3, Format: "json",
+		Name: "weekly", Destination: script.DestinationPortal,
+		AssetID: "asset_2", AssetVersion: 3, Format: "json",
+	}))
+	// The same name delivered to a bucket is a different write, and the row has
+	// to carry both: this is the pair the reclaim guard reads.
+	require.NoError(t, s.RecordOutput(ctx, run.Lease(), script.RunOutput{
+		Name: "daily", Destination: "acme-drop",
+		Bucket: "acme-exports", Key: "weekly/daily.csv", Format: "csv", Bytes: 40,
 	}))
 
 	stored, err := s.GetRun(ctx, "dpx_a")
 	require.NoError(t, err)
-	require.Len(t, stored.Outputs, 2, "each output is recorded as it lands, not all at the end")
-	require.NotNil(t, stored.Output("daily"))
-	assert.Equal(t, "asset_1", stored.Output("daily").AssetID)
+	require.Len(t, stored.Outputs, 3, "each output is recorded as it lands, not all at the end")
+	require.NotNil(t, stored.Output("daily", script.DestinationPortal))
+	assert.Equal(t, "asset_1", stored.Output("daily", script.DestinationPortal).AssetID)
+	require.NotNil(t, stored.Output("daily", "acme-drop"))
+	assert.Equal(t, "weekly/daily.csv", stored.Output("daily", "acme-drop").Key)
 
 	require.NoError(t, s.Retry(ctx, run.Lease(), "trino unreachable", 0))
 	requeued, err := s.GetRun(ctx, "dpx_a")
 	require.NoError(t, err)
 	assert.Equal(t, script.RunStatusPending, requeued.Status)
 	assert.Equal(t, "trino unreachable", requeued.Error)
-	require.Len(t, requeued.Outputs, 2, "a requeued run remembers what it already wrote")
+	require.Len(t, requeued.Outputs, 3, "a requeued run remembers what it already wrote")
 }
 
 // TestRealDB_PurgeLeavesLiveWorkAlone pins the retention predicate against real

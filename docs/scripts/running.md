@@ -41,10 +41,20 @@ curl -s -X POST -H "Authorization: Bearer $ADMIN_TOKEN" \
   -d '{
         "connections":   ["warehouse"],
         "capabilities":  ["platform.query", "platform.export"],
-        "destinations":  ["portal"]
+        "destinations":  [
+          {"name": "portal", "kind": "portal"},
+          {"name": "acme-drop", "kind": "s3", "connection": "acme-s3",
+           "bucket": "acme-exports", "prefix": "weekly"}
+        ]
       }' \
   https://platform.example.com/api/v1/admin/scripts/$SCRIPT_ID/versions/3/approve
 ```
+
+A destination carries the address, not only the name the script writes. The
+portal is the platform's own asset store and takes none; every other kind names
+the connection, bucket, and prefix its output lands under, and that address is
+bound to the version — repointing it at a different bucket is a new grant, and a
+new approval.
 
 The request never names roles. The authority an approved run presents is the
 set of roles the version's **author** held when they wrote it, copied from the
@@ -235,11 +245,63 @@ lease to expire.
 
 ## What a run produces
 
-`platform.export` writes a portal asset. Output identity is stable: the pair of
-(script, output name) maps to **one** asset, and each run writes a new version
-of it. A daily report therefore keeps its identity, its shares, and its history
-instead of producing a new asset every morning, and a year of runs leaves one
-asset with a year of versions.
+`platform.export` writes an output to the destination its approval bound.
+
+By default that destination is the **portal**, and output identity there is
+stable: the pair of (script, output name) maps to **one** asset, and each run
+writes a new version of it. A daily report therefore keeps its identity, its
+shares, and its history instead of producing a new asset every morning, and a
+year of runs leaves one asset with a year of versions.
+
+### Delivering to an external system
+
+Some output exists to be consumed elsewhere — the weekly CSV another system
+picks up. A version approved with a **bucket destination** writes the same bytes
+to a bucket instead:
+
+```python
+rows = platform.query(connection="warehouse", sql="SELECT ...")["rows"]
+
+# The dashboard's asset, refreshed: a new version of one asset.
+platform.export(name="weekly-sales", rows=rows, format="csv")
+
+# The same result, delivered for another system to read.
+platform.export(
+    name="weekly-sales",
+    rows=rows,
+    format="csv",
+    destination="acme-drop",
+    key="2026/08/sales.csv",
+)
+```
+
+The script names a destination and nothing else. The connection, the bucket, and
+the prefix come from the grant a reviewer bound to this version, so a script
+supplies no endpoint, no credential, and no bucket of its own — see the security
+model's [delivery section](security.md#delivery-leaving-the-platform).
+
+- `destination` defaults to `portal`. A destination the grant does not name is
+  refused inside the interpreter, before anything is issued.
+- `key` is the object key beneath the destination's granted prefix. It defaults
+  to the output name plus the format's extension (`weekly-sales.csv`), and a key
+  that could climb out of the prefix is refused rather than cleaned up. The
+  portal takes no key: it stores its own objects, and the output name is the
+  identity there.
+- `destination` and `key` must be passed **by name**; only `name`, `rows`, and
+  `format` may be positional. A destination passed by position would be
+  invisible to the static read a reviewer's capability diff is built from, and a
+  diff that is quietly wrong is worse than one that is refused.
+- Two outputs may not land on one object. Distinct names can produce one key —
+  and one key can simply be named twice — and the second write would replace the
+  first in a bucket the platform cannot read back, so it fails instead.
+- One output name may be written **once per destination** in a run, which is
+  what lets the example above send one result to both places. A second write to
+  the *same* destination fails rather than silently keeping one of the two.
+- A run reclaimed after a worker died does not deliver twice: each output is
+  recorded as it lands, and a reclaimed run skips what it already wrote.
+
+Each delivery is recorded on the run — destination, bucket, key, and bytes — and
+audited under the script's own principal like every other capability call.
 
 Each run records what it did — status, timings, interpreter steps, the queries
 it issued, the outputs it wrote, and the log the script printed — and that
@@ -292,4 +354,5 @@ scripts:
 | Executing what was queued | At least one replica with `scripts.worker.enabled` left on, which is the default |
 | Firing schedules | The same replicas; scheduling needs no configuration of its own |
 | Mailing a failed scheduled run | The email substrate (`notifications`, and an admin-configured mail server) |
-| Writing outputs | A configured portal asset store and object storage; without them a run still executes and `platform.export` reports the shape it would have written |
+| Writing portal outputs | A configured portal asset store and object storage; without them an export to the portal fails the run, which is the honest report for a scheduled asset that never appeared |
+| Delivering to a bucket | An S3 connection the platform is configured with, not read-only, reachable by the persona the script's roles resolve to. It needs no portal: a run that only delivers writes nothing the platform keeps |

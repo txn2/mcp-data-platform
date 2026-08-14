@@ -154,7 +154,7 @@ func TestScheduleSet_BindsAgainstTheApprovedContract(t *testing.T) {
 	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
 	require.NoError(t, err)
 	_, err = store.ApproveVersion(context.Background(), sc.ID, sc.Version, "admin@example.com",
-		script.Grants{Capabilities: script.Capabilities, Destinations: script.Destinations})
+		script.Grants{Capabilities: script.Capabilities, Destinations: []script.Destination{script.PortalDestination()}})
 	require.NoError(t, err)
 
 	t.Run("the fire-date token satisfies a date parameter", func(t *testing.T) {

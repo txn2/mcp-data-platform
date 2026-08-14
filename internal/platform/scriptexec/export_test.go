@@ -129,6 +129,31 @@ func (*fakeS3) GetObject(context.Context, string, string) (data []byte, contentT
 func (*fakeS3) DeleteObject(context.Context, string, string) error { return nil }
 func (*fakeS3) Close() error                                       { return nil }
 
+// deliveryCall is one tool call the writer issued to deliver an output.
+type deliveryCall struct {
+	tool string
+	args map[string]any
+}
+
+// fakeCaller stands in for the run's MCP session: it records what the writer
+// asked the platform to do, and can fail the call the way a refused write does.
+type fakeCaller struct {
+	calls  []deliveryCall
+	result map[string]any
+	err    error
+}
+
+func (f *fakeCaller) CallTool(_ context.Context, name string, args map[string]any) (map[string]any, error) {
+	f.calls = append(f.calls, deliveryCall{tool: name, args: args})
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.result != nil {
+		return f.result, nil
+	}
+	return map[string]any{"bucket": args["bucket"], "key": args["key"]}, nil
+}
+
 // writerHarness assembles an output writer over the fakes.
 type writerHarness struct {
 	writer   *outputWriter
@@ -136,6 +161,7 @@ type writerHarness struct {
 	versions *fakeVersionStore
 	s3       *fakeS3
 	runs     *fakeRuns
+	caller   *fakeCaller
 	run      *script.Run
 }
 
@@ -149,14 +175,16 @@ func newWriterHarness(t *testing.T) writerHarness {
 	run.Status, run.LockedBy, run.Attempt = script.RunStatusRunning, "worker-a", 1
 
 	assets, versions, s3 := newFakeAssets(), newFakeVersionStore(), newFakeS3()
+	caller := &fakeCaller{}
 	deps := ExportDeps{Assets: assets, Versions: versions, S3: s3, Bucket: "assets", Prefix: "portal"}
 	return writerHarness{
-		writer: newOutputWriter(deps, runs, run, sc),
-		assets: assets, versions: versions, s3: s3, runs: runs, run: run,
+		writer: newOutputWriter(deps, runs, run, sc, caller),
+		assets: assets, versions: versions, s3: s3, runs: runs, caller: caller, run: run,
 	}
 }
 
-// csvRequest is one output in the shape the engine hands over.
+// csvRequest is one output in the shape the engine hands over, addressed to the
+// portal.
 func csvRequest(name string) scriptrun.ExportRequest { //nolint:unparam // one output name is all these cases need; the parameter names what it is
 	return scriptrun.ExportRequest{
 		Name: name, Format: "csv", Columns: []string{"region", "total"},
@@ -164,6 +192,7 @@ func csvRequest(name string) scriptrun.ExportRequest { //nolint:unparam // one o
 			map[string]any{"region": "west", "total": int64(120)},
 			map[string]any{"region": "east", "total": int64(80)},
 		},
+		Destination: script.PortalDestination(),
 	}
 }
 
@@ -216,7 +245,7 @@ func TestOutputWriter_SameNameIsANewVersionOfOneAsset(t *testing.T) {
 	}
 	require.NoError(t, h.runs.Enqueue(ctx, secondRun))
 	secondRun.LockedBy, secondRun.Attempt = "worker-a", 1
-	secondWriter := newOutputWriter(h.writer.deps, h.runs, secondRun, h.writer.script)
+	secondWriter := newOutputWriter(h.writer.deps, h.runs, secondRun, h.writer.script, h.caller)
 
 	second, err := secondWriter.Export(ctx, csvRequest("daily"))
 	require.NoError(t, err)
@@ -239,7 +268,7 @@ func TestOutputWriter_ReclaimedRunDoesNotWriteTwice(t *testing.T) {
 
 	// The reclaim: another worker takes the same run over and builds a fresh
 	// writer over the row, which now carries what the first attempt wrote.
-	reclaimed := newOutputWriter(h.writer.deps, h.runs, h.run, h.writer.script)
+	reclaimed := newOutputWriter(h.writer.deps, h.runs, h.run, h.writer.script, h.caller)
 	again, err := reclaimed.Export(ctx, csvRequest("daily"))
 	require.NoError(t, err)
 
@@ -262,7 +291,7 @@ func TestOutputWriter_RefusesASecondOutputUnderOneName(t *testing.T) {
 
 	_, err = h.writer.Export(ctx, csvRequest("daily"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already written by this run")
+	assert.Contains(t, err.Error(), "already written to \"portal\" by this run")
 	assert.Len(t, h.versions.created, 1)
 }
 

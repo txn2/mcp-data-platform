@@ -213,12 +213,23 @@ type ExportRequest struct {
 	Columns []string
 	// Rows is the list of row dicts to write.
 	Rows []any
+	// Destination is the granted destination the output goes to, already
+	// resolved from the name the script wrote to the address its approval
+	// pinned. A draft carries only the name, because a draft writes nothing and
+	// there is no approval yet to resolve against.
+	Destination script.Destination
+	// Key is the object key the script asked for beneath the destination's
+	// granted prefix, empty when it named none and never set for the portal.
+	Key string
 }
 
-// ExportResult is where one output landed.
+// ExportResult is where one output landed. A portal output reports the asset
+// version it created; a delivered one reports the object it wrote.
 type ExportResult struct {
 	AssetID      string
 	AssetVersion int
+	Bucket       string
+	Key          string
 	// Bytes is the serialized size actually written, which the writer knows
 	// exactly and the engine can only estimate.
 	Bytes int
@@ -226,16 +237,22 @@ type ExportResult struct {
 
 // ExportRecord is what one platform.export call did, in call order on the run's
 // Result. A record with Preview set measured the output and wrote nothing,
-// which is what a draft run does; otherwise it names the asset version written.
+// which is what a draft run does; otherwise it names the asset version written
+// or the object delivered.
 type ExportRecord struct {
-	Name     string `json:"name"`
-	Format   string `json:"format"`
-	RowCount int    `json:"row_count"`
-	Bytes    int    `json:"bytes"`
+	Name string `json:"name"`
+	// Destination is the name the script wrote, so a run that sends one result
+	// to two places reads as two records rather than as a repeat.
+	Destination string `json:"destination"`
+	Format      string `json:"format"`
+	RowCount    int    `json:"row_count"`
+	Bytes       int    `json:"bytes"`
 	// Preview is true when nothing was persisted.
 	Preview      bool   `json:"preview"`
 	AssetID      string `json:"asset_id,omitempty"`
 	AssetVersion int    `json:"asset_version,omitempty"`
+	Bucket       string `json:"bucket,omitempty"`
+	Key          string `json:"key,omitempty"`
 }
 
 // Result reports one completed execution.

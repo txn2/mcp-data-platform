@@ -1,5 +1,9 @@
 import { http, HttpResponse } from "msw";
-import type { PendingReview, ScriptVersion } from "@/api/admin/types";
+import type {
+  PendingReview,
+  ScriptApproveInput,
+  ScriptVersion,
+} from "@/api/admin/types";
 import {
   mockScriptReviewAlert,
   mockScriptReviewPayloads,
@@ -70,7 +74,7 @@ export const scriptHandlers = [
   }),
 
   http.post(`${ADMIN_BASE}/scripts/:id/versions/:version/approve`, async ({ params, request }) => {
-    const body = (await request.json()) as Record<string, string[]>;
+    const body = (await request.json()) as ScriptApproveInput;
     const scriptID = String(params.id);
     const version = Number(params.version);
     const list = versions[scriptID] ?? [];

@@ -38,9 +38,24 @@ WHAT IS AVAILABLE
       "DATE :day", which renders the standard date literal DATE '2026-08-12'.
       A query whose result is truncated by the row cap FAILS rather than
       returning a partial answer: aggregate in SQL, or narrow the query.
-  platform.export(name, rows, format="csv")  Declare an output. Formats: csv,
-      json, markdown, text. In a draft run this reports the shape and size the
-      output would have and writes nothing.
+  platform.export(name, rows, format="csv", destination="portal", key=None)
+      Declare an output. Formats: csv, json, markdown, text. name is the
+      output's identity across runs: the same name from the same script is one
+      portal asset, and every run adds a version of it, so a dashboard keeps its
+      identity instead of a new asset appearing every morning.
+      destination says where the output goes. The default, "portal", is that
+      versioned asset. A destination approved for a bucket delivers the same
+      bytes to an external system instead; the script names only the
+      destination, and the connection, bucket and prefix come from what was
+      approved. Exporting one result to both is two calls with one name.
+      key is the object key beneath a bucket destination's granted prefix
+      ("2026/08/sales.csv"); it defaults to the output name plus the format's
+      extension, and the portal takes no key because it stores its own objects.
+      destination and key must be passed BY NAME. Only name, rows and format may
+      be positional, because where a script writes has to be readable from its
+      source before anyone approves it.
+      In a draft run this reports the shape and size the output would have and
+      writes nothing, wherever it was addressed.
   print(...)  Goes to the run log (capped; anything larger is an export).
   run.run_id, run.fire_time, run.params["name"]  The frozen run record.
   json.encode / json.decode / json.indent
@@ -75,8 +90,8 @@ WHAT DETERMINISTIC MEANS HERE
 
 THE LOOP
   create -> validate -> run_draft -> patch -> validate -> run_draft. validate
-  parses and reports the capabilities and connections the script reaches;
-  run_draft executes it under your own identity with nothing persisted.`
+  parses and reports the capabilities, connections and destinations the script
+  reaches; run_draft executes it under your own identity with nothing persisted.`
 
 // example is one built-in worked script, retrievable by name through get.
 type example struct {

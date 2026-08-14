@@ -22,15 +22,6 @@ const (
 // review surfaces report it.
 var Capabilities = []string{CapabilityQuery, CapabilityExport}
 
-// DestinationPortal is a portal asset owned by the platform: the only place an
-// output may be written today. Delivery to an external bucket is a later,
-// separately granted destination, which is the reason this axis exists as its
-// own list rather than being implied by the export capability.
-const DestinationPortal = "portal"
-
-// Destinations is the full destination surface.
-var Destinations = []string{DestinationPortal}
-
 // Grants is the capability set bound to one approved version: the authority
 // the run presents, the connections it may reach, the host bindings it may
 // call, and where its outputs may land.
@@ -59,9 +50,10 @@ type Grants struct {
 	// Capabilities is the set of host bindings the script may call.
 	Capabilities []string `json:"capabilities"`
 
-	// Destinations is the set of places the script may write output. An empty
-	// list means the script may compute but not persist.
-	Destinations []string `json:"destinations"`
+	// Destinations is the set of places the script may write output, each one a
+	// resolved address rather than a label. An empty list means the script may
+	// compute but not persist.
+	Destinations []Destination `json:"destinations"`
 }
 
 // ErrNoGrants marks an execution attempt against a version carrying no grant
@@ -86,10 +78,33 @@ func (g Grants) AllowsConnection(name string) bool {
 	return name != "" && slices.Contains(g.Connections, name)
 }
 
-// AllowsDestination reports whether the grant permits writing to one
+// AllowsDestination reports whether the grant permits writing to one named
 // destination.
 func (g Grants) AllowsDestination(name string) bool {
-	return slices.Contains(g.Destinations, name)
+	_, ok := g.Destination(name)
+	return ok
+}
+
+// Destination resolves one granted destination by the name a script writes.
+// The resolved record — not the name — is what the write is issued against, so
+// a script can only ever reach the address its approval pinned.
+func (g Grants) Destination(name string) (Destination, bool) {
+	for _, d := range g.Destinations {
+		if d.Name == name {
+			return d, true
+		}
+	}
+	return Destination{}, false
+}
+
+// DestinationNames lists the granted destinations by name, for the messages
+// that tell an author what this script was approved to write to.
+func (g Grants) DestinationNames() []string {
+	out := make([]string, 0, len(g.Destinations))
+	for _, d := range g.Destinations {
+		out = append(out, d.Name)
+	}
+	return out
 }
 
 // IsZero reports whether the grant is entirely empty, which distinguishes an
@@ -115,11 +130,28 @@ func (g Grants) Validate() error {
 	if err := validateGrantList("capability", g.Capabilities, Capabilities); err != nil {
 		return err
 	}
-	if err := validateGrantList("destination", g.Destinations, Destinations); err != nil {
+	if err := g.validateDestinations(); err != nil {
 		return err
 	}
 	if slices.Contains(g.Connections, "") {
 		return errors.New("a granted connection cannot be blank")
+	}
+	return nil
+}
+
+// validateDestinations checks every granted destination and refuses a repeated
+// name. Two destinations sharing a name would make the address a script reaches
+// depend on list order, which is the one thing an approval must not leave open.
+func (g Grants) validateDestinations() error {
+	seen := make(map[string]bool, len(g.Destinations))
+	for _, d := range g.Destinations {
+		if err := d.Validate(); err != nil {
+			return err
+		}
+		if seen[d.Name] {
+			return fmt.Errorf("destination %q is granted twice; one name is one place", d.Name)
+		}
+		seen[d.Name] = true
 	}
 	return nil
 }
@@ -135,21 +167,41 @@ func validateGrantList(kind string, granted, known []string) error {
 	return nil
 }
 
+// Missing is what a script's source references that its grant does not cover,
+// on each axis a static validation can read.
+type Missing struct {
+	Capabilities []string
+	Connections  []string
+	Destinations []string
+}
+
+// Any reports whether the code reaches for anything it was not granted.
+func (m Missing) Any() bool {
+	return len(m.Capabilities) > 0 || len(m.Connections) > 0 || len(m.Destinations) > 0
+}
+
 // MissingFor reports what a script's source references that the grant does not
-// cover, given the capability and connection names a static validation found.
-// It is the referenced-versus-granted diff a reviewer reads before approving,
-// and the same diff the approval action refuses on: approving a script whose
-// code reaches for something it was not granted approves a run that fails.
-func (g Grants) MissingFor(capabilities, connections []string) (missingCapabilities, missingConnections []string) {
+// cover, given the capability, connection, and destination names a static
+// validation found. It is the referenced-versus-granted diff a reviewer reads
+// before approving, and the same diff the approval action refuses on: approving
+// a script whose code reaches for something it was not granted approves a run
+// that fails.
+func (g Grants) MissingFor(capabilities, connections, destinations []string) Missing {
+	var missing Missing
 	for _, c := range capabilities {
 		if !g.AllowsCapability(c) {
-			missingCapabilities = append(missingCapabilities, c)
+			missing.Capabilities = append(missing.Capabilities, c)
 		}
 	}
 	for _, c := range connections {
 		if !g.AllowsConnection(c) {
-			missingConnections = append(missingConnections, c)
+			missing.Connections = append(missing.Connections, c)
 		}
 	}
-	return missingCapabilities, missingConnections
+	for _, d := range destinations {
+		if !g.AllowsDestination(d) {
+			missing.Destinations = append(missing.Destinations, d)
+		}
+	}
+	return missing
 }

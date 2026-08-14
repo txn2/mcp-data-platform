@@ -64,6 +64,40 @@ test.describe("Script review queue", () => {
     await expect(dialog.getByText(/dormant accounts:/)).toBeVisible();
   });
 
+  test("a script that sends data out of the platform cannot be approved until the reviewer says where", async ({
+    page,
+  }) => {
+    await gotoScripts(page);
+    await openReview(page, "Dormant Accounts");
+    const dialog = page.getByRole("dialog");
+
+    // The code names a destination; no approval has ever given it an address,
+    // so the decision is incomplete rather than absent.
+    await expect(dialog.getByText("acme-crm-drop", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Needs an address")).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: /Approve and bind this grant/ }),
+    ).toBeDisabled();
+    await expect(dialog.getByText(/Say where acme-crm-drop writes/)).toBeVisible();
+
+    await dialog.getByLabel("acme-crm-drop connection").fill("acme-s3");
+    await dialog.getByLabel("acme-crm-drop bucket").fill("acme-exports");
+    await dialog.getByLabel("acme-crm-drop prefix").fill("retention");
+
+    // With an address, the destination reads as the place it is, and the
+    // decision is available.
+    await expect(
+      dialog.getByText("acme-crm-drop -> s3 acme-s3 acme-exports/retention"),
+    ).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: /Approve and bind this grant/ }),
+    ).toBeEnabled();
+
+    await dialog.getByRole("button", { name: /Approve and bind this grant/ }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByText("First approval")).toHaveCount(0);
+  });
+
   test("the authority being bound is stated and cannot be edited", async ({ page }) => {
     await gotoScripts(page);
     await openReview(page, "Daily Sales Report");

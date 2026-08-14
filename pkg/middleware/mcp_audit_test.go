@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -936,4 +938,32 @@ func createAuditTestRequest(t *testing.T, toolName string, args map[string]any) 
 			Arguments: argsJSON,
 		},
 	}
+}
+
+// TestMCPAuditMiddleware_BoundsAPayloadArgument covers the arguments that carry
+// content rather than describe a call: an object body written to storage, a
+// file uploaded, a report a managed script delivers on every scheduled fire.
+// Storing those verbatim puts a copy of the data in the audit table and in the
+// writer's queue on the way there.
+func TestMCPAuditMiddleware_BoundsAPayloadArgument(t *testing.T) {
+	payload := strings.Repeat("A", maxAuditValueBytes+1)
+	event := auditMWWithParams(t, map[string]any{
+		"bucket":  "acme-exports",
+		"key":     "weekly/sales.csv",
+		"content": payload,
+		"count":   float64(3),
+	})
+
+	assert.Equal(t, "acme-exports", event.Parameters["bucket"], "what was called is still recorded")
+	assert.Equal(t, "weekly/sales.csv", event.Parameters["key"])
+	assert.Equal(t, float64(3), event.Parameters["count"], "a non-string value is untouched")
+	assert.Equal(t, fmt.Sprintf("[TRUNCATED: %d bytes]", len(payload)), event.Parameters["content"])
+}
+
+// TestMCPAuditMiddleware_KeepsAValueWithinTheBound pins the other half: the
+// bound is generous, and a query worth auditing is recorded in full.
+func TestMCPAuditMiddleware_KeepsAValueWithinTheBound(t *testing.T) {
+	sql := "SELECT " + strings.Repeat("x", maxAuditValueBytes-16)
+	event := auditMWWithParams(t, map[string]any{"sql": sql})
+	assert.Equal(t, sql, event.Parameters["sql"])
 }

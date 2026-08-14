@@ -15,7 +15,7 @@ func fullGrant() script.Grants {
 		Roles:        []string{"analyst"},
 		Connections:  []string{"warehouse"},
 		Capabilities: script.Capabilities,
-		Destinations: script.Destinations,
+		Destinations: []script.Destination{script.PortalDestination()},
 	}
 }
 
@@ -59,9 +59,29 @@ func TestGrants_Validate(t *testing.T) {
 		{"unknown capability", func(g *script.Grants) {
 			g.Capabilities = []string{"platform.delete_everything"}
 		}, "unknown capability"},
-		{"unknown destination", func(g *script.Grants) {
-			g.Destinations = []string{"s3://somewhere"}
-		}, "unknown destination"},
+		{"unknown destination kind", func(g *script.Grants) {
+			g.Destinations = []script.Destination{{Name: "elsewhere", Kind: "ftp"}}
+		}, "unknown kind"},
+		{"bucket destination with no connection", func(g *script.Grants) {
+			g.Destinations = []script.Destination{{Name: "drop", Kind: script.DestinationKindS3, Bucket: "exports"}}
+		}, "must name the platform connection"},
+		{"bucket destination with no bucket", func(g *script.Grants) {
+			g.Destinations = []script.Destination{{Name: "drop", Kind: script.DestinationKindS3, Connection: "acme-s3"}}
+		}, "must name a bucket"},
+		{"portal destination carrying an address", func(g *script.Grants) {
+			g.Destinations = []script.Destination{{
+				Name: script.DestinationPortal, Kind: script.DestinationKindPortal, Bucket: "exports",
+			}}
+		}, "takes no connection, bucket, or prefix"},
+		{"destination granted twice", func(g *script.Grants) {
+			g.Destinations = []script.Destination{script.PortalDestination(), script.PortalDestination()}
+		}, "granted twice"},
+		{"destination prefix climbing out of itself", func(g *script.Grants) {
+			g.Destinations = []script.Destination{{
+				Name: "drop", Kind: script.DestinationKindS3,
+				Connection: "acme-s3", Bucket: "exports", Prefix: "weekly/../../etc",
+			}}
+		}, "unusable prefix"},
 		{"blank connection", func(g *script.Grants) { g.Connections = []string{""} }, "cannot be blank"},
 		{"nothing granted but authority", func(g *script.Grants) {
 			g.Capabilities, g.Connections, g.Destinations = nil, nil, nil
@@ -91,19 +111,33 @@ func TestGrants_MissingFor(t *testing.T) {
 		Capabilities: []string{script.CapabilityQuery},
 	}
 
-	capabilities, connections := g.MissingFor(
+	missing := g.MissingFor(
 		[]string{script.CapabilityQuery, script.CapabilityExport},
-		[]string{"warehouse", "finance"})
-	assert.Equal(t, []string{script.CapabilityExport}, capabilities)
-	assert.Equal(t, []string{"finance"}, connections)
+		[]string{"warehouse", "finance"},
+		[]string{script.DestinationPortal, "acme-drop"})
+	assert.Equal(t, []string{script.CapabilityExport}, missing.Capabilities)
+	assert.Equal(t, []string{"finance"}, missing.Connections)
+	assert.Equal(t, []string{script.DestinationPortal, "acme-drop"}, missing.Destinations)
+	assert.True(t, missing.Any())
 
-	capabilities, connections = g.MissingFor([]string{script.CapabilityQuery}, []string{"warehouse"})
-	assert.Empty(t, capabilities)
-	assert.Empty(t, connections)
+	missing = g.MissingFor([]string{script.CapabilityQuery}, []string{"warehouse"}, nil)
+	assert.Empty(t, missing.Capabilities)
+	assert.Empty(t, missing.Connections)
+	assert.Empty(t, missing.Destinations)
+	assert.False(t, missing.Any())
+
+	// A granted destination is matched by the name a script writes, whatever
+	// address that name resolves to.
+	granted := script.Grants{Destinations: []script.Destination{{
+		Name: "acme-drop", Kind: script.DestinationKindS3,
+		Connection: "acme-s3", Bucket: "exports", Prefix: "weekly",
+	}}}
+	assert.Empty(t, granted.MissingFor(nil, nil, []string{"acme-drop"}).Destinations)
 
 	// An unapproved version has no grant at all, so everything its code reaches
 	// for is missing — which is exactly the grant a reviewer would have to bind.
-	capabilities, connections = script.Grants{}.MissingFor([]string{script.CapabilityQuery}, []string{"warehouse"})
-	assert.Equal(t, []string{script.CapabilityQuery}, capabilities)
-	assert.Equal(t, []string{"warehouse"}, connections)
+	missing = script.Grants{}.MissingFor([]string{script.CapabilityQuery}, []string{"warehouse"}, []string{script.DestinationPortal})
+	assert.Equal(t, []string{script.CapabilityQuery}, missing.Capabilities)
+	assert.Equal(t, []string{"warehouse"}, missing.Connections)
+	assert.Equal(t, []string{script.DestinationPortal}, missing.Destinations)
 }

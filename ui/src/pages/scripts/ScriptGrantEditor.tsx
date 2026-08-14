@@ -1,11 +1,20 @@
 import { useState } from "react";
 import { Minus, Plus, X } from "lucide-react";
-import type { ScriptGrants } from "@/api/admin/types";
+import type { ScriptDestination, ScriptGrants } from "@/api/admin/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { grantDelta, toggle } from "./scriptGrants";
+import {
+  DESTINATION_KIND_S3,
+  destinationKey,
+  destinationKeys,
+  grantDelta,
+  isPortal,
+  portalDestination,
+  PORTAL_DESTINATION,
+  toggle,
+} from "./scriptGrants";
 
 // The grant editor: what approving this version would let it do, read against
 // what it can do today.
@@ -194,6 +203,160 @@ export function ConnectionsEditor({
         </p>
       )}
       <DeltaLine delta={grantDelta(previous, granted)} hasBaseline={hasBaseline} />
+    </div>
+  );
+}
+
+// DestinationsEditor edits where an approved run may write.
+//
+// The portal is a toggle, because the platform provides it and it has no
+// address to decide. Everywhere else the reviewer supplies the address — the
+// connection, the bucket, and the prefix everything written there sits under —
+// because that address is what they are actually agreeing to. A script names
+// only the destination; a grant that recorded only the name would leave what it
+// means in configuration nobody re-approves.
+export function DestinationsEditor({
+  granted,
+  previous,
+  hasBaseline,
+  onChange,
+}: {
+  granted: ScriptDestination[];
+  previous: ScriptDestination[];
+  hasBaseline: boolean;
+  onChange: (next: ScriptDestination[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const portalGranted = granted.some(isPortal);
+  const external = granted.filter((d) => !isPortal(d));
+
+  const addExternal = () => {
+    const name = draft.trim();
+    if (name && name !== PORTAL_DESTINATION && !granted.some((d) => d.name === name)) {
+      onChange([...granted, { name, kind: DESTINATION_KIND_S3 }]);
+    }
+    setDraft("");
+  };
+  const update = (name: string, patch: Partial<ScriptDestination>) =>
+    onChange(granted.map((d) => (d.name === name ? { ...d, ...patch } : d)));
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">Output destinations</Label>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={portalGranted ? "default" : "outline"}
+          aria-pressed={portalGranted}
+          onClick={() =>
+            onChange(
+              portalGranted
+                ? granted.filter((d) => !isPortal(d))
+                : [portalDestination(), ...granted],
+            )
+          }
+          className="font-mono text-xs"
+        >
+          {portalGranted ? <Plus /> : <Minus />}
+          {PORTAL_DESTINATION}
+        </Button>
+      </div>
+      {external.map((destination) => (
+        <ExternalDestination
+          key={destination.name}
+          destination={destination}
+          onChange={(patch) => update(destination.name, patch)}
+          onRemove={() => onChange(granted.filter((d) => d.name !== destination.name))}
+        />
+      ))}
+      <div className="flex gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addExternal();
+            }
+          }}
+          onBlur={addExternal}
+          placeholder="acme-drop"
+          aria-label="Add bucket destination"
+          className="font-mono"
+        />
+        <Button type="button" variant="outline" onClick={addExternal} disabled={!draft.trim()}>
+          <Plus />
+          Add bucket
+        </Button>
+      </div>
+      <DeltaLine
+        delta={grantDelta(destinationKeys(previous), destinationKeys(granted))}
+        hasBaseline={hasBaseline}
+      />
+      <p className="text-xs text-muted-foreground">
+        Where output may be written. An empty list means the script may compute but not
+        persist. A bucket destination sends data out of the platform, over a connection
+        the platform holds the credentials for; the script supplies no address of its own
+        and can write nothing outside the prefix granted here.
+      </p>
+    </div>
+  );
+}
+
+// ExternalDestination edits the address one named destination resolves to.
+function ExternalDestination({
+  destination,
+  onChange,
+  onRemove,
+}: {
+  destination: ScriptDestination;
+  onChange: (patch: Partial<ScriptDestination>) => void;
+  onRemove: () => void;
+}) {
+  const incomplete = !destination.connection || !destination.bucket;
+  return (
+    <div className="space-y-1.5 rounded-md border p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-xs">{destination.name}</span>
+        <div className="flex items-center gap-1.5">
+          {incomplete && <Badge variant="warning">Needs an address</Badge>}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={onRemove}
+            aria-label={`Remove ${destination.name}`}
+            className="size-5 rounded-full"
+          >
+            <X />
+          </Button>
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Input
+          value={destination.connection ?? ""}
+          onChange={(e) => onChange({ connection: e.target.value })}
+          placeholder="connection"
+          aria-label={`${destination.name} connection`}
+          className="font-mono text-xs"
+        />
+        <Input
+          value={destination.bucket ?? ""}
+          onChange={(e) => onChange({ bucket: e.target.value })}
+          placeholder="bucket"
+          aria-label={`${destination.name} bucket`}
+          className="font-mono text-xs"
+        />
+        <Input
+          value={destination.prefix ?? ""}
+          onChange={(e) => onChange({ prefix: e.target.value })}
+          placeholder="prefix (optional)"
+          aria-label={`${destination.name} prefix`}
+          className="font-mono text-xs"
+        />
+      </div>
+      <p className="font-mono text-xs text-muted-foreground">{destinationKey(destination)}</p>
     </div>
   );
 }

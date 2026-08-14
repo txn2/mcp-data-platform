@@ -64,15 +64,43 @@ type RunMetrics struct {
 	Exports    int    `json:"exports"`
 }
 
-// RunOutput is one persisted output of a run: the stable asset the output name
-// maps to, and the version this run created of it.
+// RunOutput is one persisted output of a run: where it went, and what landed
+// there. An output written to the portal names the stable asset the output name
+// maps to and the version this run created of it; one delivered to a bucket
+// names the object it wrote.
+//
+// One run may write the same output name to more than one destination — the
+// dashboard keeps its versioned asset while an external system receives its
+// file — so a recorded output is identified by the PAIR, never by the name
+// alone.
 type RunOutput struct {
-	Name         string `json:"name"`
-	AssetID      string `json:"asset_id"`
-	AssetVersion int    `json:"asset_version"`
-	Format       string `json:"format"`
-	RowCount     int    `json:"row_count"`
-	Bytes        int    `json:"bytes"`
+	Name string `json:"name"`
+	// Destination is the granted destination's name. It is empty on rows
+	// written before destinations existed, which Destination() reads as the
+	// portal.
+	Destination string `json:"destination,omitempty"`
+
+	// AssetID and AssetVersion identify a portal output.
+	AssetID      string `json:"asset_id,omitempty"`
+	AssetVersion int    `json:"asset_version,omitempty"`
+
+	// Bucket and Key locate a delivered object.
+	Bucket string `json:"bucket,omitempty"`
+	Key    string `json:"key,omitempty"`
+
+	Format   string `json:"format"`
+	RowCount int    `json:"row_count"`
+	Bytes    int    `json:"bytes"`
+}
+
+// destinationOf reads a recorded output's destination, treating an unset one as
+// the portal: before external delivery existed the portal was the only place an
+// output could land, so a row without a destination is not ambiguous.
+func destinationOf(o RunOutput) string {
+	if o.Destination == "" {
+		return DestinationPortal
+	}
+	return o.Destination
 }
 
 // Run is one execution of one approved script version: a queue row while it is
@@ -143,12 +171,18 @@ func (r *Run) Terminal() bool {
 		r.Status == RunStatusSkippedOverlap
 }
 
-// Output returns the recorded output with the given name, or nil. A worker
-// consults it before writing: an output this run already persisted must not be
-// written twice when the run is reclaimed after a crash.
-func (r *Run) Output(name string) *RunOutput {
+// Output returns the recorded output this run wrote under one name to one
+// destination, or nil. A worker consults it before writing: an output this run
+// already persisted must not be written twice when the run is reclaimed after a
+// crash.
+//
+// The lookup is by the pair because the name alone is not the identity of a
+// write. One result may be both versioned as a portal asset and delivered to a
+// bucket, and matching on the name would report the second write as already
+// done and silently skip it.
+func (r *Run) Output(name, destination string) *RunOutput {
 	for i := range r.Outputs {
-		if r.Outputs[i].Name == name {
+		if r.Outputs[i].Name == name && destinationOf(r.Outputs[i]) == destination {
 			return &r.Outputs[i]
 		}
 	}
