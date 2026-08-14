@@ -248,6 +248,19 @@ func (s *Script) Validate() error {
 // on a schedule or through a run tool. It is false until a version is approved.
 func (s *Script) Executable() bool { return s.ApprovedVersionID != "" }
 
+// PrincipalPrefix marks a user id belonging to a managed script rather than a
+// person, following the apikey:<name> service-principal convention.
+const PrincipalPrefix = "script:"
+
+// Principal is the identity an approved run of this script authenticates as.
+//
+// A script gets its own principal rather than borrowing its owner's so every
+// gate, rate limiter, and audit row can tell the two apart: a row reading
+// script:daily-sales is a governed automation, and one reading the owner's
+// address is that person at a keyboard. The owner stays accountable through the
+// script's owner_email, which the run also carries.
+func (s *Script) Principal() string { return PrincipalPrefix + s.Name }
+
 // ApplyStatusTransition validates and applies a status change, stamping the
 // lifecycle metadata. A no-op when newStatus is empty or unchanged. now is
 // passed in for testability. Returns an error on an invalid transition.
@@ -306,8 +319,10 @@ type ListFilter struct {
 // store's resolution contract: shared names are globally unique and resolve
 // with Get, personal names are unique only within an owner and need GetPersonal.
 type Store interface {
-	// Create persists a new script, assigning ID when empty.
-	Create(ctx context.Context, s *Script) error
+	// Create persists a new script and its first version, assigning ID when
+	// empty. The author is recorded on that version along with the authority
+	// they held, which is the ceiling on what approving it can grant.
+	Create(ctx context.Context, s *Script, author Author) error
 
 	// Get retrieves a shared (global or persona) script by its globally unique
 	// name. Returns nil, nil if not found.

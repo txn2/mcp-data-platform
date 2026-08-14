@@ -22,9 +22,11 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/httpserver/attachhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/mentionhttp"
+	"github.com/txn2/mcp-data-platform/internal/httpserver/scripthttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/versionhttp"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -132,6 +134,26 @@ func mountPromptVersionAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix
 	versionhttp.New(deps).RegisterAdmin(mux, prefix, buildAdminAuth(p))
 	attachhttp.New(promptAttachmentDeps(p, adminAttachmentIdentity(p.PersonaRegistry(), p.Config().Admin.Persona))).
 		Register(mux, prefix, buildAdminAuth(p))
+}
+
+// mountScriptAdminAPI registers the managed-script review routes when the
+// deployment has a database to keep scripts in. Called from mountAdminAPI.
+//
+// The store is built here, over the pool the platform already holds, rather
+// than reached through a facade accessor: this is a composition root, the
+// script store is stateless over that pool, and the alternative would put a
+// pass-through accessor on a package that is at its size budget.
+func mountScriptAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string) {
+	if p.DB() == nil {
+		return
+	}
+	store := scriptstore.New(p.DB())
+	scripthttp.New(scripthttp.Deps{
+		Scripts:    store,
+		Versions:   store,
+		Approvals:  store,
+		AdminEmail: adminEmail,
+	}).RegisterAdmin(mux, prefix, buildAdminAuth(p))
 }
 
 // mountPromptVersionPortalAPI registers the portal prompt-version routes.

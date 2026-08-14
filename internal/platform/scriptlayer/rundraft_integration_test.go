@@ -407,7 +407,7 @@ func TestIntegration_RunDraftNeedsAnAuthenticatedCaller(t *testing.T) {
 	require.NoError(t, store.Create(context.Background(), &script.Script{
 		Name: "x", Scope: script.ScopePersonal, OwnerEmail: "jane@example.com",
 		Source: "print(1)", Enabled: true,
-	}))
+	}, script.Author{Email: "jane@example.com", Roles: []string{"analyst"}}))
 
 	res := call(t, h, authorCtxWithoutUserID(), manageScriptInput{Command: cmdRunDraft, Name: "x"})
 	assert.True(t, res.IsError)
@@ -429,7 +429,7 @@ func TestIntegration_RunDraftWithoutAServerIsRefused(t *testing.T) {
 	require.NoError(t, store.Create(context.Background(), &script.Script{
 		Name: "x", Scope: script.ScopePersonal, OwnerEmail: "jane@example.com",
 		Source: "print(1)", Enabled: true,
-	}))
+	}, script.Author{Email: "jane@example.com", Roles: []string{"analyst"}}))
 
 	res := call(t, h, authorCtx(), manageScriptInput{Command: cmdRunDraft, Name: "x"})
 	assert.True(t, res.IsError)

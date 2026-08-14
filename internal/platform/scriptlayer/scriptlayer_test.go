@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -31,7 +32,7 @@ func newMemStore() *memStore {
 	return &memStore{scripts: map[string]*script.Script{}, versions: map[string][]script.Version{}}
 }
 
-func (m *memStore) Create(_ context.Context, sc *script.Script) error {
+func (m *memStore) Create(_ context.Context, sc *script.Script, author script.Author) error {
 	m.nextID++
 	sc.ID = fmt.Sprintf("script_%d", m.nextID)
 	sc.Version = 1
@@ -40,15 +41,16 @@ func (m *memStore) Create(_ context.Context, sc *script.Script) error {
 	}
 	stored := *sc
 	m.scripts[sc.ID] = &stored
-	m.snapshot(sc, script.VersionStatusApplied)
+	m.snapshot(sc, author, script.VersionStatusApplied)
 	return nil
 }
 
-func (m *memStore) snapshot(sc *script.Script, status string) {
+func (m *memStore) snapshot(sc *script.Script, author script.Author, status string) {
 	m.versions[sc.ID] = append(m.versions[sc.ID], script.Version{
 		ID: fmt.Sprintf("sver_%s_%d", sc.ID, sc.Version), ScriptID: sc.ID, Version: sc.Version,
 		DisplayName: sc.DisplayName, Description: sc.Description, Source: sc.Source,
-		Params: sc.Params, Tags: sc.Tags, Author: sc.OwnerEmail, Status: status,
+		Params: sc.Params, Tags: sc.Tags, Author: author.Email, AuthorRoles: author.Roles,
+		Status: status,
 	})
 }
 
@@ -120,28 +122,40 @@ func (m *memStore) List(_ context.Context, filter script.ListFilter) ([]script.S
 	return out, nil
 }
 
-func (m *memStore) UpdateWithVersion(ctx context.Context, sc *script.Script, _ string) error {
+func (m *memStore) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author) error {
 	before, ok := m.scripts[sc.ID]
 	if !ok {
 		return fmt.Errorf("script %s not found", sc.ID)
 	}
 	if script.SnapshotChanged(before, sc) {
 		sc.Version = len(m.versions[sc.ID]) + 1
-		m.snapshot(sc, script.VersionStatusApplied)
+		m.snapshot(sc, author, script.VersionStatusApplied)
 	}
 	return m.Update(ctx, sc)
 }
 
-func (m *memStore) CreateDraftVersion(_ context.Context, scriptID string, proposed *script.Script, _ string) (int, error) {
+func (m *memStore) CreateDraftVersion(_ context.Context, scriptID string, proposed *script.Script, author script.Author) (int, error) {
 	n := len(m.versions[scriptID]) + 1
 	draft := *proposed
 	draft.ID, draft.Version = scriptID, n
-	m.snapshot(&draft, script.VersionStatusDraft)
+	m.snapshot(&draft, author, script.VersionStatusDraft)
 	return n, nil
 }
 
 func (m *memStore) ListVersions(_ context.Context, scriptID string) ([]script.Version, error) {
 	return slices.Clone(m.versions[scriptID]), nil
+}
+
+func (m *memStore) GetVersionByID(_ context.Context, id string) (*script.Version, error) {
+	for _, versions := range m.versions {
+		for _, v := range versions {
+			if v.ID == id {
+				out := v
+				return &out, nil
+			}
+		}
+	}
+	return nil, nil //nolint:nilnil // VersionStore contract: nil, nil means not found
 }
 
 func (m *memStore) GetVersion(_ context.Context, scriptID string, version int) (*script.Version, error) {
@@ -154,10 +168,47 @@ func (m *memStore) GetVersion(_ context.Context, scriptID string, version int) (
 	return nil, nil //nolint:nilnil // VersionStore contract: nil, nil means not found
 }
 
-// callerCtx returns a context carrying an authenticated caller.
+// ApproveVersion models the store-side approval action: it copies the version
+// author's roles into the grant (never the caller's request), stamps the
+// approval, and points the script's execution gate at that version. A fake that
+// took the roles from the request would let a test pass while the real store
+// refused to widen authority.
+func (m *memStore) ApproveVersion(_ context.Context, scriptID string, version int, approver string, grants script.Grants) (*script.Version, error) {
+	sc, ok := m.scripts[scriptID]
+	if !ok {
+		return nil, fmt.Errorf("script %s not found", scriptID)
+	}
+	for i, v := range m.versions[scriptID] {
+		if v.Version != version {
+			continue
+		}
+		approvedAt := time.Now().UTC()
+		grants.Roles = v.AuthorRoles
+		if err := grants.Validate(); err != nil {
+			return nil, fmt.Errorf("this version cannot be approved with that capability set: %w (%w)", err, script.ErrInvalidGrant)
+		}
+		m.versions[scriptID][i].ApprovedBy = approver
+		m.versions[scriptID][i].ApprovedAt = &approvedAt
+		m.versions[scriptID][i].Grants = grants
+		m.versions[scriptID][i].Status = script.VersionStatusApplied
+		sc.ApprovedVersionID = m.versions[scriptID][i].ID
+		if sc.Status == script.StatusDraft {
+			sc.Status = script.StatusActive
+		}
+		out := m.versions[scriptID][i]
+		return &out, nil
+	}
+	return nil, fmt.Errorf("script %s has no version %d: %w", scriptID, version, script.ErrVersionConflict)
+}
+
+// callerCtx returns a context carrying an authenticated caller. The roles are
+// part of the identity rather than decoration: every version an author writes
+// records the roles they held, and those roles are the ceiling on what
+// approving that version can grant.
 func callerCtx(email, persona string) context.Context {
 	pc := middleware.NewPlatformContext("req_1")
 	pc.UserID, pc.UserEmail, pc.PersonaName = "user-"+email, email, persona
+	pc.Roles = []string{persona}
 	return middleware.WithPlatformContext(context.Background(), pc)
 }
 

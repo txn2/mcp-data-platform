@@ -69,6 +69,12 @@ TAG_DESCRIPTIONS = {
         "a user can access. Each persona defines allow/deny patterns, context overrides, "
         "and priority-based role mapping."
     ),
+    "Scripts": (
+        "Managed-script review and approval. Browse scripts and their version history, "
+        "read a version alongside the capabilities and connections its source reaches "
+        "for, and approve a version — which binds the capability grant it executes "
+        "under and is the only thing that makes a script executable."
+    ),
     "System": (
         "Platform identity, version, runtime feature availability, registered tools, "
         "and toolkit connections."
@@ -102,6 +108,7 @@ TAG_GROUPS = [
             "Config",
             "Connections",
             "Personas",
+            "Scripts",
             "System",
             "Tools",
         ],

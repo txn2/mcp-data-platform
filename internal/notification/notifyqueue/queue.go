@@ -1,10 +1,11 @@
 // Package notifyqueue is the durable delivery queue: the PostgreSQL
 // implementation of notification.QueueStore over the notifications table, and
-// the LISTEN side of the pg_notify wakeup it fires on every enqueue.
+// the NOTIFY side of the pg_notify wakeup it fires on every enqueue.
 //
 // The store and the listener are two halves of one mechanism — the store
-// NOTIFYs on NotifyChannel, the listener LISTENs on it and wakes the send
-// worker — so they share this package and the channel name that binds them.
+// NOTIFYs on NotifyChannel, a listener LISTENs on it and wakes the send worker
+// — so the channel name that binds them lives here. The listener itself is
+// internal/pglisten, shared with every other queue that wants the same wakeup.
 package notifyqueue
 
 import (
@@ -16,12 +17,19 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/internal/pglisten"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 )
 
 // NotifyChannel is the pg_notify channel that wakes the send worker when a
 // row is enqueued. Producers fire it best-effort; the worker also polls.
 const NotifyChannel = "notifications"
+
+// NewListener builds the LISTEN adapter for this queue's channel. It binds the
+// channel name so callers wire a listener without repeating it.
+func NewListener(dsn string, notifiers ...pglisten.Notifier) *pglisten.Listener {
+	return pglisten.New(dsn, NotifyChannel, notifiers...)
+}
 
 // dueClause matches rows ready for a worker: pending rows whose schedule has
 // arrived, plus sending rows whose lease expired (crashed worker reclaim).

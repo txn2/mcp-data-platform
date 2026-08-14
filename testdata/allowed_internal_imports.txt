@@ -37,6 +37,7 @@ internal/httpserver -> internal/httpserver/health
 internal/httpserver -> internal/httpserver/httpauth
 internal/httpserver -> internal/httpserver/mentionhttp
 internal/httpserver -> internal/httpserver/notifyhttp
+internal/httpserver -> internal/httpserver/scripthttp
 internal/httpserver -> internal/httpserver/sources
 internal/httpserver -> internal/httpserver/unsubhttp
 internal/httpserver -> internal/httpserver/versionhttp
@@ -45,6 +46,7 @@ internal/httpserver -> internal/platform/branding
 internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/platform/resourceaudit
 internal/httpserver -> internal/platform/reviewalert
+internal/httpserver -> internal/platform/scriptstore
 internal/httpserver -> internal/ui
 internal/httpserver -> pkg/admin
 internal/httpserver -> pkg/audit
@@ -94,10 +96,14 @@ internal/httpserver/notifyhttp -> internal/httpjson
 internal/httpserver/notifyhttp -> internal/notification/notifyrender
 internal/httpserver/notifyhttp -> pkg/notification
 internal/httpserver/notifyhttp -> pkg/notification/smtp
+internal/httpserver/scripthttp -> internal/httpjson
+internal/httpserver/scripthttp -> internal/platform/scriptrun
+internal/httpserver/scripthttp -> pkg/script
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
 internal/httpserver/unsubhttp -> pkg/notification
 internal/httpserver/versionhttp -> pkg/prompt
 internal/notification/notifyprefs -> pkg/notification
+internal/notification/notifyqueue -> internal/pglisten
 internal/notification/notifyqueue -> pkg/notification
 internal/notification/notifyrender -> pkg/notification
 internal/notification/notifysend -> internal/notification/notifyrender
@@ -224,6 +230,16 @@ internal/platform/reviewalert -> pkg/notification
 internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona
+internal/platform/scriptexec -> internal/logsan
+internal/platform/scriptexec -> internal/pglisten
+internal/platform/scriptexec -> internal/platform/scriptrun
+internal/platform/scriptexec -> internal/platform/scriptstore
+internal/platform/scriptexec -> pkg/audit
+internal/platform/scriptexec -> pkg/middleware
+internal/platform/scriptexec -> pkg/portal
+internal/platform/scriptexec -> pkg/script
+internal/platform/scriptexec -> pkg/session
+internal/platform/scriptexec -> pkg/toolkits/trino
 internal/platform/scriptlayer -> internal/platform/scriptrun
 internal/platform/scriptlayer -> internal/platform/scriptstore
 internal/platform/scriptlayer -> pkg/middleware
@@ -393,6 +409,7 @@ pkg/pkcestore -> pkg/connoauth
 pkg/platform -> apps
 pkg/platform -> internal/apidocs
 pkg/platform -> internal/logsan
+pkg/platform -> internal/platform/apikeystore
 pkg/platform -> internal/platform/branding
 pkg/platform -> internal/platform/browserauth
 pkg/platform -> internal/platform/completionlayer
@@ -419,6 +436,7 @@ pkg/platform -> internal/platform/reflexivecapture
 pkg/platform -> internal/platform/resourceaudit
 pkg/platform -> internal/platform/resourcelayer
 pkg/platform -> internal/platform/routepolicy
+pkg/platform -> internal/platform/scriptexec
 pkg/platform -> internal/platform/scriptlayer
 pkg/platform -> internal/platform/searchfed
 pkg/platform -> internal/platform/sessionsync

@@ -19,6 +19,11 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
+// testAuthor is the author every write in these tests is attributed to. It
+// carries roles because a version's author roles are the ceiling on what
+// approving that version can grant.
+var testAuthor = script.Author{Email: "jane@example.com", Roles: []string{"analyst"}}
+
 // scriptSelectColumns is the result-set shape a SELECT mock must return, in
 // scriptColumns order.
 var scriptSelectColumns = []string{
@@ -145,7 +150,7 @@ func TestCreate_WritesTheRowAndItsFirstSnapshot(t *testing.T) {
 	mock.ExpectCommit()
 
 	sc := &script.Script{Name: "daily", Scope: script.ScopePersonal, Source: "print(1)", OwnerEmail: "j@example.com"}
-	require.NoError(t, s.Create(context.Background(), sc))
+	require.NoError(t, s.Create(context.Background(), sc, testAuthor))
 	assert.Equal(t, "script_1", sc.ID)
 	assert.Equal(t, 1, sc.Version)
 	assert.Equal(t, script.StatusDraft, sc.Status)
@@ -161,7 +166,7 @@ func TestCreate_RollsBackWhenTheSnapshotFails(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO script_versions")).WillReturnError(errors.New("boom"))
 	mock.ExpectRollback()
 
-	err := s.Create(context.Background(), &script.Script{Name: "daily", Scope: script.ScopePersonal})
+	err := s.Create(context.Background(), &script.Script{Name: "daily", Scope: script.ScopePersonal}, testAuthor)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insert script version")
 	require.NoError(t, mock.ExpectationsWereMet())

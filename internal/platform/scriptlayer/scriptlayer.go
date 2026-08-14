@@ -36,6 +36,10 @@ type Config struct {
 	// Store, when non-nil, is used directly instead of building a Postgres
 	// store from DB. Production passes DB and leaves this nil.
 	Store script.Store
+	// Runs is the run queue run_script enqueues onto and the run history the
+	// run commands read. nil leaves run_script unregistered, which is the
+	// correct shape for a deployment that cannot execute scripts at all.
+	Runs script.RunStore
 	// AdminPersona is the persona name that grants authority over scripts at
 	// every scope; matched against the caller's persona in each command.
 	AdminPersona string
@@ -44,7 +48,12 @@ type Config struct {
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
 // deployment without a database holds a Handle that registers nothing.
 type Handle struct {
-	store        script.Store
+	store script.Store
+	// versions is the same store narrowed to its version contract, held
+	// separately because run_script must load the code the execution gate
+	// points at and a store without versioning cannot answer that.
+	versions     script.VersionStore
+	runs         script.RunStore
 	adminPersona string
 	// server is the assembled MCP server, captured at RegisterTool. run_draft
 	// opens an in-memory session against it so a draft's platform calls cross
@@ -54,10 +63,11 @@ type Handle struct {
 
 // New assembles the script layer.
 func New(cfg Config) *Handle {
-	h := &Handle{store: cfg.Store, adminPersona: cfg.AdminPersona}
+	h := &Handle{store: cfg.Store, runs: cfg.Runs, adminPersona: cfg.AdminPersona}
 	if h.store == nil && cfg.DB != nil {
 		h.store = scriptstore.New(cfg.DB)
 	}
+	h.versions, _ = h.store.(script.VersionStore)
 	return h
 }
 
@@ -69,6 +79,24 @@ func resolveEmail(ctx context.Context) string {
 		return pc.UserEmail
 	}
 	return "anonymous"
+}
+
+// callerAuthor resolves who is writing a version and the authority they hold
+// while writing it.
+//
+// The roles half is the load-bearing part. Every version records the roles its
+// author held, and approving a version binds exactly those roles as the
+// authority an approved run presents — so what a script can eventually do is
+// capped, at authoring time, by what the person writing it could do. A caller
+// with no PlatformContext (a store-level test, an unauthenticated path) authors
+// with no roles, which produces a version that cannot be approved into anything
+// executable rather than one that quietly inherits someone else's authority.
+func callerAuthor(ctx context.Context) script.Author {
+	author := script.Author{Email: resolveEmail(ctx), Roles: []string{}}
+	if pc := middleware.GetPlatformContext(ctx); pc != nil && len(pc.Roles) > 0 {
+		author.Roles = append([]string(nil), pc.Roles...)
+	}
+	return author
 }
 
 // isAdminPersona reports whether the caller holds the admin persona.

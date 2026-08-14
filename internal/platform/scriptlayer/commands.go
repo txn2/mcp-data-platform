@@ -41,7 +41,7 @@ func (h *Handle) handleCreate(ctx context.Context, input manageScriptInput) (*mc
 	if report := scriptrun.Validate(sc.Source); !report.OK {
 		return jsonResult(refusedReport("the source does not parse, so it was not saved", report))
 	}
-	if err := h.store.Create(ctx, sc); err != nil {
+	if err := h.store.Create(ctx, sc, callerAuthor(ctx)); err != nil {
 		slog.Error("failed to create script", fieldName, input.Name, logKeyError, err)
 		return errorResult("failed to create script"), nil, nil
 	}
@@ -142,7 +142,7 @@ func (h *Handle) applyScopeAndStatus(ctx context.Context, sc *script.Script, inp
 // persist lands an edit through script.ApplyEdit and reports the outcome. extra
 // carries command-specific fields (a patch report) into the response.
 func (h *Handle) persist(ctx context.Context, before, after *script.Script, extra map[string]any) (*mcp.CallToolResult, any, error) {
-	outcome, err := script.ApplyEdit(ctx, h.store, before, after, resolveEmail(ctx))
+	outcome, err := script.ApplyEdit(ctx, h.store, before, after, callerAuthor(ctx))
 	if err != nil {
 		return editError(err), nil, nil
 	}

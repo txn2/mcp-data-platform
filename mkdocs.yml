@@ -87,6 +87,9 @@ nav:
     - Memory Layer:
       - Overview: memory/overview.md
       - Configuration: memory/configuration.md
+    - Managed Scripts:
+      - Running Scripts: scripts/running.md
+      - Security Model: scripts/security.md
     - Administration:
       - User Portal: server/portal-user.md
       - Content Types and Viewers: server/content-viewers.md

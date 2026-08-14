@@ -179,7 +179,7 @@ mcp-data-platform/
 │   ├── connreconcile/              # Shared remove/add reconcile of a DB connection onto live toolkits (admin hot-reload + reload bus)
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 98 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 99 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)
@@ -223,9 +223,10 @@ mcp-data-platform/
 ├── internal/                       # Non-exported implementation (not part of the supported library surface)
 │   ├── admin/                      # Admin-API seams built only by pkg/admin: auditapi/ (events + metrics), catalogapi/ (OpenAPI spec bundles + embedding jobs), connoauthapi/ (connection OAuth, unified + legacy per-kind), notifyapi/ (notification delivery history + status counts), settingsapi/ (SMTP + review-queue-alert settings REST) — extracted by #1078
 │   ├── httpjson/                   # RFC 9457 Problem Details responder + admin list-query param parsing, shared by the admin/portal decomposition seams (#1078)
-│   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, datahubapi/, gatewayhttp/, health/, httpauth/, mentionhttp/, notifyhttp/ (self-scoped notification prefs), sources/, unsubhttp/ (no-login unsubscribe + its tokens), versionhttp/ (#1076, #1080)
+│   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, datahubapi/, gatewayhttp/, health/, httpauth/, mentionhttp/, notifyhttp/ (self-scoped notification prefs), scripthttp/ (managed-script review + the approval action), sources/, unsubhttp/ (no-login unsubscribe + its tokens), versionhttp/ (#1076, #1080)
+│   ├── pglisten/                   # Shared LISTEN adapter: one goroutine per pg_notify channel waking the workers registered on it (notification delivery, managed-script runs)
 │   ├── notification/               # Notification delivery layers built only by internal/platform/notifydelivery, extracted by #1080: notifyprefs/ (preference persistence), notifyqueue/ (queue persistence + LISTEN wakeup), notifyrender/ (branded templates), notifysend/ (SMTP transport), notifyworker/ (send worker)
-│   ├── platform/                   # Facade-internal seams composed only by pkg/platform (mwchain, iam, sessionsync, oauthserver, the seven indexjobs consumers (including datasetindex, the catalog-dataset semantic index), mcpapps, connbackfill, reviewalert, the managed-script trio scriptlayer/scriptrun/scriptstore, ... — moved out of the public surface by #894 and #1076)
+│   ├── platform/                   # Facade-internal seams composed only by pkg/platform (mwchain, iam, sessionsync, oauthserver, the seven indexjobs consumers (including datasetindex, the catalog-dataset semantic index), mcpapps, connbackfill, reviewalert, the managed-script quartet scriptlayer/scriptrun/scriptstore/scriptexec (authoring tools, engine, Postgres stores, run worker + script principal + output writer), apikeystore, ... — moved out of the public surface by #894 and #1076)
 │   ├── portal/                     # Portal seams built only by pkg/portal, extracted by #1121: portaldomain/ (domain types, store contracts, validation — aliased back so portal.Asset etc. are unchanged), portalstore/ (PostgreSQL asset/share/collection stores + ranked search), portalversions/ (version history store), portalnoop/ (no-database stores), access/ (the authorization core + the User principal), feedbackapi/ (threads, activity, worklists, sign-off, validation, capture-as-insight), plus publicviewer/ (embedded public share templates + CSP), viewerlimit/, sharecache/
 │   └── server/                     # Server factory (server.go)
 ├── configs/                        # Example configurations
@@ -388,6 +389,23 @@ notifications:
   enabled: false        # opt out of email notifications
   digest_hour_utc: 13   # UTC hour (0-23) daily digests are sent
 ```
+
+### Managed Scripts
+
+Authoring needs no configuration and is available wherever there is a database.
+Execution is governed rather than configured: a version runs only once an admin
+approves it, which binds the capability grant it runs under. The only knob is
+how long the record of a run is kept.
+
+```yaml
+scripts:
+  run_retention_days: 365   # how long a FINISHED run is kept (default 365)
+```
+
+A run still pending or running is never swept. The default is far longer than
+the notification queue's because a scheduled script's run history is its refresh
+history — product surface, not queue residue. See `docs/scripts/running.md` and
+`docs/scripts/security.md`.
 
 ### Progress, Client Logging, Icons & Elicitation
 

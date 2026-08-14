@@ -107,7 +107,7 @@ func (s *Store) withTx(ctx context.Context, op string, fn func(tx *sql.Tx) error
 
 // Create persists a new script and its v1 snapshot in one transaction, so a
 // script never exists without the version history that explains it.
-func (s *Store) Create(ctx context.Context, sc *script.Script) error {
+func (s *Store) Create(ctx context.Context, sc *script.Script, author script.Author) error {
 	normalizeSlices(sc)
 	paramsJSON, err := json.Marshal(sc.Params)
 	if err != nil {
@@ -131,7 +131,7 @@ func (s *Store) Create(ctx context.Context, sc *script.Script) error {
 		}
 		return insertVersionRow(ctx, tx, versionInsert{
 			ScriptID: sc.ID, Version: 1, Snapshot: sc,
-			Author: sc.OwnerEmail, Status: script.VersionStatusApplied,
+			Author: author, Status: script.VersionStatusApplied,
 		})
 	})
 }
@@ -294,6 +294,9 @@ func (q *listQuery) addSearch(filter script.ListFilter) {
 		"(name ILIKE $%d OR display_name ILIKE $%d OR description ILIKE $%d)", n, n, n))
 }
 
+// joinAnd renders accumulated WHERE clauses as one conjunction.
+func joinAnd(where []string) string { return strings.Join(where, " AND ") }
+
 // buildListQuery assembles the filtered listing query and its arguments.
 func buildListQuery(filter script.ListFilter) (query string, args []any) {
 	q := &listQuery{}
@@ -303,7 +306,7 @@ func buildListQuery(filter script.ListFilter) (query string, args []any) {
 
 	query = scriptSelect
 	if len(q.where) > 0 {
-		query += " WHERE " + strings.Join(q.where, " AND ")
+		query += " WHERE " + joinAnd(q.where)
 	}
 	limit := filter.Limit
 	if limit <= 0 || limit > defaultListLimit {

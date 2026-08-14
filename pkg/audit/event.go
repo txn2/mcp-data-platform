@@ -46,6 +46,16 @@ const (
 	// per-surface breakdowns, and last-read timestamps (issue #1014).
 	// Listing resources is not a read: only content served counts.
 	EventTypeResourceRead EventType = "resource_read"
+
+	// EventTypeScriptRun categorizes one execution of an approved managed
+	// script: the lifecycle event the run worker writes when a run finishes,
+	// carrying script, script_id, version, run_id, owner, trigger, and
+	// requested_by in its parameters. It is distinct from the per-capability
+	// tool-call rows the same run produces under the script:<name> principal —
+	// those record what the script reached, this records that the platform
+	// executed it and how it ended — and both carry the run id as their session
+	// so a run and its calls join on one key (#1284).
+	EventTypeScriptRun EventType = "script_run"
 )
 
 // toolkitKindAPIGateway is the toolkit-kind discriminator for the

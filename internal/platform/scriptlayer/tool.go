@@ -32,6 +32,8 @@ const (
 	cmdOutline    = "outline"
 	cmdStats      = "stats"
 	cmdDiff       = "diff"
+	cmdRuns       = "runs"
+	cmdGetRun     = "get_run"
 )
 
 // JSON field names shared between the schema and result maps.
@@ -72,6 +74,13 @@ type manageScriptInput struct {
 	// declared params before the run starts.
 	Args map[string]any `json:"args,omitempty"`
 
+	// RunID names one run for get_run, and RunStatus filters the runs listing.
+	// RunStatus is separate from Status because the two are different
+	// vocabularies: Status is a lifecycle transition to APPLY to the script,
+	// while this selects runs already recorded.
+	RunID     string `json:"run_id,omitempty"`
+	RunStatus string `json:"run_status,omitempty"`
+
 	// Content editing and navigation arguments, shared verbatim with
 	// manage_prompt and manage_asset through pkg/textpatch.
 	Edits        []textpatch.Edit `json:"edits,omitempty"`
@@ -89,9 +98,10 @@ type manageScriptInput struct {
 	ToVersion    int              `json:"to_version,omitempty"`
 }
 
-// RegisterTool registers the manage_script tool with the given MCP server, and
-// captures the server for run_draft's in-memory session. No-op on a nil Handle
-// or a no-database deployment (there is nowhere to keep a script).
+// RegisterTool registers manage_script and, where the deployment can execute
+// approved versions, run_script. It also captures the server the two run paths
+// open their in-memory sessions against. No-op on a nil Handle or a
+// no-database deployment (there is nowhere to keep a script).
 func (h *Handle) RegisterTool(server *mcp.Server) {
 	if h == nil || h.store == nil || server == nil {
 		return
@@ -106,6 +116,7 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input manageScriptInput) (*mcp.CallToolResult, any, error) {
 		return h.handleManageScript(ctx, input)
 	})
+	h.registerRunScript(server)
 }
 
 // commandHandler handles one manage_script command.
@@ -130,6 +141,8 @@ func (h *Handle) commands() map[string]commandHandler {
 		cmdOutline:    h.handleOutline,
 		cmdStats:      h.handleStats,
 		cmdDiff:       h.handleDiff,
+		cmdRuns:       h.handleRuns,
+		cmdGetRun:     h.handleGetRun,
 	}
 }
 
@@ -192,7 +205,7 @@ func manageScriptSchema() any {
 			keyEnum: []string{
 				cmdCreate, cmdUpdate, cmdDelete, cmdGet, cmdList, cmdValidate,
 				cmdRunDraft, cmdHelp, cmdPatch, cmdLocate, cmdGetContent,
-				cmdOutline, cmdStats, cmdDiff,
+				cmdOutline, cmdStats, cmdDiff, cmdRuns, cmdGetRun,
 			},
 			keyDescription: "The operation to perform. Call 'help' first if you have not written a " +
 				"script for this platform before: it states the dialect and what is available.",
@@ -230,6 +243,18 @@ func manageScriptSchema() any {
 		"args": map[string]any{
 			keyType:        valObject,
 			keyDescription: "Parameter values for run_draft, checked against the script's declared params.",
+		},
+		"run_id": map[string]any{
+			keyType:        valString,
+			keyDescription: "Identifies one run for get_run; run_script and the runs listing report it.",
+		},
+		"run_status": map[string]any{
+			keyType: valString,
+			keyEnum: []string{
+				script.RunStatusPending, script.RunStatusRunning,
+				script.RunStatusSucceeded, script.RunStatusFailed,
+			},
+			keyDescription: "Filters the runs listing to one run status.",
 		},
 	}
 	maps.Copy(props, textpatchProperties())

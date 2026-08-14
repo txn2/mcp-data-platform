@@ -6402,6 +6402,225 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/scripts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every managed script with its lifecycle status and the id of the version the platform is allowed to execute (empty when nothing is approved).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List managed scripts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.scriptListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/scripts/{id}/versions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every version of a script with its source, its author and the roles that author held, and the approval stamp and capability grant bound to it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List script versions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.versionListResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/scripts/{id}/versions/{version}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one version's snapshot together with the capabilities and connections its source reaches for, and which of those the version's current grant does not cover.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Get a script version for review",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.versionReviewResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/scripts/{id}/versions/{version}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stamps the version approved, binds the capability grant it executes under, and points the script's execution gate at it. The granted roles are the roles the version's author held and cannot be set by the request. Approving a pending draft also applies its snapshot to the live script.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Approve a script version",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Capability grant",
+                        "name": "grant",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.approveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/script.Version"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/review-queue-alert": {
             "get": {
                 "security": [
@@ -16344,7 +16563,8 @@ const docTemplate = `{
                 "mcp_tool_call",
                 "apigateway_invoke",
                 "prompt_serve",
-                "resource_read"
+                "resource_read",
+                "script_run"
             ],
             "x-enum-varnames": [
                 "EventTypeToolCall",
@@ -16353,7 +16573,8 @@ const docTemplate = `{
                 "EventTypeMCPToolCall",
                 "EventTypeAPIGatewayInvoke",
                 "EventTypePromptServe",
-                "EventTypeResourceRead"
+                "EventTypeResourceRead",
+                "EventTypeScriptRun"
             ]
         },
         "audit.Overview": {
@@ -20177,6 +20398,376 @@ const docTemplate = `{
                 }
             }
         },
+        "script.Grants": {
+            "type": "object",
+            "properties": {
+                "capabilities": {
+                    "description": "Capabilities is the set of host bindings the script may call.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "connections": {
+                    "description": "Connections is the set of named connections the script may query. A\nquery that names no connection is refused rather than defaulted: the\ngrant cannot verify a connection the call did not name.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "destinations": {
+                    "description": "Destinations is the set of places the script may write output. An empty\nlist means the script may compute but not persist.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "roles": {
+                    "description": "Roles is the authority the run presents to the authorization middleware,\ncopied from the approved version's author. The middleware resolves them\nto a persona exactly as it does for a human caller, and that persona —\nnot this struct — is the authority of record.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "script.Param": {
+            "type": "object",
+            "properties": {
+                "default": {
+                    "description": "Default supplies the value when the caller omits an optional parameter.\nIt is bound through exactly the same coercion and checking as a\ncaller-supplied value, so a default cannot smuggle in a type the\nparameter does not accept."
+                },
+                "description": {
+                    "type": "string",
+                    "example": "The business date to report on"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "report_date"
+                },
+                "required": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "type": {
+                    "type": "string",
+                    "example": "date"
+                },
+                "values": {
+                    "description": "Values enumerates the allowed values of an enum parameter, and is\nmeaningless (and refused) on every other type.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "daily",
+                        "weekly"
+                    ]
+                }
+            }
+        },
+        "script.Script": {
+            "type": "object",
+            "properties": {
+                "approved_version_id": {
+                    "description": "ApprovedVersionID is THE execution gate: the id of the one version the\nplatform may execute. Empty means the script has no approved version and\nnothing will run it — which is every script today, because the approval\naction and the runner that reads this pointer arrive with the execution\ngate. Draft execution (manage_script run_draft) deliberately never reads\nit: a draft runs under its author's own identity and authority, so it\nneeds no approval, and it also cannot stand in for one.",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-08-13T14:30:00Z"
+                },
+                "deprecated_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Summarize yesterday's sales by region"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "Daily Sales Report"
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "id": {
+                    "type": "string",
+                    "example": "script_a1b2c3d4"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "daily-sales-report"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "params": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.Param"
+                    }
+                },
+                "personas": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst"
+                    ]
+                },
+                "scope": {
+                    "type": "string",
+                    "example": "personal"
+                },
+                "source": {
+                    "type": "string",
+                    "example": "rows = platform.query(connection='primary', sql='SELECT 1')"
+                },
+                "status": {
+                    "description": "Lifecycle.",
+                    "type": "string",
+                    "example": "draft"
+                },
+                "superseded_by": {
+                    "type": "string",
+                    "example": "daily-sales-report-v2"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "sales",
+                        "reporting"
+                    ]
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-08-13T14:30:00Z"
+                },
+                "version": {
+                    "description": "Version is the number of the snapshot the live row currently carries.\nPending draft versions above this number exist in the history and are not\nserved.",
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "script.Version": {
+            "type": "object",
+            "properties": {
+                "approved_at": {
+                    "type": "string"
+                },
+                "approved_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "author": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "author_roles": {
+                    "description": "AuthorRoles is the authority the author held when this snapshot was\nwritten — the ceiling on what approving it can grant. See Author.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst"
+                    ]
+                },
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-08-13T14:30:00Z"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Summarize yesterday's sales by region"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "Daily Sales Report"
+                },
+                "grants": {
+                    "description": "Grants is the capability set bound to this version at approval: what the\napprover approved this code to be able to do. It is empty on every\nversion that was never approved, and the approval action is the only\nwriter — changing what a script may reach means approving it again, which\nre-stamps the approval alongside the new grant.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/script.Grants"
+                        }
+                    ]
+                },
+                "id": {
+                    "type": "string",
+                    "example": "sver_a1b2c3d4"
+                },
+                "params": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.Param"
+                    }
+                },
+                "script_id": {
+                    "type": "string",
+                    "example": "script_a1b2c3d4"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "applied"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "sales",
+                        "reporting"
+                    ]
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "scripthttp.approveRequest": {
+            "type": "object",
+            "properties": {
+                "capabilities": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "destinations": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "scripthttp.referenced": {
+            "type": "object",
+            "properties": {
+                "capabilities": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "dynamic_connections": {
+                    "description": "DynamicConnections is true when at least one call computes its connection\ninstead of naming one, which makes the connection list incomplete — and\nmeans the grant cannot be checked against the code by reading it.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "scripthttp.scriptListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.Script"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "scripthttp.versionListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.Version"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 4
+                }
+            }
+        },
+        "scripthttp.versionReviewResponse": {
+            "type": "object",
+            "properties": {
+                "findings": {
+                    "description": "Findings are the validator's complaints about the source.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scriptrun.Finding"
+                    }
+                },
+                "missing_capabilities": {
+                    "description": "MissingCapabilities and MissingConnections are what the code reaches for\nthat the current grant does not cover. On an unapproved version that is\neverything, which is the point: it is the grant a reviewer would have to\nbind for this code to work.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "missing_connections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "referenced": {
+                    "description": "Referenced is what a static read of the source says the script calls and\nwhich connections it names.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/scripthttp.referenced"
+                        }
+                    ]
+                },
+                "version": {
+                    "$ref": "#/definitions/script.Version"
+                }
+            }
+        },
+        "scriptrun.Finding": {
+            "type": "object",
+            "properties": {
+                "hint": {
+                    "description": "Hint is the corrective action. It carries most of the value of this\nvalidator: an author who writes Python at a Starlark interpreter needs to\nbe told what to write instead, not merely that the parser disagreed.",
+                    "type": "string"
+                },
+                "line": {
+                    "type": "integer",
+                    "example": 12
+                },
+                "message": {
+                    "type": "string"
+                },
+                "severity": {
+                    "type": "string",
+                    "example": "error"
+                }
+            }
+        },
         "settingsapi.problemDetail": {
             "type": "object",
             "properties": {
@@ -20479,7 +21070,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "Assets", "Collections", "Knowledge", "Memory", "Prompts", "Resources", "Shares"]}, {"name": "Admin API", "tags": ["Audit", "Auth Keys", "Config", "Connections", "Personas", "System", "Tools"]}]}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "Assets", "Collections", "Knowledge", "Memory", "Prompts", "Resources", "Shares"]}, {"name": "Admin API", "tags": ["Audit", "Auth Keys", "Config", "Connections", "Personas", "Scripts", "System", "Tools"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
