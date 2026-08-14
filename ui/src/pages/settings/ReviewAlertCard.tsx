@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { BellRing, Plus, X } from "lucide-react";
 import {
-  useReviewQueueAlert,
-  useSetReviewQueueAlert,
+  useReviewAlert,
+  useSetReviewAlert,
+  type ReviewAlertQueue,
   type ReviewQueueAlertSettings,
 } from "@/api/admin/hooks";
 import { Badge } from "@/components/ui/badge";
@@ -20,11 +21,13 @@ import {
   WarningBanner,
 } from "./settingsChrome";
 
-// The knowledge review-queue staleness alert (#803). #764 made review debt
-// visible to anyone who opens the Insights tab; this section is the push
-// signal for everyone who does not, so the settings it exposes are the ones
-// that decide whether an email is ever sent: the thresholds, who hears about
-// it, and how often.
+// A review-queue alert settings section. Two queues use it — knowledge
+// insights (#803) and managed-script reviews (#1287) — because they are one
+// mechanism with their own thresholds and recipients. The settings it exposes
+// are the ones that decide whether an email is ever sent: the thresholds, who
+// hears about it, and how often. What differs per queue is the copy, which
+// arrives as props: an operator has to be told which queue they are
+// configuring and what an unworked one costs.
 
 // FormState mirrors the PUT body with the numbers kept as strings while typing,
 // so a field can be emptied without snapping back to 0.
@@ -136,9 +139,11 @@ function RecipientsEditor({
 
 function ThresholdFields({
   form,
+  itemNoun,
   onChange,
 }: {
   form: FormState;
+  itemNoun: string;
   onChange: (patch: Partial<FormState>) => void;
 }) {
   return (
@@ -146,7 +151,7 @@ function ThresholdFields({
       <ConfigField
         label="Pending count threshold"
         type="number"
-        help="Alert once this many insights are awaiting review. 0 turns this condition off."
+        help={`Alert once this many ${itemNoun}s are awaiting review. 0 turns this condition off.`}
         value={form.pending_threshold}
         onChange={(v) => onChange({ pending_threshold: v })}
         placeholder="0"
@@ -155,7 +160,7 @@ function ThresholdFields({
       <ConfigField
         label="Oldest pending age (days)"
         type="number"
-        help="Alert once the oldest pending insight reaches this age. 0 turns this condition off."
+        help={`Alert once the oldest pending ${itemNoun} reaches this age. 0 turns this condition off.`}
         value={form.oldest_pending_days}
         onChange={(v) => onChange({ oldest_pending_days: v })}
         placeholder="30"
@@ -196,7 +201,7 @@ function StatusBanners({
       {isReadOnly && <ReadOnlyBanner />}
       {loadFailed && (
         <ErrorBanner
-          message="Failed to load review-queue alert settings. The server may be unavailable."
+          message="Failed to load these alert settings. The server may be unavailable."
           onRetry={onRetry}
         />
       )}
@@ -221,9 +226,30 @@ function SaveFeedbackBanners({
   );
 }
 
-export function ReviewQueueAlertCard({ isReadOnly }: { isReadOnly: boolean }) {
-  const { data: settings, isLoading, error: loadError, refetch } = useReviewQueueAlert();
-  const save = useSetReviewQueueAlert();
+// ReviewAlertCardProps names the queue and the words for it. The queue is the
+// settings path segment, which is also the cache key, so two cards on one page
+// never share state.
+export interface ReviewAlertCardProps {
+  queue: ReviewAlertQueue;
+  title: string;
+  description: string;
+  // enabledHelp says what turning the check on actually schedules.
+  enabledHelp: string;
+  // itemNoun is what this queue holds, singular, for the threshold help text.
+  itemNoun: string;
+  isReadOnly: boolean;
+}
+
+export function ReviewAlertCard({
+  queue,
+  title,
+  description,
+  enabledHelp,
+  itemNoun,
+  isReadOnly,
+}: ReviewAlertCardProps) {
+  const { data: settings, isLoading, error: loadError, refetch } = useReviewAlert(queue);
+  const save = useSetReviewAlert(queue);
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [dirty, setDirty] = useState(false);
@@ -269,8 +295,8 @@ export function ReviewQueueAlertCard({ isReadOnly }: { isReadOnly: boolean }) {
   return (
     <SettingsCard
       icon={BellRing}
-      title="Review queue alert"
-      description="Email a digest when knowledge insights are left unreviewed"
+      title={title}
+      description={description}
       // Warnings come from the SAVED configuration: an enabled alert with no
       // recipients or no threshold saves cleanly and delivers nothing.
       notices={
@@ -305,11 +331,11 @@ export function ReviewQueueAlertCard({ isReadOnly }: { isReadOnly: boolean }) {
         <div className="space-y-4">
           <ConfigToggle
             label="Enabled"
-            help="Check the pending review queue hourly and alert when it crosses a threshold"
+            help={enabledHelp}
             checked={form.enabled}
             onChange={(v) => handleChange({ enabled: v })}
           />
-          <ThresholdFields form={form} onChange={handleChange} />
+          <ThresholdFields form={form} itemNoun={itemNoun} onChange={handleChange} />
           <RecipientsEditor
             recipients={form.recipients}
             onChange={(recipients) => handleChange({ recipients })}

@@ -191,3 +191,56 @@ export async function openPersonaScopeTab(page: Page): Promise<void> {
     await page.waitForTimeout(500);
   }
 }
+
+/**
+ * openScriptReview opens the review drawer on the queued change to a script
+ * that is already running, and scrolls it to the code diff. That row is the
+ * capture's whole point -- a first approval has no earlier version to diff
+ * against, so it cannot show what this image documents.
+ *
+ * The clicks are unconditional: an empty queue must fail the run rather than
+ * quietly publish the listing behind it under the review name.
+ */
+export async function openScriptReview(page: Page): Promise<void> {
+  await openQueuedReview(page, "Daily Sales Report");
+  const heading = page.getByRole("dialog").getByText(/Code changes since/);
+  await heading.scrollIntoViewIfNeeded({ timeout: 3_000 });
+  // Scrolling the heading into view stops with the hunk still below the fold,
+  // and a capture of a diff that shows no changed line documents nothing.
+  await heading.hover();
+  await page.mouse.wheel(0, 220);
+  await page.waitForTimeout(600);
+}
+
+/**
+ * openScriptFirstApproval opens the drawer on a script nothing has ever
+ * approved, which is the other decision this surface exists for: approving
+ * starts something running rather than changing what runs.
+ */
+export async function openScriptFirstApproval(page: Page): Promise<void> {
+  await openQueuedReview(page, "Dormant Accounts");
+  await page.waitForTimeout(600);
+}
+
+/** openQueuedReview clicks the Review button of one queue row by script name. */
+async function openQueuedReview(page: Page, script: string): Promise<void> {
+  await page
+    .locator("li")
+    .filter({ hasText: script })
+    .getByRole("button", { name: "Review" })
+    .first()
+    .click();
+  await page.getByRole("dialog").waitFor({ state: "visible", timeout: 5_000 });
+}
+
+/**
+ * openScriptAlertSettings scrolls the settings page to the managed-script
+ * review alert section (#1287), which sits below the SMTP and knowledge-queue
+ * sections and so never appears in a viewport capture of the page top.
+ */
+export async function openScriptAlertSettings(page: Page): Promise<void> {
+  await page
+    .getByText("Script review queue alert")
+    .scrollIntoViewIfNeeded({ timeout: 3_000 });
+  await page.waitForTimeout(500);
+}

@@ -27,6 +27,7 @@ import { CatalogsPanel } from "@/pages/settings/CatalogsPanel";
 import { ConnectionsPanel } from "@/pages/settings/ConnectionsPanel";
 import { PersonasPanel } from "@/pages/settings/PersonasPanel";
 import { AdminPromptsPage } from "@/pages/prompts/AdminPromptsPage";
+import { AdminScriptsPage } from "@/pages/scripts/AdminScriptsPage";
 import { KeysPage } from "@/pages/settings/KeysPage";
 import { UsersPanel } from "@/pages/settings/UsersPanel";
 import { ChangelogPage } from "@/pages/settings/ChangelogPage";
@@ -54,6 +55,7 @@ const pageTitles: Record<string, string> = {
   "/admin/personas": "Personas",
   "/admin/prompts": "Prompts",
   "/admin/resources": "Resources",
+  "/admin/scripts": "Scripts",
   "/admin/keys": "Keys",
   "/admin/users": "Users",
   "/admin/changelog": "Change Log",
@@ -416,6 +418,7 @@ export function AppShell() {
               {route === "/admin/resources" && (
                 <ResourcesPage admin onNavigate={navigate} />
               )}
+              {route === "/admin/scripts" && <AdminScriptsPage />}
               {route === "/admin/keys" && <KeysPage />}
               {route === "/admin/users" && <UsersPanel />}
               {route === "/admin/changelog" && <ChangelogPage />}

@@ -10,3 +10,4 @@ export * from "./config";
 export * from "./prompts-users";
 export * from "./settings";
 export * from "./notifications";
+export * from "./scripts";

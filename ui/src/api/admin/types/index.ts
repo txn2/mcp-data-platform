@@ -5,3 +5,4 @@ export * from "./system";
 export * from "./audit";
 export * from "./tools";
 export * from "./config";
+export * from "./scripts";

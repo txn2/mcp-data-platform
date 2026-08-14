@@ -17,9 +17,16 @@ approval writes that pointer. Until then:
   the draft as yourself while you are still writing it.
 - Nothing else executes the script at all.
 
-Approving is one REST call against the admin API. It binds two things at once —
-the code and the capabilities that code may use — because approving them
-separately would mean approving a script whose reach could change afterwards.
+Approving happens in the portal under **Admin, then Scripts**, which lists the
+versions waiting for a decision and shows the reviewer what they are agreeing to
+— the capability diff against what the script holds today, and the code diff
+against what it executes today — before they agree to it. See the [admin portal
+guide](../server/admin-portal.md#scripts-admin).
+
+Underneath it is one REST call against the admin API, shown here because it is
+also how a deployment scripts an approval. It binds two things at once — the
+code and the capabilities that code may use — because approving them separately
+would mean approving a script whose reach could change afterwards.
 
 ```bash
 # What the reviewer reads: the version, what its source reaches for, and
@@ -49,6 +56,20 @@ calls: a script approved without the connection it queries would fail on its
 first statement, and that is not a decision anyone intends to make. Changing a
 grant later means approving again, which re-stamps the approval alongside the
 new capability set.
+
+Rejecting is the other decision, and it is confined to a pending draft
+(`POST .../versions/{version}/reject`): it takes the proposal out of the queue
+and changes nothing about what runs. The live version of a script that has never
+been approved is also waiting for review, but declining it means leaving it
+unapproved — which is already what it is.
+
+Approving an earlier version is a rollback: it points the execution gate back at
+that version and reapplies its snapshot to the live record, so the code being
+served and the code being executed stay the same code. The version history in
+the portal offers it directly.
+
+An unworked queue is reported rather than left to be noticed. See [script review
+queue alerts](../server/notifications.md#script-review-queue-alerts).
 
 ## Running one
 

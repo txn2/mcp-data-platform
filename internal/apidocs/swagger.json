@@ -6430,6 +6430,40 @@
                 }
             }
         },
+        "/admin/scripts/reviews": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the versions waiting for a reviewer's decision across every script, oldest first: pending drafts, and the live version of any script that has never had an approved version. One row per script, because approving a version supersedes that script's other pending drafts.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List script versions awaiting review",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.pendingReviewResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/scripts/schedules": {
             "get": {
                 "security": [
@@ -6861,6 +6895,71 @@
                 }
             }
         },
+        "/admin/scripts/{id}/versions/{version}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Marks a pending draft rejected. The live script and its approved version are untouched, so nothing about what executes changes. Only a pending draft can be rejected: declining the live version of a never-approved script means leaving it unapproved, which is already its state.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Reject a script version",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/review-queue-alert": {
             "get": {
                 "security": [
@@ -6878,7 +6977,7 @@
                 "tags": [
                     "Settings"
                 ],
-                "summary": "Get review-queue alert settings",
+                "summary": "Get knowledge review-queue alert settings",
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6907,10 +7006,84 @@
                 "tags": [
                     "Settings"
                 ],
-                "summary": "Update review-queue alert settings",
+                "summary": "Update knowledge review-queue alert settings",
                 "parameters": [
                     {
                         "description": "Review-queue alert settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/script-review-alert": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the managed-script review-queue alert configuration: when to alert that script versions are waiting for approval, and who hears about it. Before an operator has written one, the platform defaults are returned with no recipients.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get script review-queue alert settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/reviewalert.SettingsView"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upserts the managed-script review-queue alert configuration: the pending-count and age thresholds, the re-alert cooldown, and the recipients the alert is delivered to.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update script review-queue alert settings",
+                "parameters": [
+                    {
+                        "description": "Script review alert settings",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -20706,6 +20879,72 @@
                 }
             }
         },
+        "script.PendingReview": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "description": "Author is who wrote the version and AuthorRoles is the authority\napproving it would bind, which approval copies rather than accepts.",
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "author_roles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst"
+                    ]
+                },
+                "created_at": {
+                    "description": "CreatedAt is when the version was authored, which is how long the\ndecision has been outstanding.",
+                    "type": "string",
+                    "example": "2026-08-14T09:00:00Z"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Summarize yesterday's sales by region"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "Daily Sales Report"
+                },
+                "first_approval": {
+                    "description": "FirstApproval marks a script that has never had an approved version, so\nnothing of it executes today. The distinction matters to a reviewer:\napproving a change alters what already runs unattended, while approving a\nfirst version starts something running.",
+                    "type": "boolean",
+                    "example": true
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "scope": {
+                    "type": "string",
+                    "example": "global"
+                },
+                "script_id": {
+                    "type": "string",
+                    "example": "script_a1b2c3d4"
+                },
+                "script_name": {
+                    "type": "string",
+                    "example": "daily-sales-report"
+                },
+                "version": {
+                    "description": "Version is the number a reviewer would approve, and VersionStatus is that\nversion's row status \u2014 \"draft\" for a proposed change, \"applied\" for the\nsnapshot a never-approved script is already serving.",
+                    "type": "integer",
+                    "example": 3
+                },
+                "version_id": {
+                    "type": "string",
+                    "example": "sver_a1b2c3d4"
+                },
+                "version_status": {
+                    "type": "string",
+                    "example": "draft"
+                }
+            }
+        },
         "script.Schedule": {
             "type": "object",
             "properties": {
@@ -20956,6 +21195,55 @@
                 }
             }
         },
+        "scripthttp.approvedBaseline": {
+            "type": "object",
+            "properties": {
+                "approved_at": {
+                    "type": "string"
+                },
+                "approved_by": {
+                    "description": "ApprovedBy and ApprovedAt are who bound that grant and when.",
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "grants": {
+                    "description": "Grants is the capability set that version executes under today: what the\nscript already holds, against which the proposed grant is read.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/script.Grants"
+                        }
+                    ]
+                },
+                "source_diff": {
+                    "description": "SourceDiff is the unified diff from the approved source to the version\nunder review. It is empty when the two carry identical source, which is\nwhat re-approving a version to widen its grant looks like.",
+                    "type": "string"
+                },
+                "version": {
+                    "description": "Version is the approved version's number, and VersionID its id.",
+                    "type": "integer",
+                    "example": 2
+                },
+                "version_id": {
+                    "type": "string",
+                    "example": "sver_a1b2c3d4"
+                }
+            }
+        },
+        "scripthttp.pendingReviewResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.PendingReview"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
         "scripthttp.referenced": {
             "type": "object",
             "properties": {
@@ -21049,6 +21337,14 @@
         "scripthttp.versionReviewResponse": {
             "type": "object",
             "properties": {
+                "approved": {
+                    "description": "Approved is the version the script executes today, with the grant it\nholds and the diff from its source to this one. It is absent when the\nscript has never had a version approved, which is what makes this a first\napproval rather than a change to something already running.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/scripthttp.approvedBaseline"
+                        }
+                    ]
+                },
                 "findings": {
                     "description": "Findings are the validator's complaints about the source.",
                     "type": "array",

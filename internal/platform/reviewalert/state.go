@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// StateStore is the re-alert marker half of the alert's persistence: whether
-// the queue is currently over threshold and when it was last alerted about.
+// StateStore is the re-alert marker half of one queue's persistence: whether
+// that queue is currently over threshold and when it was last alerted about.
 //
 // The claim is the whole de-duplication mechanism. It is one conditional
 // write, so it answers both questions a scheduled alert has to answer -- "has
@@ -25,29 +25,32 @@ type StateStore interface {
 	Clear(ctx context.Context) error
 }
 
-// claimSQL stamps the alert only when no alert is outstanding (the queue was
-// under threshold at the last check) or the cooldown has elapsed. It inserts
-// the row on first use, so the state cannot be lost by a deployment that
-// truncated the table.
+// claimSQL stamps the alert for one queue only when no alert is outstanding
+// (the queue was under threshold at the last check) or the cooldown has
+// elapsed. It inserts the row on first use, so the state cannot be lost by a
+// deployment that truncated the table.
+//
+// The queue key is part of the conflict target, so two queues alerting in the
+// same window never contend: one queue's cooldown must not silence another's.
 const claimSQL = `
-INSERT INTO knowledge_review_alert_state (id, alerting, last_alert_at)
-VALUES (TRUE, TRUE, $1)
-ON CONFLICT (id) DO UPDATE
+INSERT INTO review_alert_state (queue, alerting, last_alert_at)
+VALUES ($1, TRUE, $2)
+ON CONFLICT (queue) DO UPDATE
    SET alerting = TRUE, last_alert_at = EXCLUDED.last_alert_at
- WHERE NOT knowledge_review_alert_state.alerting
-    OR knowledge_review_alert_state.last_alert_at IS NULL
-    OR knowledge_review_alert_state.last_alert_at <= $2`
+ WHERE NOT review_alert_state.alerting
+    OR review_alert_state.last_alert_at IS NULL
+    OR review_alert_state.last_alert_at <= $3`
 
 // ClaimAlert stamps a new alert when the cooldown allows, reporting whether
 // this caller won the claim.
 func (s *PostgresStore) ClaimAlert(ctx context.Context, cooldown time.Duration, now time.Time) (bool, error) {
-	res, err := s.db.ExecContext(ctx, claimSQL, now.UTC(), now.UTC().Add(-cooldown))
+	res, err := s.db.ExecContext(ctx, claimSQL, s.target.Queue, now.UTC(), now.UTC().Add(-cooldown))
 	if err != nil {
-		return false, fmt.Errorf("claiming review queue alert: %w", err)
+		return false, fmt.Errorf("claiming %s alert: %w", s.target.Queue, err)
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return false, fmt.Errorf("reading review queue alert claim result: %w", err)
+		return false, fmt.Errorf("reading %s alert claim result: %w", s.target.Queue, err)
 	}
 	return affected > 0, nil
 }
@@ -56,9 +59,10 @@ func (s *PostgresStore) ClaimAlert(ctx context.Context, cooldown time.Duration, 
 // of when the last alert went out.
 func (s *PostgresStore) Clear(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE knowledge_review_alert_state SET alerting = FALSE WHERE alerting`)
+		`UPDATE review_alert_state SET alerting = FALSE WHERE queue = $1 AND alerting`,
+		s.target.Queue)
 	if err != nil {
-		return fmt.Errorf("clearing review queue alert state: %w", err)
+		return fmt.Errorf("clearing %s alert state: %w", s.target.Queue, err)
 	}
 	return nil
 }

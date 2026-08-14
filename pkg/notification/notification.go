@@ -58,6 +58,14 @@ const (
 	// it as well would notify a person about something they are already
 	// reading.
 	CategoryScriptRun = "script_run"
+	// CategoryScriptReview covers the operator alert raised when managed-script
+	// versions are left waiting for approval (#1287). Like the review-queue
+	// alert it carries no per-user toggle and names its recipients in the admin
+	// settings, because it is addressed to whoever holds review duty rather than
+	// to an interest. It is a separate category from CategoryReviewQueue so an
+	// operator who watches one queue is not signed up for the other: the two
+	// have different audiences and very different urgency.
+	CategoryScriptReview = "script_review"
 )
 
 // Delivery modes for user preferences.
@@ -103,6 +111,10 @@ const (
 	// names the script in ItemTitle, the run in ItemID, and carries the failure
 	// and the tail of what the script printed in Message.
 	KindScriptRun = "script_run"
+	// KindScriptReview marks a script review-queue alert (#1287). Like
+	// KindReviewQueue its payload carries a Review rollup instead of an item
+	// reference.
+	KindScriptReview = "script_review"
 )
 
 // ReviewQueue is the pending-review rollup a KindReviewQueue notification

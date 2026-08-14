@@ -28,12 +28,14 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
-// Deps carries the collaborators the review handlers need. All three stores are
-// required; a deployment without them does not mount these routes.
+// Deps carries the collaborators the review handlers need. Every store except
+// Schedules is required; a deployment without them does not mount these routes.
 type Deps struct {
-	Scripts   script.Store
-	Versions  script.VersionStore
-	Approvals script.ApprovalStore
+	Scripts    script.Store
+	Versions   script.VersionStore
+	Approvals  script.ApprovalStore
+	Reviews    script.ReviewStore
+	Rejections script.RejectionStore
 	// Schedules is the cadence store. Nil leaves the schedule routes unmounted,
 	// which is the honest shape for a deployment that cannot keep a schedule.
 	Schedules script.ScheduleStore
@@ -66,9 +68,13 @@ const (
 // admin authentication middleware.
 func (h *Handler) RegisterAdmin(mux *http.ServeMux, prefix string, wrap func(http.Handler) http.Handler) {
 	mux.Handle("GET "+prefix+"/scripts", wrap(http.HandlerFunc(h.listScripts)))
+	// A literal segment outranks the {id} wildcard in the same position, so the
+	// queue route cannot be shadowed by a script whose id is "reviews".
+	mux.Handle("GET "+prefix+"/scripts/reviews", wrap(http.HandlerFunc(h.listPendingReviews)))
 	mux.Handle("GET "+prefix+"/scripts/{id}/versions", wrap(http.HandlerFunc(h.listVersions)))
 	mux.Handle("GET "+prefix+"/scripts/{id}/versions/{version}", wrap(http.HandlerFunc(h.getVersion)))
 	mux.Handle("POST "+prefix+"/scripts/{id}/versions/{version}/approve", wrap(http.HandlerFunc(h.approveVersion)))
+	mux.Handle("POST "+prefix+"/scripts/{id}/versions/{version}/reject", wrap(http.HandlerFunc(h.rejectVersion)))
 	if h.deps.Schedules == nil {
 		return
 	}
@@ -160,6 +166,11 @@ type versionReviewResponse struct {
 	MissingConnections  []string `json:"missing_connections,omitempty"`
 	// Findings are the validator's complaints about the source.
 	Findings []scriptrun.Finding `json:"findings,omitempty"`
+	// Approved is the version the script executes today, with the grant it
+	// holds and the diff from its source to this one. It is absent when the
+	// script has never had a version approved, which is what makes this a first
+	// approval rather than a change to something already running.
+	Approved *approvedBaseline `json:"approved,omitempty"`
 }
 
 // referenced is the static read of a version's source.
@@ -187,14 +198,15 @@ type referenced struct {
 // @Security     BearerAuth
 // @Router       /admin/scripts/{id}/versions/{version} [get]
 func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
-	v, ok := h.loadVersion(w, r)
+	sc, v, ok := h.loadScriptVersion(w, r)
 	if !ok {
 		return
 	}
 	report := scriptrun.Validate(v.Source)
 	missingCapabilities, missingConnections := v.Grants.MissingFor(report.Capabilities, report.Connections)
 	httpjson.WriteJSON(w, http.StatusOK, versionReviewResponse{
-		Version: *v,
+		Version:  *v,
+		Approved: h.baselineFor(r, sc, v),
 		Referenced: referenced{
 			Capabilities:       report.Capabilities,
 			Connections:        report.Connections,
@@ -257,7 +269,7 @@ func (h *Handler) approveVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	approved, err := h.deps.Approvals.ApproveVersion(r.Context(), v.ScriptID, v.Version, h.deps.AdminEmail(r), grants)
 	if err != nil {
-		writeApprovalError(w, err)
+		writeDecisionError(w, err, "failed to approve version")
 		return
 	}
 	httpjson.WriteJSON(w, http.StatusOK, approved)
@@ -287,7 +299,8 @@ func refuseUnreachableGrant(v *script.Version, grants script.Grants) string {
 // join renders a list for an error detail.
 func join(values []string) string { return strings.Join(values, ", ") }
 
-// writeApprovalError maps an approval failure to a status.
+// writeDecisionError maps a review decision's failure to a status, naming the
+// decision that failed in the fallback message.
 //
 // Both caller-correctable outcomes are matched by SENTINEL: a conflict means
 // the version moved under the reviewer, and an invalid grant means the
@@ -296,14 +309,14 @@ func join(values []string) string { return strings.Join(values, ", ") }
 // answered with a fixed message. Classifying by anything other than a sentinel
 // (an error's shape, its message) would eventually route a wrapped store error
 // into the branch that echoes it back.
-func writeApprovalError(w http.ResponseWriter, err error) {
+func writeDecisionError(w http.ResponseWriter, err error, public string) {
 	switch {
 	case errors.Is(err, script.ErrVersionConflict):
 		httpjson.WriteError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, script.ErrInvalidGrant), errors.Is(err, script.ErrNoGrants):
 		httpjson.WriteError(w, http.StatusBadRequest, err.Error())
 	default:
-		httpjson.WriteError(w, http.StatusInternalServerError, "failed to approve version")
+		httpjson.WriteError(w, http.StatusInternalServerError, public)
 	}
 }
 
@@ -324,23 +337,31 @@ func (h *Handler) loadScript(w http.ResponseWriter, r *http.Request) (*script.Sc
 
 // loadVersion resolves the version named by the path.
 func (h *Handler) loadVersion(w http.ResponseWriter, r *http.Request) (*script.Version, bool) {
+	_, v, ok := h.loadScriptVersion(w, r)
+	return v, ok
+}
+
+// loadScriptVersion resolves both the script and the version named by the path.
+// The version alone does not answer what the script is executing today, which
+// is what a review is read against.
+func (h *Handler) loadScriptVersion(w http.ResponseWriter, r *http.Request) (*script.Script, *script.Version, bool) {
 	sc, ok := h.loadScript(w, r)
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
 	n, err := strconv.Atoi(r.PathValue(pathVersion))
 	if err != nil || n <= 0 {
 		httpjson.WriteError(w, http.StatusNotFound, errVersionNot)
-		return nil, false
+		return nil, nil, false
 	}
 	v, err := h.deps.Versions.GetVersion(r.Context(), sc.ID, n)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusInternalServerError, errListVersions)
-		return nil, false
+		return nil, nil, false
 	}
 	if v == nil {
 		httpjson.WriteError(w, http.StatusNotFound, errVersionNot)
-		return nil, false
+		return nil, nil, false
 	}
-	return v, true
+	return sc, v, true
 }

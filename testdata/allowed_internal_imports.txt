@@ -97,8 +97,10 @@ internal/httpserver/notifyhttp -> internal/notification/notifyrender
 internal/httpserver/notifyhttp -> pkg/notification
 internal/httpserver/notifyhttp -> pkg/notification/smtp
 internal/httpserver/scripthttp -> internal/httpjson
+internal/httpserver/scripthttp -> internal/logsan
 internal/httpserver/scripthttp -> internal/platform/scriptrun
 internal/httpserver/scripthttp -> pkg/script
+internal/httpserver/scripthttp -> pkg/textpatch
 internal/httpserver/sources -> pkg/toolkits/gateway/enrichment
 internal/httpserver/unsubhttp -> pkg/notification
 internal/httpserver/versionhttp -> pkg/prompt
@@ -227,6 +229,7 @@ internal/platform/resourcelayer -> pkg/portal/s3adapter
 internal/platform/resourcelayer -> pkg/resource
 internal/platform/reviewalert -> internal/logsan
 internal/platform/reviewalert -> pkg/notification
+internal/platform/reviewalert -> pkg/script
 internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona

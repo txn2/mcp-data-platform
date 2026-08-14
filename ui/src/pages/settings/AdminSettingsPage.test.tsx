@@ -13,12 +13,13 @@ vi.mock("@/api/admin/hooks", () => ({
   useSMTPRecipientStatus: vi.fn(),
 }));
 
-// The page composes two independent sections. This file covers the SMTP one,
-// so the other is stubbed out: with both rendered, "the switch" and "the
-// loading indicator" would name two elements each. The review-queue section
-// (and the page composing both) is covered in ReviewQueueAlertCard.test.tsx.
-vi.mock("./ReviewQueueAlertCard", () => ({
-  ReviewQueueAlertCard: () => null,
+// The page composes independent sections. This file covers the SMTP one, so
+// the review-queue alerts are stubbed out: with all three rendered, "the
+// switch" and "the loading indicator" would name several elements each. The
+// alert section (and the page composing them) is covered in
+// ReviewAlertCard.test.tsx.
+vi.mock("./ReviewAlertCard", () => ({
+  ReviewAlertCard: () => null,
 }));
 
 import {

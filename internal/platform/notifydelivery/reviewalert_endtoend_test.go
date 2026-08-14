@@ -67,14 +67,15 @@ func TestReviewQueueAlertToEmailEndToEnd(t *testing.T) {
 
 	oldest := time.Now().AddDate(0, 0, -94)
 	checker := reviewalert.New(reviewalert.Config{
+		Target: reviewalert.KnowledgeTarget(),
 		Settings: fixedAlertSettings{settings: reviewalert.Settings{
 			Enabled: true, OldestPendingDays: 30, CooldownHours: 24,
 			Recipients: []string{"ops@example.com"},
 		}},
 		State: &alertState{},
-		Insights: &staleInsights{review: &knowledgekit.PendingReview{
+		Source: reviewalert.InsightSource{Insights: &staleInsights{review: &knowledgekit.PendingReview{
 			TotalPending: 12, OldestPendingAt: &oldest, PendingOver30d: 5,
-		}},
+		}}},
 		Enqueuer: enq,
 		BaseURL:  "https://data.example.com",
 	})
@@ -140,14 +141,15 @@ func TestReviewQueueAlertRespectsOptOutEndToEnd(t *testing.T) {
 
 	oldest := time.Now().AddDate(0, 0, -94)
 	checker := reviewalert.New(reviewalert.Config{
+		Target: reviewalert.KnowledgeTarget(),
 		Settings: fixedAlertSettings{settings: reviewalert.Settings{
 			Enabled: true, OldestPendingDays: 30, CooldownHours: 24,
 			Recipients: []string{"muted@example.com", "ops@example.com"},
 		}},
 		State: &alertState{},
-		Insights: &staleInsights{review: &knowledgekit.PendingReview{
+		Source: reviewalert.InsightSource{Insights: &staleInsights{review: &knowledgekit.PendingReview{
 			TotalPending: 12, OldestPendingAt: &oldest,
-		}},
+		}}},
 		Enqueuer: enq,
 		BaseURL:  "https://data.example.com",
 	})

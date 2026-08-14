@@ -10,12 +10,13 @@ managed-scripts surface updates it in the same change.
 Every claim below carries a package or file citation a reviewer can check
 against the source. Where a protection does not exist, this document says so.
 
-Reviewed at the state of the tree that introduced cron scheduling: the schedule
-record, the materializer that turns a due schedule into a run, the single-fire,
-overlap, and misfire policies, and the alert a failed scheduled run raises. The
-revisions before it introduced the script domain and the authoring loop, then
-approved execution — the capability grant, the script principal, the run queue,
-and `run_script` — then worker mode.
+Reviewed at the state of the tree that introduced the review surface: the queue
+of versions awaiting a decision, the capability and code diffs a reviewer reads
+before approving, the rejection of a pending draft, and the alert an unworked
+queue raises. The revisions before it introduced the script domain and the
+authoring loop, then approved execution — the capability grant, the script
+principal, the run queue, and `run_script` — then worker mode, then cron
+scheduling.
 
 ## What a managed script is
 
@@ -31,7 +32,9 @@ The state of the feature at this revision:
 - A script can be created, edited, validated, and dry-run.
 - A version can be **approved**, which binds the capability set that version may
   use and points the execution gate at it. Approval is the load-bearing control
-  of everything below.
+  of everything below, and it now has a human surface: a review queue in the
+  portal that shows what a reviewer is agreeing to before they agree to it (see
+  [Review is a surface, not an API call](#review-is-a-surface-not-an-api-call)).
 - An approved version executes on demand through `run_script`: the tool queues a
   run and a worker on some replica executes it, unattended, as the script's own
   principal.
@@ -118,7 +121,7 @@ behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
 |---|---|
 | Script author (any authenticated caller) | Creates and edits their own personal scripts; runs drafts as themselves |
 | Admin persona | The above at every scope, plus scope and lifecycle changes |
-| Reviewer (admin API) | Approves a version, binding the connections, capabilities, and destinations it may use; cannot widen its authority beyond the version author's roles |
+| Reviewer (admin portal or API) | Approves a version, binding the connections, capabilities, and destinations it may use, and rejects a pending draft; cannot widen its authority beyond the version author's roles |
 | Schedule owner (owner or admin) | Sets the cadence, timezone, and bound parameters of a script's schedule, and turns it on or off; grants nothing |
 | Script principal (`script:<name>`) | Exists only inside an approved run; holds the grant bound at approval and nothing else |
 | The script itself | Only the host functions listed below, only through the running identity |
@@ -130,8 +133,10 @@ graph LR
     subgraph Authoring["Authoring (agent, interactive)"]
         AGENT[MCP agent] -->|manage_script| TOOL[scriptlayer]
     end
-    subgraph Review["Review (admin REST)"]
-        ADMIN[Reviewer] -->|approve + grant| GATE
+    subgraph Review["Review (portal queue over admin REST)"]
+        QUEUEUI[Versions awaiting approval<br/>capability diff + code diff] --> ADMIN[Reviewer]
+        ADMIN -->|approve + grant| GATE
+        ADMIN -->|reject a pending draft| STORE
     end
     subgraph Governed["Governed state"]
         TOOL -->|ApplyEdit| STORE[(scripts +<br/>script_versions<br/>author_roles, grants)]
@@ -191,6 +196,72 @@ The edit funnel is the other half: once a version is approved, a change to a
 script's substance becomes a pending draft rather than an edit to what executes
 (`pkg/script/edit.go`, `RequiresReview`), and the store re-validates that under
 the row lock so an edit racing an approval is refused rather than applied.
+
+### Review is a surface, not an API call
+
+The gate above is only as good as the decision behind it, and a decision made
+by POSTing a JSON grant is a decision made without seeing what it covers. The
+portal's Scripts page (`ui/src/pages/scripts/`, over
+`internal/httpserver/scripthttp`) is where that decision is made instead.
+
+**The queue is what is not executing.** A version is waiting when it is a
+pending draft, or when it is the live version of a script that has never had
+one approved (`internal/platform/scriptstore/review.go`,
+`pendingReviewQuery`). The second case matters: a brand-new script's only
+version is recorded `applied`, so a queue built on version status alone would
+show nothing waiting while the script sat unrunnable. The queue holds one row
+per script — approving any version supersedes that script's other pending
+drafts, so competing drafts are one decision, not several.
+
+A script the execution gate would refuse anyway is excluded, on the same list
+the gate refuses on (`pkg/script/run.go`, `RefuseRun`): disabled, deprecated,
+or superseded. Approving one changes nothing, and nothing could clear it — a
+disabled script's unapproved live version is not a draft, so it cannot be
+rejected either, and it would sit in the queue and in every alert forever.
+Re-enabling the script brings its decision back, which is the state where
+approving it means something again.
+
+**Both halves of the diff come from one read.** The review endpoint returns the
+version, what a static read of its source reaches for, what the current grant
+does not cover, the validator's findings, and the version the execution gate
+points at today: its grant, its approval stamp, and the unified diff from its
+source to this one (`internal/httpserver/scripthttp/review.go`,
+`baselineFor`). Assembling that from two requests would let an approval landing
+between them show a reviewer a change measured against code that is no longer
+the baseline, which is the one thing a review must not get wrong. A gate
+pointing at a version that cannot be read omits the comparison rather than
+reporting the version as a first approval — the opposite of the truth.
+
+**What the surface refuses to imply.** Roles are shown and are not editable,
+because the approval copies them from the version's author and the request
+cannot carry them; a control that offered them would advertise an escalation
+path that does not exist. A widening is stated rather than left to be inferred
+from three lists. A version whose source computes a connection name is reported
+as unreadable in that respect rather than shown a list that quietly omits it.
+
+**Rejecting decides nothing about what runs.** It marks a pending draft
+rejected and leaves the live script and its approved version untouched
+(`internal/platform/scriptstore/review.go`, `RejectVersion`), and the status
+predicate is in the UPDATE rather than in a read before it, so a draft approved
+or superseded in between is refused rather than relabelled. Only a draft can be
+rejected: the live version of a never-approved script is also awaiting review,
+but rejecting it would mark the code the script is serving as rejected while it
+kept being served, and declining it means leaving it unapproved, which is
+already its state.
+
+**A rollback is a review, not an exception.** Any version can be approved from
+the history, which points the gate back at it and reapplies its snapshot to the
+live row. The surface offers it rather than hiding it, because the alternative
+to a visible rollback is an operator editing the database.
+
+**An unworked queue is reported.** The same scheduled check that watches the
+knowledge review queue watches this one, over its own settings section,
+thresholds, and recipients (`internal/platform/reviewalert`, `ScriptTarget`).
+It is one implementation for both queues rather than a copy per queue, and the
+single-winner conditional claim is per queue key, so one queue's cooldown never
+silences the other. What it counts is what the review surface lists — the same
+query — so the number in the email is the number an operator finds when they
+open the queue.
 
 ### Schedules: cadence, and nothing else
 
@@ -596,6 +667,11 @@ retrying only multiplies the cost).
 | A scheduled automation stops producing and nobody notices | A failed scheduled run mails the script's owner and the approving administrator | `scriptexec/notify.go`, `notifyFailure` |
 | One bad night silences the alerts for every other automation | The alert's rate-limit key is the SCRIPT principal, not the recipient, so a repeatedly failing script is throttled and its neighbors are not | `scriptexec/notify.go`, `Payload.Actor` |
 | A build without the zone database silently retires every non-UTC schedule | An unloadable timezone is logged and left alone; only an unparseable expression parks a schedule | `scriptexec/scheduler.go`, `refuseCadence` |
+| A grant is widened without the reviewer seeing it | The review surface reads the proposed grant against the approved one per axis and states a widening explicitly | `ui/src/pages/scripts/scriptGrants.ts`, `widensAuthority` |
+| A reviewer approves a change measured against stale code | The code diff and the approved grant come from one response, resolved from the gate at read time | `scripthttp/review.go`, `baselineFor` |
+| A script waiting for approval is never noticed | An hourly check alerts the configured recipients once per cooldown window, counting the same rows the queue lists | `reviewalert/sources.go`, `ScriptSource` |
+| One queue's cooldown silences another's alert | The re-alert claim is keyed by queue | migration `000101`, `claimSQL` |
+| A version that is not a pending draft is relabelled rejected | The status predicate is in the UPDATE; an unaffected row is a conflict | `scriptstore/review.go`, `RejectVersion` |
 
 ## Non-goals
 
@@ -625,14 +701,16 @@ retrying only multiplies the cost).
    is available today and is the recommended posture wherever scripts do real
    work. The remaining gap — an allocation ceiling the interpreter itself
    enforces — needs a WASM engine with a real memory bound.
-2. **Approval is the load-bearing control, and there is no review UI yet.**
-   A rubber-stamped approval is how a prompt-influenced agent gets code running
-   unattended, and today approving is a REST call rather than a surface that
-   shows a reviewer what they are agreeing to. The material exists — the review
-   endpoint returns the version, the capabilities and connections its source
-   reaches for, and what the grant does not cover — and the approval refuses a
-   grant the code would outrun. The human surface over it is the next stage of
-   the feature, deliberately sequenced before external delivery destinations.
+2. **Approval is the load-bearing control, and a reviewer can still say yes
+   without reading.** The surface that was missing now exists (see [Review is a
+   surface, not an API call](#review-is-a-surface-not-an-api-call)): the queue,
+   the capability diff against what the script holds today, the code diff
+   against what it executes today, the validator's findings, and a stated
+   widening. What remains is not a gap in the mechanism but the limit of any
+   review control — the platform can show a reviewer what they are agreeing to
+   and refuse a grant the code would outrun, and it cannot make them look. The
+   compensating controls are that the authority a script can hold is capped at
+   its author's, and that every approval is stamped with who made it.
 3. **Approval is an API call, so "a human approved it" is policy, not
    mechanism.** The admin REST API is also reachable over MCP through the
    built-in `platform-admin` gateway connection, which means an agent holding

@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 200
+	migrateTestFileCount    = 202
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -623,6 +623,11 @@ func TestMigrationTablesHaveConsumers(t *testing.T) {
 
 	createTableRe := regexp.MustCompile(`(?i)CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(\w+)`)
 	dropTableRe := regexp.MustCompile(`(?i)DROP TABLE\s+(?:IF EXISTS\s+)?(\w+)`)
+	// A rename retires one name and introduces another, which is neither a
+	// create nor a drop. Without it a renamed table is still checked for
+	// consumers under a name no code can reference, and the name it now
+	// carries is never checked at all.
+	renameTableRe := regexp.MustCompile(`(?i)ALTER TABLE\s+(?:IF EXISTS\s+)?(\w+)\s+RENAME TO\s+(\w+)`)
 
 	// Track create / drop events in migration-file order so a table
 	// that's created in an early migration and later dropped (because
@@ -648,6 +653,10 @@ func TestMigrationTablesHaveConsumers(t *testing.T) {
 		}
 		for _, m := range dropTableRe.FindAllStringSubmatch(migrationSQL, -1) {
 			tableLive[m[1]] = false
+		}
+		for _, m := range renameTableRe.FindAllStringSubmatch(migrationSQL, -1) {
+			tableLive[m[1]] = false
+			tableLive[m[2]] = true
 		}
 	}
 

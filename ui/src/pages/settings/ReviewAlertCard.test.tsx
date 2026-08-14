@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
-import { ReviewQueueAlertCard } from "./ReviewQueueAlertCard";
+import { ReviewAlertCard } from "./ReviewAlertCard";
 import { AdminSettingsPage } from "./AdminSettingsPage";
 import type { ReviewQueueAlertSettings } from "@/api/admin/hooks/settings";
 
@@ -12,8 +12,8 @@ vi.mock("@/api/admin/hooks", () => ({
   useSetSMTPSettings: vi.fn(),
   useSendTestEmail: vi.fn(),
   useSMTPRecipientStatus: vi.fn(),
-  useReviewQueueAlert: vi.fn(),
-  useSetReviewQueueAlert: vi.fn(),
+  useReviewAlert: vi.fn(),
+  useSetReviewAlert: vi.fn(),
 }));
 
 import {
@@ -22,13 +22,13 @@ import {
   useSetSMTPSettings,
   useSendTestEmail,
   useSMTPRecipientStatus,
-  useReviewQueueAlert,
-  useSetReviewQueueAlert,
+  useReviewAlert,
+  useSetReviewAlert,
 } from "@/api/admin/hooks";
 
 const mockUseSystemInfo = vi.mocked(useSystemInfo);
-const mockUseAlert = vi.mocked(useReviewQueueAlert);
-const mockUseSetAlert = vi.mocked(useSetReviewQueueAlert);
+const mockUseAlert = vi.mocked(useReviewAlert);
+const mockUseSetAlert = vi.mocked(useSetReviewAlert);
 
 function makeAlert(
   overrides: Partial<ReviewQueueAlertSettings> = {},
@@ -45,6 +45,16 @@ function makeAlert(
   };
 }
 
+// knowledgeCard is the knowledge queue's copy, which is what these tests
+// render. The card itself is queue-agnostic (#1287).
+const knowledgeCard = {
+  queue: "review-queue-alert" as const,
+  title: "Review queue alert",
+  description: "Email a digest when knowledge insights are left unreviewed",
+  enabledHelp: "Check the pending review queue hourly and alert when it crosses a threshold",
+  itemNoun: "insight",
+};
+
 const saveMutate = vi.fn();
 
 beforeEach(() => {
@@ -57,11 +67,11 @@ beforeEach(() => {
     isLoading: false,
     error: null,
     refetch: vi.fn(),
-  } as unknown as ReturnType<typeof useReviewQueueAlert>);
+  } as unknown as ReturnType<typeof useReviewAlert>);
   mockUseSetAlert.mockReturnValue({
     mutate: saveMutate,
     isPending: false,
-  } as unknown as ReturnType<typeof useSetReviewQueueAlert>);
+  } as unknown as ReturnType<typeof useSetReviewAlert>);
   // The SMTP section is not under test here; it only has to render.
   vi.mocked(useSMTPSettings).mockReturnValue({
     data: undefined,
@@ -84,9 +94,9 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("ReviewQueueAlertCard: loaded state", () => {
+describe("ReviewAlertCard: loaded state", () => {
   it("renders the stored thresholds, recipients, and last writer", () => {
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
 
     expect(screen.getByText("Review queue alert")).toBeInTheDocument();
     expect(screen.getByDisplayValue("25")).toBeInTheDocument();
@@ -103,9 +113,9 @@ describe("ReviewQueueAlertCard: loaded state", () => {
       isLoading: true,
       error: null,
       refetch: vi.fn(),
-    } as unknown as ReturnType<typeof useReviewQueueAlert>);
+    } as unknown as ReturnType<typeof useReviewAlert>);
 
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
     expect(screen.getByText("Loading...")).toBeInTheDocument();
   });
 
@@ -116,18 +126,18 @@ describe("ReviewQueueAlertCard: loaded state", () => {
       isLoading: false,
       error: new Error("boom"),
       refetch,
-    } as unknown as ReturnType<typeof useReviewQueueAlert>);
+    } as unknown as ReturnType<typeof useReviewAlert>);
 
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
     expect(
-      screen.getByText(/Failed to load review-queue alert settings/),
+      screen.getByText(/Failed to load these alert settings/),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Retry/ }));
     expect(refetch).toHaveBeenCalled();
   });
 });
 
-describe("ReviewQueueAlertCard: undeliverable configuration", () => {
+describe("ReviewAlertCard: undeliverable configuration", () => {
   it("shows the server's warning that nobody will be alerted", () => {
     mockUseAlert.mockReturnValue({
       data: makeAlert({
@@ -137,23 +147,23 @@ describe("ReviewQueueAlertCard: undeliverable configuration", () => {
       isLoading: false,
       error: null,
       refetch: vi.fn(),
-    } as unknown as ReturnType<typeof useReviewQueueAlert>);
+    } as unknown as ReturnType<typeof useReviewAlert>);
 
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
     expect(screen.getByText(/no alert will be delivered/)).toBeInTheDocument();
   });
 
   it("states that a recipient's own opt-out still applies", () => {
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
     expect(
       screen.getByText(/turned email notifications off receives nothing/),
     ).toBeInTheDocument();
   });
 });
 
-describe("ReviewQueueAlertCard: recipients", () => {
+describe("ReviewAlertCard: recipients", () => {
   it("adds a typed recipient and includes it in the save", () => {
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
 
     fireEvent.change(screen.getByLabelText("Add recipient"), {
       target: { value: "lead@example.com" },
@@ -171,7 +181,7 @@ describe("ReviewQueueAlertCard: recipients", () => {
   });
 
   it("adds on Enter without submitting anything else", () => {
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
 
     const input = screen.getByLabelText("Add recipient");
     fireEvent.change(input, { target: { value: "lead@example.com" } });
@@ -183,7 +193,7 @@ describe("ReviewQueueAlertCard: recipients", () => {
   });
 
   it("commits an address typed but not added when the field loses focus", () => {
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
 
     const input = screen.getByLabelText("Add recipient");
     fireEvent.change(input, { target: { value: "lead@example.com" } });
@@ -200,7 +210,7 @@ describe("ReviewQueueAlertCard: recipients", () => {
   });
 
   it("ignores a duplicate address", () => {
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
 
     fireEvent.change(screen.getByLabelText("Add recipient"), {
       target: { value: "ops@example.com" },
@@ -212,7 +222,7 @@ describe("ReviewQueueAlertCard: recipients", () => {
   });
 
   it("removes a recipient", () => {
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove ops@example.com" }));
     expect(screen.queryByText("ops@example.com")).not.toBeInTheDocument();
@@ -225,9 +235,9 @@ describe("ReviewQueueAlertCard: recipients", () => {
   });
 });
 
-describe("ReviewQueueAlertCard: saving", () => {
+describe("ReviewAlertCard: saving", () => {
   it("saves the edited thresholds as numbers", () => {
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
 
     fireEvent.change(screen.getByDisplayValue("25"), { target: { value: "40" } });
     fireEvent.change(screen.getByDisplayValue("24"), { target: { value: "6" } });
@@ -247,7 +257,7 @@ describe("ReviewQueueAlertCard: saving", () => {
   });
 
   it("sends 0 for a cleared threshold, keeping the condition off rather than guessing", () => {
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
 
     fireEvent.change(screen.getByDisplayValue("25"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: /Save/ }));
@@ -263,7 +273,7 @@ describe("ReviewQueueAlertCard: saving", () => {
       opts.onError(new Error("pending_threshold must be between 0 and 1000000"));
     });
 
-    render(<ReviewQueueAlertCard isReadOnly={false} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={false} />);
     fireEvent.click(screen.getByRole("switch"));
     fireEvent.click(screen.getByRole("button", { name: /Save/ }));
 
@@ -273,9 +283,9 @@ describe("ReviewQueueAlertCard: saving", () => {
   });
 });
 
-describe("ReviewQueueAlertCard: read-only file mode", () => {
+describe("ReviewAlertCard: read-only file mode", () => {
   it("shows the read-only banner and hides Save", () => {
-    render(<ReviewQueueAlertCard isReadOnly={true} />);
+    render(<ReviewAlertCard {...knowledgeCard} isReadOnly={true} />);
 
     expect(screen.getByText(/Configuration is read-only/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Save/ })).not.toBeInTheDocument();
@@ -283,9 +293,18 @@ describe("ReviewQueueAlertCard: read-only file mode", () => {
 });
 
 describe("AdminSettingsPage composition", () => {
-  it("renders both settings sections", () => {
+  it("renders every settings section, with one alert card per review queue", () => {
     render(<AdminSettingsPage />);
     expect(screen.getByText("Email (SMTP)")).toBeInTheDocument();
-    expect(screen.getByText("Review queue alert")).toBeInTheDocument();
+    expect(screen.getByText("Knowledge review queue alert")).toBeInTheDocument();
+    expect(screen.getByText("Script review queue alert")).toBeInTheDocument();
+  });
+
+  it("gives each queue its own settings, so configuring one never writes the other", () => {
+    render(<AdminSettingsPage />);
+    // Both cards read through the same parameterized hook; the queue is what
+    // separates them, and it is the settings path as well as the cache key.
+    expect(mockUseAlert).toHaveBeenCalledWith("review-queue-alert");
+    expect(mockUseAlert).toHaveBeenCalledWith("script-review-alert");
   });
 });

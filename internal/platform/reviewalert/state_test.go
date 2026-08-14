@@ -16,7 +16,7 @@ func newMockAlertStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	return NewPostgresStore(db), mock
+	return NewPostgresStore(db, KnowledgeTarget()), mock
 }
 
 func TestPostgresStoreClaimAlert(t *testing.T) {
@@ -24,8 +24,8 @@ func TestPostgresStoreClaimAlert(t *testing.T) {
 
 	t.Run("an accepted claim reports won and stamps the cooldown bound", func(t *testing.T) {
 		store, mock := newMockAlertStore(t)
-		mock.ExpectExec("INSERT INTO knowledge_review_alert_state").
-			WithArgs(now, now.Add(-6*time.Hour)).
+		mock.ExpectExec("INSERT INTO review_alert_state").
+			WithArgs(KnowledgeTarget().Queue, now, now.Add(-6*time.Hour)).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		won, err := store.ClaimAlert(context.Background(), 6*time.Hour, now)
@@ -36,7 +36,7 @@ func TestPostgresStoreClaimAlert(t *testing.T) {
 
 	t.Run("a claim the cooldown rejects reports not won", func(t *testing.T) {
 		store, mock := newMockAlertStore(t)
-		mock.ExpectExec("INSERT INTO knowledge_review_alert_state").
+		mock.ExpectExec("INSERT INTO review_alert_state").
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
 		won, err := store.ClaimAlert(context.Background(), time.Hour, now)
@@ -46,19 +46,19 @@ func TestPostgresStoreClaimAlert(t *testing.T) {
 
 	t.Run("a write failure is reported", func(t *testing.T) {
 		store, mock := newMockAlertStore(t)
-		mock.ExpectExec("INSERT INTO knowledge_review_alert_state").WillReturnError(errors.New("boom"))
+		mock.ExpectExec("INSERT INTO review_alert_state").WillReturnError(errors.New("boom"))
 
 		_, err := store.ClaimAlert(context.Background(), time.Hour, now)
-		assert.ErrorContains(t, err, "claiming review queue alert")
+		assert.ErrorContains(t, err, "claiming knowledge_review alert")
 	})
 
 	t.Run("an undeterminable row count is reported rather than assumed won", func(t *testing.T) {
 		store, mock := newMockAlertStore(t)
-		mock.ExpectExec("INSERT INTO knowledge_review_alert_state").
+		mock.ExpectExec("INSERT INTO review_alert_state").
 			WillReturnResult(sqlmock.NewErrorResult(errors.New("no RowsAffected")))
 
 		won, err := store.ClaimAlert(context.Background(), time.Hour, now)
-		assert.ErrorContains(t, err, "reading review queue alert claim result")
+		assert.ErrorContains(t, err, "reading knowledge_review alert claim result")
 		assert.False(t, won)
 	})
 }
@@ -66,7 +66,7 @@ func TestPostgresStoreClaimAlert(t *testing.T) {
 func TestPostgresStoreClear(t *testing.T) {
 	t.Run("drops the over-threshold marker", func(t *testing.T) {
 		store, mock := newMockAlertStore(t)
-		mock.ExpectExec("UPDATE knowledge_review_alert_state SET alerting = FALSE").
+		mock.ExpectExec("UPDATE review_alert_state SET alerting = FALSE").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		require.NoError(t, store.Clear(context.Background()))
@@ -75,8 +75,8 @@ func TestPostgresStoreClear(t *testing.T) {
 
 	t.Run("a write failure is reported", func(t *testing.T) {
 		store, mock := newMockAlertStore(t)
-		mock.ExpectExec("UPDATE knowledge_review_alert_state").WillReturnError(errors.New("boom"))
+		mock.ExpectExec("UPDATE review_alert_state").WillReturnError(errors.New("boom"))
 
-		assert.ErrorContains(t, store.Clear(context.Background()), "clearing review queue alert state")
+		assert.ErrorContains(t, store.Clear(context.Background()), "clearing knowledge_review alert state")
 	})
 }

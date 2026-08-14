@@ -328,6 +328,80 @@ Features:
 - **Tags** — Comma-separated labels set on create and edit, shown as chips in the expanded row
 - **Promotion review queue** — A panel at the top of the page lists personal prompts whose owners have requested promotion, showing the owner, the requested scope (persona with the target personas, or global), and the description. **Approve** applies the requested scope/personas and marks the prompt approved; **Reject** clears the request and leaves it personal. If the promoted name already exists in the shared namespace, approval is blocked with a conflict so the owner renames first. The panel is hidden when no requests are pending.
 
+## Scripts (Admin)
+
+The Scripts page is where a managed script becomes something the platform will
+run. Nothing executes unattended except a version an administrator approved, so
+this page is the control the whole feature rests on: it lists what is waiting
+for a decision, and it shows a reviewer what they would be agreeing to.
+
+![Admin Scripts](../images/screenshots/light/admin-admin-scripts-light.webp#only-light)![Admin Scripts](../images/screenshots/dark/admin-admin-scripts-dark.webp#only-dark)
+
+**Awaiting approval** is the queue. A row is a version the platform is not
+executing, which happens two ways, and the badge says which:
+
+- **First approval** — the script has never had a version approved, so none of
+  it runs. Approving starts something running.
+- **Change to a running script** — a proposed edit is waiting while the
+  approved version keeps executing. Until it is approved, the script is still
+  running the code the change was meant to replace.
+
+Each row names the author and the roles they held, because those roles are the
+authority approving binds, and how long the decision has been outstanding —
+the same age the [script review alert](notifications.md#script-review-queue-alerts)
+fires on.
+
+A script the platform would refuse to run anyway — disabled, deprecated, or
+superseded — is not in the queue: approving it would change nothing. Re-enabling
+it brings its decision back.
+
+**All scripts** lists every script with what it is executing: an approved
+version, or **Nothing approved**. **History** expands a script's versions, and
+any version can be opened for review — approving an earlier one is a rollback,
+which points the execution gate back at it.
+
+### Reviewing a version
+
+![Script Review](../images/screenshots/light/admin-admin-script-review-light.webp#only-light)![Script Review](../images/screenshots/dark/admin-admin-script-review-dark.webp#only-dark)
+
+The review drawer answers three questions in the order a reviewer asks them.
+
+**What authority would this run with?** The roles are shown and cannot be
+changed here. Approval copies them from the version's author, so a script can
+never do what the person who wrote it could not; a control that let an approver
+set them would be a way to hand a script more access than its author had.
+
+**What would it be able to reach?** The grant is edited on three axes — host
+functions, connections, and output destinations — each marked against what the
+script holds today. A **Widens authority** badge appears when the proposal
+reaches anywhere the approved version does not, and the connection editor
+offers the connections this version's source names, since a script queries
+nothing it was not granted. Two states are called out rather than left to be
+noticed: a version whose code computes a connection name instead of naming one
+(the list cannot be complete, and the drawer says so), and a script that
+executes nothing today (every grant is new).
+
+**What changed in the code?** The diff runs from the version executing today to
+the one under review. It comes from the same response as the grant, so the two
+always describe the same pair of versions. A first approval has no earlier
+version to diff against, so the whole source is shown instead.
+
+![First Approval](../images/screenshots/light/admin-admin-script-first-approval-light.webp#only-light)![First Approval](../images/screenshots/dark/admin-admin-script-first-approval-dark.webp#only-dark)
+
+**Approve and bind this grant** stamps the version, binds the grant, and points
+the execution gate at it. An approval whose grant does not cover what the code
+plainly calls is refused, naming what is missing: approving a script that will
+refuse itself on its first query is not a decision anybody meant to make.
+**Reject** takes a pending draft out of consideration and changes nothing about
+what runs. It is offered only for a draft — declining the live version of a
+never-approved script means leaving it unapproved, which is already its state.
+
+Approving means "this version is what executes now", not "this version ran":
+the gate is re-read at execution, so a disabled, deprecated, or superseded
+script still refuses a queued run. See the [managed-script security
+model](../scripts/security.md) and [running managed
+scripts](../scripts/running.md).
+
 ## Agent Instructions
 
 The Agent Instructions page edits the operating guidance every agent session receives. The editor is a split markdown view (source on the left, live preview on the right); a **Database override** badge appears when the value is stored in the database rather than the config file.
@@ -541,13 +615,18 @@ requires database config mode. Email branding (footer text, legal links,
 Reply-To) is implementor-owned YAML, not part of this page; see the
 [portal configuration](configuration.md).
 
-The second section is **Review queue alert**, which decides when the
-platform emails an operator about an unworked knowledge review queue: the
-pending-count and oldest-age thresholds, the re-alert cooldown, and the
-recipients. A section that would deliver nothing (enabled with no
-recipients, or with both thresholds cleared) says so in a banner rather
-than saving silently. See [review queue
+Two **review queue alert** sections follow, one per queue: **Knowledge
+review queue alert** for unreviewed insights, and **Script review queue
+alert** for script versions left waiting for approval. Each decides when
+the platform emails an operator about its own queue — the pending-count
+and oldest-age thresholds, the re-alert cooldown, and the recipients —
+and each keeps its own settings, so configuring one never changes the
+other. A section that would deliver nothing (enabled with no recipients,
+or with both thresholds cleared) says so in a banner rather than saving
+silently. See [review queue
 alerts](notifications.md#review-queue-alerts).
+
+![Script Review Alert](../images/screenshots/light/admin-admin-settings-script-alert-light.webp#only-light)![Script Review Alert](../images/screenshots/dark/admin-admin-settings-script-alert-dark.webp#only-dark)
 
 ## Change Log
 
