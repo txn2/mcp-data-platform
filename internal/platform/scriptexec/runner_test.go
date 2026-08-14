@@ -258,6 +258,42 @@ func TestNew_UsesSuppliedStoresAndStartsCleanly(t *testing.T) {
 	require.NoError(t, h.Stop(context.Background()))
 }
 
+// TestWorkerOff_ServesTheQueueWithoutEverClaiming covers the serving half of
+// the split deployment. Two things have to hold at once, and the contrast with
+// the same handle built worker-on is what proves the first: nothing on this
+// replica claims, even when told directly that work arrived, and run_script
+// still has the queue it enqueues onto and follows.
+func TestWorkerOff_ServesTheQueueWithoutEverClaiming(t *testing.T) {
+	build := func(disabled bool, dsn string) (*Handle, *fakeRuns) {
+		runs := &fakeRuns{}
+		sc, v, run := executableState()
+		require.NoError(t, runs.Enqueue(context.Background(), run))
+		h := New(Config{
+			Runs: runs, Scripts: &fakeScripts{script: sc}, Versions: &fakeVersions{version: v},
+			DSN: dsn, WorkerDisabled: disabled,
+		})
+		require.NotNil(t, h)
+		return h, runs
+	}
+
+	off, offRuns := build(true, "postgres://unreachable.invalid/db")
+	assert.Equal(t, script.RunStore(offRuns), off.Runs(),
+		"the serving half still enqueues and follows runs")
+	assert.Nil(t, off.listener,
+		"waking a replica that will not claim buys nothing but a database connection")
+	require.NoError(t, off.Start(context.Background()))
+	off.Notify()
+	assert.Never(t, func() bool { return offRuns.claimCount() > 0 }, 200*time.Millisecond, 10*time.Millisecond)
+	require.NoError(t, off.Stop(context.Background()))
+
+	on, onRuns := build(false, "")
+	require.NoError(t, on.Start(context.Background()))
+	on.Notify()
+	assert.Eventually(t, func() bool { return onRuns.claimCount() > 0 }, 2*time.Second, 10*time.Millisecond,
+		"the same wiring with the worker on claims at once, so the silence above is the switch")
+	require.NoError(t, on.Stop(context.Background()))
+}
+
 // TestNew_BuildsPostgresStoresFromTheDB covers the production wiring path,
 // where only a pool is supplied.
 func TestNew_BuildsPostgresStoresFromTheDB(t *testing.T) {

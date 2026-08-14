@@ -14,6 +14,9 @@ import (
 // onto, so a deployment that cannot execute scripts still authors them and says
 // plainly that nothing will run them.
 //
+// The handle is built whether or not this replica runs the worker: the serving
+// half of a split deployment still owns the queue it enqueues onto.
+//
 // It is a function over the platform rather than a method on it, following
 // wireUtilConnection: composition is not behavior the facade should own, and
 // the god-object gate is what keeps that distinction from eroding.
@@ -29,8 +32,9 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 			Bucket:   p.config.Portal.S3Bucket,
 			Prefix:   p.config.Portal.S3Prefix,
 		},
-		Audit:        p.auditLogger,
-		RunRetention: p.config.Scripts.RunRetention(),
+		Audit:          p.auditLogger,
+		RunRetention:   p.config.Scripts.RunRetention(),
+		WorkerDisabled: !p.config.Scripts.IsWorkerEnabled(),
 	})
 	scriptlayer.New(scriptlayer.Config{
 		DB:           p.db,

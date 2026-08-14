@@ -394,17 +394,23 @@ notifications:
 
 Authoring needs no configuration and is available wherever there is a database.
 Execution is governed rather than configured: a version runs only once an admin
-approves it, which binds the capability grant it runs under. The only knob is
-how long the record of a run is kept.
+approves it, which binds the capability grant it runs under. The two knobs are
+how long the record of a run is kept and whether this replica executes runs at
+all.
 
 ```yaml
 scripts:
   run_retention_days: 365   # how long a FINISHED run is kept (default 365)
+  worker:
+    enabled: false          # this replica enqueues runs but never claims them
 ```
 
 A run still pending or running is never swept. The default is far longer than
 the notification queue's because a scheduled script's run history is its refresh
-history — product surface, not queue residue. See `docs/scripts/running.md` and
+history — product surface, not queue residue. `worker.enabled` is a `*bool`
+defaulting to on: one process serves and executes unless a deployment splits
+them, and a worker-off replica still registers `run_script`, enqueues, and waits
+on the result a worker deployment produces. See `docs/scripts/running.md` and
 `docs/scripts/security.md`.
 
 ### Progress, Client Logging, Icons & Elicitation

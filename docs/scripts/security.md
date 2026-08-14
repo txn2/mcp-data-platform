@@ -261,6 +261,48 @@ rather than retrying it, because from outside the interpreter it is
 indistinguishable from bad SQL — and guessing between them by matching strings
 would trade a visible failure for a silent double-write.
 
+### Isolating execution from serving
+
+Which replica executes a run is a security control, not only a capacity one.
+`scripts.worker.enabled` (`*bool`, default on) decides whether a replica claims
+from the queue. Left alone, one process serves and executes, which is the right
+shape for the deployments most platforms start as. Set false, the replica keeps
+serving MCP and portal traffic and enqueueing runs, and never claims; a separate
+deployment of the same binary with the worker on executes them.
+
+What that buys is blast-radius containment for the one limit the interpreter
+does not enforce. There is no hard per-script memory cap (see [Resource limits,
+stated honestly](#resource-limits-stated-honestly)), so a pathological approved
+script pushes on the memory of whichever pod runs it. On a combined pod that
+pressure lands on the process an agent is talking to; on a split deployment the
+worst case is a restarted worker, while sessions, the portal, and the admin API
+are untouched — and the run itself is not lost, because a killed worker's lease
+expires and another claims it.
+
+The worker adds no attack surface of its own: it accepts no request and takes
+work only from the queue, and its calls go through the same assembled MCP
+server, the same middleware chain, and the same grant they would on a combined
+pod. The pod is the same binary, so it still starts the HTTP listener and its
+health and metrics endpoints — what changes is that a worker deployment needs no
+Service and no Ingress, so nothing routes to it. Reachability, not the process,
+is what shrinks: the pod running unattended code is the one pod nothing outside
+the cluster can address.
+
+Two things do not move with the worker. `run_draft` stays in process on whatever
+replica the author is talking to: it is bounded interactive authoring under the
+author's own identity, not queue work. And the approval gate is unchanged —
+a worker executes `approved_version_id` and nothing else, so where a run
+executes never affects what may execute.
+
+Shutdown is bounded on both sides. A draining worker stops claiming
+immediately, gives a run in flight a short capped window out of the shutdown
+budget — a few seconds, and never more than half of what is left, because that
+budget belongs to every component the lifecycle stops — and releases anything
+that does not finish back onto the queue rather than recording a verdict on it (`internal/platform/scriptexec/worker.go`,
+`Stop`). A released run is claimable at once and its recorded outputs are not
+written twice, so a rolling deploy neither strands a lease until it expires nor
+kills a run mid-write.
+
 ### Audit under the script principal
 
 Two kinds of row, joined by one key:
@@ -306,6 +348,7 @@ managed script is a procedure executed once, top to bottom, by one runner.
 | Result size | Hard row and byte caps on every `platform.query` result, with the row cap pushed down into the query | `scriptrun.DraftMaxRows`, `ApprovedMaxRows`, `DraftMaxResultBytes`, `hostState.queryResult` |
 | Output size | Cap on one serialized output, matching the portal export ceiling | `scriptexec.maxOutputBytes` |
 | Concurrency | One run at a time per replica, which is the only lever that bounds how much heap concurrent scripts can reach | `internal/platform/scriptexec/worker.go` |
+| Blast radius | Which replicas execute at all, so the memory a script can reach belongs to a pod nothing is talking to | `scripts.worker.enabled` |
 | Truncation | A result the engine truncated at the cap FAILS the run rather than being handed over as complete | `hostState.queryResult`, `truncated` |
 | Log size | Bounded capture, head kept, tail dropped with a marker | `scriptrun.MaxLogBytes`, `logBuffer` |
 | Outputs per run | Capped | `maxExports` |
@@ -319,11 +362,12 @@ the wall-clock deadline, the host-side result caps, one run at a time per
 replica, and `GOMEMLIMIT` at the process level.
 
 The risk changed shape when execution became unattended: a pathological script
-now runs where nobody is watching it, on a replica that is also serving. What
-stands between that and an out-of-memory condition is the approval — the code
-was read by a human before it could run this way — plus the limits above. It is
-recorded in [Residual risks](#residual-risks); the escape hatch, if it matters,
-is running execution in dedicated replicas.
+now runs where nobody is watching it, and by default on a replica that is also
+serving. What stands between that and an out-of-memory condition is the approval
+— the code was read by a human before it could run this way — plus the limits
+above. It is recorded in [Residual risks](#residual-risks), and the control that
+bounds what an out-of-memory condition costs is
+[isolating execution from serving](#isolating-execution-from-serving).
 
 ### SQL parameters are bound, never spliced
 
@@ -489,10 +533,15 @@ retrying only multiplies the cost).
 ## Residual risks
 
 1. **No hard memory cap.** Described above under resource limits. Mitigated by
-   the step limit, deadline, result caps, and `GOMEMLIMIT`; not eliminated. The
-   escape hatches, if it matters later, are running script execution in
-   dedicated replicas where an out-of-memory condition cannot take down serving,
-   and a WASM engine with a real memory bound.
+   the step limit, deadline, result caps, and `GOMEMLIMIT`; not eliminated. What
+   bounds the damage rather than the allocation is
+   [isolating execution from serving](#isolating-execution-from-serving):
+   `scripts.worker.enabled: false` on the serving replicas plus a worker
+   deployment of the same binary confines the pressure to pods nothing is
+   talking to, so the worst case is a restarted worker and a reclaimed run. That
+   is available today and is the recommended posture wherever scripts do real
+   work. The remaining gap — an allocation ceiling the interpreter itself
+   enforces — needs a WASM engine with a real memory bound.
 2. **Approval is the load-bearing control, and there is no review UI yet.**
    A rubber-stamped approval is how a prompt-influenced agent gets code running
    unattended, and today approving is a REST call rather than a surface that

@@ -312,6 +312,90 @@ func TestListenAndServe_GracefulShutdown(t *testing.T) {
 	}
 }
 
+// TestListenAndServe_ReturnsOnlyAfterTheDrain pins the shutdown ordering the
+// deployment budget describes and the background workers depend on: the caller
+// stops the notification and managed-script workers as soon as this returns, so
+// returning while a request is still being served would tear down the machinery
+// that request is using. Shutdown closes the listeners before it waits for
+// connections, so the naive return happens mid-drain.
+func TestListenAndServe_ReturnsOnlyAfterTheDrain(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() { close(entered) })
+		<-release
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Take a port, then hand its address to the server under test.
+	ln := listenLocal(t)
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("closing the probe listener: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- listenAndServe(ctx, addr, handler, httpConfig{
+			shutdownCfg: platform.ShutdownConfig{GracePeriod: 5 * time.Second, PreShutdownDelay: time.Millisecond},
+		}, nil)
+	}()
+
+	go func() {
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+addr, http.NoBody)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request never reached the handler")
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		t.Fatalf("listenAndServe returned mid-drain with a request in flight: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("listenAndServe returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("listenAndServe did not return once the drain finished")
+	}
+}
+
+// TestListenAndServe_BindFailureReturnsInsteadOfWaiting is the other side of
+// the drain wait: a server that never bound has no drain to wait for, and
+// waiting on one would hang the process on a startup error.
+func TestListenAndServe_BindFailureReturnsInsteadOfWaiting(t *testing.T) {
+	ln := listenLocal(t)
+	defer func() { _ = ln.Close() }()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- listenAndServe(t.Context(), ln.Addr().String(), http.NewServeMux(), httpConfig{}, nil)
+	}()
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected an error for an address already in use")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a listen failure must return rather than wait on a drain that never runs")
+	}
+}
+
 func listenLocal(t *testing.T) net.Listener {
 	t.Helper()
 	var lc net.ListenConfig

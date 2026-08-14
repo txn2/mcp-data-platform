@@ -49,6 +49,9 @@ type memRuns struct {
 	// tick would make every test in this file wait seconds for nothing.
 	notify func()
 	order  []string
+	// claims counts claim attempts, which is how a replica that must not claim
+	// is held to it.
+	claims int
 }
 
 func newMemRuns() *memRuns { return &memRuns{byID: map[string]*script.Run{}} }
@@ -68,6 +71,12 @@ func (m *memRuns) Enqueue(_ context.Context, r *script.Run) error {
 		m.notify()
 	}
 	return nil
+}
+
+func (m *memRuns) claimCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.claims
 }
 
 func (m *memRuns) GetRun(_ context.Context, id string) (*script.Run, error) {
@@ -101,6 +110,7 @@ func (m *memRuns) ListRuns(_ context.Context, filter script.RunFilter) ([]script
 func (m *memRuns) Claim(_ context.Context, worker string, lease time.Duration) (*script.Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.claims++
 	for _, id := range m.order {
 		r := m.byID[id]
 		if r.Status != script.RunStatusPending {
@@ -287,6 +297,13 @@ type execHarness struct {
 // executing whatever run_script enqueues.
 func executionServer(t *testing.T, allowedConnections ...string) execHarness {
 	t.Helper()
+	return execServerWithWorker(t, true, allowedConnections...)
+}
+
+// execServerWithWorker assembles the same system with the run worker on or off,
+// which is the single difference between the two deployment shapes.
+func execServerWithWorker(t *testing.T, workerOn bool, allowedConnections ...string) execHarness {
+	t.Helper()
 	store := newMemStore()
 	runs := newMemRuns()
 	assets, versions, s3 := newMemAssets(), newMemVersions(), newMemS3()
@@ -336,7 +353,8 @@ func executionServer(t *testing.T, allowedConnections ...string) execHarness {
 	worker := scriptexec.New(scriptexec.Config{
 		Runs: runs, Scripts: store, Versions: store,
 		Server: server, Audit: audit,
-		Export: scriptexec.ExportDeps{Assets: assets, Versions: versions, S3: s3, Bucket: "assets", Prefix: "portal"},
+		Export:         scriptexec.ExportDeps{Assets: assets, Versions: versions, S3: s3, Bucket: "assets", Prefix: "portal"},
+		WorkerDisabled: !workerOn,
 	})
 	require.NotNil(t, worker)
 	runs.notify = worker.Notify
@@ -610,6 +628,27 @@ func TestIntegration_WaitTimeoutHandsBackTheRunID(t *testing.T) {
 	assert.Equal(t, script.RunStatusPending, out["status"])
 	assert.Contains(t, out["message"], "get_run")
 	assert.NotEmpty(t, out["run_id"])
+}
+
+// TestIntegration_SplitDeploymentEnqueuesWithoutExecuting covers the serving
+// half of the split deployment end to end: run_script is registered, the run is
+// accepted and queued under the caller's identity, and the wait returns it
+// still pending because nothing on this replica ever claims. What executes it
+// is a worker deployment reading the same queue.
+func TestIntegration_SplitDeploymentEnqueuesWithoutExecuting(t *testing.T) {
+	ctx := context.Background()
+	h := execServerWithWorker(t, false, "warehouse")
+	authorAndApprove(ctx, t, h, reportSource, analystGrant())
+	session := connectAgent(ctx, t, h.server)
+
+	out, isErr := runScript(ctx, t, session, map[string]any{
+		"name": "daily", "args": map[string]any{"day": "2026-08-12"}, "wait_seconds": 1,
+	})
+	require.False(t, isErr, out["error"])
+	assert.Equal(t, script.RunStatusPending, out["status"])
+	assert.NotEmpty(t, out["run_id"])
+	assert.Zero(t, h.runs.claimCount(), "a worker-off replica must never claim from the queue")
+	assert.Empty(t, h.assets.inserted, "and must not have executed the run it queued")
 }
 
 // TestIntegration_RunScriptIsUnavailableWithoutAQueue covers the deployment

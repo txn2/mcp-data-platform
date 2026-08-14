@@ -3,6 +3,7 @@ package scriptexec
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -28,10 +29,16 @@ type fakeRuns struct {
 	finished []script.RunResult
 	retried  []string
 	outputs  []script.RunOutput
+	// claims counts every claim attempt, which is how a replica that must not
+	// claim is held to it.
+	claims   int
 	claimErr error
 	writeErr error
-	purged   int64
-	purgeErr error
+	// blockWrites models a database that accepts the statement and never
+	// answers, which is what makes an unbounded write at shutdown dangerous.
+	blockWrites bool
+	purged      int64
+	purgeErr    error
 }
 
 func (f *fakeRuns) Enqueue(_ context.Context, r *script.Run) error {
@@ -67,6 +74,7 @@ func (*fakeRuns) ListRuns(context.Context, script.RunFilter) ([]script.Run, erro
 func (f *fakeRuns) Claim(_ context.Context, worker string, _ time.Duration) (*script.Run, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.claims++
 	if f.claimErr != nil {
 		return nil, f.claimErr
 	}
@@ -120,7 +128,11 @@ func (f *fakeRuns) Finish(_ context.Context, lease script.RunLease, res script.R
 	return nil
 }
 
-func (f *fakeRuns) Retry(_ context.Context, lease script.RunLease, cause string, backoff time.Duration) error {
+func (f *fakeRuns) Retry(ctx context.Context, lease script.RunLease, cause string, backoff time.Duration) error {
+	if f.blocked() {
+		<-ctx.Done()
+		return fmt.Errorf("the database never answered: %w", ctx.Err())
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.held(lease); err != nil {
@@ -147,6 +159,18 @@ func (f *fakeRuns) PurgeRuns(_ context.Context, _ time.Duration) (int64, error) 
 	}
 	f.purged++
 	return 3, nil
+}
+
+func (f *fakeRuns) blocked() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.blockWrites
+}
+
+func (f *fakeRuns) claimCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.claims
 }
 
 func (f *fakeRuns) results() []script.RunResult {
@@ -386,8 +410,8 @@ func TestWorker_StartStopIsIdempotent(t *testing.T) {
 	w.Notify()
 	w.Notify() // a flurry coalesces
 	require.Eventually(t, func() bool { return len(runs.results()) == 1 }, 2*time.Second, 5*time.Millisecond)
-	w.Stop()
-	w.Stop()
+	w.Stop(ctx)
+	w.Stop(ctx)
 }
 
 func TestComputeBackoff_GrowsAndCaps(t *testing.T) {
@@ -417,29 +441,46 @@ func (b *blockingExecutor) execute(ctx context.Context, _ *script.Run, _ *script
 	}}
 }
 
-// TestWorker_ShutdownReleasesTheRunItWasHolding pins that stopping is prompt and
-// honest: the run in flight is canceled rather than waited out, and it goes
-// back on the queue rather than being recorded as failed, because a shutdown
-// decided nothing about it.
+// startHolding starts a worker over the given executor and waits until it has
+// claimed the queued run and entered execution.
+func startHolding(t *testing.T, w *worker, entered <-chan struct{}) {
+	t.Helper()
+	w.Start(context.Background())
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the worker never picked up the queued run")
+	}
+}
+
+// stopWithin stops the worker under a shutdown budget and fails if Stop does
+// not return inside limit.
+func stopWithin(t *testing.T, w *worker, budget, limit time.Duration) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+	stopped := make(chan struct{})
+	go func() { w.Stop(ctx); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-time.After(limit):
+		t.Fatal("Stop held the shutdown open past its budget")
+	}
+}
+
+// TestWorker_ShutdownReleasesTheRunItWasHolding pins the far end of the drain:
+// a run that outlasts the window is canceled rather than waited out, and it
+// goes back on the queue rather than being recorded as failed, because a
+// shutdown decided nothing about it.
 func TestWorker_ShutdownReleasesTheRunItWasHolding(t *testing.T) {
 	w, runs, _ := newTestWorker(t, nil, succeeded)
 	blocker := &blockingExecutor{entered: make(chan struct{})}
 	w.cfg.runner = blocker
+	startHolding(t, w, blocker.entered)
 
-	w.Start(context.Background())
-	select {
-	case <-blocker.entered:
-	case <-time.After(2 * time.Second):
-		t.Fatal("the worker never picked up the queued run")
-	}
-
-	stopped := make(chan struct{})
-	go func() { w.Stop(); close(stopped) }()
-	select {
-	case <-stopped:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Stop waited for the run instead of canceling it")
-	}
+	// A budget just past the reserve leaves a drain window of ~100ms, which
+	// this run cannot finish in.
+	stopWithin(t, w, releaseReserve+100*time.Millisecond, 2*time.Second)
 
 	assert.Empty(t, runs.results(), "a shutdown must not record a verdict on the run")
 	require.Len(t, runs.retried, 1)
@@ -449,4 +490,164 @@ func TestWorker_ShutdownReleasesTheRunItWasHolding(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, script.RunStatusPending, requeued.Status,
 		"another replica picks it up rather than waiting out the lease")
+}
+
+// TestWorker_ShutdownSpentItsBudgetReleasesImmediately covers the case where
+// the drain arrives with nothing left: waiting for a window that has already
+// closed would only push the release past the process's own deadline.
+func TestWorker_ShutdownSpentItsBudgetReleasesImmediately(t *testing.T) {
+	w, runs, _ := newTestWorker(t, nil, succeeded)
+	blocker := &blockingExecutor{entered: make(chan struct{})}
+	w.cfg.runner = blocker
+	startHolding(t, w, blocker.entered)
+
+	stopWithin(t, w, -time.Second, 2*time.Second)
+
+	require.Len(t, runs.retried, 1, "an exhausted budget releases rather than waits")
+}
+
+// finishingExecutor holds its run until the test releases it, standing in for a
+// run that lands just inside the drain window.
+type finishingExecutor struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (f *finishingExecutor) execute(ctx context.Context, _ *script.Run, _ *script.Script, _ *script.Version) attempt {
+	f.once.Do(func() { close(f.entered) })
+	select {
+	case <-f.release:
+		return succeeded
+	case <-ctx.Done():
+		return attempt{result: script.RunResult{Status: script.RunStatusFailed, Error: "context canceled"}}
+	}
+}
+
+// TestWorker_ShutdownLetsARunFinishInsideTheWindow is the near end of the same
+// drain, and the reason the window exists: a run seconds from done is worth
+// waiting for, because releasing it costs a replica the whole run again.
+func TestWorker_ShutdownLetsARunFinishInsideTheWindow(t *testing.T) {
+	w, runs, _ := newTestWorker(t, nil, succeeded)
+	finisher := &finishingExecutor{entered: make(chan struct{}), release: make(chan struct{})}
+	w.cfg.runner = finisher
+	startHolding(t, w, finisher.entered)
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		close(finisher.release)
+	}()
+	stopWithin(t, w, releaseReserve+2*time.Second, 4*time.Second)
+
+	assert.Empty(t, runs.retried, "a run that finished inside the window must not be requeued")
+	require.Len(t, runs.results(), 1)
+	assert.Equal(t, script.RunStatusSucceeded, runs.results()[0].Status)
+}
+
+// TestWorker_AClaimThatRacedTheStopIsReleasedNotExecuted covers the other edge
+// of "a draining worker stops claiming": the stop landed while a claim query
+// was already in flight, so the worker holds a run it has no window to execute.
+func TestWorker_AClaimThatRacedTheStopIsReleasedNotExecuted(t *testing.T) {
+	w, runs, exec := newTestWorker(t, nil, succeeded)
+	close(w.stopCh)
+
+	assert.False(t, w.processNext(w.runCtx), "the drain is over; nothing more is claimed")
+	assert.Zero(t, exec.called, "the drain window belongs to a run already executing")
+	require.Len(t, runs.retried, 1)
+	assert.Contains(t, runs.retried[0], "shut down")
+}
+
+// TestWorker_ARunThatSucceededAsTheCancelLandedIsRecorded covers the race at
+// the edge of the window: the interpreter reported success, so the run is done
+// and the cancel that arrived alongside it decided nothing. Releasing it would
+// re-execute a script that had already done its work.
+func TestWorker_ARunThatSucceededAsTheCancelLandedIsRecorded(t *testing.T) {
+	w, runs, _ := newTestWorker(t, nil, succeeded)
+	run, err := runs.Claim(context.Background(), w.id, time.Minute)
+	require.NoError(t, err)
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	w.resolve(canceled, run, succeeded)
+
+	assert.Empty(t, runs.retried)
+	require.Len(t, runs.results(), 1)
+	assert.Equal(t, script.RunStatusSucceeded, runs.results()[0].Status)
+}
+
+// TestWorker_StoppingWithNoRunInFlightDoesNotWait pins that the window belongs
+// to a run, not to the loop: a worker sitting in the queue's own calls has
+// nothing worth saving, and waiting it out would only delay the cancel that
+// unblocks those calls.
+func TestWorker_StoppingWithNoRunInFlightDoesNotWait(t *testing.T) {
+	w, runs, _ := newTestWorker(t, nil, succeeded)
+	runs.claimErr = errors.New("the database is not answering")
+	w.Start(context.Background())
+
+	// No deadline, so any wait would be the full cap.
+	start := time.Now()
+	w.Stop(context.Background())
+	assert.Less(t, time.Since(start), drainWindowCap, "an idle worker stops immediately")
+}
+
+// TestShutdownWrite_SurvivesTheCancelAndIsStillBounded pins both halves of the
+// contract for a write made while stopping: the run's cancellation must not
+// erase the record of what the run did, and the write must not be able to
+// spend the pod's whole termination grace period.
+func TestShutdownWrite_SurvivesTheCancelAndIsStillBounded(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	cancelParent()
+
+	ctx, cancel := shutdownWrite(parent)
+	defer cancel()
+
+	require.NoError(t, ctx.Err(), "a canceled run must still record what happened to it")
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok, "an unbounded write can outlive the process's own budget")
+	assert.LessOrEqual(t, time.Until(deadline), releaseReserve)
+}
+
+// TestWorker_ShutdownDoesNotHangOnAWedgedStore is the same contract from the
+// outside: the release write cannot reach the database, and the shutdown still
+// completes rather than holding the pod open until it is killed.
+func TestWorker_ShutdownDoesNotHangOnAWedgedStore(t *testing.T) {
+	w, runs, _ := newTestWorker(t, nil, succeeded)
+	runs.blockWrites = true
+	blocker := &blockingExecutor{entered: make(chan struct{})}
+	w.cfg.runner = blocker
+	startHolding(t, w, blocker.entered)
+
+	stopWithin(t, w, releaseReserve+100*time.Millisecond, releaseReserve+3*time.Second)
+}
+
+// TestDrainWindow_ComesFromTheCallersBudget pins how the window is derived: the
+// worker never spends time the process does not have, never spends the reserve
+// the release write needs, never takes more than its share of a budget the rest
+// of the lifecycle is also spending, and never holds a shutdown open for a
+// whole run.
+func TestDrainWindow_ComesFromTheCallersBudget(t *testing.T) {
+	assert.Equal(t, drainWindowCap, drainWindow(context.Background()),
+		"a caller with no deadline gets the cap")
+
+	generous, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+	assert.Equal(t, drainWindowCap, drainWindow(generous),
+		"a long budget is still capped, or a shutdown would wait out a run")
+
+	// Long enough that the cap does not bind, so the share does.
+	shared, cancelShared := context.WithTimeout(context.Background(), 4*drainWindowCap)
+	defer cancelShared()
+	assert.LessOrEqual(t, drainWindow(shared), 4*drainWindowCap/drainBudgetShare,
+		"the shutdown budget belongs to every component, not to this one")
+
+	tight, cancelTight := context.WithTimeout(context.Background(), releaseReserve+time.Second)
+	defer cancelTight()
+	window := drainWindow(tight)
+	assert.Positive(t, window)
+	assert.Less(t, window, time.Second+time.Millisecond,
+		"a tight budget keeps the reserve back for the release write")
+
+	spent, cancelSpent := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelSpent()
+	assert.Negative(t, drainWindow(spent), "a spent budget waits for nothing")
 }

@@ -714,6 +714,202 @@ kubectl rollout status deployment/mcp-data-platform -n mcp-data-platform
 kubectl get pods,hpa -n mcp-data-platform
 ```
 
+### Split deployment: portal and script workers
+
+Every replica of the deployment above serves traffic and executes queued
+[managed scripts](../scripts/running.md). That is the right shape until scripts
+start doing real work: the Starlark interpreter has no hard per-script memory
+cap, so a heavy approved script pushes on the memory of a pod that agents are
+also talking to, and execution capacity is tied to serving capacity even though
+the two scale on different signals.
+
+Splitting them changes one configuration key and adds one Deployment. Both use
+the same image and the same ConfigMap; nothing else about the platform differs
+between them.
+
+Make the switch an environment variable in the shared ConfigMap, so each
+deployment sets its own value:
+
+```yaml
+# In the ConfigMap's platform.yaml, alongside the other blocks.
+scripts:
+  worker:
+    # Serving pods set SCRIPTS_WORKER_ENABLED=false; worker pods set it true.
+    # Unset means enabled, which keeps the single-binary deployment unchanged.
+    enabled: ${SCRIPTS_WORKER_ENABLED:-true}
+```
+
+Then add the variable to the serving Deployment's container `env`:
+
+```yaml
+            - name: SCRIPTS_WORKER_ENABLED
+              value: "false"
+```
+
+And apply a second Deployment for the workers. It is the serving manifest with
+four changes: the name and labels, `SCRIPTS_WORKER_ENABLED=true`, more memory
+(a run holds its result set in the interpreter's heap), and no HPA, Service, or
+Ingress. It is the same binary and still starts the HTTP listener, so its
+health and metrics endpoints work as they do everywhere else; it takes its work
+from the database queue rather than from a request, so nothing needs to route
+to it.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-data-platform-scripts
+  namespace: mcp-data-platform
+  labels:
+    app.kubernetes.io/name: mcp-data-platform
+    app.kubernetes.io/component: script-worker
+spec:
+  # A replica executes one run at a time, so concurrency is the replica count.
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-data-platform
+      app.kubernetes.io/component: script-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcp-data-platform
+        app.kubernetes.io/component: script-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: mcp-data-platform
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-data-platform
+          image: ghcr.io/txn2/mcp-data-platform:v1.120.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config
+            - /etc/mcp-data-platform/platform.yaml
+            - --transport
+            - http
+            - --address
+            - :8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: SCRIPTS_WORKER_ENABLED
+              value: "true"
+            # A script's result set lives in the interpreter's heap, which has
+            # no hard cap, so give the worker room and tell the Go runtime
+            # where the ceiling is. GOMEMLIMIT is what makes the collector work
+            # against the limit instead of discovering it.
+            - name: GOMEMLIMIT
+              value: "900MiB"   # ~90% of limits.memory
+            - name: GOMAXPROCS
+              value: "1"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: OTEL_METRICS_ENABLED
+              value: "true"
+            - name: OTEL_METRICS_ADDR
+              value: ":9090"
+            - name: DATAHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-data-platform-secrets
+                  key: datahub-token
+            - name: OAUTH_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-data-platform-secrets
+                  key: oauth-signing-key
+            - name: KEYCLOAK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-data-platform-secrets
+                  key: keycloak-client-secret
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-data-platform-secrets
+                  key: encryption-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-data-platform-secrets
+                  key: database-url
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/mcp-data-platform
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: mcp-data-platform-config
+        - name: tmp
+          emptyDir: {}
+```
+
+Capacity, briefly. A worker executes one run at a time, so concurrent runs equal
+worker replicas: two replicas is enough for on-demand runs and a handful of
+schedules, and the signal to add more is queue wait — runs sitting `pending`
+while workers are busy — rather than CPU. Memory is the figure to set from
+measurement: give a worker the largest result set its approved scripts hold plus
+headroom, keep `GOMEMLIMIT` at about 90% of the limit, and remember that the
+approval gate is what decides how large that can get.
+
+The worker pods still expose `/healthz`, `/readyz`, and `/metrics`, which is what
+the probes and the Prometheus scrape above use. Rolling them is safe at any
+time: a draining worker stops claiming immediately, finishes the run it holds if
+the grace period allows, and otherwise releases it back onto the queue for
+another replica to pick up at once.
+
 ---
 
 ## Production Checklist

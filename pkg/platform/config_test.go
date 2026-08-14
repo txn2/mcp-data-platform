@@ -2221,6 +2221,40 @@ func TestConfigValidate_RejectsBadAuditDelivery(t *testing.T) {
 	}
 }
 
+// TestScriptsConfig_IsWorkerEnabled covers the switch that separates the
+// single-binary deployment from the split one: with no scripts block at all the
+// replica executes what it enqueues, and only an explicit false makes it a
+// serving-only replica whose runs another deployment claims.
+func TestScriptsConfig_IsWorkerEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		if !(&ScriptsConfig{}).IsWorkerEnabled() {
+			t.Error("expected an unset worker block to run the worker")
+		}
+	})
+	t.Run("explicit true", func(t *testing.T) {
+		if !(&ScriptsConfig{Worker: ScriptsWorkerConfig{Enabled: new(true)}}).IsWorkerEnabled() {
+			t.Error("expected explicit true to run the worker")
+		}
+	})
+	t.Run("explicit false", func(t *testing.T) {
+		if (&ScriptsConfig{Worker: ScriptsWorkerConfig{Enabled: new(false)}}).IsWorkerEnabled() {
+			t.Error("expected explicit false to leave the worker off")
+		}
+	})
+	t.Run("YAML scripts.worker.enabled false", func(t *testing.T) {
+		cfg := loadTestConfig(t, "server:\n  name: test-platform\nscripts:\n  worker:\n    enabled: false\n")
+		if cfg.Scripts.IsWorkerEnabled() {
+			t.Error("expected worker.enabled: false to leave the worker off")
+		}
+	})
+	t.Run("YAML without a scripts block", func(t *testing.T) {
+		cfg := loadTestConfig(t, "server:\n  name: test-platform\n")
+		if !cfg.Scripts.IsWorkerEnabled() {
+			t.Error("expected a missing scripts block to run the worker")
+		}
+	})
+}
+
 func TestWorkflowConfig_IsRequireSearchEnabled(t *testing.T) {
 	t.Run("nil defaults to true", func(t *testing.T) {
 		if !(&WorkflowConfig{}).IsRequireSearchEnabled() {
