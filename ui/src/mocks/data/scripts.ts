@@ -60,6 +60,13 @@ rows = platform.query(
 
 print("dormant accounts: %d" % len(rows["rows"]))
 platform.export(name="dormant-accounts", format="csv", rows=rows["rows"])
+platform.export(
+    name="dormant-accounts",
+    format="csv",
+    rows=rows["rows"],
+    destination="acme-crm-drop",
+    key="retention/dormant.csv",
+)
 `;
 
 export const mockScripts: Script[] = [
@@ -172,7 +179,7 @@ export const mockScriptVersions: Record<string, ScriptVersion[]> = {
         roles: ["analyst"],
         connections: ["acme-warehouse"],
         capabilities: ["platform.query", "platform.export"],
-        destinations: ["portal"],
+        destinations: [{ name: "portal", kind: "portal" }],
       },
       created_at: daysAgo(31),
     },
@@ -192,7 +199,7 @@ export const mockScriptVersions: Record<string, ScriptVersion[]> = {
         roles: ["analyst"],
         connections: ["acme-warehouse"],
         capabilities: ["platform.query", "platform.export"],
-        destinations: ["portal"],
+        destinations: [{ name: "portal", kind: "portal" }],
       },
       created_at: daysAgo(61),
     },
@@ -229,7 +236,7 @@ export const mockScriptVersions: Record<string, ScriptVersion[]> = {
         roles: ["data_engineer"],
         connections: ["acme-warehouse"],
         capabilities: ["platform.query", "platform.export"],
-        destinations: ["portal"],
+        destinations: [{ name: "portal", kind: "portal" }],
       },
       created_at: daysAgo(22),
     },
@@ -262,10 +269,13 @@ export const mockScriptReviewPayloads: Record<string, VersionReview> = {
     referenced: {
       capabilities: ["platform.query", "platform.export"],
       connections: ["acme-finance", "acme-warehouse"],
+      destinations: ["portal"],
       dynamic_connections: false,
+      dynamic_destinations: false,
     },
     missing_capabilities: ["platform.query", "platform.export"],
     missing_connections: ["acme-finance", "acme-warehouse"],
+    missing_destinations: ["portal"],
     approved: {
       version: 2,
       version_id: "sver-001-v2",
@@ -273,7 +283,7 @@ export const mockScriptReviewPayloads: Record<string, VersionReview> = {
         roles: ["analyst"],
         connections: ["acme-warehouse"],
         capabilities: ["platform.query", "platform.export"],
-        destinations: ["portal"],
+        destinations: [{ name: "portal", kind: "portal" }],
       },
       approved_by: "admin@acme.example.com",
       approved_at: daysAgo(30),
@@ -285,7 +295,9 @@ export const mockScriptReviewPayloads: Record<string, VersionReview> = {
     referenced: {
       capabilities: ["platform.query", "platform.export"],
       connections: ["acme-warehouse"],
+      destinations: ["portal"],
       dynamic_connections: false,
+      dynamic_destinations: false,
     },
   },
   "script-002/1": {
@@ -293,10 +305,13 @@ export const mockScriptReviewPayloads: Record<string, VersionReview> = {
     referenced: {
       capabilities: ["platform.query", "platform.export"],
       connections: ["acme-warehouse"],
+      destinations: ["acme-crm-drop", "portal"],
       dynamic_connections: false,
+      dynamic_destinations: false,
     },
     missing_capabilities: ["platform.query", "platform.export"],
     missing_connections: ["acme-warehouse"],
+    missing_destinations: ["acme-crm-drop", "portal"],
     findings: [
       {
         severity: "warning",
@@ -311,7 +326,9 @@ export const mockScriptReviewPayloads: Record<string, VersionReview> = {
     referenced: {
       capabilities: ["platform.query", "platform.export"],
       connections: ["acme-warehouse"],
+      destinations: ["portal"],
       dynamic_connections: false,
+      dynamic_destinations: false,
     },
   },
 };

@@ -20817,6 +20817,36 @@ const docTemplate = `{
                 }
             }
         },
+        "script.Destination": {
+            "type": "object",
+            "properties": {
+                "bucket": {
+                    "description": "Bucket is the bucket objects land in, empty for the portal.",
+                    "type": "string",
+                    "example": "acme-exports"
+                },
+                "connection": {
+                    "description": "Connection is the named platform S3 connection the object is written\nover, empty for the portal. It is also the name the authorization\nmiddleware checks independently when the write is issued, so a\ndestination whose connection the script's persona cannot reach is\nrefused a second time, by the authority of record.",
+                    "type": "string",
+                    "example": "acme-s3"
+                },
+                "kind": {
+                    "description": "Kind is one of DestinationKinds.",
+                    "type": "string",
+                    "example": "s3"
+                },
+                "name": {
+                    "description": "Name is what a script writes as destination=\"...\", unique within a grant.",
+                    "type": "string",
+                    "example": "acme-drop"
+                },
+                "prefix": {
+                    "description": "Prefix is the key prefix every object written here sits under, empty for\nthe portal and optional for a bucket. It is the boundary of the grant:\nthe script chooses a key beneath it and can never write outside it.",
+                    "type": "string",
+                    "example": "weekly"
+                }
+            }
+        },
         "script.Grants": {
             "type": "object",
             "properties": {
@@ -20835,10 +20865,10 @@ const docTemplate = `{
                     }
                 },
                 "destinations": {
-                    "description": "Destinations is the set of places the script may write output. An empty\nlist means the script may compute but not persist.",
+                    "description": "Destinations is the set of places the script may write output, each one a\nresolved address rather than a label. An empty list means the script may\ncompute but not persist.",
                     "type": "array",
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/script.Destination"
                     }
                 },
                 "roles": {
@@ -21196,7 +21226,7 @@ const docTemplate = `{
                 "destinations": {
                     "type": "array",
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/script.Destination"
                     }
                 }
             }
@@ -21265,8 +21295,18 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "destinations": {
+                    "description": "Destinations are the destination names the source writes to, with the\nportal counted for any export that names none, because that is where such\nan export lands.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "dynamic_connections": {
-                    "description": "DynamicConnections is true when at least one call computes its connection\ninstead of naming one, which makes the connection list incomplete — and\nmeans the grant cannot be checked against the code by reading it.",
+                    "description": "DynamicConnections is true when at least one call computes its connection\ninstead of naming one, and DynamicDestinations when one computes its\ndestination. Either makes that list incomplete — and means the grant\ncannot be checked against the code by reading it.",
+                    "type": "boolean"
+                },
+                "dynamic_destinations": {
                     "type": "boolean"
                 }
             }
@@ -21359,7 +21399,7 @@ const docTemplate = `{
                     }
                 },
                 "missing_capabilities": {
-                    "description": "MissingCapabilities and MissingConnections are what the code reaches for\nthat the current grant does not cover. On an unapproved version that is\neverything, which is the point: it is the grant a reviewer would have to\nbind for this code to work.",
+                    "description": "MissingCapabilities, MissingConnections and MissingDestinations are what\nthe code reaches for that the current grant does not cover. On an\nunapproved version that is everything, which is the point: it is the\ngrant a reviewer would have to bind for this code to work.",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -21371,8 +21411,14 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "missing_destinations": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "referenced": {
-                    "description": "Referenced is what a static read of the source says the script calls and\nwhich connections it names.",
+                    "description": "Referenced is what a static read of the source says the script calls,\nwhich connections it names, and where it writes.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/scripthttp.referenced"

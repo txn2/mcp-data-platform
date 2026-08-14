@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -72,7 +71,7 @@ func (r *runner) execute(ctx context.Context, run *script.Run, sc *script.Script
 	opts.Params = run.Params
 	opts.Caller = caller
 	opts.Grants = &grants
-	opts.Exporter = r.exporter(run, sc)
+	opts.Exporter = r.exporter(run, sc, caller)
 
 	result, runErr := scriptrun.Run(ctx, opts)
 	outcome := attemptFrom(result, runErr)
@@ -137,29 +136,22 @@ func (r *runner) connect(ctx context.Context, run *script.Run, sc *script.Script
 
 // exporter builds the output writer for one run.
 //
-// A deployment with no portal asset store or object storage cannot persist an
-// output, and an approved run that quietly previewed instead would be recorded
-// as a success that wrote nothing — a scheduled report whose asset never
-// appears, with a green run behind it. So the missing dependency becomes an
-// export that FAILS, which fails the run and says why. (A draft run still
-// previews: that is decided by the authoring path, which passes no exporter at
-// all.)
-func (r *runner) exporter(run *script.Run, sc *script.Script) scriptrun.Exporter {
+// An approved run always gets one, whatever this deployment can store. A
+// missing dependency is reported by the destination that needs it — a portal
+// output on a deployment with no asset store FAILS, and fails the run — rather
+// than by refusing every output up front, because a run that only delivers to a
+// granted bucket needs no portal at all. What must never happen is the third
+// option: an approved run that quietly previews and is recorded as a success
+// that wrote nothing.
+//
+// (A draft run still previews everywhere: that is decided by the authoring
+// path, which passes no exporter at all.)
+func (r *runner) exporter(run *script.Run, sc *script.Script, caller scriptrun.Caller) scriptrun.Exporter {
 	if !r.export.ready() {
-		slog.Warn("scripts: this deployment cannot persist script outputs; runs that export will fail",
+		slog.Warn("scripts: this deployment has no portal asset store or object storage; runs that write portal outputs will fail",
 			logKeyRunID, run.ID)
-		return unavailableExporter{}
 	}
-	return newOutputWriter(r.export, r.runs, run, sc)
-}
-
-// unavailableExporter refuses every output on a deployment with no asset store
-// or object storage configured.
-type unavailableExporter struct{}
-
-// Export always fails, naming what the deployment is missing.
-func (unavailableExporter) Export(context.Context, scriptrun.ExportRequest) (*scriptrun.ExportResult, error) {
-	return nil, errors.New("this deployment cannot persist script outputs: it has no portal asset store or object storage configured")
+	return newOutputWriter(r.export, r.runs, run, sc, caller)
 }
 
 // recordAudit writes the script_run lifecycle event.

@@ -159,6 +159,8 @@ These rows are what the portal's resource usage panel aggregates into 30- and 90
 
 Tool call arguments are logged for debugging and compliance. The `parameters` field stores those arguments verbatim (including complete SQL text and anything embedded in it), so treat it as sensitive.
 
+One bound applies before anything else: an argument value larger than 16KB is stored as `[TRUNCATED: <n> bytes]` rather than its content. An audit row records what was called, not what was carried — some tools take a payload as an argument (an object body written to storage, a file uploaded, a report a [managed script](../scripts/running.md) delivers on every scheduled fire), and storing those verbatim would put a second copy of that data in the audit table. A query, a prompt, or a path is far inside the bound and is recorded whole.
+
 A built-in baseline replaces the values of these well-known keys with `[REDACTED]` before storage:
 
 - `password`

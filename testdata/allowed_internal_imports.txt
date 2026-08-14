@@ -240,6 +240,7 @@ internal/platform/scriptexec -> internal/pglisten
 internal/platform/scriptexec -> internal/platform/scriptrun
 internal/platform/scriptexec -> internal/platform/scriptstore
 internal/platform/scriptexec -> pkg/audit
+internal/platform/scriptexec -> pkg/contenttype
 internal/platform/scriptexec -> pkg/middleware
 internal/platform/scriptexec -> pkg/notification
 internal/platform/scriptexec -> pkg/portal

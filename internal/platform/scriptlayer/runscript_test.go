@@ -65,7 +65,7 @@ func runnableHandle(t *testing.T, approve bool) (*Handle, *memStore, *stubRuns) 
 	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
 	require.NoError(t, err)
 	_, err = store.ApproveVersion(context.Background(), sc.ID, sc.Version, "admin@example.com",
-		script.Grants{Capabilities: script.Capabilities, Destinations: script.Destinations})
+		script.Grants{Capabilities: script.Capabilities, Destinations: []script.Destination{script.PortalDestination()}})
 	require.NoError(t, err)
 	return h, store, runs
 }

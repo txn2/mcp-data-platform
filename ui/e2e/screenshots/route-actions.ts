@@ -222,6 +222,28 @@ export async function openScriptFirstApproval(page: Page): Promise<void> {
   await page.waitForTimeout(600);
 }
 
+/**
+ * openScriptDeliveryGrant opens the drawer on a script that sends data out of
+ * the platform and fills in the address the reviewer is agreeing to. It is the
+ * sharpest decision the surface carries: a destination the code names has no
+ * meaning until a reviewer says which connection, bucket and prefix it resolves
+ * to, and until they do, approving is refused.
+ */
+export async function openScriptDeliveryGrant(page: Page): Promise<void> {
+  await openQueuedReview(page, "Dormant Accounts");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("acme-crm-drop connection").fill("acme-s3");
+  await dialog.getByLabel("acme-crm-drop bucket").fill("acme-exports");
+  await dialog.getByLabel("acme-crm-drop prefix").fill("retention");
+  const heading = dialog.getByText("Output destinations");
+  await heading.scrollIntoViewIfNeeded({ timeout: 3_000 });
+  // The editor sits below its own label, so stopping at the label leaves the
+  // address fields -- the whole subject of this capture -- below the fold.
+  await heading.hover();
+  await page.mouse.wheel(0, 200);
+  await page.waitForTimeout(600);
+}
+
 /** openQueuedReview clicks the Review button of one queue row by script name. */
 async function openQueuedReview(page: Page, script: string): Promise<void> {
   await page

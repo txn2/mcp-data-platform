@@ -83,7 +83,9 @@ function reviewPayload(overrides: Partial<VersionReview> = {}): VersionReview {
     referenced: {
       capabilities: ["platform.query", "platform.export"],
       connections: ["acme-finance", "acme-warehouse"],
+      destinations: ["portal"],
       dynamic_connections: false,
+      dynamic_destinations: false,
     },
     approved: {
       version: 2,
@@ -201,6 +203,47 @@ describe("AdminScriptsPage: the review", () => {
     expect(vars.grant.capabilities).toEqual(["platform.query"]);
   });
 
+  it("refuses to approve a destination that does not say where it writes", () => {
+    mockReview.mockReturnValue(
+      query(
+        reviewPayload({
+          referenced: {
+            capabilities: ["platform.query", "platform.export"],
+            connections: ["acme-finance", "acme-warehouse"],
+            destinations: ["acme-drop", "portal"],
+            dynamic_connections: false,
+            dynamic_destinations: false,
+          },
+        }),
+      ),
+    );
+    const dialog = openReview();
+    expect(within(dialog).getByText("Needs an address")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Approve/ })).toBeDisabled();
+    expect(within(dialog).getByText(/Say where acme-drop writes/)).toBeInTheDocument();
+
+    // Filling in the address is what clears the refusal, and the approval
+    // carries what the reviewer typed.
+    fireEvent.change(within(dialog).getByLabelText("acme-drop connection"), {
+      target: { value: "acme-s3" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("acme-drop bucket"), {
+      target: { value: "acme-exports" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("acme-drop prefix"), {
+      target: { value: "weekly" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Approve/ }));
+
+    const [vars] = approveMutate.mock.calls[0] as [
+      { grant: { destinations: { name: string; bucket?: string; prefix?: string }[] } },
+    ];
+    expect(vars.grant.destinations).toEqual([
+      { name: "acme-drop", kind: "s3", connection: "acme-s3", bucket: "acme-exports", prefix: "weekly" },
+      { name: "portal", kind: "portal" },
+    ]);
+  });
+
   it("keeps a part-edited grant when the review is refetched underneath it", () => {
     const { rerender } = render(<AdminScriptsPage />);
     fireEvent.click(screen.getByRole("button", { name: "Review" }));
@@ -268,7 +311,9 @@ describe("AdminScriptsPage: the review", () => {
           referenced: {
             capabilities: ["platform.query"],
             connections: [],
+            destinations: [],
             dynamic_connections: true,
+            dynamic_destinations: false,
           },
         }),
       ),

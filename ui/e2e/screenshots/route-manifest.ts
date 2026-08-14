@@ -6,6 +6,7 @@ import {
   openPersonaScopeTab,
   openResourceDetail,
   openResourceLifecycle,
+  openScriptDeliveryGrant,
   openScriptFirstApproval,
   openScriptReview,
   openScriptAlertSettings,
@@ -511,6 +512,14 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/admin/scripts",
     category: "admin",
     beforeCapture: openScriptFirstApproval,
+  },
+  {
+    // The delivery grant: a script that sends data out of the platform, and the
+    // address a reviewer has to supply before approving it (#1288).
+    slug: "admin-script-delivery-grant",
+    path: "/portal/admin/scripts",
+    category: "admin",
+    beforeCapture: openScriptDeliveryGrant,
   },
 
   // =========================================================================

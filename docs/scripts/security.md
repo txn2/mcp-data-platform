@@ -10,12 +10,14 @@ managed-scripts surface updates it in the same change.
 Every claim below carries a package or file citation a reviewer can check
 against the source. Where a protection does not exist, this document says so.
 
-Reviewed at the state of the tree that introduced the review surface: the queue
-of versions awaiting a decision, the capability and code diffs a reviewer reads
-before approving, the rejection of a pending draft, and the alert an unworked
-queue raises. The revisions before it introduced the script domain and the
-authoring loop, then approved execution — the capability grant, the script
-principal, the run queue, and `run_script` — then worker mode, then cron
+Reviewed at the state of the tree that introduced external delivery: an approved
+version may write output to a bucket an operator configured, at an address bound
+to the version by its approval. The revision before it introduced the review
+surface — the queue of versions awaiting a decision, the capability and code
+diffs a reviewer reads, the rejection of a pending draft, and the alert an
+unworked queue raises — and the ones before that the script domain and the
+authoring loop, then approved execution (the capability grant, the script
+principal, the run queue, and `run_script`), then worker mode, then cron
 scheduling.
 
 ## What a managed script is
@@ -43,9 +45,12 @@ The state of the feature at this revision:
   a run row, and the same worker executes it under the same grant. There is
   still no scheduler process, and a schedule grants nothing (see
   [Schedules](#schedules-cadence-and-nothing-else)).
-- An approved run **writes**: `platform.export` persists a portal asset version.
-  A draft run still writes nothing — it reports the shape an output would have
-  (`internal/platform/scriptrun/host.go`, `hostState.export`,
+- An approved run **writes**: `platform.export` persists a portal asset version,
+  or — where the approval bound a bucket destination — delivers the same bytes
+  to an operator-configured bucket (see
+  [Delivery: leaving the platform](#delivery-leaving-the-platform)). A draft run
+  still writes nothing wherever it is addressed: it reports the shape an output
+  would have (`internal/platform/scriptrun/host.go`, `hostState.export`,
   `persistOrPreview`).
 
 ## The claim this feature makes about authority
@@ -112,6 +117,7 @@ behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
 | Data reachable through `platform.query` | Whatever the running identity's persona and connections allow |
 | Run records (`script_runs`) | Parameters, timings, output ids, and the log a run printed; readable by anyone who can see the script |
 | Output assets | Portal assets a run writes, with the script principal as owner and the script's owner as the accountable person |
+| Delivered objects | Data an approved run writes out of the platform, into the bucket and prefix its grant names, where the platform's own access controls no longer apply |
 | Run logs | Bounded free text a script chooses to emit; may echo queried data |
 | Connection credentials | Never reachable from a script; held by the platform and used by the toolkit |
 
@@ -121,7 +127,7 @@ behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
 |---|---|
 | Script author (any authenticated caller) | Creates and edits their own personal scripts; runs drafts as themselves |
 | Admin persona | The above at every scope, plus scope and lifecycle changes |
-| Reviewer (admin portal or API) | Approves a version, binding the connections, capabilities, and destinations it may use, and rejects a pending draft; cannot widen its authority beyond the version author's roles |
+| Reviewer (admin portal or API) | Approves a version, binding the connections and capabilities it may use and the addresses its output may be written to, and rejects a pending draft; cannot widen its authority beyond the version author's roles |
 | Schedule owner (owner or admin) | Sets the cadence, timezone, and bound parameters of a script's schedule, and turns it on or off; grants nothing |
 | Script principal (`script:<name>`) | Exists only inside an approved run; holds the grant bound at approval and nothing else |
 | The script itself | Only the host functions listed below, only through the running identity |
@@ -157,6 +163,7 @@ graph LR
         SESSION --> MW[middleware chain<br/>auth / authz / rate limit / audit]
         MW --> TRINO[query toolkit]
         MW --> ASSETS[portal assets + object storage]
+        MW --> DROP[granted bucket<br/>operator-configured connection]
     end
 ```
 
@@ -166,7 +173,8 @@ else; the gate and the grant still decide what that row may execute.
 Two boundaries matter. The first is between the interpreter and the platform: a
 script reaches the outside world only by calling a host function, and every host
 function crosses the middleware chain as the running identity. There is no other
-edge out of the interpreter.
+edge out of the interpreter — including the delivery edge, which is a tool call
+on an operator-configured connection like any other.
 
 The second is the execution gate. Everything to the left of it is authoring,
 where a script is inert; everything to the right runs with nobody watching. One
@@ -333,7 +341,7 @@ A grant is bound to a version at approval and carries four lists
 | `roles` | The authority the run presents. Copied from the version's author; not accepted from the approval request | The authorization middleware, which resolves them to a persona exactly as for a person |
 | `connections` | Which named connections the script may query | The host facade, and independently the persona's connection rules |
 | `capabilities` | Which host bindings the script may call | The host facade |
-| `destinations` | Where output may be written | The host facade |
+| `destinations` | Where output may be written, each one a resolved address rather than a label | The host facade, and — for a destination outside the platform — independently the persona's connection rules |
 
 Three properties are deliberate:
 
@@ -346,6 +354,12 @@ Three properties are deliberate:
   would resolve to whichever connection the deployment defaults to, which is a
   connection no approval named and which can change underneath an approved
   script (`hostState.allowConnection`).
+- **A destination carries its address.** A grant that recorded only the name a
+  script writes would leave what that name means in configuration the reviewer
+  cannot see at approval time, and an operator could repoint it afterwards
+  without anyone approving anything. The connection, bucket, and prefix are
+  bound to the version (`pkg/script/destination.go`), so repointing a
+  destination is a new grant and a new approval.
 
 Enforcement is layered, and neither layer is load-bearing alone. The host facade
 refuses an ungranted call inside the interpreter, with a message naming what was
@@ -359,6 +373,75 @@ An approval is also refused when the grant does not cover what a static read of
 the source shows the code calling (`internal/httpserver/scripthttp`,
 `refuseUnreachableGrant`): approving a script that will refuse itself on its
 first query is not a governance decision anybody meant to make.
+
+### Delivery: leaving the platform
+
+A version approved with a bucket destination may write output to a bucket an
+operator configured. It is the sharpest data-movement surface in the feature,
+which is why it lands after the review surface: no destination grant can exist
+without having passed a capability diff a human read.
+
+**There is no arbitrary egress to have.** A script names a destination and
+nothing else: it supplies no endpoint, no credential, no bucket, and no host
+name, and there is no host binding that opens a socket. The only network a
+script can reach is the set of connections the operator configured the platform
+with, and within that set, only the one its approval named. A script cannot
+address a bucket the platform does not already hold credentials for, because
+there is nowhere in the language or the grant to put such an address.
+
+The write itself is **one ordinary platform tool call** — `s3_put_object` over
+the run's own in-memory MCP session (`internal/platform/scriptexec/deliver.go`)
+— rather than a private route to object storage. That is what makes the second
+enforcement layer real rather than claimed:
+
+- the **facade** refuses a destination the version's grant does not name, inside
+  the interpreter, before anything is issued (`hostState.resolveDestination`);
+- the **middleware** then authorizes that call against the persona the script's
+  roles resolve to, exactly as it would for a person, so a destination whose
+  connection that persona does not hold is refused even though the grant named
+  it. The middleware is the authority of record either way.
+
+Both are proved by removing one at a time
+(`internal/platform/scriptlayer/execution_integration_test.go`,
+`TestIntegration_UndeclaredDestinationIsRefusedAtBothLayers`).
+
+Three further properties bound what a delivery can do:
+
+- **The prefix is the boundary.** The script chooses the object key beneath the
+  granted prefix; a key that is absolute, contains `..`, or is otherwise shaped
+  to climb out of the prefix is refused rather than cleaned up and written
+  somewhere else (`pkg/script.ValidateObjectKey`). Refusing rather than
+  rewriting is deliberate: a traversal quietly normalized away is a refusal
+  nobody was told about.
+- **Exactly once per run, per destination, and one object per key.** An output
+  name may be written once to each destination, so one result can refresh a
+  portal asset and be delivered to a bucket, while a second write to the same
+  place fails rather than silently keeping one of two results. Two outputs may
+  not land on one object either — distinct names can produce one key, and one
+  key can simply be named twice — because the second write would replace the
+  first in a bucket the platform cannot read back while the run recorded both as
+  delivered (`internal/platform/scriptexec/export.go`, `refuseRepeat`;
+  `deliver.go`, `objectAddress`). A run reclaimed after its worker died does not
+  deliver a second time: each output is recorded as it lands.
+- **Every delivery is audited** under the script principal, on the connection it
+  wrote over, in the run's session — the same rows every other capability call
+  writes — and recorded on the run with its destination, bucket, key, and size.
+  The audited arguments record the address, not the payload: an argument value
+  over 16KB is stored as its size instead of its content
+  (`pkg/middleware/mcp_audit.go`, `boundValue`), so a delivered report does not
+  put a second copy of itself in the audit table on every scheduled fire.
+- **The destination and the key must be NAMED arguments.** A destination passed
+  by position would be invisible to the static read the capability diff is built
+  from, and the review surface would then state positively that a script writing
+  to a bucket writes to the portal. Both the validator and the engine refuse the
+  shape, because a capability diff that is quietly wrong is worse than one that
+  is refused.
+
+The residual exposure is the one the approval exists to weigh: an approved
+script delivers the data its query returns to the place its grant names, on
+whatever cadence its schedule fires, until someone changes it. That is the
+feature, and the control on it is the capability diff a reviewer reads before
+binding the destination.
 
 ### The script principal
 
@@ -463,6 +546,14 @@ Two kinds of row, joined by one key:
 
 Both carry the run id as their session id, so a run and every call it made join
 on one key. Audit failures are logged and never fail a run.
+
+The arguments an audit row captures are bounded: a value over 16KB is stored as
+its size rather than its content (`pkg/middleware/mcp_audit.go`, `boundValue`).
+An audit row records what was called, not what was carried, and without the
+bound a script delivering a report would write a copy of that report into the
+audit table on every fire — a second copy of data whose access is governed
+somewhere else. A query, a prompt, or a path is far inside the bound and is
+recorded whole.
 
 ### The language is the sandbox
 
@@ -644,7 +735,12 @@ retrying only multiplies the cost).
 | A run executes a version whose approval has moved | The gate is re-read at execution, not trusted from the queue row | `pkg/script/run.go`, `RefuseRun` |
 | A retired script keeps executing on a queued run | Disabled, deprecated, and superseded are each refused by the same gate | `RefuseRun` |
 | A crashed worker's run is executed twice concurrently | Lease-based claiming, with every write fenced on the lease it was taken under | `runs.go`, `Claim`, `leaseClause` |
-| A reclaimed run writes its output twice | The run records each output as it lands; a reclaimed run skips what it wrote | `scriptexec/export.go` |
+| A reclaimed run writes its output twice | The run records each output as it lands, keyed by output AND destination; a reclaimed run skips what it wrote | `scriptexec/export.go`, `alreadyWritten` |
+| A script sends data to a bucket nobody approved | The grant refuses the destination in the interpreter, and the persona refuses the connection in the middleware | `host.go`, `resolveDestination`; `pkg/persona/filter.go` |
+| A script addresses a bucket, endpoint, or credential of its own | There is no argument for one: a script names a granted destination, and the address comes from the approval | `pkg/script/destination.go` |
+| An approved destination is repointed at another bucket without review | The connection, bucket, and prefix are bound to the version, and the review diff is taken over the address, not the name | `scriptGrants.ts`, `destinationKey` |
+| A key climbs out of the prefix a destination was granted | An absolute key, a `..` segment, or an empty segment is refused rather than normalized away | `pkg/script.ValidateObjectKey` |
+| A delivery leaves no trace | Each delivery is one audited tool call under the script principal, and is recorded on the run with its destination, bucket, key, and size | `scriptexec/deliver.go` |
 | A transient fault silently replays a script that already wrote | Retry is classified by where the failure happened; nothing the interpreter reports is retried | `scriptexec/worker.go` |
 | A caller reads the runs of a script they cannot see | Run reads apply the script's own visibility rule, and answer the same way for "not yours" and "no such run" | `scriptlayer/runs.go`, `readableRunScript` |
 | A script escapes the interpreter | No IO, filesystem, network, or module system is predeclared | `scriptrun.go`, `predeclared` |
@@ -683,7 +779,11 @@ retrying only multiplies the cost).
   can see a script can run it, and it runs with its own authority. Scope is the
   control, and it is part of what a reviewer approves.
 - **No content sanitization of outputs.** A run writes what the script produced;
-  nothing inspects it for sensitive values before it becomes an asset.
+  nothing inspects it for sensitive values before it becomes an asset or an
+  object delivered to a bucket.
+- **Delivered data is out of the platform's hands.** Once an object lands in a
+  granted bucket, who reads it is that bucket's policy, not the platform's. The
+  control is the approval that named the bucket.
 - **The secret scan is not a proof.** It recognizes known credential shapes.
 - **No content sanitization.** Data returned by a query and printed into a log
   is not scanned for anything.
@@ -739,15 +839,31 @@ retrying only multiplies the cost).
    review to change a report from daily to weekly would be theatre), and the
    compensating visibility is that a schedule is listed with the script, its
    missed fires are on the row, and each fire is a run in the history.
-7. **A computed connection is not statically knowable.** `validate` reports
-   `dynamic_connections` when a `platform.query` call computes its connection
-   instead of naming one, so a reviewer is told the list is incomplete rather
-   than shown a list that quietly omits it.
+7. **A computed connection or destination is not statically knowable.**
+   `validate` reports `dynamic_connections` when a `platform.query` call
+   computes its connection instead of naming one, and `dynamic_destinations`
+   when a `platform.export` call computes its destination, so a reviewer is told
+   the list is incomplete rather than shown a list that quietly omits an entry.
+   The grant is still enforced at run time against whatever the call computes,
+   so an unlisted name is refused; what the reviewer loses is the ability to
+   read the full set before approving.
+
+8. **Delivery is standing egress on a schedule.** An approved script that
+   delivers to a bucket keeps delivering, every fire, until someone changes it,
+   and once an object lands the platform's access controls no longer govern who
+   reads it. Nothing here is accidental — the destination is pinned to the
+   version, the persona must hold the connection, and every delivery is audited
+   — but the decision a reviewer makes when they bind a bucket destination is
+   about a recurring flow of data out of the platform, not a single write. The
+   compensating visibility is that the destination's full address is on the
+   version, every delivered object is on the run record, and re-pointing it
+   requires approving again.
 
 ## Maintenance contract
 
 This document is revised in the same change as the code, not afterwards. Any
 change that adds a host function, changes a limit, changes what identity a run
-carries, adds an execution path, changes the grant model, or changes the
-approval model must update the corresponding section here. A change to the managed-scripts surface
+carries, adds an execution path, changes the grant model, changes where output
+may go, or changes the approval model must update the corresponding section
+here. A change to the managed-scripts surface
 that leaves this document untouched is incomplete.

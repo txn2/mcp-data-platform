@@ -174,7 +174,8 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 }
 
 // fullGrantBody is a request covering everything the script reaches for.
-const fullGrantBody = `{"connections":["warehouse"],"capabilities":["platform.query","platform.export"],"destinations":["portal"]}`
+const fullGrantBody = `{"connections":["warehouse"],"capabilities":["platform.query","platform.export"],` +
+	`"destinations":[{"name":"portal","kind":"portal"}]}`
 
 func TestListScripts(t *testing.T) {
 	rec := serve(t, newStore(), http.MethodGet, "/api/v1/admin/scripts", "")
@@ -231,8 +232,12 @@ func TestGetVersion_ShowsWhatTheCodeReachesForAndWhatIsMissing(t *testing.T) {
 	assert.ElementsMatch(t, []any{"platform.query", "platform.export"}, referenced["capabilities"])
 	assert.Equal(t, []any{"warehouse"}, referenced["connections"])
 	assert.Equal(t, false, referenced["dynamic_connections"])
+	assert.Equal(t, []any{"portal"}, referenced["destinations"],
+		"an export naming no destination writes to the portal")
+	assert.Equal(t, false, referenced["dynamic_destinations"])
 	assert.ElementsMatch(t, []any{"platform.query", "platform.export"}, body["missing_capabilities"])
 	assert.Equal(t, []any{"warehouse"}, body["missing_connections"])
+	assert.Equal(t, []any{"portal"}, body["missing_destinations"])
 }
 
 func TestGetVersion_NotFound(t *testing.T) {
@@ -273,6 +278,40 @@ func TestApproveVersion_BindsTheGrantAndTheAuthorsRoles(t *testing.T) {
 	assert.Empty(t, store.grants.Roles, "the handler never sends roles for the store to trust")
 }
 
+// TestApproveVersion_BindsADestinationsAddress is what makes a delivery grant
+// mean something: the approval records the connection, bucket and prefix, so
+// what the reviewer agreed to cannot be repointed underneath the script.
+func TestApproveVersion_BindsADestinationsAddress(t *testing.T) {
+	store := newStore()
+	body := `{"connections":["warehouse"],"capabilities":["platform.query","platform.export"],` +
+		`"destinations":[{"name":"portal","kind":"portal"},` +
+		`{"name":"acme-drop","kind":"s3","connection":"acme-s3","bucket":"acme-exports","prefix":"/weekly/"}]}`
+	rec := serve(t, store, http.MethodPost,
+		"/api/v1/admin/scripts/script_1/versions/1/approve", body)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	require.Len(t, store.grants.Destinations, 2)
+	delivered := store.grants.Destinations[1]
+	assert.Equal(t, "acme-drop", delivered.Name)
+	assert.Equal(t, "acme-s3", delivered.Connection)
+	assert.Equal(t, "acme-exports", delivered.Bucket)
+	assert.Equal(t, "weekly", delivered.Prefix,
+		"a prefix is stored in one form, or the next version's diff reports a widening that never happened")
+}
+
+// TestApproveVersion_ReadsADestinationRecordedByNameAlone covers the request
+// shape a client written before delivery existed still sends. The portal was
+// the only destination then, so the older form is unambiguous.
+func TestApproveVersion_ReadsADestinationRecordedByNameAlone(t *testing.T) {
+	store := newStore()
+	body := `{"connections":["warehouse"],"capabilities":["platform.query","platform.export"],"destinations":["portal"]}`
+	rec := serve(t, store, http.MethodPost,
+		"/api/v1/admin/scripts/script_1/versions/1/approve", body)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Len(t, store.grants.Destinations, 1)
+	assert.Equal(t, script.PortalDestination(), store.grants.Destinations[0])
+}
+
 // TestApproveVersion_RefusesAGrantTheCodeWouldOutrun is the reviewer's safety
 // net: approving a script that will refuse itself on its first query is not a
 // decision anybody meant to make.
@@ -289,8 +328,13 @@ func TestApproveVersion_RefusesAGrantTheCodeWouldOutrun(t *testing.T) {
 		},
 		{
 			name:    "connection missing",
-			body:    `{"capabilities":["platform.query","platform.export"],"destinations":["portal"]}`,
+			body:    `{"capabilities":["platform.query","platform.export"],"destinations":[{"name":"portal","kind":"portal"}]}`,
 			wantErr: "connections this version queries: warehouse",
+		},
+		{
+			name:    "destination missing",
+			body:    `{"connections":["warehouse"],"capabilities":["platform.query","platform.export"]}`,
+			wantErr: "destinations this version writes to: portal",
 		},
 	}
 	for _, tt := range tests {

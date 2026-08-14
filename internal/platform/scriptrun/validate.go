@@ -11,6 +11,8 @@ import (
 	"go.starlark.net/resolve"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
+
+	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 // Finding severities. An error means the script cannot run as written; a
@@ -37,18 +39,22 @@ type Finding struct {
 type Report struct {
 	OK       bool      `json:"ok"`
 	Findings []Finding `json:"findings"`
-	// Capabilities is the set of host bindings the source references, and
-	// Connections the connection names it names literally. Together they are
-	// the raw material for the grants diff a reviewer will be shown: what the
-	// code reaches, next to what it was granted.
+	// Capabilities is the set of host bindings the source references,
+	// Connections the connection names it names literally, and Destinations
+	// the output destinations it names literally. Together they are the raw
+	// material for the grants diff a reviewer will be shown: what the code
+	// reaches, next to what it was granted.
 	Capabilities []string `json:"capabilities"`
 	Connections  []string `json:"connections"`
+	Destinations []string `json:"destinations"`
 	// DynamicConnections is true when a platform.query call computes its
-	// connection instead of naming one literally, so the connection list is
-	// known to be incomplete. Reporting the gap is the point: a reviewer
-	// reading a list that silently omitted a computed connection would be
-	// reading a false statement.
-	DynamicConnections bool `json:"dynamic_connections"`
+	// connection instead of naming one literally, and DynamicDestinations when
+	// a platform.export call computes its destination, so the list in question
+	// is known to be incomplete. Reporting the gap is the point: a reviewer
+	// reading a list that silently omitted a computed name would be reading a
+	// false statement.
+	DynamicConnections  bool `json:"dynamic_connections"`
+	DynamicDestinations bool `json:"dynamic_destinations"`
 }
 
 // hasErrors reports whether any finding blocks execution.
@@ -62,7 +68,7 @@ func hasErrors(findings []Finding) bool {
 // specific correction, and the capability set is extracted for review — all
 // without a query running or a row moving.
 func Validate(source string) Report {
-	report := Report{Capabilities: []string{}, Connections: []string{}}
+	report := Report{Capabilities: []string{}, Connections: []string{}, Destinations: []string{}}
 	findings := scanSource(source)
 
 	file, parseErr := fileOptions.Parse("script", source, 0)
@@ -76,7 +82,9 @@ func Validate(source string) Report {
 	found := inspect(file)
 	findings = append(findings, found.findings...)
 	report.Capabilities, report.Connections = found.capabilities, found.connections
-	report.DynamicConnections = found.dynamic
+	report.Destinations = found.destinations
+	report.DynamicConnections = found.dynamicConnections
+	report.DynamicDestinations = found.dynamicDestinations
 
 	if _, resolveErr := starlark.FileProgram(file, isPredeclaredName); resolveErr != nil {
 		findings = append(findings, translate(resolveFindings(resolveErr))...)
@@ -300,19 +308,22 @@ func lineOf(source string, off int) int {
 // inspection is what one walk of a parsed file learns about what the script
 // would reach.
 type inspection struct {
-	capabilities []string
-	connections  []string
-	dynamic      bool
-	findings     []Finding
+	capabilities        []string
+	connections         []string
+	destinations        []string
+	dynamicConnections  bool
+	dynamicDestinations bool
+	findings            []Finding
 }
 
 // inspect walks the parsed file for what the script would reach: which host
-// bindings it names, and which connections it names literally.
+// bindings it names, which connections it queries, and where it writes.
 func inspect(file *syntax.File) inspection {
 	var findings []Finding
-	var dynamic bool
+	var dynamicConnections, dynamicDestinations bool
 	capSet := map[string]bool{}
 	connSet := map[string]bool{}
+	destSet := map[string]bool{}
 
 	syntax.Walk(file, func(n syntax.Node) bool {
 		call, ok := n.(*syntax.CallExpr)
@@ -337,45 +348,104 @@ func inspect(file *syntax.File) inspection {
 			return true
 		}
 		capSet[name] = true
-		if name == CapabilityQuery {
-			collectConnection(call, connSet, &dynamic)
+		switch name {
+		case CapabilityQuery:
+			collectKeyword(call, "connection", connSet, &dynamicConnections)
+		case CapabilityExport:
+			if f, ok := refusePositionalDestination(call, int(dot.NamePos.Line)); ok {
+				// The engine refuses the call for the same reason, so reporting
+				// it here rather than reading past it keeps validate's answer
+				// and the run's behavior the same answer.
+				findings = append(findings, f)
+				break
+			}
+			collectExportDestination(call, destSet, &dynamicDestinations)
 		}
 		return true
 	})
 
 	return inspection{
-		capabilities: sortedNames(capSet),
-		connections:  sortedNames(connSet),
-		dynamic:      dynamic,
-		findings:     findings,
+		capabilities:        sortedNames(capSet),
+		connections:         sortedNames(connSet),
+		destinations:        sortedNames(destSet),
+		dynamicConnections:  dynamicConnections,
+		dynamicDestinations: dynamicDestinations,
+		findings:            findings,
 	}
 }
 
-// collectConnection records the connection a platform.query call names, or
-// marks the call as computing one.
-func collectConnection(call *syntax.CallExpr, connSet map[string]bool, dynamic *bool) {
+// refusePositionalDestination reports a platform.export call that passes its
+// destination or key by position rather than by name.
+//
+// It is an error rather than a note because of what the alternative costs: this
+// validator reads keyword arguments, so a positional destination would be
+// invisible to it, and the review surface would state positively that a script
+// writing to a bucket writes to the portal. A wrong statement in a capability
+// diff is worse than no statement, so the shape that produces one is refused —
+// by the engine at run time and here, in the same words.
+func refusePositionalDestination(call *syntax.CallExpr, line int) (Finding, bool) {
+	positional := 0
+	for _, arg := range call.Args {
+		if bin, ok := arg.(*syntax.BinaryExpr); ok && bin.Op == syntax.EQ {
+			continue
+		}
+		positional++
+	}
+	if positional <= exportPositionalArgs {
+		return Finding{}, false
+	}
+	return Finding{
+		Severity: SeverityError, Line: line,
+		Message: "platform.export takes at most three positional arguments",
+		Hint: "Pass destination and key by name: platform.export(name, rows, format=\"csv\", destination=\"acme-drop\", key=\"2026/08/sales.csv\"). " +
+			"Where a script writes has to be readable from its source, and a positional destination is not.",
+	}, true
+}
+
+// collectExportDestination records where one platform.export call writes. A
+// call naming no destination writes to the portal, which is the default the
+// engine applies, so the reviewer is shown the same destination the run will
+// use rather than an empty list that reads as "writes nowhere".
+//
+// Whether the call named one is read from the CALL, never inferred from whether
+// the set grew: a second export to a destination already in the set adds
+// nothing to it, and reading that as "this one defaulted" would report a portal
+// write no line of the script performs — and then refuse the approval for not
+// granting it.
+func collectExportDestination(call *syntax.CallExpr, destSet map[string]bool, dynamic *bool) {
+	if !collectKeyword(call, "destination", destSet, dynamic) {
+		destSet[script.DestinationPortal] = true
+	}
+}
+
+// collectKeyword records the literal string a call passes for one keyword
+// argument, or marks the call as computing it. It reports whether the call
+// carried the keyword at all, which is a different question from whether it
+// contributed a new name.
+func collectKeyword(call *syntax.CallExpr, keyword string, into map[string]bool, dynamic *bool) bool {
 	for _, arg := range call.Args {
 		bin, ok := arg.(*syntax.BinaryExpr)
 		if !ok || bin.Op != syntax.EQ {
 			continue
 		}
 		key, ok := bin.X.(*syntax.Ident)
-		if !ok || key.Name != "connection" {
+		if !ok || key.Name != keyword {
 			continue
 		}
 		lit, ok := bin.Y.(*syntax.Literal)
 		if !ok {
 			*dynamic = true
-			return
+			return true
 		}
 		s, ok := lit.Value.(string)
 		if !ok {
 			*dynamic = true
-			return
+			return true
 		}
-		connSet[s] = true
-		return
+		into[s] = true
+		return true
 	}
+	return false
 }
 
 // sortedNames returns a set's members in sorted order, never nil, so the report

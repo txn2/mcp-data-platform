@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 // findingFor returns the first finding whose message contains want.
@@ -32,6 +34,35 @@ print(json.encode({"n": res["row_count"]}))
 	assert.Equal(t, []string{CapabilityQuery, CapabilityExport}, sortedByCapabilityOrder(report.Capabilities))
 	assert.Equal(t, []string{"warehouse"}, report.Connections)
 	assert.False(t, report.DynamicConnections)
+	assert.Equal(t, []string{script.DestinationPortal}, report.Destinations,
+		"an export naming no destination writes to the portal, and the reviewer is shown that")
+	assert.False(t, report.DynamicDestinations)
+}
+
+// TestValidate_ReportsWhereAScriptWrites is the raw material for the half of
+// the capability diff that matters most: a reviewer must be able to read every
+// place this code sends data before agreeing to it.
+func TestValidate_ReportsWhereAScriptWrites(t *testing.T) {
+	report := Validate(`
+platform.export(name="a", rows=[])
+platform.export(name="b", rows=[], destination="acme-drop", key="2026/sales.csv")
+`)
+	assert.True(t, report.OK, report.Findings)
+	assert.Equal(t, []string{"acme-drop", script.DestinationPortal}, report.Destinations)
+	assert.False(t, report.DynamicDestinations)
+}
+
+// TestValidate_DynamicDestinationIsReported states the gap rather than hiding
+// it: a computed destination cannot be read statically, so the list is known to
+// be incomplete and a reviewer must be told rather than shown a false one.
+func TestValidate_DynamicDestinationIsReported(t *testing.T) {
+	report := Validate(`
+where = "acme-" + "drop"
+platform.export(name="a", rows=[], destination=where)
+`)
+	assert.True(t, report.DynamicDestinations)
+	assert.Empty(t, report.Destinations,
+		"a computed destination is not silently reported as the portal")
 }
 
 // sortedByCapabilityOrder puts a capability set in the canonical order so the
@@ -206,4 +237,33 @@ func TestIsPredeclaredName(t *testing.T) {
 		assert.True(t, isPredeclaredName(name), name)
 	}
 	assert.False(t, isPredeclaredName("time"))
+}
+
+// TestValidate_RepeatedDestinationIsNotAPortalDefault covers the misreading a
+// set-growth heuristic produces: a second export to a destination already seen
+// adds nothing to the set, and treating that as "this one defaulted" would
+// report a portal write no line of the script performs — and then refuse the
+// approval for not granting it.
+func TestValidate_RepeatedDestinationIsNotAPortalDefault(t *testing.T) {
+	report := Validate(`
+platform.export(name="a", rows=[], destination="acme-drop")
+platform.export(name="b", rows=[], destination="acme-drop")
+`)
+	assert.True(t, report.OK, report.Findings)
+	assert.Equal(t, []string{"acme-drop"}, report.Destinations,
+		"a delivery-only script writes to no portal, however many exports it has")
+}
+
+// TestValidate_RefusesAPositionalDestination is the shape that would make this
+// validator state a falsehood: a destination passed by position is invisible to
+// a keyword read, and the review surface would positively report a script
+// writing to a bucket as writing to the portal.
+func TestValidate_RefusesAPositionalDestination(t *testing.T) {
+	report := Validate(`platform.export("a", [], "csv", "acme-drop", "2026/x.csv")`)
+	assert.False(t, report.OK)
+	finding := findingFor(t, report, "at most three positional arguments")
+	assert.Equal(t, SeverityError, finding.Severity)
+	assert.Contains(t, finding.Hint, "destination=")
+	assert.Empty(t, report.Destinations,
+		"nothing is claimed about where this script writes, because nothing can be read")
 }

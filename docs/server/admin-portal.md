@@ -376,10 +376,22 @@ functions, connections, and output destinations — each marked against what the
 script holds today. A **Widens authority** badge appears when the proposal
 reaches anywhere the approved version does not, and the connection editor
 offers the connections this version's source names, since a script queries
-nothing it was not granted. Two states are called out rather than left to be
-noticed: a version whose code computes a connection name instead of naming one
-(the list cannot be complete, and the drawer says so), and a script that
-executes nothing today (every grant is new).
+nothing it was not granted. Three states are called out rather than left to be
+noticed: a version whose code computes a connection or destination name instead
+of naming one (the list cannot be complete, and the drawer says so), and a
+script that executes nothing today (every grant is new).
+
+![Delivery Grant](../images/screenshots/light/admin-admin-script-delivery-grant-light.webp#only-light)![Delivery Grant](../images/screenshots/dark/admin-admin-script-delivery-grant-dark.webp#only-dark)
+
+**Where would its output go?** The portal — a versioned asset the platform
+owns — is a single toggle, because there is no address to decide. A destination
+that sends data to a bucket is different: the script names it and nothing more,
+and the reviewer supplies the connection, the bucket, and the prefix everything
+written there sits under. That address is bound to the version, so what the
+reviewer agreed to cannot be repointed at another bucket without approving
+again, and a destination the code names but nobody has addressed is marked
+**Needs an address** and blocks the approval until it has one. A prefix is the
+boundary: a script chooses the key beneath it and can write nothing outside it.
 
 **What changed in the code?** The diff runs from the version executing today to
 the one under review. It comes from the same response as the grant, so the two

@@ -190,7 +190,7 @@ func TestRunner_WithoutPortalDepsFailsAnExportingRun(t *testing.T) {
 	run.LockedBy, run.Attempt = "worker-a", 1
 	v.Source = `platform.export(name="daily", rows=[{"a": 1}])`
 	v.Grants.Capabilities = script.Capabilities
-	v.Grants.Destinations = script.Destinations
+	v.Grants.Destinations = []script.Destination{script.PortalDestination()}
 
 	runs := &fakeRuns{}
 	require.NoError(t, runs.Enqueue(context.Background(), run))
@@ -200,7 +200,7 @@ func TestRunner_WithoutPortalDepsFailsAnExportingRun(t *testing.T) {
 
 	out := r.execute(context.Background(), run, sc, v)
 	require.Equal(t, script.RunStatusFailed, out.result.Status)
-	assert.Contains(t, out.result.Error, "cannot persist script outputs")
+	assert.Contains(t, out.result.Error, "no portal asset store or object storage")
 	assert.False(t, out.retryable, "a deployment missing its object storage is not a transient fault")
 	assert.Empty(t, runs.outputs)
 }

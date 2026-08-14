@@ -11,7 +11,19 @@ export interface ScriptGrants {
   roles: string[];
   connections: string[];
   capabilities: string[];
-  destinations: string[];
+  destinations: ScriptDestination[];
+}
+
+// ScriptDestination is one place an approved version may write. It carries the
+// address, not only a name: a grant that named "acme-drop" alone would leave
+// what that means in configuration a reviewer cannot see, and an operator could
+// repoint it afterwards without anyone approving anything.
+export interface ScriptDestination {
+  name: string;
+  kind: string;
+  connection?: string;
+  bucket?: string;
+  prefix?: string;
 }
 
 // Script is a managed script's live row.
@@ -75,9 +87,15 @@ export interface PendingReview {
 export interface ReferencedCapabilities {
   capabilities: string[];
   connections: string[];
+  // destinations are the destination names the source writes to, counting the
+  // portal for any export that names none, because that is where such an
+  // export lands.
+  destinations: string[];
   // dynamic_connections is true when a call computes its connection instead of
-  // naming one, which makes the connection list incomplete.
+  // naming one, and dynamic_destinations when one computes its destination.
+  // Either makes that list incomplete.
   dynamic_connections: boolean;
+  dynamic_destinations: boolean;
 }
 
 // ScriptFinding is one validator complaint about the source. The hint is the
@@ -110,6 +128,7 @@ export interface VersionReview {
   referenced: ReferencedCapabilities;
   missing_capabilities?: string[];
   missing_connections?: string[];
+  missing_destinations?: string[];
   findings?: ScriptFinding[];
   approved?: ApprovedBaseline;
 }
@@ -119,5 +138,5 @@ export interface VersionReview {
 export interface ScriptApproveInput {
   connections: string[];
   capabilities: string[];
-  destinations: string[];
+  destinations: ScriptDestination[];
 }
