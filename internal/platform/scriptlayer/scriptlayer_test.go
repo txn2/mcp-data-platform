@@ -25,11 +25,26 @@ import (
 type memStore struct {
 	scripts  map[string]*script.Script
 	versions map[string][]script.Version
-	nextID   int
+	// schedules is the schedule half of the store, implemented in
+	// schedules_test.go; scheduleErr makes it fail on demand.
+	schedules   map[string]*script.Schedule
+	scheduleErr error
+	// scheduleReadErr fails only the read-back, so a write that landed can be
+	// distinguished from one that did not.
+	scheduleReadErr error
+	// versionErr fails the approved-version lookup, enabledErr the
+	// enable/disable write.
+	versionErr error
+	enabledErr error
+	nextID     int
 }
 
 func newMemStore() *memStore {
-	return &memStore{scripts: map[string]*script.Script{}, versions: map[string][]script.Version{}}
+	return &memStore{
+		scripts:   map[string]*script.Script{},
+		versions:  map[string][]script.Version{},
+		schedules: map[string]*script.Schedule{},
+	}
 }
 
 func (m *memStore) Create(_ context.Context, sc *script.Script, author script.Author) error {
@@ -147,6 +162,9 @@ func (m *memStore) ListVersions(_ context.Context, scriptID string) ([]script.Ve
 }
 
 func (m *memStore) GetVersionByID(_ context.Context, id string) (*script.Version, error) {
+	if m.versionErr != nil {
+		return nil, m.versionErr
+	}
 	for _, versions := range m.versions {
 		for _, v := range versions {
 			if v.ID == id {

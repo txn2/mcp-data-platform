@@ -638,6 +638,14 @@ linters:
         linters:
           - revive
         text: "max-public-structs"
+      # Same shape for the schedule vocabulary: the schedule row, the parsed
+      # cron bound to its zone, the request a surface makes, the listing filter,
+      # the conditional advance, and what one materialization pass concluded.
+      # One concept, described by the values it needs.
+      - path: pkg/script/schedule\.go
+        linters:
+          - revive
+        text: "max-public-structs"
       # connoauth's refresher.go exposes the small public surface a
       # multi-replica deployment needs: Refresher, RefresherConfig,
       # NoopLocker, PostgresLocker, plus the ConfigResolver +

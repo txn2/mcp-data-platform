@@ -6436,6 +6436,252 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/scripts/schedules": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every managed-script schedule with its cadence, its bound parameters, its next fire, and how many fires it has missed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List script schedules",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.scheduleListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/scripts/{id}/schedule": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the cadence a script runs on, the parameters every fire binds, when it fires next, and how many fires it has missed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Get a script's schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/script.Schedule"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates or replaces the cadence a script runs on. The parameters are validated against the approved version's contract, or the live record's when nothing is approved yet. A schedule grants no authority: the version that runs and the capabilities it holds were both bound at approval.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Set a script's schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Cadence",
+                        "name": "schedule",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.scheduleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/script.Schedule"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/scripts/{id}/schedule/disable": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stops a schedule firing, keeping the row that explains the runs it produced. There is deliberately no way to delete a schedule.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Disable a script's schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/script.Schedule"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/scripts/{id}/schedule/enable": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resumes a paused schedule without touching its cadence. The next fire is the one it was parked on, which the misfire policy then collapses to a single run — the same treatment downtime gets.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Enable a script's schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/script.Schedule"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/scripts/{id}/versions": {
             "get": {
                 "security": [
@@ -20466,6 +20712,61 @@ const docTemplate = `{
                 }
             }
         },
+        "script.Schedule": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "cron_spec": {
+                    "description": "CronSpec is a standard five-field cron expression or one of the\ndescriptors (@daily, @hourly, @every 30m).",
+                    "type": "string",
+                    "example": "0 7 * * 1-5"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_fire_at": {
+                    "description": "LastFireAt is the fire time of the most recent run this schedule\nproduced, empty until it has produced one.",
+                    "type": "string"
+                },
+                "missed_fires": {
+                    "description": "MissedFires counts fires that came due while the platform was not\nmaterializing them, cumulatively. Catching up on them is deliberately\nnot attempted (see NextFire), so the count is the visible record of the\ngap.",
+                    "type": "integer"
+                },
+                "next_run_at": {
+                    "description": "NextRunAt is when the next fire is due, and zero when the expression has\nno further fire at all. It is the materializer's efficiency index, not\nits correctness guarantee: two replicas may read the same due schedule,\nand what stops them producing two runs is the unique index on the run\nthey insert.",
+                    "type": "string"
+                },
+                "params": {
+                    "description": "Params are the values every fire binds, with tokens unexpanded. They are\nstored as written so the schedule reads as what it means (\"report on the\nday it fires\") rather than as whatever date happened to be current when\nsomebody set it.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "timezone": {
+                    "description": "Timezone is the IANA zone the spec is read in.",
+                    "type": "string",
+                    "example": "America/Los_Angeles"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                }
+            }
+        },
         "script.Script": {
             "type": "object",
             "properties": {
@@ -20679,6 +20980,45 @@ const docTemplate = `{
                 "dynamic_connections": {
                     "description": "DynamicConnections is true when at least one call computes its connection\ninstead of naming one, which makes the connection list incomplete — and\nmeans the grant cannot be checked against the code by reading it.",
                     "type": "boolean"
+                }
+            }
+        },
+        "scripthttp.scheduleListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.Schedule"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
+        "scripthttp.scheduleRequest": {
+            "type": "object",
+            "properties": {
+                "cron": {
+                    "description": "Cron is a standard five-field expression or a descriptor (@daily).",
+                    "type": "string",
+                    "example": "0 7 * * 1-5"
+                },
+                "enabled": {
+                    "description": "Enabled turns the schedule on or off; omitted leaves an existing\nschedule's state alone and starts a new one enabled.",
+                    "type": "boolean"
+                },
+                "params": {
+                    "description": "Params are the values every fire binds, with ${fire_date} left as\nwritten: it expands at the fire, so the run records the date it computed.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "timezone": {
+                    "description": "Timezone is the IANA zone the expression is read in; empty means UTC.",
+                    "type": "string",
+                    "example": "America/Los_Angeles"
                 }
             }
         },

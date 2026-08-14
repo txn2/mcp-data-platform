@@ -281,9 +281,15 @@ func buildItem(n notification.Notification) emailItem {
 		Message: n.Payload.Message,
 		Link:    n.Payload.Link,
 	}
-	if n.Payload.Kind == notification.KindReviewQueue {
+	switch n.Payload.Kind {
+	case notification.KindReviewQueue:
 		item.Body = reviewQueueBody(n.Payload.Review)
 		item.LinkText = reviewQueueLinkText
+	case notification.KindScriptRun:
+		// The failure detail moves from Message to Body: Message renders as a
+		// quotation, and a backtrace is not something a colleague said.
+		item.Body = scriptRunBody(n.Payload)
+		item.Message = ""
 	}
 	return item
 }
@@ -308,6 +314,8 @@ func subjectFor(n notification.Notification) string {
 		return fmt.Sprintf("%s mentioned you on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	case notification.KindReviewQueue:
 		return reviewQueueSubject(n.Payload.Review)
+	case notification.KindScriptRun:
+		return scriptRunSubject(n.Payload)
 	default:
 		return fmt.Sprintf("%s commented on %q", n.Payload.Actor, n.Payload.ItemTitle)
 	}

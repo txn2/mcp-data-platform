@@ -10,10 +10,12 @@ managed-scripts surface updates it in the same change.
 Every claim below carries a package or file citation a reviewer can check
 against the source. Where a protection does not exist, this document says so.
 
-Reviewed at the state of the tree that introduced approved execution: the
-capability grant an approval binds, the script principal a run executes as, the
-run queue, and the `run_script` tool. The revision before it introduced the
-script domain, the Starlark engine, and the authoring loop.
+Reviewed at the state of the tree that introduced cron scheduling: the schedule
+record, the materializer that turns a due schedule into a run, the single-fire,
+overlap, and misfire policies, and the alert a failed scheduled run raises. The
+revisions before it introduced the script domain and the authoring loop, then
+approved execution — the capability grant, the script principal, the run queue,
+and `run_script` — then worker mode.
 
 ## What a managed script is
 
@@ -32,7 +34,12 @@ The state of the feature at this revision:
   of everything below.
 - An approved version executes on demand through `run_script`: the tool queues a
   run and a worker on some replica executes it, unattended, as the script's own
-  principal. Nothing else executes a script; there is still no scheduler.
+  principal.
+- An approved version also executes on a **cron schedule**. A schedule is a row
+  saying when; a materializer on every worker replica turns a due schedule into
+  a run row, and the same worker executes it under the same grant. There is
+  still no scheduler process, and a schedule grants nothing (see
+  [Schedules](#schedules-cadence-and-nothing-else)).
 - An approved run **writes**: `platform.export` persists a portal asset version.
   A draft run still writes nothing — it reports the shape an output would have
   (`internal/platform/scriptrun/host.go`, `hostState.export`,
@@ -112,6 +119,7 @@ behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
 | Script author (any authenticated caller) | Creates and edits their own personal scripts; runs drafts as themselves |
 | Admin persona | The above at every scope, plus scope and lifecycle changes |
 | Reviewer (admin API) | Approves a version, binding the connections, capabilities, and destinations it may use; cannot widen its authority beyond the version author's roles |
+| Schedule owner (owner or admin) | Sets the cadence, timezone, and bound parameters of a script's schedule, and turns it on or off; grants nothing |
 | Script principal (`script:<name>`) | Exists only inside an approved run; holds the grant bound at approval and nothing else |
 | The script itself | Only the host functions listed below, only through the running identity |
 
@@ -129,9 +137,13 @@ graph LR
         TOOL -->|ApplyEdit| STORE[(scripts +<br/>script_versions<br/>author_roles, grants)]
         STORE --> GATE[approved_version_id<br/>written only by approval]
     end
+    subgraph Schedule["Cadence (owner or admin)"]
+        OWNER[Schedule owner] -->|cron + timezone + params| SCHED[(script_schedules<br/>no authority fields)]
+        SCHED -->|due fire, one per replica sweep| QUEUE
+    end
     subgraph Sandbox["Sandbox (per run)"]
         TOOL -->|run_draft, caller identity| ENGINE[Starlark interpreter<br/>step + wall-clock limits]
-        GATE -->|approved source + grant| QUEUE[(script_runs<br/>lease + fencing)]
+        GATE -->|approved source + grant| QUEUE[(script_runs<br/>lease + fencing<br/>unique per schedule fire)]
         QUEUE -->|worker claim, script:name| ENGINE
         ENGINE --> STDLIB[platform.query / platform.export / print<br/>json / date / run]
     end
@@ -142,6 +154,9 @@ graph LR
         MW --> ASSETS[portal assets + object storage]
     end
 ```
+
+A schedule sits outside both boundaries below. It writes a run row and nothing
+else; the gate and the grant still decide what that row may execute.
 
 Two boundaries matter. The first is between the interpreter and the platform: a
 script reaches the outside world only by calling a host function, and every host
@@ -176,6 +191,66 @@ The edit funnel is the other half: once a version is approved, a change to a
 script's substance becomes a pending draft rather than an edit to what executes
 (`pkg/script/edit.go`, `RequiresReview`), and the store re-validates that under
 the row lock so an edit racing an approval is refused rather than applied.
+
+### Schedules: cadence, and nothing else
+
+A schedule confers no authority. It names when an already-approved version runs
+and with which parameters, and every other property of that run — which code
+executes, which roles it presents, which connections and host functions it may
+reach — comes from the approval, which a schedule cannot touch. Setting one is
+therefore an owner-or-admin action rather than a reviewer's
+(`internal/platform/scriptlayer/schedules.go`, `handleScheduleSet`, which
+resolves the script through the same `editable` gate every other mutation
+crosses).
+
+The consequences are worth stating explicitly, because "scheduled" sounds like a
+privilege:
+
+- A schedule on a script with no approved version fires nothing. The
+  materializer asks `script.RefuseRun` before it writes a run, and the worker
+  asks it again before executing one (`internal/platform/scriptexec/
+  scheduler.go`, `buildRun`).
+- A schedule cannot name roles, connections, capabilities, or destinations.
+  There is no field for them in either surface, and a scheduled run resolves its
+  authority from the version's grant exactly as a `run_script` run does.
+- Approving a **different** version changes what the schedule executes, which is
+  the intent: the schedule points at the script's gate, not at a version. A
+  version whose approval is withdrawn stops being executed by the schedule at
+  its next fire.
+- A schedule whose bound parameters no longer satisfy the approved version's
+  contract fires nothing and records the fire as missed, rather than executing
+  with values the contract does not admit.
+
+One thing the platform does decide on its own, and it is deliberately narrow: a
+schedule whose cron expression no longer parses is DISABLED, because walking an
+uncomputable row every half minute forever is worse than a state its owner can
+see. A schedule whose TIMEZONE cannot be loaded is not touched — the zone
+database is compiled into the binary, so that fault belongs to the build and
+would otherwise retire every non-UTC schedule at once, with nothing to re-enable
+them (`internal/platform/scriptexec/scheduler.go`, `refuseCadence`).
+
+Schedule mutations are recorded twice: the row carries `created_by` and
+`updated_by`, and the `manage_script` call that made the change is an audited
+tool call like any other. Deleting a schedule is not possible — disabling is the
+retirement path — so the record of what produced a run is not removable
+independently of the script itself.
+
+**What a schedule does add is unattended repetition**, and that is a real
+property: a script that queries a large table costs that query every day rather
+than once. The controls on it are the ones execution already has — the
+capability grant, the connection allowlist, the step and result limits, one run
+at a time per replica — plus two of scheduling's own: the one-fire-a-minute
+floor (`pkg/script/schedule.go`, `MinFireInterval`), and the overlap policy,
+which refuses to start a second run of a schedule while its previous run is
+still going. The second is the load-bearing one: without it a script slower than
+its own cadence would accumulate concurrent runs indefinitely.
+
+The single-fire guarantee is a unique index on `script_runs (schedule_id,
+fire_time)`, not a lock or a leader (migration `000100_script_schedules.up.sql`).
+It is keyed on `fire_time` rather than `scheduled_for` deliberately: an
+infrastructure retry moves `scheduled_for`, which would take a run out from
+under a key built on it and let a second materializer insert a duplicate for the
+same fire.
 
 ### Grants: what an approved version may reach
 
@@ -513,6 +588,14 @@ retrying only multiplies the cost).
 | A run pollutes its runner's session state | Per-run minted session identity | `pkg/middleware/mcp_session_handle.go` |
 | A script edit slips past review | The edit funnel defers a substance change to a draft version once a version is approved, and refuses to mix it with unversioned changes | `pkg/script/edit.go` |
 | A script's calls are invisible after the fact | Every host call is audited with the running identity and `source=script` | `pkg/middleware/audit.go` |
+| A schedule is used to widen what a script may do | A schedule carries cadence, timezone, and parameters only; the gate and the grant are read at every fire | `scriptexec/scheduler.go`, `buildRun` |
+| Several replicas fire the same schedule several times | A unique index on (schedule, fire time); racing materializers collapse to one run | migration `000100` |
+| A schedule slower to run than to fire accumulates concurrent runs | One open run per schedule, enforced by a partial unique index; the skipped fire is recorded as a run | migration `000100`, `MaterializeRun` |
+| Recovery from downtime floods the query engine with backlogged fires | Fire-once-latest: one run for the most recent fire, the rest counted on the schedule | `pkg/script/schedule.go`, `NextFire` |
+| A schedule fires faster than the platform can serve | A one-fire-a-minute floor, checked when the cadence is set | `pkg/script/schedule.go`, `MinFireInterval` |
+| A scheduled automation stops producing and nobody notices | A failed scheduled run mails the script's owner and the approving administrator | `scriptexec/notify.go`, `notifyFailure` |
+| One bad night silences the alerts for every other automation | The alert's rate-limit key is the SCRIPT principal, not the recipient, so a repeatedly failing script is throttled and its neighbors are not | `scriptexec/notify.go`, `Payload.Actor` |
+| A build without the zone database silently retires every non-UTC schedule | An unloadable timezone is logged and left alone; only an unparseable expression parks a schedule | `scriptexec/scheduler.go`, `refuseCadence` |
 
 ## Non-goals
 
@@ -568,7 +651,17 @@ retrying only multiplies the cost).
 5. **Standing authority outlives the author.** The roles a version captured keep
    working after the person who held them stops. Disabling, deprecating, or
    superseding the script is what stops it, and each is enforced at execution.
-6. **A computed connection is not statically knowable.** `validate` reports
+6. **A schedule multiplies whatever an approval already permitted.** Approving a
+   version answers "may this code run with this access"; a schedule turns that
+   into every weekday morning, indefinitely, with nobody reading the result. The
+   grant is unchanged and the gate still applies at every fire, but a reviewer
+   assessing one execution is implicitly assessing a recurring one — and the
+   schedule can be set afterwards, by the owner, without going back through
+   review. That is deliberate (a cadence is not an authority, and requiring
+   review to change a report from daily to weekly would be theatre), and the
+   compensating visibility is that a schedule is listed with the script, its
+   missed fires are on the row, and each fire is a run in the history.
+7. **A computed connection is not statically knowable.** `validate` reports
    `dynamic_connections` when a `platform.query` call computes its connection
    instead of naming one, so a reviewer is told the list is incomplete rather
    than shown a list that quietly omits it.

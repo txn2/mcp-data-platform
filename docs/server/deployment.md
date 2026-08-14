@@ -716,16 +716,18 @@ kubectl get pods,hpa -n mcp-data-platform
 
 ### Split deployment: portal and script workers
 
-Every replica of the deployment above serves traffic and executes queued
-[managed scripts](../scripts/running.md). That is the right shape until scripts
-start doing real work: the Starlark interpreter has no hard per-script memory
+Every replica of the deployment above serves traffic, executes queued
+[managed scripts](../scripts/running.md), and turns their due schedules into
+runs. That is the right shape until scripts start doing real work: the Starlark interpreter has no hard per-script memory
 cap, so a heavy approved script pushes on the memory of a pod that agents are
 also talking to, and execution capacity is tied to serving capacity even though
 the two scale on different signals.
 
 Splitting them changes one configuration key and adds one Deployment. Both use
 the same image and the same ConfigMap; nothing else about the platform differs
-between them.
+between them. Schedules follow the worker: the serving pods still accept a
+schedule being set, and the worker pods are what fire it, so a split deployment
+with no worker replicas running stores schedules that nothing materializes.
 
 Make the switch an environment variable in the shared ConfigMap, so each
 deployment sets its own value:

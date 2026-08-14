@@ -34,6 +34,9 @@ type Deps struct {
 	Scripts   script.Store
 	Versions  script.VersionStore
 	Approvals script.ApprovalStore
+	// Schedules is the cadence store. Nil leaves the schedule routes unmounted,
+	// which is the honest shape for a deployment that cannot keep a schedule.
+	Schedules script.ScheduleStore
 
 	// AdminEmail returns the authenticated administrator's email, which is
 	// stamped on the approval.
@@ -50,11 +53,13 @@ func New(deps Deps) *Handler { return &Handler{deps: deps} }
 
 // Shared literals.
 const (
-	pathID          = "id"
-	pathVersion     = "version"
-	errScriptNot    = "script not found"
-	errVersionNot   = "version not found"
-	errListVersions = "failed to list versions"
+	pathID           = "id"
+	pathVersion      = "version"
+	errScriptNot     = "script not found"
+	errVersionNot    = "version not found"
+	errListVersions  = "failed to list versions"
+	errScheduleNot   = "this script has no schedule"
+	errListSchedules = "failed to read schedules"
 )
 
 // RegisterAdmin mounts the review routes under prefix, each wrapped in the
@@ -64,6 +69,18 @@ func (h *Handler) RegisterAdmin(mux *http.ServeMux, prefix string, wrap func(htt
 	mux.Handle("GET "+prefix+"/scripts/{id}/versions", wrap(http.HandlerFunc(h.listVersions)))
 	mux.Handle("GET "+prefix+"/scripts/{id}/versions/{version}", wrap(http.HandlerFunc(h.getVersion)))
 	mux.Handle("POST "+prefix+"/scripts/{id}/versions/{version}/approve", wrap(http.HandlerFunc(h.approveVersion)))
+	if h.deps.Schedules == nil {
+		return
+	}
+	mux.Handle("GET "+prefix+"/scripts/schedules", wrap(http.HandlerFunc(h.listSchedules)))
+	mux.Handle("GET "+prefix+"/scripts/{id}/schedule", wrap(http.HandlerFunc(h.getSchedule)))
+	mux.Handle("PUT "+prefix+"/scripts/{id}/schedule", wrap(http.HandlerFunc(h.setSchedule)))
+	// Pausing is its own action rather than a field of the cadence. Sending the
+	// whole schedule back to turn it off would re-base its next fire, which is
+	// exactly what pausing must not do: a paused schedule resumes on the fire it
+	// was parked on.
+	mux.Handle("POST "+prefix+"/scripts/{id}/schedule/enable", wrap(http.HandlerFunc(h.enableSchedule)))
+	mux.Handle("POST "+prefix+"/scripts/{id}/schedule/disable", wrap(http.HandlerFunc(h.disableSchedule)))
 }
 
 // scriptListResponse is the script listing payload.

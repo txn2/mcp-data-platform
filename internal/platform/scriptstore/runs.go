@@ -28,7 +28,7 @@ const defaultRunListLimit = 50
 const runColumns = `id, script_id, script_version_id, version, trigger_kind, status,
 	params, fire_time, requested_by, scheduled_for, started_at, finished_at, attempt,
 	locked_until, locked_by, error, log_text, log_truncated, metrics, outputs,
-	created_at, updated_at`
+	COALESCE(schedule_id::text, ''), created_at, updated_at`
 
 // runSelect is the base SELECT for the run columns.
 const runSelect = "SELECT " + runColumns + " FROM script_runs"
@@ -47,7 +47,7 @@ func scanRun(sc rowScanner) (*script.Run, error) {
 	err := sc.Scan(&r.ID, &r.ScriptID, &r.VersionID, &r.Version, &r.Trigger, &r.Status,
 		&paramsJSON, &r.FireTime, &r.RequestedBy, &r.ScheduledFor, &r.StartedAt, &r.FinishedAt,
 		&r.Attempt, &r.LockedUntil, &r.LockedBy, &r.Error, &r.Log, &r.LogTruncated,
-		&metricsJSON, &outputsJSON, &r.CreatedAt, &r.UpdatedAt)
+		&metricsJSON, &outputsJSON, &r.ScheduleID, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("scanning script run row: %w", err)
 	}
@@ -280,13 +280,15 @@ func requireLease(res sql.Result, lease script.RunLease) error {
 
 // PurgeRuns deletes terminal runs older than retention.
 //
-// Only terminal rows are swept. A pending or running row is live work, and a
-// retention pass that could delete it would silently drop a run somebody is
-// waiting on.
+// Only terminal rows are swept, which now includes the skipped-overlap rows a
+// schedule records: a skip is history the same way a failure is, and it carries
+// a finished_at from the moment it exists so it ages out on the same clock. A
+// pending or running row is live work, and a retention pass that could delete
+// it would silently drop a run somebody is waiting on.
 func (s *Store) PurgeRuns(ctx context.Context, retention time.Duration) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `
 		DELETE FROM script_runs
-		 WHERE status IN ('succeeded', 'failed')
+		 WHERE status IN ('succeeded', 'failed', 'skipped_overlap')
 		   AND finished_at < NOW() - ($1 || ' seconds')::INTERVAL`,
 		int(retention.Seconds()))
 	if err != nil {

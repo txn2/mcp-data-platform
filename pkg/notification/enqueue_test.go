@@ -388,3 +388,30 @@ func TestNotifyFanout_NilAndEmpty(_ *testing.T) {
 	defer e.Close()
 	e.NotifyFanout(context.Background(), nil, CategoryComment, Payload{})
 }
+
+// TestEnqueuer_Notify_ScriptRunHasNoPerCategoryToggle pins the second category
+// gated by Mode alone (#1286). Its recipients are the people accountable for
+// an automation — its owner and the administrator who approved the version —
+// so muting shares, comments, and mentions must not silence the news that a
+// scheduled script has stopped producing. Turning notifications off entirely
+// still does.
+func TestEnqueuer_Notify_ScriptRunHasNoPerCategoryToggle(t *testing.T) {
+	queue := &fakeQueueStore{}
+	e := NewEnqueuer(&fakePrefsStore{prefs: map[string]Prefs{
+		"jane@b.io": {Mode: ModeImmediate, SharesEnabled: false, CommentsEnabled: false, MentionsEnabled: false},
+	}}, queue, 13)
+	defer e.Close()
+
+	queued, err := e.Notify(context.Background(), "jane@b.io", CategoryScriptRun,
+		Payload{Kind: KindScriptRun, ItemID: "dpx_1", ItemTitle: "daily-sales", Message: "boom"})
+	if err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	if !queued {
+		t.Fatal("a failed scheduled run must reach the people accountable for it")
+	}
+	rows := queue.enqueuedCopy()
+	if len(rows) != 1 || rows[0].Payload.ItemID != "dpx_1" {
+		t.Fatalf("the run reference did not survive the enqueue: %+v", rows)
+	}
+}

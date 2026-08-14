@@ -21,7 +21,7 @@ var runSelectColumns = []string{
 	"id", "script_id", "script_version_id", "version", "trigger_kind", "status",
 	"params", "fire_time", "requested_by", "scheduled_for", "started_at", "finished_at", "attempt",
 	"locked_until", "locked_by", "error", "log_text", "log_truncated", "metrics", "outputs",
-	"created_at", "updated_at",
+	"schedule_id", "created_at", "updated_at",
 }
 
 // runRow returns one full run row in runColumns order.
@@ -33,7 +33,7 @@ func runRow(status string, attempt int, outputs []byte) []driver.Value { //nolin
 		"dpx_1", "script_1", "sver_1", 3, script.TriggerTool, status,
 		[]byte(`{"day":"2026-08-12"}`), rowTime, "jane@example.com", rowTime, nil, nil, attempt,
 		nil, "worker-a", "", "", false, []byte(`{"steps":10}`), outputs,
-		rowTime, rowTime,
+		"", rowTime, rowTime,
 	}
 }
 
@@ -264,10 +264,11 @@ func TestFinish_WritesTheResultAndWakesWaiters(t *testing.T) {
 }
 
 // TestPurgeRuns_OnlySweepsTerminalRows pins the retention predicate: live work
-// is never swept, however old the row is.
+// is never swept, however old the row is, and a schedule's skipped fires age
+// out on the same clock as the runs that did execute.
 func TestPurgeRuns_OnlySweepsTerminalRows(t *testing.T) {
 	s, mock := newMock(t)
-	mock.ExpectExec(regexp.QuoteMeta("WHERE status IN ('succeeded', 'failed')")).
+	mock.ExpectExec(regexp.QuoteMeta("WHERE status IN ('succeeded', 'failed', 'skipped_overlap')")).
 		WithArgs(86400).WillReturnResult(sqlmock.NewResult(0, 7))
 
 	n, err := s.PurgeRuns(context.Background(), 24*time.Hour)
