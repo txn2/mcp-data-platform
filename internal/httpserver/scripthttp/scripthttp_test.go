@@ -33,6 +33,10 @@ type stubStore struct {
 	getErr     error
 	versionErr error
 	approveErr error
+	// The schedule half, served by the methods in schedules_test.go.
+	schedule         *script.Schedule
+	scheduleErr      error
+	scheduleWriteErr error
 }
 
 func (*stubStore) Create(context.Context, *script.Script, script.Author) error { return nil }
@@ -130,7 +134,7 @@ func serve(t *testing.T, store *stubStore, method, path, body string) *httptest.
 	t.Helper()
 	mux := http.NewServeMux()
 	New(Deps{
-		Scripts: store, Versions: store, Approvals: store,
+		Scripts: store, Versions: store, Approvals: store, Schedules: store,
 		AdminEmail: func(*http.Request) string { return "admin@example.com" },
 	}).RegisterAdmin(mux, "/api/v1/admin", func(h http.Handler) http.Handler { return h })
 

@@ -45,6 +45,19 @@ const (
 	// sending it. A recipient still opts out for themselves with ModeOff,
 	// including through the no-login unsubscribe link every email carries.
 	CategoryReviewQueue = "review_queue"
+	// CategoryScriptRun covers the alert raised when a SCHEDULED managed-script
+	// run fails (#1286). Like the review-queue alert it carries no per-user
+	// toggle, and for a stronger reason: its recipients are the two people
+	// accountable for the automation — the script's owner and the
+	// administrator who approved the version — so it is addressed to a
+	// responsibility rather than to an interest. ModeOff, including through the
+	// unsubscribe link, remains the recipient's own opt-out.
+	//
+	// A run somebody asked for through run_script never comes here: that
+	// failure is reported to the caller in the tool's own response, and mailing
+	// it as well would notify a person about something they are already
+	// reading.
+	CategoryScriptRun = "script_run"
 )
 
 // Delivery modes for user preferences.
@@ -86,6 +99,10 @@ const (
 	// KindReviewQueue marks a knowledge review-queue staleness alert (#803).
 	// Its payload carries a Review rollup instead of an item reference.
 	KindReviewQueue = "review_queue"
+	// KindScriptRun marks a failed scheduled script run (#1286). Its payload
+	// names the script in ItemTitle, the run in ItemID, and carries the failure
+	// and the tail of what the script printed in Message.
+	KindScriptRun = "script_run"
 )
 
 // ReviewQueue is the pending-review rollup a KindReviewQueue notification

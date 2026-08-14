@@ -34,6 +34,11 @@ const (
 	cmdDiff       = "diff"
 	cmdRuns       = "runs"
 	cmdGetRun     = "get_run"
+
+	cmdScheduleSet     = "schedule_set"
+	cmdScheduleList    = "schedule_list"
+	cmdScheduleEnable  = "schedule_enable"
+	cmdScheduleDisable = "schedule_disable"
 )
 
 // JSON field names shared between the schema and result maps.
@@ -73,6 +78,13 @@ type manageScriptInput struct {
 	// Args binds parameter values for run_draft, checked against the script's
 	// declared params before the run starts.
 	Args map[string]any `json:"args,omitempty"`
+
+	// Cron and Timezone carry the cadence for schedule_set. Args carries the
+	// schedule's bound parameter values — the same vocabulary run_draft binds,
+	// which is why it is the same argument, with the addition that a schedule's
+	// values may contain the ${fire_date} token.
+	Cron     string `json:"cron,omitempty"`
+	Timezone string `json:"timezone,omitempty"`
 
 	// RunID names one run for get_run, and RunStatus filters the runs listing.
 	// RunStatus is separate from Status because the two are different
@@ -143,6 +155,11 @@ func (h *Handle) commands() map[string]commandHandler {
 		cmdDiff:       h.handleDiff,
 		cmdRuns:       h.handleRuns,
 		cmdGetRun:     h.handleGetRun,
+
+		cmdScheduleSet:     h.handleScheduleSet,
+		cmdScheduleList:    h.handleScheduleList,
+		cmdScheduleEnable:  h.handleScheduleEnable,
+		cmdScheduleDisable: h.handleScheduleDisable,
 	}
 }
 
@@ -206,6 +223,7 @@ func manageScriptSchema() any {
 				cmdCreate, cmdUpdate, cmdDelete, cmdGet, cmdList, cmdValidate,
 				cmdRunDraft, cmdHelp, cmdPatch, cmdLocate, cmdGetContent,
 				cmdOutline, cmdStats, cmdDiff, cmdRuns, cmdGetRun,
+				cmdScheduleSet, cmdScheduleList, cmdScheduleEnable, cmdScheduleDisable,
 			},
 			keyDescription: "The operation to perform. Call 'help' first if you have not written a " +
 				"script for this platform before: it states the dialect and what is available.",
@@ -241,8 +259,20 @@ func manageScriptSchema() any {
 		"search":        map[string]any{keyType: valString, keyDescription: "Substring filter for list."},
 		"limit":         map[string]any{keyType: valInteger, keyDescription: "Maximum rows for list, or matches for locate."},
 		"args": map[string]any{
-			keyType:        valObject,
-			keyDescription: "Parameter values for run_draft, checked against the script's declared params.",
+			keyType: valObject,
+			keyDescription: "Parameter values for run_draft, or the bound values a schedule fires with, " +
+				"checked against the script's declared params. A schedule's value may contain " +
+				script.FireDateToken + ", which expands to the date of the fire in the schedule's timezone.",
+		},
+		"cron": map[string]any{
+			keyType: valString,
+			keyDescription: "Cadence for schedule_set: a standard five-field cron expression " +
+				"(\"0 7 * * 1-5\" is 07:00 on weekdays) or a descriptor (@daily, @hourly, @every 30m). " +
+				"A schedule may fire at most once a minute.",
+		},
+		"timezone": map[string]any{
+			keyType:        valString,
+			keyDescription: "IANA timezone the cron expression is read in (default UTC), for example America/Los_Angeles.",
 		},
 		"run_id": map[string]any{
 			keyType:        valString,

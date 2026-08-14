@@ -198,10 +198,12 @@ func wantsCategory(prefs Prefs, category string) bool {
 		return prefs.CommentsEnabled
 	case CategoryMention:
 		return prefs.MentionsEnabled
-	case CategoryReviewQueue:
-		// Operator-addressed, so it has no per-user category toggle: the
-		// admin settings hold the recipient list, and Mode (checked above) is
-		// the recipient's own opt-out. See CategoryReviewQueue.
+	case CategoryReviewQueue, CategoryScriptRun:
+		// Addressed by responsibility rather than by interest, so neither has a
+		// per-user category toggle: the recipients are named by the admin
+		// settings (review queue) or by owning and approving the automation
+		// (script run), and Mode (checked above) is the recipient's own opt-out.
+		// See CategoryReviewQueue and CategoryScriptRun.
 		return true
 	default:
 		return false

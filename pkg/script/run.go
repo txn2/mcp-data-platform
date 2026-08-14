@@ -13,17 +13,30 @@ import (
 //   - running: a worker holds the lease and the interpreter is executing.
 //   - succeeded / failed: terminal. A failed run carries the reason in Error
 //     and, when the script itself failed, the Starlark backtrace with it.
+//   - skipped_overlap: terminal, and never executed. A schedule came due while
+//     the previous run of the same schedule was still open, and the overlap
+//     policy is to skip. It is recorded as a run rather than logged because a
+//     report that stopped producing is precisely what a schedule's history has
+//     to show; a skip is not an outage, but it is not a run either.
 const (
-	RunStatusPending   = "pending"
-	RunStatusRunning   = "running"
-	RunStatusSucceeded = "succeeded"
-	RunStatusFailed    = "failed"
+	RunStatusPending        = "pending"
+	RunStatusRunning        = "running"
+	RunStatusSucceeded      = "succeeded"
+	RunStatusFailed         = "failed"
+	RunStatusSkippedOverlap = "skipped_overlap"
 )
 
-// TriggerTool marks a run requested through the run_script tool. It is the
-// only trigger that exists: a schedule is a separate producer of run rows and
-// arrives with scheduling.
-const TriggerTool = "tool"
+// Run triggers: what produced the run row.
+const (
+	// TriggerTool marks a run requested through the run_script tool.
+	TriggerTool = "tool"
+	// TriggerSchedule marks a run materialized by a script's schedule. The two
+	// triggers produce identical rows and execute through the same worker
+	// under the same grant; what differs is that nobody is waiting on this
+	// one, which is why a failed scheduled run notifies and a failed tool run
+	// answers its caller.
+	TriggerSchedule = "schedule"
+)
 
 // Run queue and lifecycle errors.
 var (
@@ -81,6 +94,12 @@ type Run struct {
 	Trigger string `json:"trigger" example:"tool"`
 	Status  string `json:"status" example:"succeeded"`
 
+	// ScheduleID names the schedule that materialized this run, and is empty
+	// for every other trigger. It is what the single-fire guarantee is written
+	// against: the run's (schedule, fire time) pair is unique, so however many
+	// replicas notice the same fire, exactly one run exists for it.
+	ScheduleID string `json:"schedule_id,omitempty"`
+
 	// Params are the bound, type-checked parameter values the run executes
 	// with. They are bound once, when the run is created, so a re-read of the
 	// row explains the run exactly.
@@ -116,9 +135,12 @@ type Run struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Terminal reports whether the run has finished, either way.
+// Terminal reports whether the run has finished, however it ended. A skipped
+// overlap is terminal on arrival: it names a fire that will not be executed,
+// so nothing is ever going to move it.
 func (r *Run) Terminal() bool {
-	return r.Status == RunStatusSucceeded || r.Status == RunStatusFailed
+	return r.Status == RunStatusSucceeded || r.Status == RunStatusFailed ||
+		r.Status == RunStatusSkippedOverlap
 }
 
 // Output returns the recorded output with the given name, or nil. A worker

@@ -103,6 +103,7 @@ type workerConfig struct {
 	scripts     ScriptReader
 	versions    VersionReader
 	runner      executor
+	notifier    Notifier
 	retention   time.Duration
 	pollEvery   time.Duration
 	lease       time.Duration
@@ -354,15 +355,28 @@ func (w *worker) processRun(ctx context.Context, run *script.Run) {
 	slog.Info("scripts: running", logKeyRunID, run.ID,
 		"script_id", logsan.SanitizeForLog(run.ScriptID), "version", run.Version, "attempt", run.Attempt)
 	sc, v, loadErr := w.load(ctx, run)
+	var outcome attempt
 	if loadErr != nil {
-		w.resolve(ctx, run, *loadErr)
-		return
+		outcome = *loadErr
+	} else {
+		outcome = w.cfg.runner.execute(ctx, run, sc, v)
 	}
-	w.resolve(ctx, run, w.cfg.runner.execute(ctx, run, sc, v))
+	// The alert is raised only for a run that was actually recorded as failed.
+	// A run released by a shutdown, or one returned to the queue for a retry,
+	// has not failed — mailing about either would report an outcome the run has
+	// not reached.
+	if w.resolve(ctx, run, outcome) {
+		w.notifyFailure(ctx, run, sc, v, outcome.result)
+	}
 }
 
 // load reads the script and the version the run names, and puts both back
 // through the execution gate (script.RefuseRun) before anything executes.
+//
+// Whatever it managed to read is returned alongside the refusal, not discarded
+// with it. A run refused at the gate still belongs to a script with an owner,
+// and that owner is who has to hear that their scheduled report is no longer
+// running.
 func (w *worker) load(ctx context.Context, run *script.Run) (*script.Script, *script.Version, *attempt) {
 	sc, err := w.cfg.scripts.GetByID(ctx, run.ScriptID)
 	if err != nil {
@@ -373,13 +387,13 @@ func (w *worker) load(ctx context.Context, run *script.Run) (*script.Script, *sc
 	}
 	v, err := w.cfg.versions.GetVersionByID(ctx, run.VersionID)
 	if err != nil {
-		return nil, nil, retryable("reading the script version failed: " + err.Error())
+		return sc, nil, retryable("reading the script version failed: " + err.Error())
 	}
 	if v == nil {
-		return nil, nil, terminal("the version this run was queued against no longer exists")
+		return sc, nil, terminal("the version this run was queued against no longer exists")
 	}
 	if refusal := script.RefuseRun(sc, v, run); refusal != nil {
-		return nil, nil, terminal(refusal.Error())
+		return sc, v, terminal(refusal.Error())
 	}
 	return sc, v, nil
 }
@@ -406,7 +420,12 @@ func retryable(reason string) *attempt {
 // that raced it decided nothing. Releasing that one would re-execute a script
 // that had already done its work. Either way the write goes through
 // shutdownWrite, which bounds it.
-func (w *worker) resolve(runCtx context.Context, run *script.Run, a attempt) {
+//
+// It reports whether the run reached a terminal state HERE — which is what
+// entitles the caller to tell somebody about the outcome. A released or retried
+// run has not finished, and a Finish whose lease was lost was decided by
+// another worker, which will report it.
+func (w *worker) resolve(runCtx context.Context, run *script.Run, a attempt) bool {
 	ctx := context.WithoutCancel(runCtx)
 	if runCtx.Err() != nil {
 		var cancel context.CancelFunc
@@ -414,7 +433,7 @@ func (w *worker) resolve(runCtx context.Context, run *script.Run, a attempt) {
 		defer cancel()
 		if a.result.Status != script.RunStatusSucceeded {
 			w.release(ctx, run)
-			return
+			return false
 		}
 	}
 	if a.retryable && run.Attempt < w.cfg.maxAttempts {
@@ -424,14 +443,15 @@ func (w *worker) resolve(runCtx context.Context, run *script.Run, a attempt) {
 		if err := w.cfg.runs.Retry(ctx, run.Lease(), a.result.Error, backoff); err != nil {
 			logLeaseAware("scripts: returning a run to the queue failed", run, err)
 		}
-		return
+		return false
 	}
 	if err := w.cfg.runs.Finish(ctx, run.Lease(), a.result); err != nil {
 		logLeaseAware("scripts: recording a run result failed", run, err)
-		return
+		return false
 	}
 	slog.Info("scripts: run finished", logKeyRunID, run.ID, "status", a.result.Status,
 		"steps", a.result.Metrics.Steps, "duration_ms", a.result.Metrics.DurationMS)
+	return true
 }
 
 // release hands a run back to the queue because this worker is shutting down,

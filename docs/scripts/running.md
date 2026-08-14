@@ -75,6 +75,97 @@ Runs execute on the platform itself, on whichever replica claims them, so a
 long report does not hold an agent's connection open and a restart does not lose
 a queued run.
 
+## Running one on a schedule
+
+A schedule is what turns an approved script into an automation: a cadence, a
+timezone, and the parameter values every fire binds.
+
+```json
+{
+  "command": "schedule_set",
+  "name": "daily-sales",
+  "cron": "0 7 * * 1-5",
+  "timezone": "America/Los_Angeles",
+  "args": { "report_date": "${fire_date}" }
+}
+```
+
+That reads "07:00 on weekdays, Los Angeles time, reporting on the day it fires".
+The cadence is a standard five-field cron expression or a descriptor (`@daily`,
+`@hourly`, `@every 30m`), read in the timezone named beside it — so a report
+stays on its wall clock across a daylight-saving change instead of drifting by
+an hour. The floor is one fire a minute.
+
+A script has at most one schedule. Setting one again replaces the cadence in
+place, keeping the same automation and the run history that points at it; a
+second cadence over the same code is a second script.
+
+| Command | Does |
+|---|---|
+| `manage_script command=schedule_set name=… cron=… timezone=… args=…` | Create or replace the cadence |
+| `manage_script command=schedule_list` | The schedules of the scripts you can see |
+| `manage_script command=schedule_disable name=…` | Stop it firing |
+| `manage_script command=schedule_enable name=…` | Start it again |
+
+The admin API carries the same four actions: `GET
+/api/v1/admin/scripts/schedules`, `GET` and `PUT
+/api/v1/admin/scripts/{id}/schedule`, and `POST
+/api/v1/admin/scripts/{id}/schedule/enable` and `.../disable`. Pausing is its
+own action rather than a field of the cadence, because re-sending a schedule to
+turn it off would re-base the fire it resumes on.
+
+There is deliberately no way to delete a schedule. Disabling one stops it and
+leaves the row that explains the runs it produced.
+
+### `${fire_date}`, and why the date is not computed in the script
+
+A schedule's bound values may contain one token, `${fire_date}`, which expands
+at the moment the fire is materialized to the date of that fire in the
+schedule's own timezone. The expanded value is what the run row stores.
+
+That is the whole reason the token exists. A script that computed today's date
+itself would produce a different answer every time it ran, and a run nobody can
+reproduce is not a governed run. With the date pinned onto the run, re-running
+it later with the same parameters asks the same question. Anything else a date
+needs — the previous day, a month boundary — is arithmetic the script does on
+this value through the date module, where a reviewer can see it.
+
+The bound values are checked against the approved version's parameter contract
+when the schedule is set, not at the first fire: a schedule that could never
+bind is refused while somebody is still looking at it.
+
+### Overlap, misfires, and what a schedule guarantees
+
+**One fire, one run, however many replicas.** Every worker replica materializes
+due schedules, with no leader and no election. Several notice the same fire at
+the same moment, they all try to write the run, and a unique index on
+(schedule, fire time) means exactly one of those writes survives.
+
+**Overlap policy: skip if the previous run is still going.** A fire arriving
+while the schedule's previous run is still pending or running does not queue
+behind it. It is recorded as a `skipped_overlap` run — a terminal row nothing
+ever claims — so the skip appears in the run history rather than as silence.
+
+**Misfire policy: fire once, for the latest.** After a gap the platform was not
+materializing through — a stopped worker deployment, a restored database — one
+run materializes, for the most recent fire that has come due, and the fires
+before it are counted on the schedule's `missed_fires`. A catch-up burst the
+moment the platform recovers is worse than a visible gap: each of those runs
+would compute a date nobody is waiting on any more, all at once, against the
+warehouse. A backfill somebody actually wants is a `run_script` call with the
+parameters they want.
+
+**A failed scheduled run is mailed to the people accountable for it** — the
+script's owner and the administrator who approved the version — carrying the
+run id, the failure, and the tail of what the script printed. Failures of runs
+requested through `run_script` are not mailed: that failure is already in the
+response its caller is reading. Like every other notification, it needs the
+email substrate configured, and a recipient can turn their own mail off.
+
+A schedule that is paused resumes on the fire it was parked on, which the
+misfire policy then collapses to one run — a pause is downtime, and gets the
+same treatment.
+
 ## Where runs execute
 
 Every replica runs the queue worker by default, so the single-binary deployment
@@ -93,6 +184,14 @@ registers `run_script`, still validates and enqueues a run, and still waits for
 the result. It simply never claims: the run is executed by a separate deployment
 of the same binary with the worker on, reading the same queue, and the waiting
 call picks the result up on its next poll of the run row.
+
+The same switch decides where schedules are materialized. A worker-off replica
+serves the schedule commands and the admin routes — setting a cadence is a write
+to a table — but never turns a due schedule into a run, because a replica that
+will not claim gains nothing by producing rows for one that will. A deployment
+whose workers are all off therefore stores schedules that nothing fires, which
+is the same shape as a deployment whose workers are all off storing runs that
+nothing executes.
 
 Splitting them is worth doing when script execution starts to matter. The
 interpreter has no hard memory cap (see the [security model](security.md)), so a
@@ -170,4 +269,6 @@ scripts:
 | Approving (admin REST) | A database and the admin API |
 | Running (`run_script`) | The above; the tool is not registered where there is no run queue |
 | Executing what was queued | At least one replica with `scripts.worker.enabled` left on, which is the default |
+| Firing schedules | The same replicas; scheduling needs no configuration of its own |
+| Mailing a failed scheduled run | The email substrate (`notifications`, and an admin-configured mail server) |
 | Writing outputs | A configured portal asset store and object storage; without them a run still executes and `platform.export` reports the shape it would have written |

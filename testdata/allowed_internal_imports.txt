@@ -231,11 +231,14 @@ internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona
 internal/platform/scriptexec -> internal/logsan
+internal/platform/scriptexec -> internal/notification/notifyprefs
+internal/platform/scriptexec -> internal/notification/notifyqueue
 internal/platform/scriptexec -> internal/pglisten
 internal/platform/scriptexec -> internal/platform/scriptrun
 internal/platform/scriptexec -> internal/platform/scriptstore
 internal/platform/scriptexec -> pkg/audit
 internal/platform/scriptexec -> pkg/middleware
+internal/platform/scriptexec -> pkg/notification
 internal/platform/scriptexec -> pkg/portal
 internal/platform/scriptexec -> pkg/script
 internal/platform/scriptexec -> pkg/session

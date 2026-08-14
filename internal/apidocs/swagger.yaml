@@ -4380,6 +4380,63 @@ definitions:
           type: string
         type: array
     type: object
+  script.Schedule:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        example: jane@example.com
+        type: string
+      cron_spec:
+        description: |-
+          CronSpec is a standard five-field cron expression or one of the
+          descriptors (@daily, @hourly, @every 30m).
+        example: 0 7 * * 1-5
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: string
+      last_fire_at:
+        description: |-
+          LastFireAt is the fire time of the most recent run this schedule
+          produced, empty until it has produced one.
+        type: string
+      missed_fires:
+        description: |-
+          MissedFires counts fires that came due while the platform was not
+          materializing them, cumulatively. Catching up on them is deliberately
+          not attempted (see NextFire), so the count is the visible record of the
+          gap.
+        type: integer
+      next_run_at:
+        description: |-
+          NextRunAt is when the next fire is due, and zero when the expression has
+          no further fire at all. It is the materializer's efficiency index, not
+          its correctness guarantee: two replicas may read the same due schedule,
+          and what stops them producing two runs is the unique index on the run
+          they insert.
+        type: string
+      params:
+        additionalProperties: {}
+        description: |-
+          Params are the values every fire binds, with tokens unexpanded. They are
+          stored as written so the schedule reads as what it means ("report on the
+          day it fires") rather than as whatever date happened to be current when
+          somebody set it.
+        type: object
+      script_id:
+        type: string
+      timezone:
+        description: Timezone is the IANA zone the spec is read in.
+        example: America/Los_Angeles
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        example: jane@example.com
+        type: string
+    type: object
   script.Script:
     properties:
       approved_version_id:
@@ -4550,6 +4607,39 @@ definitions:
           instead of naming one, which makes the connection list incomplete — and
           means the grant cannot be checked against the code by reading it.
         type: boolean
+    type: object
+  scripthttp.scheduleListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/script.Schedule'
+        type: array
+      total:
+        example: 2
+        type: integer
+    type: object
+  scripthttp.scheduleRequest:
+    properties:
+      cron:
+        description: Cron is a standard five-field expression or a descriptor (@daily).
+        example: 0 7 * * 1-5
+        type: string
+      enabled:
+        description: |-
+          Enabled turns the schedule on or off; omitted leaves an existing
+          schedule's state alone and starts a new one enabled.
+        type: boolean
+      params:
+        additionalProperties: {}
+        description: |-
+          Params are the values every fire binds, with ${fire_date} left as
+          written: it expands at the fire, so the run records the date it computed.
+        type: object
+      timezone:
+        description: Timezone is the IANA zone the expression is read in; empty means
+          UTC.
+        example: America/Los_Angeles
+        type: string
     type: object
   scripthttp.scriptListResponse:
     properties:
@@ -8934,6 +9024,144 @@ paths:
       summary: List managed scripts
       tags:
       - Scripts
+  /admin/scripts/{id}/schedule:
+    get:
+      description: Returns the cadence a script runs on, the parameters every fire
+        binds, when it fires next, and how many fires it has missed.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Schedule'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a script's schedule
+      tags:
+      - Scripts
+    put:
+      consumes:
+      - application/json
+      description: 'Creates or replaces the cadence a script runs on. The parameters
+        are validated against the approved version''s contract, or the live record''s
+        when nothing is approved yet. A schedule grants no authority: the version
+        that runs and the capabilities it holds were both bound at approval.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Cadence
+        in: body
+        name: schedule
+        required: true
+        schema:
+          $ref: '#/definitions/scripthttp.scheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Schedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set a script's schedule
+      tags:
+      - Scripts
+  /admin/scripts/{id}/schedule/disable:
+    post:
+      description: Stops a schedule firing, keeping the row that explains the runs
+        it produced. There is deliberately no way to delete a schedule.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Schedule'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Disable a script's schedule
+      tags:
+      - Scripts
+  /admin/scripts/{id}/schedule/enable:
+    post:
+      description: Resumes a paused schedule without touching its cadence. The next
+        fire is the one it was parked on, which the misfire policy then collapses
+        to a single run — the same treatment downtime gets.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Schedule'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Enable a script's schedule
+      tags:
+      - Scripts
   /admin/scripts/{id}/versions:
     get:
       description: Returns every version of a script with its source, its author and
@@ -9055,6 +9283,27 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Approve a script version
+      tags:
+      - Scripts
+  /admin/scripts/schedules:
+    get:
+      description: Returns every managed-script schedule with its cadence, its bound
+        parameters, its next fire, and how many fires it has missed.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.scheduleListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List script schedules
       tags:
       - Scripts
   /admin/settings/review-queue-alert:

@@ -152,6 +152,7 @@ func mountScriptAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string
 		Scripts:    store,
 		Versions:   store,
 		Approvals:  store,
+		Schedules:  store,
 		AdminEmail: adminEmail,
 	}).RegisterAdmin(mux, prefix, buildAdminAuth(p))
 }

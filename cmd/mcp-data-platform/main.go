@@ -11,6 +11,12 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	// The IANA timezone database, compiled into the binary. The release image
+	// is built FROM scratch and carries no /usr/share/zoneinfo, so without this
+	// every named zone a managed script's schedule can be written in
+	// ("America/Los_Angeles") would resolve on a developer's machine and fail
+	// on the deployed one.
+	_ "time/tzdata"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 

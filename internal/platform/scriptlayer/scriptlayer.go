@@ -52,7 +52,10 @@ type Handle struct {
 	// versions is the same store narrowed to its version contract, held
 	// separately because run_script must load the code the execution gate
 	// points at and a store without versioning cannot answer that.
-	versions     script.VersionStore
+	versions script.VersionStore
+	// schedules is the same store narrowed to its schedule contract, nil where
+	// the deployment has no database and so nothing to schedule with.
+	schedules    script.ScheduleStore
 	runs         script.RunStore
 	adminPersona string
 	// server is the assembled MCP server, captured at RegisterTool. run_draft
@@ -68,6 +71,7 @@ func New(cfg Config) *Handle {
 		h.store = scriptstore.New(cfg.DB)
 	}
 	h.versions, _ = h.store.(script.VersionStore)
+	h.schedules, _ = h.store.(script.ScheduleStore)
 	return h
 }
 

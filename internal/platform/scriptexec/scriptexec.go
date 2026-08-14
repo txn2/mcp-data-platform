@@ -30,9 +30,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyprefs"
+	"github.com/txn2/mcp-data-platform/internal/notification/notifyqueue"
 	"github.com/txn2/mcp-data-platform/internal/pglisten"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -60,15 +63,16 @@ type Config struct {
 	// nil handle is a no-op.
 	DB *sql.DB
 
-	// Runs, Scripts and Versions, when non-nil, are used directly instead of
-	// building PostgreSQL stores from DB. Production passes DB and leaves them
-	// nil; they exist so the execution side can be assembled over in-memory
-	// stores, which is the only way to exercise the worker, the engine, and the
-	// middleware chain together without a database. The same shape as
-	// scriptlayer.Config.Store.
-	Runs     script.RunStore
-	Scripts  ScriptReader
-	Versions VersionReader
+	// Runs, Scripts, Versions and Schedules, when non-nil, are used directly
+	// instead of building PostgreSQL stores from DB. Production passes DB and
+	// leaves them nil; they exist so the execution side can be assembled over
+	// in-memory stores, which is the only way to exercise the worker, the
+	// engine, and the middleware chain together without a database. The same
+	// shape as scriptlayer.Config.Store.
+	Runs      script.RunStore
+	Scripts   ScriptReader
+	Versions  VersionReader
+	Schedules script.ScheduleStore
 
 	// DSN is the raw database DSN for the LISTEN connection that wakes the
 	// worker the moment a run is enqueued. Empty degrades to poll-only.
@@ -86,6 +90,18 @@ type Config struct {
 
 	// Audit records the script_run lifecycle event. Optional.
 	Audit middleware.AuditLogger
+
+	// Notifier queues the alert a failed SCHEDULED run raises. When nil and DB
+	// is set, one is built over the notification queue unless
+	// NotificationsDisabled says the deployment turned notifications off.
+	Notifier Notifier
+
+	// NotificationsDisabled mirrors notifications.enabled: false in YAML.
+	NotificationsDisabled bool
+
+	// DigestHourUTC is the hour daily digests are scheduled for, for a
+	// recipient whose delivery mode is daily.
+	DigestHourUTC int
 
 	// RunRetention overrides DefaultRunRetention.
 	RunRetention time.Duration
@@ -113,6 +129,35 @@ func (d ExportDeps) ready() bool {
 	return d.Assets != nil && d.Versions != nil && d.S3 != nil && d.Bucket != ""
 }
 
+// Notifier queues one notification. It is the enqueue half of the email
+// substrate, narrowed to the one call this package makes.
+type Notifier interface {
+	Notify(ctx context.Context, recipient, category string, p notification.Payload) (bool, error)
+}
+
+// newNotifier builds the enqueue side of the notification substrate over db.
+//
+// It is built here rather than handed in because of when this package is
+// assembled. The substrate's running handle (internal/platform/notifydelivery)
+// belongs to the HTTP composition root and is constructed after the platform
+// has started — by which time the run worker is already claiming — and a
+// worker-only deployment may never build one at all. The enqueue side is
+// stateless over the pool, so it is constructed where it is used; the rows it
+// writes are drained by whichever replica runs the send worker, which is the
+// same arrangement every other producer of notifications relies on.
+func newNotifier(cfg Config) Notifier {
+	if cfg.Notifier != nil {
+		return cfg.Notifier
+	}
+	if cfg.DB == nil || cfg.NotificationsDisabled {
+		return nil
+	}
+	return notification.NewEnqueuer(
+		notifyprefs.NewPostgresStore(cfg.DB),
+		notifyqueue.NewPostgresStore(cfg.DB),
+		cfg.DigestHourUTC)
+}
+
 // listenerControl narrows the LISTEN adapter to the two calls the handle makes,
 // so the degraded-startup path is testable without a live Postgres. It mirrors
 // notifydelivery, which needs the same seam for the same reason.
@@ -129,30 +174,48 @@ type listenerControl interface {
 // the worker, because waking a replica that will not claim buys nothing but a
 // database connection.
 type Handle struct {
-	runs     script.RunStore
-	worker   *worker
-	listener listenerControl
+	runs      script.RunStore
+	worker    *worker
+	scheduler *scheduler
+	listener  listenerControl
+	// closer releases the notification enqueuer this handle built, and is nil
+	// when the notifier was supplied by the caller (whose lifecycle it is).
+	closer func()
 }
 
 // New composes the execution side. It returns nil when there is nowhere to keep
 // runs, because a run queue with no storage is not a degraded feature, it is no
 // feature; every method here is nil-safe so the caller wires it unconditionally.
 func New(cfg Config) *Handle {
-	runs, scripts, versions := cfg.stores()
-	if runs == nil {
+	stores := cfg.stores()
+	if stores.runs == nil {
 		return nil
 	}
-	h := &Handle{runs: runs}
+	h := &Handle{runs: stores.runs}
 	if cfg.WorkerDisabled {
 		slog.Info("scripts: the run worker is off on this replica; queued runs wait for a worker deployment")
 		return h
 	}
+	notifier := newNotifier(cfg)
+	if enq, ok := notifier.(*notification.Enqueuer); ok && cfg.Notifier == nil {
+		h.closer = enq.Close
+	}
 	h.worker = newWorker(workerConfig{
-		runs:      runs,
-		scripts:   scripts,
-		versions:  versions,
-		runner:    newRunner(runs, cfg),
+		runs:      stores.runs,
+		scripts:   stores.scripts,
+		versions:  stores.versions,
+		runner:    newRunner(stores.runs, cfg),
 		retention: orDefaultRetention(cfg.RunRetention),
+		notifier:  notifier,
+	})
+	// Materializing where the worker runs, for the same reason the listener
+	// does: a replica that will not claim gains nothing by producing rows for
+	// one that will.
+	h.scheduler = newScheduler(schedulerConfig{
+		schedules: stores.schedules,
+		scripts:   stores.scripts,
+		versions:  stores.versions,
+		wake:      h.worker.Notify,
 	})
 	if cfg.DSN != "" {
 		h.listener = pglisten.New(cfg.DSN, scriptstore.NotifyChannel, h)
@@ -160,12 +223,17 @@ func New(cfg Config) *Handle {
 	return h
 }
 
-// stores resolves the three stores the execution side reads and writes,
-// preferring what the caller supplied and falling back to PostgreSQL over DB.
-// All three come from one place so a caller cannot end up with a run queue in
-// one store and the scripts it names in another.
-func (c Config) stores() (script.RunStore, ScriptReader, VersionReader) {
-	runs, scripts, versions := c.Runs, c.Scripts, c.Versions
+// stores resolves the stores the execution side reads and writes, preferring
+// what the caller supplied and falling back to PostgreSQL over DB. They come
+// from one place so a caller cannot end up with a run queue in one store and
+// the scripts it names in another.
+//
+// Schedules is the one that may legitimately be absent: an assembly with
+// in-memory run, script, and version stores and no schedule store is the
+// execution side with no scheduling, which the materializer reads as "this
+// deployment does not schedule" rather than as a broken configuration.
+func (c Config) stores() storeSet {
+	runs, scripts, versions, schedules := c.Runs, c.Scripts, c.Versions, c.Schedules
 	if c.DB != nil {
 		store := scriptstore.New(c.DB)
 		if runs == nil {
@@ -177,11 +245,24 @@ func (c Config) stores() (script.RunStore, ScriptReader, VersionReader) {
 		if versions == nil {
 			versions = store
 		}
+		if schedules == nil {
+			schedules = store
+		}
 	}
 	if runs == nil || scripts == nil || versions == nil {
-		return nil, nil, nil
+		return storeSet{}
 	}
-	return runs, scripts, versions
+	return storeSet{runs: runs, scripts: scripts, versions: versions, schedules: schedules}
+}
+
+// storeSet is the resolved set of stores the execution side reads and writes.
+// It is one value rather than four returns so a caller cannot pair them up
+// wrongly, and so adding the next one does not change every call site.
+type storeSet struct {
+	runs      script.RunStore
+	scripts   ScriptReader
+	versions  VersionReader
+	schedules script.ScheduleStore
 }
 
 // orDefaultRetention applies the default when a deployment names no retention.
@@ -221,6 +302,7 @@ func (h *Handle) Start(ctx context.Context) error {
 		return nil
 	}
 	h.worker.Start(ctx)
+	h.scheduler.Start(ctx)
 	if h.listener != nil {
 		if err := h.listener.Start(ctx); err != nil {
 			slog.Warn("scripts: run queue listener unavailable; falling back to polling", logKeyError, err)
@@ -230,10 +312,15 @@ func (h *Handle) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop closes the listener, then drains the worker inside whatever budget ctx
-// carries: the run in flight finishes if it can and is released if it cannot.
-// The listener goes first so nothing wakes a worker that is already draining.
-// Nil-safe.
+// Stop closes the listener and the materializer, then drains the worker inside
+// whatever budget ctx carries: the run in flight finishes if it can and is
+// released if it cannot.
+//
+// Both producers stop before the consumer. The listener goes first so nothing
+// wakes a worker that is already draining, and the materializer goes with it so
+// the shutdown budget is not spent executing a fire that arrived during it —
+// the fire is not lost, because the schedule is not advanced until its run
+// exists, so the replica that takes over materializes it. Nil-safe.
 func (h *Handle) Stop(ctx context.Context) error {
 	if h == nil {
 		return nil
@@ -241,8 +328,12 @@ func (h *Handle) Stop(ctx context.Context) error {
 	if h.listener != nil {
 		h.listener.Stop()
 	}
+	h.scheduler.Stop()
 	if h.worker != nil {
 		h.worker.Stop(ctx)
+	}
+	if h.closer != nil {
+		h.closer()
 	}
 	return nil
 }

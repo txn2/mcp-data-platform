@@ -6,7 +6,8 @@ import (
 )
 
 // wireScripts assembles the managed-script feature and returns its execution
-// handle for the lifecycle to start and stop.
+// handle for the lifecycle to start and stop. The handle also owns the schedule
+// materializer, which runs wherever the run worker does.
 //
 // The two halves are wired together here because only one of them can exist
 // without the other: the tool layer registers manage_script on any database
@@ -32,9 +33,11 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 			Bucket:   p.config.Portal.S3Bucket,
 			Prefix:   p.config.Portal.S3Prefix,
 		},
-		Audit:          p.auditLogger,
-		RunRetention:   p.config.Scripts.RunRetention(),
-		WorkerDisabled: !p.config.Scripts.IsWorkerEnabled(),
+		Audit:                 p.auditLogger,
+		RunRetention:          p.config.Scripts.RunRetention(),
+		WorkerDisabled:        !p.config.Scripts.IsWorkerEnabled(),
+		NotificationsDisabled: !p.config.Notifications.IsEnabled(),
+		DigestHourUTC:         p.config.Notifications.DigestHour(),
 	})
 	scriptlayer.New(scriptlayer.Config{
 		DB:           p.db,
