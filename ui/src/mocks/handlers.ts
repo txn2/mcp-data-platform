@@ -23,6 +23,7 @@ import { versionsForAsset } from "./data/assetVersions";
 import { catalogHandlers } from "./handlers/catalogs";
 import { userHandlers } from "./handlers/users";
 import { connectionInstanceHandlers } from "./handlers/connections";
+import { scriptHandlers } from "./handlers/scripts";
 import {
   mockDataHubConnections,
   catalogBrowse,
@@ -3354,4 +3355,5 @@ export const handlers = [
   ...catalogHandlers,
   ...userHandlers,
   ...connectionInstanceHandlers,
+  ...scriptHandlers,
 ];

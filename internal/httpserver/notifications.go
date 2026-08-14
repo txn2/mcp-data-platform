@@ -10,55 +10,88 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/mention"
 )
 
-// reviewAlertStore builds the review-queue alert's persistence (#803), or nil
-// when the alert cannot exist in this deployment: no database, or
+// reviewAlertStore builds one review queue's alert persistence (#803, #1287),
+// or nil when the alert cannot exist in this deployment: no database, or
 // notifications turned off in YAML. The checker and the admin API each build
 // one; it is stateless over the pool, so there is nothing to share, and
 // threading a handle through the admin wiring would imply a lifecycle it does
 // not have.
-func reviewAlertStore(p *platform.Platform) *reviewalert.PostgresStore {
+func reviewAlertStore(p *platform.Platform, target reviewalert.Target) *reviewalert.PostgresStore {
 	if p == nil || p.DB() == nil || !p.Config().Notifications.IsEnabled() {
 		return nil
 	}
-	return reviewalert.NewPostgresStore(p.DB())
+	return reviewalert.NewPostgresStore(p.DB(), target)
 }
 
-// reviewAlertSettings narrows the store to the half the admin settings surface
-// needs, or nil when the alert cannot exist here. A nil result unmounts the
-// admin routes, matching what the SMTP section already does in the same
+// reviewAlertSettings narrows one queue's store to the half the admin settings
+// surface needs, or nil when the alert cannot exist here. A nil result unmounts
+// the admin routes, matching what the SMTP section already does in the same
 // states: an operator must not be able to configure an alert nothing will
 // ever send. The explicit nil check keeps a typed nil out of the interface.
-func reviewAlertSettings(p *platform.Platform) reviewalert.SettingsStore {
-	store := reviewAlertStore(p)
+func reviewAlertSettings(p *platform.Platform, target reviewalert.Target) reviewalert.SettingsStore {
+	store := reviewAlertStore(p, target)
 	if store == nil {
 		return nil
 	}
 	return store
 }
 
-// buildReviewAlert assembles the scheduled review-queue staleness check.
-// Returns nil (a no-op checker) when anything it needs is absent: no database,
-// notifications off, no knowledge insight store -- an alert with nowhere to
-// send is not an alert.
+// buildReviewAlert assembles the scheduled knowledge review-queue staleness
+// check. Returns nil (a no-op checker) when anything it needs is absent: no
+// database, notifications off, no knowledge insight store -- an alert with
+// nowhere to send is not an alert.
 func buildReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *reviewalert.Checker {
-	store := reviewAlertStore(p)
+	target := reviewalert.KnowledgeTarget()
+	store := reviewAlertStore(p, target)
 	if store == nil {
 		return nil
 	}
+	var source reviewalert.Source
+	// A typed nil in the interface would read as a live source and the check
+	// would fail on every tick instead of never running.
+	if insights := p.KnowledgeInsightStore(); insights != nil {
+		source = reviewalert.InsightSource{Insights: insights}
+	}
 	checker := reviewalert.New(reviewalert.Config{
+		Target:   target,
 		Settings: store,
 		State:    store,
-		Insights: p.KnowledgeInsightStore(),
+		Source:   source,
 		Enqueuer: notify.Enqueuer(),
 		BaseURL:  p.Config().Portal.PublicBaseURL,
 	})
 	if checker != nil {
 		log.Println("Knowledge review-queue staleness alert enabled")
+	}
+	return checker
+}
+
+// buildScriptReviewAlert assembles the scheduled managed-script review-queue
+// check (#1287). It reads the same queue the review surface lists, over the
+// same pool the script store uses, so the number an operator is mailed is the
+// number they find when they open the queue.
+func buildScriptReviewAlert(p *platform.Platform, notify *notifydelivery.Handle) *reviewalert.Checker {
+	target := reviewalert.ScriptTarget()
+	store := reviewAlertStore(p, target)
+	if store == nil {
+		return nil
+	}
+	checker := reviewalert.New(reviewalert.Config{
+		Target:   target,
+		Settings: store,
+		State:    store,
+		Source:   reviewalert.ScriptSource{Reviews: scriptstore.New(p.DB())},
+		Enqueuer: notify.Enqueuer(),
+		BaseURL:  p.Config().Portal.PublicBaseURL,
+	})
+	if checker != nil {
+		log.Println("Managed-script review-queue alert enabled")
 	}
 	return checker
 }

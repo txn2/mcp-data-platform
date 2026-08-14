@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfigField, ConfigSelect, ConfigToggle } from "./connections/fields";
-import { ReviewQueueAlertCard } from "./ReviewQueueAlertCard";
+import { ReviewAlertCard } from "./ReviewAlertCard";
 import { SettingsCard } from "./panels";
 import {
   ErrorBanner,
@@ -299,9 +299,11 @@ function SaveFeedbackBanners({
 }
 
 // ---------------------------------------------------------------------------
-// AdminSettingsPage: platform settings (/admin/settings). Two sections today:
-// Email (SMTP) delivery used by the notification mailer (#631), and the
-// knowledge review-queue staleness alert that sends through it (#803).
+// AdminSettingsPage: platform settings (/admin/settings). Email (SMTP)
+// delivery used by the notification mailer (#631), and the two review-queue
+// alerts that send through it: knowledge insights (#803) and managed-script
+// reviews (#1287). The two alerts are one card rendered twice — same
+// mechanism, own thresholds and recipients.
 // ---------------------------------------------------------------------------
 
 export function AdminSettingsPage() {
@@ -310,7 +312,22 @@ export function AdminSettingsPage() {
   return (
     <div className="space-y-6">
       <SMTPCard isReadOnly={isReadOnly} />
-      <ReviewQueueAlertCard isReadOnly={isReadOnly} />
+      <ReviewAlertCard
+        queue="review-queue-alert"
+        title="Knowledge review queue alert"
+        description="Email a digest when knowledge insights are left unreviewed"
+        enabledHelp="Check the pending insight queue hourly and alert when it crosses a threshold"
+        itemNoun="insight"
+        isReadOnly={isReadOnly}
+      />
+      <ReviewAlertCard
+        queue="script-review-alert"
+        title="Script review queue alert"
+        description="Email when script versions are left waiting for approval"
+        enabledHelp="Check the script review queue hourly and alert when it crosses a threshold. Nothing runs unattended until a version is approved, so an unworked queue is automation that is not happening."
+        itemNoun="script version"
+        isReadOnly={isReadOnly}
+      />
     </div>
   );
 }

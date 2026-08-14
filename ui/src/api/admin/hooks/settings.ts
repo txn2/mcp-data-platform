@@ -91,9 +91,9 @@ export function useSendTestEmail() {
 
 // --- Knowledge review-queue staleness alert (#803) ---
 
-// ReviewQueueAlertSettings is the stored alert configuration. A threshold of 0
-// disables that condition; warnings describe a configuration that saves
-// cleanly but delivers nothing.
+// ReviewQueueAlertSettings is one review queue's stored alert configuration. A
+// threshold of 0 disables that condition; warnings describe a configuration
+// that saves cleanly but delivers nothing.
 export interface ReviewQueueAlertSettings {
   enabled: boolean;
   pending_threshold: number;
@@ -112,25 +112,31 @@ export type ReviewQueueAlertInput = Omit<
   "updated_by" | "updated_at" | "warnings"
 >;
 
-export function useReviewQueueAlert() {
+// ReviewAlertQueue is the settings path segment of one review queue. Both
+// queues are the same mechanism with their own thresholds and recipients
+// (#803, #1287), so they are one pair of hooks over a queue rather than two
+// copies of it.
+export type ReviewAlertQueue = "review-queue-alert" | "script-review-alert";
+
+export function useReviewAlert(queue: ReviewAlertQueue) {
   return useQuery({
-    queryKey: ["settings", "review-queue-alert"],
-    queryFn: () => apiFetch<ReviewQueueAlertSettings>("/settings/review-queue-alert"),
+    queryKey: ["settings", queue],
+    queryFn: () => apiFetch<ReviewQueueAlertSettings>(`/settings/${queue}`),
   });
 }
 
-export function useSetReviewQueueAlert() {
+export function useSetReviewAlert(queue: ReviewAlertQueue) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: ReviewQueueAlertInput) =>
-      apiFetch<ReviewQueueAlertSettings>("/settings/review-queue-alert", {
+      apiFetch<ReviewQueueAlertSettings>(`/settings/${queue}`, {
         method: "PUT",
         body: JSON.stringify(input),
       }),
     // The PUT answers with the stored state (recipients normalized, warnings
     // re-evaluated), so seed the cache from it rather than refetching.
     onSuccess: (data) => {
-      qc.setQueryData(["settings", "review-queue-alert"], data);
+      qc.setQueryData(["settings", queue], data);
     },
   });
 }

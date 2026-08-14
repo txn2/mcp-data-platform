@@ -125,9 +125,10 @@ func newHarness(t *testing.T, settings Settings, pending, oldestDays, over30d in
 	t.Cleanup(enq.Close)
 	state := &memState{}
 	checker := New(Config{
+		Target:   KnowledgeTarget(),
 		Settings: &stubSettings{settings: &settings},
 		State:    state,
-		Insights: &fakeInsights{review: review},
+		Source:   InsightSource{Insights: &fakeInsights{review: review}},
 		Enqueuer: enq,
 		BaseURL:  "https://data.example.com",
 		Now:      func() time.Time { return now },
@@ -146,8 +147,10 @@ func alertSettings() Settings {
 
 func TestNew_MissingDependencyIsANoop(t *testing.T) {
 	full := Config{
+		Target:   KnowledgeTarget(),
 		Settings: &stubSettings{}, State: &memState{},
-		Insights: &fakeInsights{}, Enqueuer: notification.NewEnqueuer(defaultPrefs{}, &captureQueue{}, 13),
+		Source:   InsightSource{Insights: &fakeInsights{}},
+		Enqueuer: notification.NewEnqueuer(defaultPrefs{}, &captureQueue{}, 13),
 	}
 	assert.NotNil(t, New(full))
 
@@ -157,8 +160,9 @@ func TestNew_MissingDependencyIsANoop(t *testing.T) {
 	}{
 		{"no settings", func(c *Config) { c.Settings = nil }},
 		{"no state", func(c *Config) { c.State = nil }},
-		{"no insight store", func(c *Config) { c.Insights = nil }},
+		{"no source", func(c *Config) { c.Source = nil }},
 		{"no enqueuer", func(c *Config) { c.Enqueuer = nil }},
+		{"no target", func(c *Config) { c.Target = Target{} }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := full
@@ -280,11 +284,12 @@ func TestCheck_ErrorPaths(t *testing.T) {
 		settings := alertSettings()
 		oldest := time.Now().AddDate(0, 0, -90)
 		return Config{
+			Target:   KnowledgeTarget(),
 			Settings: &stubSettings{settings: &settings},
 			State:    &memState{},
-			Insights: &fakeInsights{review: &knowledgekit.PendingReview{
+			Source: InsightSource{Insights: &fakeInsights{review: &knowledgekit.PendingReview{
 				TotalPending: 4, OldestPendingAt: &oldest,
-			}},
+			}}},
 			Enqueuer: enq,
 		}
 	}
@@ -297,7 +302,7 @@ func TestCheck_ErrorPaths(t *testing.T) {
 
 	t.Run("an insight store failure is returned", func(t *testing.T) {
 		cfg := base(t)
-		cfg.Insights = &fakeInsights{err: errors.New("insights down")}
+		cfg.Source = InsightSource{Insights: &fakeInsights{err: errors.New("insights down")}}
 		assert.ErrorContains(t, New(cfg).Check(context.Background()), "insights down")
 	})
 
@@ -310,7 +315,7 @@ func TestCheck_ErrorPaths(t *testing.T) {
 	t.Run("a clear failure is returned", func(t *testing.T) {
 		cfg := base(t)
 		cfg.State = &memState{clearErr: errors.New("clear down")}
-		cfg.Insights = &fakeInsights{review: &knowledgekit.PendingReview{TotalPending: 0}}
+		cfg.Source = InsightSource{Insights: &fakeInsights{review: &knowledgekit.PendingReview{TotalPending: 0}}}
 		assert.ErrorContains(t, New(cfg).Check(context.Background()), "clear down")
 	})
 

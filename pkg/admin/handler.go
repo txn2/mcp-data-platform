@@ -206,6 +206,10 @@ type Deps struct {
 	// threshold, cooldown, and recipients (#803). nil disables the
 	// /api/v1/admin/settings/review-queue-alert routes.
 	ReviewQueueAlert reviewalert.SettingsStore
+	// ScriptReviewAlert persists the managed-script review-queue alert
+	// threshold, cooldown, and recipients (#1287). nil disables the
+	// /api/v1/admin/settings/script-review-alert routes.
+	ScriptReviewAlert reviewalert.SettingsStore
 	// NotificationHistory reads the delivery history behind the admin
 	// Notifications tab: what was sent, what failed and why. nil disables
 	// the /api/v1/admin/notifications routes.

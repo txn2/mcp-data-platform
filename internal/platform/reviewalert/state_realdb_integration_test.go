@@ -19,7 +19,7 @@ import (
 // alert is a question for Postgres.
 func TestStateStoreRealDB(t *testing.T) {
 	db := testdb.New(t)
-	store := NewPostgresStore(db)
+	store := NewPostgresStore(db, KnowledgeTarget())
 	ctx := context.Background()
 	now := time.Now().UTC()
 
@@ -45,11 +45,12 @@ func TestStateStoreRealDB(t *testing.T) {
 	require.NoError(t, store.Clear(ctx))
 	require.NoError(t, store.Clear(ctx))
 
-	// The table holds exactly one row: the CHECK (id) primary key is what
-	// makes "one row per deployment" a constraint rather than a convention.
+	// The table holds exactly one row for this queue: the queue-keyed primary
+	// key is what makes "one row per queue" a constraint rather than a
+	// convention.
 	var rows int
 	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM knowledge_review_alert_state`).Scan(&rows))
+		`SELECT COUNT(*) FROM review_alert_state`).Scan(&rows))
 	assert.Equal(t, 1, rows)
 }
 
@@ -57,7 +58,7 @@ func TestStateStoreRealDB(t *testing.T) {
 // platform_settings section, alongside the SMTP section rather than over it.
 func TestSettingsStoreRealDB(t *testing.T) {
 	db := testdb.New(t)
-	store := NewPostgresStore(db)
+	store := NewPostgresStore(db, KnowledgeTarget())
 	ctx := context.Background()
 
 	_, err := store.Get(ctx)
@@ -86,4 +87,48 @@ func TestSettingsStoreRealDB(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 12, got.CooldownHours)
 	assert.Equal(t, "other@example.com", got.UpdatedBy)
+}
+
+// TestPerQueueClaimsAreIndependentRealDB is the single-fire proof for a
+// deployment watching two review queues (#1287). The claim is what makes an
+// alert a cluster-wide singleton, and it is now keyed by queue: one queue's
+// cooldown must not silence the other's alert, and each queue must still alert
+// exactly once per window however many replicas check it.
+func TestPerQueueClaimsAreIndependentRealDB(t *testing.T) {
+	db := testdb.New(t)
+	knowledge := NewPostgresStore(db, KnowledgeTarget())
+	scripts := NewPostgresStore(db, ScriptTarget())
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	won, err := knowledge.ClaimAlert(ctx, 24*time.Hour, now)
+	require.NoError(t, err)
+	assert.True(t, won)
+
+	// The script queue crossing in the same window is news, not repetition.
+	won, err = scripts.ClaimAlert(ctx, 24*time.Hour, now)
+	require.NoError(t, err)
+	assert.True(t, won, "one queue's claim must not consume another queue's window")
+
+	// Two replicas checking the script queue inside its cooldown: one alert.
+	for _, at := range []time.Time{now.Add(time.Minute), now.Add(time.Hour)} {
+		won, err = scripts.ClaimAlert(ctx, 24*time.Hour, at)
+		require.NoError(t, err)
+		assert.False(t, won, "a second replica's check inside the cooldown loses the claim")
+	}
+
+	// Clearing one queue leaves the other's marker outstanding.
+	require.NoError(t, scripts.Clear(ctx))
+	won, err = knowledge.ClaimAlert(ctx, 24*time.Hour, now.Add(2*time.Hour))
+	require.NoError(t, err)
+	assert.False(t, won, "clearing the script queue must not re-arm the knowledge queue")
+
+	won, err = scripts.ClaimAlert(ctx, 24*time.Hour, now.Add(2*time.Hour))
+	require.NoError(t, err)
+	assert.True(t, won, "a queue worked back under threshold alerts again on the next crossing")
+
+	var rows int
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM review_alert_state`).Scan(&rows))
+	assert.Equal(t, 2, rows, "one row per queue, not one row per deployment")
 }

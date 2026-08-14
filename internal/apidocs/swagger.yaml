@@ -4380,6 +4380,66 @@ definitions:
           type: string
         type: array
     type: object
+  script.PendingReview:
+    properties:
+      author:
+        description: |-
+          Author is who wrote the version and AuthorRoles is the authority
+          approving it would bind, which approval copies rather than accepts.
+        example: jane@example.com
+        type: string
+      author_roles:
+        example:
+        - analyst
+        items:
+          type: string
+        type: array
+      created_at:
+        description: |-
+          CreatedAt is when the version was authored, which is how long the
+          decision has been outstanding.
+        example: "2026-08-14T09:00:00Z"
+        type: string
+      description:
+        example: Summarize yesterday's sales by region
+        type: string
+      display_name:
+        example: Daily Sales Report
+        type: string
+      first_approval:
+        description: |-
+          FirstApproval marks a script that has never had an approved version, so
+          nothing of it executes today. The distinction matters to a reviewer:
+          approving a change alters what already runs unattended, while approving a
+          first version starts something running.
+        example: true
+        type: boolean
+      owner_email:
+        example: jane@example.com
+        type: string
+      scope:
+        example: global
+        type: string
+      script_id:
+        example: script_a1b2c3d4
+        type: string
+      script_name:
+        example: daily-sales-report
+        type: string
+      version:
+        description: |-
+          Version is the number a reviewer would approve, and VersionStatus is that
+          version's row status — "draft" for a proposed change, "applied" for the
+          snapshot a never-approved script is already serving.
+        example: 3
+        type: integer
+      version_id:
+        example: sver_a1b2c3d4
+        type: string
+      version_status:
+        example: draft
+        type: string
+    type: object
   script.Schedule:
     properties:
       created_at:
@@ -4591,6 +4651,44 @@ definitions:
           type: string
         type: array
     type: object
+  scripthttp.approvedBaseline:
+    properties:
+      approved_at:
+        type: string
+      approved_by:
+        description: ApprovedBy and ApprovedAt are who bound that grant and when.
+        example: admin@example.com
+        type: string
+      grants:
+        allOf:
+        - $ref: '#/definitions/script.Grants'
+        description: |-
+          Grants is the capability set that version executes under today: what the
+          script already holds, against which the proposed grant is read.
+      source_diff:
+        description: |-
+          SourceDiff is the unified diff from the approved source to the version
+          under review. It is empty when the two carry identical source, which is
+          what re-approving a version to widen its grant looks like.
+        type: string
+      version:
+        description: Version is the approved version's number, and VersionID its id.
+        example: 2
+        type: integer
+      version_id:
+        example: sver_a1b2c3d4
+        type: string
+    type: object
+  scripthttp.pendingReviewResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/script.PendingReview'
+        type: array
+      total:
+        example: 2
+        type: integer
+    type: object
   scripthttp.referenced:
     properties:
       capabilities:
@@ -4663,6 +4761,14 @@ definitions:
     type: object
   scripthttp.versionReviewResponse:
     properties:
+      approved:
+        allOf:
+        - $ref: '#/definitions/scripthttp.approvedBaseline'
+        description: |-
+          Approved is the version the script executes today, with the grant it
+          holds and the diff from its source to this one. It is absent when the
+          script has never had a version approved, which is what makes this a first
+          approval rather than a change to something already running.
       findings:
         description: Findings are the validator's complaints about the source.
         items:
@@ -9285,6 +9391,73 @@ paths:
       summary: Approve a script version
       tags:
       - Scripts
+  /admin/scripts/{id}/versions/{version}/reject:
+    post:
+      description: 'Marks a pending draft rejected. The live script and its approved
+        version are untouched, so nothing about what executes changes. Only a pending
+        draft can be rejected: declining the live version of a never-approved script
+        means leaving it unapproved, which is already its state.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Reject a script version
+      tags:
+      - Scripts
+  /admin/scripts/reviews:
+    get:
+      description: 'Returns the versions waiting for a reviewer''s decision across
+        every script, oldest first: pending drafts, and the live version of any script
+        that has never had an approved version. One row per script, because approving
+        a version supersedes that script''s other pending drafts.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.pendingReviewResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List script versions awaiting review
+      tags:
+      - Scripts
   /admin/scripts/schedules:
     get:
       description: Returns every managed-script schedule with its cadence, its bound
@@ -9321,7 +9494,7 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Get review-queue alert settings
+      summary: Get knowledge review-queue alert settings
       tags:
       - Settings
     put:
@@ -9351,7 +9524,56 @@ paths:
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
-      summary: Update review-queue alert settings
+      summary: Update knowledge review-queue alert settings
+      tags:
+      - Settings
+  /admin/settings/script-review-alert:
+    get:
+      description: 'Returns the managed-script review-queue alert configuration: when
+        to alert that script versions are waiting for approval, and who hears about
+        it. Before an operator has written one, the platform defaults are returned
+        with no recipients.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/reviewalert.SettingsView'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get script review-queue alert settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: 'Upserts the managed-script review-queue alert configuration: the
+        pending-count and age thresholds, the re-alert cooldown, and the recipients
+        the alert is delivered to.'
+      parameters:
+      - description: Script review alert settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/reviewalert.SettingsInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/reviewalert.SettingsView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update script review-queue alert settings
       tags:
       - Settings
   /admin/settings/smtp:

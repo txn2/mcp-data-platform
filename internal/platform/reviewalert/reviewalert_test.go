@@ -8,9 +8,9 @@ import (
 )
 
 func TestDefaultSettings(t *testing.T) {
-	s := DefaultSettings()
+	s := KnowledgeTarget().DefaultSettings()
 	assert.True(t, s.Enabled, "the check is on before an operator configures it")
-	assert.Equal(t, DefaultOldestPendingDays, s.OldestPendingDays)
+	assert.Equal(t, DefaultKnowledgeOldestDays, s.OldestPendingDays)
 	assert.Equal(t, DefaultCooldownHours, s.CooldownHours)
 	assert.Empty(t, s.Recipients, "defaults name nobody; the operator supplies the list")
 	assert.False(t, s.Deliverable(), "with no recipients the default configuration delivers nothing")

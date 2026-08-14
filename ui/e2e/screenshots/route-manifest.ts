@@ -6,6 +6,9 @@ import {
   openPersonaScopeTab,
   openResourceDetail,
   openResourceLifecycle,
+  openScriptFirstApproval,
+  openScriptReview,
+  openScriptAlertSettings,
   openShareDialog,
   openShareDialogWithRecipient,
 } from "./route-actions";
@@ -472,10 +475,42 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
   {
-    // Platform settings: SMTP configuration for email notifications (#631).
+    // Platform settings: SMTP configuration for email notifications (#631)
+    // and the two review-queue alerts that send through it (#803, #1287).
     slug: "admin-settings",
     path: "/portal/admin/settings",
     category: "admin",
+  },
+  {
+    // The managed-script review alert section, which sits below the fold of a
+    // viewport capture of the settings page (#1287).
+    slug: "admin-settings-script-alert",
+    path: "/portal/admin/settings",
+    category: "admin",
+    beforeCapture: openScriptAlertSettings,
+  },
+  {
+    // Managed-script review: the queue of versions waiting for approval and
+    // every script with what it is executing (#1287).
+    slug: "admin-scripts",
+    path: "/portal/admin/scripts",
+    category: "admin",
+  },
+  {
+    // The decision itself: the capability diff and the code diff for one
+    // version, which is what makes approving a review rather than a stamp.
+    slug: "admin-script-review",
+    path: "/portal/admin/scripts",
+    category: "admin",
+    beforeCapture: openScriptReview,
+  },
+  {
+    // The other decision: a script nothing has ever approved, where the whole
+    // source is the change and approving starts something running.
+    slug: "admin-script-first-approval",
+    path: "/portal/admin/scripts",
+    category: "admin",
+    beforeCapture: openScriptFirstApproval,
   },
 
   // =========================================================================

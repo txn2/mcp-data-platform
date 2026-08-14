@@ -14,7 +14,7 @@ import (
 
 // expectedFinalVersion is the highest migration the embedded set defines. Bump
 // this when adding a migration so the gate asserts the full set applied.
-const expectedFinalVersion = 100
+const expectedFinalVersion = 101
 
 // TestMigrationsAgainstRealPostgres applies the embedded migrations to a real
 // PostgreSQL (pgvector) instance and exercises the full lifecycle: up, seed,
@@ -68,6 +68,19 @@ func TestMigrationsAgainstRealPostgres(t *testing.T) {
 
 	// 4. Up again, proving the set is re-applicable from a clean slate.
 	require.NoError(t, Run(db), "migrate up again after down")
+
+	// 5. One step down and back up. A full Down drops every table, so it never
+	//    re-applies an ALTER against a table an earlier down migration
+	//    reshaped: a down that restores a table's SHAPE but not the NAMES of
+	//    its constraints passes step 3 and fails here, leaving the schema
+	//    dirty on the next deploy.
+	require.NoError(t, Steps(db, -1), "step one migration down")
+	require.NoError(t, Steps(db, 1), "step the same migration back up")
+
+	version, dirty, err = Version(db)
+	require.NoError(t, err, "read migration version after the step round-trip")
+	require.False(t, dirty, "a down/up round-trip left the database dirty")
+	require.Equal(t, uint(expectedFinalVersion), version, "did not return to the final migration")
 }
 
 // resetSchema drops and recreates the public schema so each run starts empty,

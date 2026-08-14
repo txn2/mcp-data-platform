@@ -1,0 +1,123 @@
+// Managed-script review types (#1287). They mirror the admin REST payloads
+// served by internal/httpserver/scripthttp.
+
+// ScriptGrants is the capability set bound to an approved version: what that
+// code may reach when the platform runs it with nobody present.
+//
+// Roles are read-only everywhere in this UI. Approval copies them from the
+// version's author, so offering to edit them would imply a control the API
+// does not have.
+export interface ScriptGrants {
+  roles: string[];
+  connections: string[];
+  capabilities: string[];
+  destinations: string[];
+}
+
+// Script is a managed script's live row.
+export interface Script {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  scope: string;
+  owner_email: string;
+  status: string;
+  enabled: boolean;
+  version: number;
+  // approved_version_id is the execution gate: empty means nothing of this
+  // script runs.
+  approved_version_id?: string;
+  tags?: string[];
+  updated_at: string;
+}
+
+// ScriptVersion is one immutable snapshot with its approval stamp.
+export interface ScriptVersion {
+  id: string;
+  script_id: string;
+  version: number;
+  display_name: string;
+  description: string;
+  source: string;
+  tags?: string[];
+  author: string;
+  // author_roles is the authority approving this version binds.
+  author_roles?: string[];
+  status: string;
+  approved_by?: string;
+  approved_at?: string;
+  grants: ScriptGrants;
+  created_at: string;
+}
+
+// PendingReview is one row of the review queue: a version waiting for a
+// decision, with the script it belongs to.
+export interface PendingReview {
+  script_id: string;
+  script_name: string;
+  display_name: string;
+  description: string;
+  owner_email: string;
+  scope: string;
+  version: number;
+  version_id: string;
+  version_status: string;
+  author: string;
+  author_roles: string[];
+  // first_approval marks a script that has never had an approved version:
+  // approving starts something running rather than changing what runs.
+  first_approval: boolean;
+  created_at: string;
+}
+
+// ReferencedCapabilities is what a static read of the source found.
+export interface ReferencedCapabilities {
+  capabilities: string[];
+  connections: string[];
+  // dynamic_connections is true when a call computes its connection instead of
+  // naming one, which makes the connection list incomplete.
+  dynamic_connections: boolean;
+}
+
+// ScriptFinding is one validator complaint about the source. The hint is the
+// corrective action, which is most of a finding's value to a reviewer deciding
+// whether to send a version back.
+export interface ScriptFinding {
+  severity: string;
+  message: string;
+  line?: number;
+  hint?: string;
+}
+
+// ApprovedBaseline is the version the script executes today: the other half of
+// both diffs a reviewer reads. Absent when nothing has ever been approved.
+export interface ApprovedBaseline {
+  version: number;
+  version_id: string;
+  grants: ScriptGrants;
+  approved_by?: string;
+  approved_at?: string;
+  // source_diff is the unified diff from the approved source to this one. It
+  // is empty when the two carry identical source, which is what re-approving a
+  // version to change its grant looks like.
+  source_diff?: string;
+}
+
+// VersionReview is everything the review surface shows for one version.
+export interface VersionReview {
+  version: ScriptVersion;
+  referenced: ReferencedCapabilities;
+  missing_capabilities?: string[];
+  missing_connections?: string[];
+  findings?: ScriptFinding[];
+  approved?: ApprovedBaseline;
+}
+
+// ScriptApproveInput is the approval body. It carries no roles: see
+// ScriptGrants.
+export interface ScriptApproveInput {
+  connections: string[];
+  capabilities: string[];
+  destinations: string[];
+}

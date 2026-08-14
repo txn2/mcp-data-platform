@@ -15,6 +15,7 @@ import (
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
+	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
@@ -54,7 +55,10 @@ func TestBuildReviewAlert_NoDatabase(t *testing.T) {
 	if got := buildReviewAlert(nil, nil); got != nil {
 		t.Error("nil platform must yield no checker")
 	}
-	if got := reviewAlertSettings(nil); got != nil {
+	if got := buildScriptReviewAlert(nil, nil); got != nil {
+		t.Error("nil platform must yield no script review checker")
+	}
+	if got := reviewAlertSettings(nil, reviewalert.KnowledgeTarget()); got != nil {
 		t.Error("nil platform must yield no settings store")
 	}
 
@@ -64,12 +68,21 @@ func TestBuildReviewAlert_NoDatabase(t *testing.T) {
 	if got := buildReviewAlert(p, nil); got != nil {
 		t.Error("no database must yield no checker")
 	}
-	if got := reviewAlertSettings(p); got != nil {
-		t.Error("no database must yield no settings store")
+	if got := buildScriptReviewAlert(p, nil); got != nil {
+		t.Error("no database must yield no script review checker")
+	}
+	for _, target := range []reviewalert.Target{
+		reviewalert.KnowledgeTarget(), reviewalert.ScriptTarget(),
+	} {
+		if got := reviewAlertSettings(p, target); got != nil {
+			t.Errorf("no database must yield no %s settings store", target.Queue)
+		}
 	}
 	// The composition root brackets Start/Stop on whatever it got back.
 	buildReviewAlert(p, nil).Start(context.Background())
 	buildReviewAlert(p, nil).Stop()
+	buildScriptReviewAlert(p, nil).Start(context.Background())
+	buildScriptReviewAlert(p, nil).Stop()
 }
 
 // TestReviewAlertSettings_NotificationsDisabled: with notifications off in
@@ -83,8 +96,12 @@ func TestReviewAlertSettings_NotificationsDisabled(t *testing.T) {
 	p := newTestPlatform(t, cfg)
 	defer func() { _ = p.Close() }()
 
-	if got := reviewAlertSettings(p); got != nil {
-		t.Error("disabled notifications must yield no settings store")
+	for _, target := range []reviewalert.Target{
+		reviewalert.KnowledgeTarget(), reviewalert.ScriptTarget(),
+	} {
+		if got := reviewAlertSettings(p, target); got != nil {
+			t.Errorf("disabled notifications must yield no %s settings store", target.Queue)
+		}
 	}
 }
 

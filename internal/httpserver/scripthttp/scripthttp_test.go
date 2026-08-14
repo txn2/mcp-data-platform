@@ -33,6 +33,14 @@ type stubStore struct {
 	getErr     error
 	versionErr error
 	approveErr error
+	// The review half, served by the methods in review_test.go.
+	pending    []script.PendingReview
+	pendingErr error
+	rejectErr  error
+	rejected   []int
+	// byID resolves GetVersionByID when a test needs the approved version to
+	// be a different row from the one under review.
+	byID map[string]*script.Version
 	// The schedule half, served by the methods in schedules_test.go.
 	schedule         *script.Schedule
 	scheduleErr      error
@@ -94,8 +102,14 @@ func (s *stubStore) GetVersion(_ context.Context, _ string, version int) (*scrip
 	return s.version, nil
 }
 
-func (s *stubStore) GetVersionByID(context.Context, string) (*script.Version, error) {
-	return s.version, s.versionErr
+func (s *stubStore) GetVersionByID(_ context.Context, id string) (*script.Version, error) {
+	if s.versionErr != nil {
+		return nil, s.versionErr
+	}
+	if s.byID != nil {
+		return s.byID[id], nil
+	}
+	return s.version, nil
 }
 
 func (s *stubStore) ApproveVersion(_ context.Context, _ string, _ int, approver string, grants script.Grants) (*script.Version, error) {
@@ -135,6 +149,7 @@ func serve(t *testing.T, store *stubStore, method, path, body string) *httptest.
 	mux := http.NewServeMux()
 	New(Deps{
 		Scripts: store, Versions: store, Approvals: store, Schedules: store,
+		Reviews: store, Rejections: store,
 		AdminEmail: func(*http.Request) string { return "admin@example.com" },
 	}).RegisterAdmin(mux, "/api/v1/admin", func(h http.Handler) http.Handler { return h })
 

@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/testdb"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
@@ -107,7 +108,25 @@ func TestBuildReviewAlert_RealDB(t *testing.T) {
 
 	checker := buildReviewAlert(p, buildNotifications(p))
 	require.NotNil(t, checker, "database-backed platform must yield a review-queue checker")
-	require.NotNil(t, reviewAlertSettings(p))
+	require.NotNil(t, reviewAlertSettings(p, reviewalert.KnowledgeTarget()))
+
+	ctx := context.Background()
+	require.NoError(t, checker.Check(ctx))
+
+	checker.Start(ctx)
+	checker.Stop()
+}
+
+// TestBuildScriptReviewAlert_RealDB is the same assembly proof for the
+// managed-script review queue (#1287): the second queue reaches the real
+// script tables through its own store and settings section, so a deployment
+// that has both is running two independent checks rather than one shared one.
+func TestBuildScriptReviewAlert_RealDB(t *testing.T) {
+	p := newRealDBPlatform(t)
+
+	checker := buildScriptReviewAlert(p, buildNotifications(p))
+	require.NotNil(t, checker, "database-backed platform must yield a script review checker")
+	require.NotNil(t, reviewAlertSettings(p, reviewalert.ScriptTarget()))
 
 	ctx := context.Background()
 	require.NoError(t, checker.Check(ctx))

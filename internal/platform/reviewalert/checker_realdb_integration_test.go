@@ -35,7 +35,7 @@ func TestCheckerAgainstRealDB(t *testing.T) {
 	insights := knowledgekit.NewMemoryInsightAdapter(memory.NewPostgresStore(db))
 	seedStalePending(t, db, insights, 3)
 
-	store := NewPostgresStore(db)
+	store := NewPostgresStore(db, KnowledgeTarget())
 	require.NoError(t, store.Set(ctx, Settings{
 		Enabled: true, OldestPendingDays: 30, CooldownHours: 24,
 		Recipients: []string{"ops@example.com"},
@@ -46,7 +46,8 @@ func TestCheckerAgainstRealDB(t *testing.T) {
 	t.Cleanup(enq.Close)
 
 	checker := New(Config{
-		Settings: store, State: store, Insights: insights,
+		Target: KnowledgeTarget(), Settings: store, State: store,
+		Source:   InsightSource{Insights: insights},
 		Enqueuer: enq, BaseURL: "https://data.example.com",
 	})
 	require.NotNil(t, checker)
@@ -125,7 +126,7 @@ func TestCheckerAgainstRealDB_UnderThreshold(t *testing.T) {
 		Status: knowledgekit.StatusPending,
 	}))
 
-	store := NewPostgresStore(db)
+	store := NewPostgresStore(db, KnowledgeTarget())
 	require.NoError(t, store.Set(ctx, Settings{
 		Enabled: true, OldestPendingDays: 30, CooldownHours: 24,
 		Recipients: []string{"ops@example.com"},
@@ -136,7 +137,8 @@ func TestCheckerAgainstRealDB_UnderThreshold(t *testing.T) {
 	t.Cleanup(enq.Close)
 
 	checker := New(Config{
-		Settings: store, State: store, Insights: insights,
+		Target: KnowledgeTarget(), Settings: store, State: store,
+		Source:   InsightSource{Insights: insights},
 		Enqueuer: enq, BaseURL: "https://data.example.com",
 	})
 	require.NoError(t, checker.Check(ctx))
@@ -144,7 +146,7 @@ func TestCheckerAgainstRealDB_UnderThreshold(t *testing.T) {
 
 	var alerting bool
 	err := db.QueryRowContext(ctx,
-		`SELECT alerting FROM knowledge_review_alert_state`).Scan(&alerting)
+		`SELECT alerting FROM review_alert_state`).Scan(&alerting)
 	if err == nil {
 		assert.False(t, alerting, "an under-threshold check leaves no claim outstanding")
 	} else {

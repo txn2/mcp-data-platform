@@ -38,6 +38,11 @@ type Config struct {
 	// ReviewAlert persists the knowledge review-queue alert threshold
 	// (#803). nil disables the review-queue-alert routes.
 	ReviewAlert reviewalert.SettingsStore
+	// ScriptReviewAlert persists the managed-script review-queue alert
+	// threshold (#1287). nil disables the script-review-alert routes. It is a
+	// separate store rather than a second section on one, because each store is
+	// bound to the queue whose settings section it reads.
+	ScriptReviewAlert reviewalert.SettingsStore
 	// Mutable reports database config mode; false swaps the write routes for
 	// ReadOnly.
 	Mutable bool

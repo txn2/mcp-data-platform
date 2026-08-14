@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
+	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -653,7 +654,8 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	deps.NotificationPrefs = notify.Prefs()
 	deps.NotificationHistory = notify.History()
 	deps.NotificationRetention = notifydelivery.HistoryRetention
-	deps.ReviewQueueAlert = reviewAlertSettings(p)
+	deps.ReviewQueueAlert = reviewAlertSettings(p, reviewalert.KnowledgeTarget())
+	deps.ScriptReviewAlert = reviewAlertSettings(p, reviewalert.ScriptTarget())
 
 	return admin.NewHandler(deps, buildAdminAuth(p))
 }
