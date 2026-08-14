@@ -51,6 +51,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, and the content verbs (patch, locate, get_content, outline, stats, diff) |
 | Platform | `show_prompts` | Render the prompt library as an interactive browser for the human (presentation-only; call only when the user wants to see their prompts) |
+| Platform | `manage_script` | Author, validate, and dry-run managed scripts: small governed Starlark programs for a process whose logic is settled and will repeat |
 
 ---
 
@@ -1286,6 +1287,32 @@ The rule is enforced when the attachment is made and again when the prompt chang
 Authors manage attachments from the prompt viewer in the portal, and the resource detail view lists the prompts that attach a resource, so the cost of deleting it is visible first.
 
 **Prompt browser app.** In MCP Apps-capable hosts, the built-in `prompt-browser` app is bound to the `show_prompts` tool. `show_prompts` is presentation-only: its only job is to render the interactive library browser (search, facets, argument forms, a Run action) for the human, so an agent calls it only when the user wants to see their prompts. `manage_prompt` carries no app and renders nothing, so the agent's own prompt work (resolve, run, create, edit) never puts a UI in front of the user. The rendered app populates itself from its own `manage_prompt` calls. See [MCP Apps: Overview](../mcpapps/overview.md#built-in-app-prompt-browser). `manage_prompt`'s JSON results are complete on their own in clients that do not render apps.
+
+### manage_script
+
+`manage_script` authors, validates, and dry-runs **managed scripts**: small Starlark programs the platform stores, versions, and governs, so a process whose logic is already solved (a KPI report, a recurring export) can be re-run without deriving it again through a conversation. Write a script when the logic is settled and the work will repeat; keep using the query tools directly while you are still exploring.
+
+**The loop.** `create` (or `update`/`patch`), then `validate`, then `run_draft`. `validate` parses and resolves the source without executing it, and reports the capabilities and connections the code references. `run_draft` executes it for real, under **your own identity and persona**, with tighter limits than an approved run will have, persisting nothing. Commands: `create`, `update`, `patch`, `delete`, `get`, `list`, `diff`, `validate`, `run_draft`, `help`, plus the shared content verbs (`locate`, `get_content`, `outline`, `stats`) documented in [Editing content in place](#editing-content-in-place).
+
+**The dialect, in-context.** Call `help` before writing your first script. Starlark is Python-shaped but deliberately smaller, and `help` states exactly what is available and what a Python instinct will reach for and not find, with the corrective form for each. `get` also retrieves seeded worked examples (`example-daily-sales`, `example-region-rollup`) so a first script starts from a script that runs. `validate` recognizes the predictable Python-isms and answers with a correction rather than a bare parse error: `import` is not available (`json` and `date` are already predeclared), `try`/`except` does not exist (an error fails the run by design; stop deliberately with `fail("why")`), f-strings are not supported (use `.format()` or `%`), `while` and recursion are off, and there is no clock, no randomness, no filesystem, and no network.
+
+**What a script can reach.** A closed, enumerable set, because an enumerable surface is what makes a review meaningful:
+
+| Binding | What it does |
+|---|---|
+| `platform.query(sql, connection, params)` | Read-only SQL. Returns `{columns, rows, row_count}`, rows as dicts keyed by column name, under hard row and byte caps |
+| `platform.export(name, rows, format)` | Declares an output (`csv`, `json`, `markdown`, `text`). In a draft run this reports the shape and size the output would have and writes nothing |
+| `print(...)` | The run log, bounded; anything larger belongs in an export |
+| `run.run_id`, `run.fire_time`, `run.params[...]` | The frozen run record |
+| `json`, `date` | Encode/decode, and date arithmetic over `YYYY-MM-DD` strings |
+
+**Parameters are bound, never spliced.** Write `:name` placeholders and pass the values in `params`; the platform renders each as a typed SQL literal, including a list as a parenthesized `IN` list. Never build SQL by string concatenation. A date binds as a quoted string, so compare it against a `DATE` column as `DATE :day`, which renders the standard literal `DATE '2026-08-12'`.
+
+**A truncated result fails.** `platform.query` refuses a result the engine truncated at the row cap rather than handing the script a partial answer, because a script that sums the first N rows of a larger result reports a wrong total with no sign that anything was missing. Aggregate in SQL, or narrow the query.
+
+**Determinism, precisely.** Same script version + same parameters + same underlying data produce the same output. That is reproducibility, not "identical forever" — the warehouse changes between runs, and that is the point of re-running. There is deliberately no `now()` and no `today()`: the fire time is pinned on `run.fire_time` when the run is created, so a daily report recomputes "yesterday" identically when it is re-run months later to explain what it said. A script error is deterministic and is never retried.
+
+**Governance.** Every mutation snapshots an immutable version with its author. `scripts.approved_version_id` is the execution gate: the platform executes only an approved version, and until a version is approved `run_draft` is the only way a script runs at all. Once a script has an approved version, editing its source or parameter contract lands as a pending draft (`update` returns `status: "pending_approval"`) and the approved version keeps running; a gated edit cannot be combined with scope, status, or other non-versioned changes in one call. Non-admins manage their own personal scripts; admins manage every scope. The security model is documented in full in [Managed Scripts: Security Model](../scripts/security.md).
 
 ### show_prompts
 

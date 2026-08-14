@@ -45,18 +45,27 @@ const (
 )
 
 // Exported source constants for callers that need to tag their context with
-// a non-default audit source. Three values cover the tool-invocation paths:
+// a non-default audit source. Four values cover the tool-invocation paths:
 //
-//   - SourceMCP:   real MCP transport (stdio or HTTP/SSE). Agents.
-//   - SourceAdmin: admin REST API + in-memory MCP shim. Portal-driven runs.
-//   - SourceREST:  gateway REST shim + in-memory MCP shim. NiFi / cronjobs.
+//   - SourceMCP:    real MCP transport (stdio or HTTP/SSE). Agents.
+//   - SourceAdmin:  admin REST API + in-memory MCP shim. Portal-driven runs.
+//   - SourceREST:   gateway REST shim + in-memory MCP shim. NiFi / cronjobs.
+//   - SourceScript: a managed script's host bindings + in-memory MCP shim.
 //
 // Operators filter audit_logs by `source` to separate these populations
 // without having to know which user IDs belong to which class of caller.
+//
+// A source is a LABEL, never an authority: it records how a call arrived so
+// audit can separate populations and so the stateless shims can be exempted
+// from gates they structurally cannot satisfy. Every one of these paths is
+// authenticated and authorized by the same middleware on the same terms; a
+// script's calls carry the identity of the principal the run belongs to, and
+// tagging them SourceScript grants nothing.
 const (
-	SourceMCP   = sourceMCP
-	SourceAdmin = "admin"
-	SourceREST  = "rest"
+	SourceMCP    = sourceMCP
+	SourceAdmin  = "admin"
+	SourceREST   = "rest"
+	SourceScript = "script"
 )
 
 // Error categories for structured error handling and audit queries.
@@ -133,25 +142,32 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			pc.SessionID = resolveSessionID(ctx, req, cfg.Transport)
 			pc.Transport = cfg.Transport
 			pc.Source = resolveSource(ctx)
-			// A portal-initiated run (admin source) drives a fresh in-memory MCP
-			// session per HTTP request with no transport session id, so
-			// resolveSessionID returns "". Mint a distinct portal session id here
-			// (issue #859) so the run is attributable and its search-first gate,
-			// provenance, and dedup state key on the isolated portal session
-			// rather than collapsing onto an empty id or the operator's user
-			// scope. Session-identity assignment already lives in this middleware
-			// (resolveSessionID), so minting here keeps pkg/admin from needing to
-			// know the id scheme. Best-effort: on the (astronomically unlikely)
-			// RNG failure the run proceeds with an empty session id, which
-			// DiscoveryScopeKey routes to the empty, ungateable scope (never the
-			// operator's user scope), so isolation holds regardless.
-			if pc.SessionID == "" && pc.Source == SourceAdmin {
-				if portalID, gerr := pkgsession.GeneratePortalSessionID(); gerr == nil {
-					pc.SessionID = portalID
-				} else {
-					slog.Warn("portal session id generation failed; admin run will record an empty session id",
-						logKeyError, gerr)
+			// A portal-initiated run (admin source, issue #859) and a managed
+			// script run (script source, #1283) both drive a fresh in-memory MCP
+			// session, so they carry no transport session identity of their own.
+			// Mint one here so the run is attributable and its search-first gate,
+			// provenance, and dedup state key on the isolated run rather than on
+			// the operating user's own scope.
+			//
+			// The guard is "does not already carry a run id", NOT "has no session
+			// id at all": on a stdio deployment resolveSessionID hands back the
+			// per-process "stdio" sentinel rather than "", so an emptiness test
+			// would leave every script run on that deployment sharing the one
+			// scope a stdio agent also falls back to. A caller that mints its own
+			// run id first (the script layer does, so one run is one session
+			// across all its calls) is recognized by its prefix and kept.
+			//
+			// Best-effort: on the (astronomically unlikely) RNG failure the run
+			// proceeds with an empty session id, which DiscoveryScopeKey routes to
+			// the empty, ungateable scope (never the user's scope), so isolation
+			// holds regardless.
+			if isIsolatedRunSource(pc.Source) && !pkgsession.IsRunID(pc.SessionID) {
+				runID, gerr := mintIsolatedRunSessionID(pc.Source)
+				if gerr != nil {
+					slog.Warn("isolated run session id generation failed; run will record an empty session id",
+						"source", pc.Source, logKeyError, gerr)
 				}
+				pc.SessionID = runID
 			}
 			ctx = buildToolCallContext(ctx, req, pc, toolkitLookup, toolName)
 

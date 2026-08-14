@@ -115,6 +115,7 @@ nav:
     - "Benchmark Report: Graph Completion": reference/benchmark-report-graph-completion.md
   - Security:
     - Threat Model: security/threat-model.md
+    - Managed Scripts: scripts/security.md
   - Go Library:
     - Overview: library/overview.md
     - Quick Start: library/quickstart.md

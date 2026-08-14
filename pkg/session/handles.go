@@ -31,6 +31,16 @@ const (
 	// audit rows and logs.
 	PortalSessionPrefix = "dpp_"
 
+	// ScriptSessionPrefix is the recognizable prefix on a managed-script run's
+	// session id (#1283). A script run drives a fresh in-memory MCP session with
+	// no transport session id, exactly as a portal run does, and needs the same
+	// isolated identity for its audit, search-first gate, provenance, and dedup
+	// state. It gets its own prefix rather than reusing the portal one so an
+	// operator can separate the two populations in audit rows without joining
+	// against anything, and so neither is ever mistaken for a platform_info
+	// handle.
+	ScriptSessionPrefix = "dpx_"
+
 	// handleRandomBytes is the number of random bytes in a handle (128 bits).
 	handleRandomBytes = 16
 
@@ -82,6 +92,22 @@ func IsHandle(id string) bool {
 // row an agent threads across calls.
 func GeneratePortalSessionID() (string, error) {
 	return randomPrefixedID(PortalSessionPrefix, "portal session id")
+}
+
+// IsRunID reports whether id was minted for one isolated run (a portal tool run
+// or a managed-script run) rather than derived from a transport or minted as a
+// platform_info handle. It is how the tool-call middleware decides an isolated
+// run already carries an identity of its own instead of overwriting one.
+func IsRunID(id string) bool {
+	return strings.HasPrefix(id, PortalSessionPrefix) || strings.HasPrefix(id, ScriptSessionPrefix)
+}
+
+// GenerateScriptSessionID returns a new script-run session id: the
+// ScriptSessionPrefix followed by 128 bits of cryptographically random hex. Like
+// GeneratePortalSessionID it persists nothing — one run needs an attributable,
+// isolated identity for the life of that run, not a durable row.
+func GenerateScriptSessionID() (string, error) {
+	return randomPrefixedID(ScriptSessionPrefix, "script session id")
 }
 
 // MintHandle generates a new handle and persists a session for it, owned by

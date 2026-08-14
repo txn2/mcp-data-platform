@@ -1,0 +1,10 @@
+ALTER TABLE IF EXISTS scripts DROP CONSTRAINT IF EXISTS scripts_approved_version_fk;
+DROP INDEX IF EXISTS idx_script_versions_script;
+DROP INDEX IF EXISTS idx_scripts_personas;
+DROP INDEX IF EXISTS idx_scripts_enabled;
+DROP INDEX IF EXISTS idx_scripts_owner;
+DROP INDEX IF EXISTS idx_scripts_scope;
+DROP INDEX IF EXISTS idx_scripts_name_personal;
+DROP INDEX IF EXISTS idx_scripts_name_shared;
+DROP TABLE IF EXISTS script_versions;
+DROP TABLE IF EXISTS scripts;
