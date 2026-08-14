@@ -76,6 +76,19 @@ func enrichToolResult(ctx context.Context, enricher *semanticEnricher, req mcp.R
 		return result, nil
 	}
 
+	// A managed script's tool calls are never enriched (#1283). Enrichment
+	// appends cross-service context that varies with catalog state — owners,
+	// tags, deprecation notices, memories — which is exactly the kind of
+	// variation the determinism contract promises a script will not see: the
+	// same script version on the same data must produce the same output, and a
+	// glossary edit is not a data change. It is also pure cost here, because a
+	// script consumes structured content and would have to parse around the
+	// appended blocks. Enrichment exists to give a MODEL context it lacks; a
+	// script has no model in it.
+	if pc := GetPlatformContext(ctx); pc != nil && pc.Source == SourceScript {
+		return result, nil
+	}
+
 	toolName, extractErr := extractToolName(req)
 	if extractErr != nil {
 		return result, nil //nolint:nilerr // enrichment is best-effort; skip if tool name extraction fails

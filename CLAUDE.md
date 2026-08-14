@@ -153,7 +153,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
-`pkg/` holds 41 top-level packages (all public API). Depth-2 subdirectories are
+`pkg/` holds 42 top-level packages (all public API). Depth-2 subdirectories are
 shown where they represent a distinct implementation (a storage backend, an
 adapter); helper subpackages are omitted for brevity. Regenerate this list with
 `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and diff against the packages
@@ -167,7 +167,7 @@ an implementation seam and belongs under `internal/`.
 ```
 mcp-data-platform/
 ├── cmd/mcp-data-platform/          # Entry point (main.go)
-├── pkg/                            # PUBLIC API (41 top-level packages)
+├── pkg/                            # PUBLIC API (42 top-level packages)
 │   ├── admin/                      # REST API endpoints for administrative operations
 │   ├── audit/                      # Audit logging (postgres/ = PostgreSQL implementation)
 │   ├── auth/                       # Authentication: OIDC, API keys, claims, middleware
@@ -179,7 +179,7 @@ mcp-data-platform/
 │   ├── connreconcile/              # Shared remove/add reconcile of a DB connection onto live toolkits (admin hot-reload + reload bus)
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
 │   ├── contenttype/                # Media-type detection and normalization for every content write path
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 94 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 98 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
 │   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)
@@ -199,6 +199,7 @@ mcp-data-platform/
 │   ├── ratelimit/                  # Shared per-IP token-bucket limiter + trusted-proxy client-IP resolver (portal viewer, OAuth endpoints)
 │   ├── registry/                   # Toolkit registration and management
 │   ├── resource/                   # Managed resources: human-uploaded reference files
+│   ├── script/                     # Managed-script domain: record, typed params, version history, edit funnel (engine + MCP surface live under internal/platform/)
 │   ├── searchgate/                 # Per-session discovery signal for the search-first gate (postgres/ = replica-shared backend)
 │   ├── semantic/                   # Semantic layer abstraction (datahub/ = DataHub adapter)
 │   ├── session/                    # Session externalization (postgres/ = multi-replica backend)
@@ -224,7 +225,7 @@ mcp-data-platform/
 │   ├── httpjson/                   # RFC 9457 Problem Details responder + admin list-query param parsing, shared by the admin/portal decomposition seams (#1078)
 │   ├── httpserver/                 # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895). Subpackages are the adapters it mounts: accessgate/, attachhttp/, datahubapi/, gatewayhttp/, health/, httpauth/, mentionhttp/, notifyhttp/ (self-scoped notification prefs), sources/, unsubhttp/ (no-login unsubscribe + its tokens), versionhttp/ (#1076, #1080)
 │   ├── notification/               # Notification delivery layers built only by internal/platform/notifydelivery, extracted by #1080: notifyprefs/ (preference persistence), notifyqueue/ (queue persistence + LISTEN wakeup), notifyrender/ (branded templates), notifysend/ (SMTP transport), notifyworker/ (send worker)
-│   ├── platform/                   # Facade-internal seams composed only by pkg/platform (mwchain, iam, sessionsync, oauthserver, the seven indexjobs consumers (including datasetindex, the catalog-dataset semantic index), mcpapps, connbackfill, reviewalert, ... — moved out of the public surface by #894 and #1076)
+│   ├── platform/                   # Facade-internal seams composed only by pkg/platform (mwchain, iam, sessionsync, oauthserver, the seven indexjobs consumers (including datasetindex, the catalog-dataset semantic index), mcpapps, connbackfill, reviewalert, the managed-script trio scriptlayer/scriptrun/scriptstore, ... — moved out of the public surface by #894 and #1076)
 │   ├── portal/                     # Portal seams built only by pkg/portal, extracted by #1121: portaldomain/ (domain types, store contracts, validation — aliased back so portal.Asset etc. are unchanged), portalstore/ (PostgreSQL asset/share/collection stores + ranked search), portalversions/ (version history store), portalnoop/ (no-database stores), access/ (the authorization core + the User principal), feedbackapi/ (threads, activity, worklists, sign-off, validation, capture-as-insight), plus publicviewer/ (embedded public share templates + CSP), viewerlimit/, sharecache/
 │   └── server/                     # Server factory (server.go)
 ├── configs/                        # Example configurations

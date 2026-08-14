@@ -151,13 +151,18 @@ func (pc *PlatformContext) DiscoveryScopeKey() string {
 	// them on the isolated per-run portal session id instead, so portal runs
 	// never touch the operator's agent-session gate/provenance/dedup state.
 	//
-	// If the portal session id is absent — only on a crypto-RNG failure while
-	// minting it in connectInternalSession — fall through to the EMPTY,
-	// ungateable scope, NOT the user-first branch below. Returning "user:<admin>"
-	// there would reintroduce exactly the pollution this special-case exists to
-	// prevent; the empty scope keeps the degenerate case isolated (the gate
-	// treats it as ungateable and the trackers skip it) rather than leaking.
-	if pc.Source == SourceAdmin {
+	// If the minted id is absent — only on a crypto-RNG failure while minting it
+	// — fall through to the EMPTY, ungateable scope, NOT the user-first branch
+	// below. Returning "user:<admin>" there would reintroduce exactly the
+	// pollution this special-case exists to prevent; the empty scope keeps the
+	// degenerate case isolated (the gate treats it as ungateable and the
+	// trackers skip it) rather than leaking.
+	//
+	// A managed script run (#1283) is isolated on identical grounds: its host
+	// bindings drive a per-run session under the identity the run belongs to, so
+	// keying on that user would let a script advance or read the person's own
+	// search-first state.
+	if isIsolatedRunSource(pc.Source) {
 		if pc.SessionID != "" {
 			return "session:" + pc.SessionID
 		}

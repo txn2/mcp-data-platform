@@ -224,6 +224,15 @@ internal/platform/reviewalert -> pkg/notification
 internal/platform/reviewalert -> pkg/toolkits/knowledge
 internal/platform/routepolicy -> pkg/middleware
 internal/platform/routepolicy -> pkg/persona
+internal/platform/scriptlayer -> internal/platform/scriptrun
+internal/platform/scriptlayer -> internal/platform/scriptstore
+internal/platform/scriptlayer -> pkg/middleware
+internal/platform/scriptlayer -> pkg/script
+internal/platform/scriptlayer -> pkg/session
+internal/platform/scriptlayer -> pkg/textpatch
+internal/platform/scriptlayer -> pkg/textpatch/patchmcp
+internal/platform/scriptrun -> pkg/script
+internal/platform/scriptstore -> pkg/script
 internal/platform/searchfed -> internal/tableavail
 internal/platform/searchfed -> pkg/embedding
 internal/platform/searchfed -> pkg/knowledge
@@ -410,6 +419,7 @@ pkg/platform -> internal/platform/reflexivecapture
 pkg/platform -> internal/platform/resourceaudit
 pkg/platform -> internal/platform/resourcelayer
 pkg/platform -> internal/platform/routepolicy
+pkg/platform -> internal/platform/scriptlayer
 pkg/platform -> internal/platform/searchfed
 pkg/platform -> internal/platform/sessionsync
 pkg/platform -> internal/platform/toolkitcfg

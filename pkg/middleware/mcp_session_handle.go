@@ -295,13 +295,45 @@ func (r *SessionResolver) recordMetric(ctx context.Context, source string) {
 
 // isStatelessShimSource reports whether an audit source belongs to one of the
 // stateless in-memory shims that drive the assembled server over a fresh
-// per-request MCP session (the gateway REST shim, Source=rest, and the admin
-// tool-runner shim, Source=admin). Such callers cannot perform the platform_info
-// session handshake, so they are exempt from the SESSION_REQUIRED gate (issue
-// #811). A real MCP-transport agent resolves to Source=mcp and is NOT exempt; an
+// per-request MCP session (the gateway REST shim, Source=rest; the admin
+// tool-runner shim, Source=admin; and a managed script's host bindings,
+// Source=script). Such callers cannot perform the platform_info session
+// handshake, so they are exempt from the SESSION_REQUIRED gate (issue #811). A
+// real MCP-transport agent resolves to Source=mcp and is NOT exempt; an
 // unset/unknown source is likewise not exempt, so the gate fails closed.
+//
+// A script is exempt for the same structural reason as the other two, not as a
+// concession: the handshake is a model-facing workflow step and there is no
+// model inside a script run. What the search-first gate steers an agent toward
+// — discovering the data before querying it — happened when a person authored
+// and reviewed the script, which is a stronger check than the gate performs.
 func isStatelessShimSource(source string) bool {
-	return source == SourceREST || source == SourceAdmin
+	return source == SourceREST || source == SourceAdmin || source == SourceScript
+}
+
+// isIsolatedRunSource reports whether a source drives a fresh in-memory session
+// per run and therefore needs a minted session id of its own: without one, the
+// run would either collapse onto the empty session scope or, worse, key its
+// gate, provenance, and dedup state on the operating USER's scope and pollute
+// it (issue #859).
+func isIsolatedRunSource(source string) bool {
+	return source == SourceAdmin || source == SourceScript
+}
+
+// mintIsolatedRunSessionID generates the per-run session id for an isolated
+// run source. The two populations get distinct prefixes so an operator reading
+// an audit row can tell a portal replay from a script run without joining
+// anything.
+func mintIsolatedRunSessionID(source string) (string, error) {
+	mint := pkgsession.GeneratePortalSessionID
+	if source == SourceScript {
+		mint = pkgsession.GenerateScriptSessionID
+	}
+	id, err := mint()
+	if err != nil {
+		return "", fmt.Errorf("minting a %s run session id: %w", source, err)
+	}
+	return id, nil
 }
 
 // transportSource classifies a transport-derived session ID for the metric.
