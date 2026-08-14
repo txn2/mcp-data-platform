@@ -174,6 +174,42 @@ func listFromStarlark(l *starlark.List, depth int) (any, error) {
 	return out, nil
 }
 
+// columnOrder reads the column order out of a Starlark list of row dicts: the
+// keys of the first row in the order the script wrote them, then any key a
+// later row introduces, in its own order.
+//
+// It exists because the Go value a row converts to is a map, and a map has no
+// order. A tabular output written from map iteration would put its columns in a
+// different place on every run, which is both unreadable and a break of the
+// determinism contract. Reading the order here — from the Starlark dict, which
+// preserves insertion — gives the author the column order they wrote and gives
+// every run of that script the same one.
+//
+// Non-dict entries contribute no columns; the exporter reports them.
+func columnOrder(rows starlark.Value) []string {
+	list, ok := rows.(*starlark.List)
+	if !ok {
+		return nil
+	}
+	var columns []string
+	seen := map[string]bool{}
+	for i := range list.Len() {
+		dict, ok := list.Index(i).(*starlark.Dict)
+		if !ok {
+			continue
+		}
+		for _, key := range dict.Keys() {
+			name, ok := starlark.AsString(key)
+			if !ok || seen[name] {
+				continue
+			}
+			seen[name] = true
+			columns = append(columns, name)
+		}
+	}
+	return columns
+}
+
 // dictFromStarlark converts a Starlark dict, refusing non-string keys: the
 // result is destined for JSON, where an object key is a string.
 func dictFromStarlark(d *starlark.Dict, depth int) (any, error) {

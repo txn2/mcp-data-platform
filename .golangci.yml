@@ -629,6 +629,15 @@ linters:
         linters:
           - revive
         text: "max-public-structs"
+      # The managed-script run vocabulary is one concept spread over the types
+      # a run needs to be described: the row itself, its metrics, its outputs,
+      # the lease a worker holds it under, the result a worker reports, and the
+      # filter a history listing takes. Splitting them across files to satisfy a
+      # per-file count would scatter one contract, not decompose it.
+      - path: pkg/script/run\.go
+        linters:
+          - revive
+        text: "max-public-structs"
       # connoauth's refresher.go exposes the small public surface a
       # multi-replica deployment needs: Refresher, RefresherConfig,
       # NoopLocker, PostgresLocker, plus the ConfigResolver +

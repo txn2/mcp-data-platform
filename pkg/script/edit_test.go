@@ -13,12 +13,16 @@ import (
 
 // plainStore implements script.Store and nothing else, standing in for a
 // deployment whose store has no versioning capability.
+// testAuthor is the author every edit in this file is attributed to, carrying
+// roles because a version's roles are the ceiling on what approving it grants.
+var testAuthor = script.Author{Email: "jane@example.com", Roles: []string{"analyst"}}
+
 type plainStore struct {
 	updated *script.Script
 	failErr error
 }
 
-func (*plainStore) Create(context.Context, *script.Script) error { return nil }
+func (*plainStore) Create(context.Context, *script.Script, script.Author) error { return nil }
 func (*plainStore) Get(context.Context, string) (*script.Script, error) {
 	return nil, nil //nolint:nilnil // Store contract: nil, nil means not found
 }
@@ -47,14 +51,14 @@ func (*plainStore) List(context.Context, script.ListFilter) ([]script.Script, er
 // funnel a call took.
 type versioningStore struct {
 	plainStore
-	appliedAuthor string
-	draftAuthor   string
+	appliedAuthor script.Author
+	draftAuthor   script.Author
 	draftFor      string
 	draftErr      error
 	updateErr     error
 }
 
-func (s *versioningStore) UpdateWithVersion(_ context.Context, sc *script.Script, author string) error {
+func (s *versioningStore) UpdateWithVersion(_ context.Context, sc *script.Script, author script.Author) error {
 	if s.updateErr != nil {
 		return s.updateErr
 	}
@@ -63,7 +67,7 @@ func (s *versioningStore) UpdateWithVersion(_ context.Context, sc *script.Script
 	return nil
 }
 
-func (s *versioningStore) CreateDraftVersion(_ context.Context, scriptID string, _ *script.Script, author string) (int, error) {
+func (s *versioningStore) CreateDraftVersion(_ context.Context, scriptID string, _ *script.Script, author script.Author) (int, error) {
 	if s.draftErr != nil {
 		return 0, s.draftErr
 	}
@@ -76,6 +80,10 @@ func (*versioningStore) ListVersions(context.Context, string) ([]script.Version,
 }
 
 func (*versioningStore) GetVersion(context.Context, string, int) (*script.Version, error) {
+	return nil, nil //nolint:nilnil // VersionStore contract: nil, nil means not found
+}
+
+func (*versioningStore) GetVersionByID(context.Context, string) (*script.Version, error) {
 	return nil, nil //nolint:nilnil // VersionStore contract: nil, nil means not found
 }
 
@@ -147,12 +155,13 @@ func TestApplyEdit_UngatedEditAppliesWithAVersion(t *testing.T) {
 	after := *before
 	after.Source = "x = 2"
 
-	outcome, err := script.ApplyEdit(context.Background(), store, before, &after, "jane@example.com")
+	outcome, err := script.ApplyEdit(context.Background(), store, before, &after, testAuthor)
 	require.NoError(t, err)
 	assert.True(t, outcome.Applied)
 	assert.Zero(t, outcome.PendingVersion)
-	assert.Equal(t, "jane@example.com", store.appliedAuthor)
-	assert.Empty(t, store.draftAuthor)
+	assert.Equal(t, testAuthor, store.appliedAuthor,
+		"the author and the roles they held are recorded on the applied version")
+	assert.Empty(t, store.draftAuthor.Email)
 }
 
 func TestApplyEdit_GatedEditBecomesADraftAndLeavesTheLiveRow(t *testing.T) {
@@ -161,7 +170,7 @@ func TestApplyEdit_GatedEditBecomesADraftAndLeavesTheLiveRow(t *testing.T) {
 	after := approved()
 	after.Source = "x = 2"
 
-	outcome, err := script.ApplyEdit(context.Background(), store, before, after, "jane@example.com")
+	outcome, err := script.ApplyEdit(context.Background(), store, before, after, testAuthor)
 	require.NoError(t, err)
 	assert.False(t, outcome.Applied)
 	assert.Equal(t, 7, outcome.PendingVersion)
@@ -193,7 +202,7 @@ func TestApplyEdit_MixedEditRefused(t *testing.T) {
 			after.Source = "x = 2"
 			tc.mutate(after)
 
-			_, err := script.ApplyEdit(context.Background(), store, before, after, "jane@example.com")
+			_, err := script.ApplyEdit(context.Background(), store, before, after, testAuthor)
 			require.ErrorIs(t, err, script.ErrReviewRequiredMixedEdit)
 			assert.Empty(t, store.draftFor, "a refused edit must create nothing")
 			assert.Nil(t, store.updated)
@@ -207,7 +216,7 @@ func TestApplyEdit_StoreWithoutVersioningDegradesToAPlainUpdate(t *testing.T) {
 	after := approved()
 	after.Source = "x = 2"
 
-	outcome, err := script.ApplyEdit(context.Background(), store, before, after, "jane@example.com")
+	outcome, err := script.ApplyEdit(context.Background(), store, before, after, testAuthor)
 	require.NoError(t, err)
 	assert.True(t, outcome.Applied)
 	assert.Same(t, after, store.updated)
@@ -216,16 +225,16 @@ func TestApplyEdit_StoreWithoutVersioningDegradesToAPlainUpdate(t *testing.T) {
 func TestApplyEdit_StoreErrorsPropagate(t *testing.T) {
 	boom := errors.New("boom")
 
-	_, err := script.ApplyEdit(context.Background(), &plainStore{failErr: boom}, approved(), approved(), "a")
+	_, err := script.ApplyEdit(context.Background(), &plainStore{failErr: boom}, approved(), approved(), testAuthor)
 	require.ErrorIs(t, err, boom)
 
 	after := approved()
 	after.Source = "x = 2"
-	_, err = script.ApplyEdit(context.Background(), &versioningStore{draftErr: boom}, approved(), after, "a")
+	_, err = script.ApplyEdit(context.Background(), &versioningStore{draftErr: boom}, approved(), after, testAuthor)
 	require.ErrorIs(t, err, boom)
 
 	unapproved := approved()
 	unapproved.ApprovedVersionID = ""
-	_, err = script.ApplyEdit(context.Background(), &versioningStore{updateErr: boom}, unapproved, unapproved, "a")
+	_, err = script.ApplyEdit(context.Background(), &versioningStore{updateErr: boom}, unapproved, unapproved, testAuthor)
 	require.ErrorIs(t, err, boom)
 }

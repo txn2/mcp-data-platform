@@ -1,4 +1,4 @@
-package platform
+package apikeystore
 
 import (
 	"context"
@@ -20,18 +20,18 @@ var apikeyColumns = []string{
 	"name", "key_hash", "email", "description", "roles", "expires_at", "created_by", "created_at",
 }
 
-func newTestAPIKeyStore(t *testing.T) (*PostgresAPIKeyStore, sqlmock.Sqlmock) {
+func newTestAPIKeyStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("creating sqlmock: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return NewPostgresAPIKeyStore(db), mock
+	return NewPostgres(db), mock
 }
 
 func TestNewPostgresAPIKeyStore(t *testing.T) {
-	store := NewPostgresAPIKeyStore(nil)
+	store := NewPostgres(nil)
 	require.NotNil(t, store)
 	assert.Nil(t, store.db)
 }
@@ -111,7 +111,7 @@ func TestPostgresAPIKeyStoreSet(t *testing.T) {
 	now := time.Now()
 	exp := now.Add(24 * time.Hour)
 
-	def := APIKeyDefinition{
+	def := Definition{
 		Name:        "test-key",
 		KeyHash:     "$2a$10$somehash",
 		Email:       "test@example.com",
@@ -148,7 +148,7 @@ func TestPostgresAPIKeyStoreSet_ExecError(t *testing.T) {
 		).
 		WillReturnError(errors.New("exec error"))
 
-	err := store.Set(context.Background(), APIKeyDefinition{Name: "test"})
+	err := store.Set(context.Background(), Definition{Name: "test"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "upserting api key")
 
@@ -180,7 +180,7 @@ func TestPostgresAPIKeyStoreDelete_NotFound(t *testing.T) {
 		WillReturnResult(driver.RowsAffected(0))
 
 	err := store.Delete(context.Background(), "nonexistent")
-	assert.ErrorIs(t, err, ErrAPIKeyNotFound)
+	assert.ErrorIs(t, err, ErrNotFound)
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf(apikeyFmtUnmetExpect, err)
@@ -204,7 +204,7 @@ func TestPostgresAPIKeyStoreDelete_ExecError(t *testing.T) {
 }
 
 func TestNoopAPIKeyStore(t *testing.T) {
-	store := &NoopAPIKeyStore{}
+	store := &NoopStore{}
 	ctx := context.Background()
 
 	t.Run("List returns nil nil", func(t *testing.T) {
@@ -214,12 +214,12 @@ func TestNoopAPIKeyStore(t *testing.T) {
 	})
 
 	t.Run("Set returns nil", func(t *testing.T) {
-		err := store.Set(ctx, APIKeyDefinition{Name: "test"})
+		err := store.Set(ctx, Definition{Name: "test"})
 		assert.NoError(t, err)
 	})
 
-	t.Run("Delete returns ErrAPIKeyNotFound", func(t *testing.T) {
+	t.Run("Delete returns ErrNotFound", func(t *testing.T) {
 		err := store.Delete(ctx, "anything")
-		assert.ErrorIs(t, err, ErrAPIKeyNotFound)
+		assert.ErrorIs(t, err, ErrNotFound)
 	})
 }

@@ -39,6 +39,8 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
+
+	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 // Draft-execution limits. A draft runs interactively, under its author's own
@@ -63,6 +65,40 @@ const (
 	// that is larger than a log is an output asset, not a log line.
 	MaxLogBytes = 64 << 10
 )
+
+// Approved-execution limits. An approved run is looser than a draft on every
+// axis, because nobody is waiting at a prompt for it and its code has been
+// reviewed — but it is still bounded on all of them, because the one resource
+// no embedded interpreter of this class can cap is memory, and every limit here
+// is part of what keeps a runaway script from taking the process with it.
+const (
+	// ApprovedMaxSteps caps interpreter execution steps for an approved run.
+	ApprovedMaxSteps = 20_000_000
+
+	// ApprovedTimeout caps wall-clock time for one approved run, including the
+	// time spent inside host calls. It matches the ceiling trino_export already
+	// applies to a synchronous export.
+	ApprovedTimeout = 10 * time.Minute
+
+	// ApprovedMaxRows caps the rows one platform.query may return.
+	ApprovedMaxRows = 20_000
+
+	// ApprovedMaxResultBytes caps the serialized size of one query result.
+	ApprovedMaxResultBytes = 32 << 20
+)
+
+// ApprovedLimits returns the limit set an approved run executes under, so a
+// caller configures them by naming the policy rather than by copying four
+// numbers it would then have to keep in step.
+func ApprovedLimits() Options {
+	return Options{
+		MaxSteps:       ApprovedMaxSteps,
+		Timeout:        ApprovedTimeout,
+		MaxRows:        ApprovedMaxRows,
+		MaxResultBytes: ApprovedMaxResultBytes,
+		MaxLogBytes:    MaxLogBytes,
+	}
+}
 
 // ErrStepLimit marks a run stopped by the execution-step limit, and ErrTimeout
 // a run stopped by the wall-clock limit. Both are script-side failures: the
@@ -108,6 +144,21 @@ type Options struct {
 	// syntax-only execution wants.
 	Caller Caller
 
+	// Grants, when non-nil, is the approved capability set this run is confined
+	// to: the host bindings it may call, the connections it may query, and the
+	// destinations it may write. nil means no grant layer applies, which is the
+	// draft case — a draft executes as its own author, with that author's
+	// authority, so there is nothing to narrow.
+	//
+	// A non-nil grant with empty lists denies everything, which is the correct
+	// reading of "approved with nothing granted" and the reason this is a
+	// pointer rather than a value.
+	Grants *script.Grants
+
+	// Exporter persists what platform.export produces. nil previews instead,
+	// which is what a draft run does.
+	Exporter Exporter
+
 	// Limits. Zero means the draft default.
 	MaxSteps       uint64
 	Timeout        time.Duration
@@ -139,15 +190,52 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
-// ExportPreview is what platform.export reports back for one output. Nothing is
-// persisted: this engine computes the shape and size the export WOULD have, so
-// an author can check their output before any approval exists to make it real.
-// The persisting implementation arrives with the execution gate.
-type ExportPreview struct {
+// Exporter persists one script output. The engine holds it behind this
+// interface so nothing here knows what an asset, a bucket, or a portal is: the
+// interpreter's job ends at "these rows, under this name, in this format".
+type Exporter interface {
+	// Export writes one output and reports where it landed. An error fails the
+	// run: a report whose output did not persist did not happen.
+	Export(ctx context.Context, req ExportRequest) (*ExportResult, error)
+}
+
+// ExportRequest is one output as the script produced it.
+type ExportRequest struct {
+	// Name identifies the output across runs. It is the stable half of the
+	// output's identity: the same name from the same script maps to one asset
+	// whose versions are its run history.
+	Name string
+	// Format is one of the formats exportFormats admits.
+	Format string
+	// Columns is the column order the script wrote, read from the rows before
+	// they became order-free Go maps. A tabular format writes its columns in
+	// this order; see columnOrder.
+	Columns []string
+	// Rows is the list of row dicts to write.
+	Rows []any
+}
+
+// ExportResult is where one output landed.
+type ExportResult struct {
+	AssetID      string
+	AssetVersion int
+	// Bytes is the serialized size actually written, which the writer knows
+	// exactly and the engine can only estimate.
+	Bytes int
+}
+
+// ExportRecord is what one platform.export call did, in call order on the run's
+// Result. A record with Preview set measured the output and wrote nothing,
+// which is what a draft run does; otherwise it names the asset version written.
+type ExportRecord struct {
 	Name     string `json:"name"`
 	Format   string `json:"format"`
 	RowCount int    `json:"row_count"`
 	Bytes    int    `json:"bytes"`
+	// Preview is true when nothing was persisted.
+	Preview      bool   `json:"preview"`
+	AssetID      string `json:"asset_id,omitempty"`
+	AssetVersion int    `json:"asset_version,omitempty"`
 }
 
 // Result reports one completed execution.
@@ -163,8 +251,8 @@ type Result struct {
 	Duration time.Duration `json:"-"`
 	// Queries counts the platform.query calls the run issued.
 	Queries int `json:"queries"`
-	// Exports lists every platform.export the run previewed, in call order.
-	Exports []ExportPreview `json:"exports"`
+	// Exports lists what every platform.export call did, in call order.
+	Exports []ExportRecord `json:"exports"`
 }
 
 // fileOptions is the dialect every managed script is parsed and resolved under.

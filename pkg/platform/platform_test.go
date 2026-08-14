@@ -16,6 +16,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/apikeystore"
 	"github.com/txn2/mcp-data-platform/internal/platform/cfgmap"
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
@@ -4387,8 +4388,8 @@ func TestInitAPIKeyStore(t *testing.T) {
 		if p.apiKeyStore == nil {
 			t.Fatal("apiKeyStore should not be nil")
 		}
-		if _, ok := p.apiKeyStore.(*NoopAPIKeyStore); !ok {
-			t.Error("expected NoopAPIKeyStore when db is nil")
+		if _, ok := p.apiKeyStore.(*apikeystore.NoopStore); !ok {
+			t.Error("expected a noop store when db is nil")
 		}
 	})
 
@@ -4405,14 +4406,14 @@ func TestInitAPIKeyStore(t *testing.T) {
 		if p.apiKeyStore == nil {
 			t.Fatal("apiKeyStore should not be nil")
 		}
-		if _, ok := p.apiKeyStore.(*PostgresAPIKeyStore); !ok {
-			t.Error("expected PostgresAPIKeyStore when db is set")
+		if _, ok := p.apiKeyStore.(*apikeystore.PostgresStore); !ok {
+			t.Error("expected a postgres store when db is set")
 		}
 	})
 }
 
 func TestAPIKeyStoreAccessor(t *testing.T) {
-	noop := &NoopAPIKeyStore{}
+	noop := &apikeystore.NoopStore{}
 	p := &Platform{apiKeyStore: noop}
 	if p.APIKeyStore() != noop {
 		t.Error("APIKeyStore() should return the assigned store")

@@ -55,6 +55,7 @@ func mountAdminAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeliv
 	}
 	mux.Handle(prefix+"/", adminHandler)
 	mountPromptVersionAdminAPI(mux, p, prefix)
+	mountScriptAdminAPI(mux, p, prefix)
 	log.Println("Admin API enabled on", prefix)
 }
 

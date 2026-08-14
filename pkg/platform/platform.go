@@ -45,7 +45,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
-	"github.com/txn2/mcp-data-platform/internal/platform/scriptlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/searchfed"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
@@ -2858,10 +2857,12 @@ func (p *Platform) Start(ctx context.Context) error {
 	p.registerFindToolsTool()
 	p.prompts.RegisterTool(p.mcpServer)
 	p.prompts.RegisterShowPromptsTool(p.mcpServer)
-	// Managed scripts (#1283). The owner assembles the script store and
-	// registers manage_script, and registration hands it the server it needs for
-	// draft runs. Nothing else here reads the handle yet, so it is not retained.
-	scriptlayer.New(scriptlayer.Config{DB: p.db, AdminPersona: p.config.Admin.Persona}).RegisterTool(p.mcpServer)
+	// Managed scripts (#1283, #1284). The execution side owns the run queue and
+	// the worker that drains it; the tool layer owns manage_script and
+	// run_script and enqueues onto that same queue. The lifecycle holds the
+	// worker, so the platform needs no field of its own for it.
+	scripts := wireScripts(p)
+	p.lifecycle.OnComponent(scripts.Start, scripts.Stop)
 
 	// Register platform-level prompts from config
 	p.prompts.RegisterPlatformPrompts(p.mcpServer)

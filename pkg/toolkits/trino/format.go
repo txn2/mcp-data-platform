@@ -37,8 +37,19 @@ type Formatter interface {
 	FileExtension() string
 }
 
-// newFormatter returns a Formatter for the given format name.
+// NewFormatter returns a Formatter for the given format name.
 // Supported formats: csv, json, markdown, text.
+//
+// It is exported because trino_export is not the only writer of these formats:
+// a managed script's platform.export writes the same four from rows it computed
+// itself, and it writes them with this implementation rather than a second one
+// that would drift. The format an author sees in a draft preview is therefore
+// byte-for-byte the format an approved run persists.
+func NewFormatter(format string) (Formatter, error) {
+	return newFormatter(format)
+}
+
+// newFormatter returns a Formatter for the given format name.
 func newFormatter(format string) (Formatter, error) {
 	switch format {
 	case formatCSV:

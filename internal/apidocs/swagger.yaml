@@ -1467,6 +1467,7 @@ definitions:
     - apigateway_invoke
     - prompt_serve
     - resource_read
+    - script_run
     type: string
     x-enum-varnames:
     - EventTypeToolCall
@@ -1476,6 +1477,7 @@ definitions:
     - EventTypeAPIGatewayInvoke
     - EventTypePromptServe
     - EventTypeResourceRead
+    - EventTypeScriptRun
   audit.Overview:
     properties:
       avg_duration_ms:
@@ -4314,6 +4316,306 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  script.Grants:
+    properties:
+      capabilities:
+        description: Capabilities is the set of host bindings the script may call.
+        items:
+          type: string
+        type: array
+      connections:
+        description: |-
+          Connections is the set of named connections the script may query. A
+          query that names no connection is refused rather than defaulted: the
+          grant cannot verify a connection the call did not name.
+        items:
+          type: string
+        type: array
+      destinations:
+        description: |-
+          Destinations is the set of places the script may write output. An empty
+          list means the script may compute but not persist.
+        items:
+          type: string
+        type: array
+      roles:
+        description: |-
+          Roles is the authority the run presents to the authorization middleware,
+          copied from the approved version's author. The middleware resolves them
+          to a persona exactly as it does for a human caller, and that persona —
+          not this struct — is the authority of record.
+        items:
+          type: string
+        type: array
+    type: object
+  script.Param:
+    properties:
+      default:
+        description: |-
+          Default supplies the value when the caller omits an optional parameter.
+          It is bound through exactly the same coercion and checking as a
+          caller-supplied value, so a default cannot smuggle in a type the
+          parameter does not accept.
+      description:
+        example: The business date to report on
+        type: string
+      name:
+        example: report_date
+        type: string
+      required:
+        example: true
+        type: boolean
+      type:
+        example: date
+        type: string
+      values:
+        description: |-
+          Values enumerates the allowed values of an enum parameter, and is
+          meaningless (and refused) on every other type.
+        example:
+        - daily
+        - weekly
+        items:
+          type: string
+        type: array
+    type: object
+  script.Script:
+    properties:
+      approved_version_id:
+        description: |-
+          ApprovedVersionID is THE execution gate: the id of the one version the
+          platform may execute. Empty means the script has no approved version and
+          nothing will run it — which is every script today, because the approval
+          action and the runner that reads this pointer arrive with the execution
+          gate. Draft execution (manage_script run_draft) deliberately never reads
+          it: a draft runs under its author's own identity and authority, so it
+          needs no approval, and it also cannot stand in for one.
+        type: string
+      created_at:
+        example: "2026-08-13T14:30:00Z"
+        type: string
+      deprecated_at:
+        type: string
+      description:
+        example: Summarize yesterday's sales by region
+        type: string
+      display_name:
+        example: Daily Sales Report
+        type: string
+      enabled:
+        example: true
+        type: boolean
+      id:
+        example: script_a1b2c3d4
+        type: string
+      name:
+        example: daily-sales-report
+        type: string
+      owner_email:
+        example: jane@example.com
+        type: string
+      params:
+        items:
+          $ref: '#/definitions/script.Param'
+        type: array
+      personas:
+        example:
+        - analyst
+        items:
+          type: string
+        type: array
+      scope:
+        example: personal
+        type: string
+      source:
+        example: rows = platform.query(connection='primary', sql='SELECT 1')
+        type: string
+      status:
+        description: Lifecycle.
+        example: draft
+        type: string
+      superseded_by:
+        example: daily-sales-report-v2
+        type: string
+      tags:
+        example:
+        - sales
+        - reporting
+        items:
+          type: string
+        type: array
+      updated_at:
+        example: "2026-08-13T14:30:00Z"
+        type: string
+      version:
+        description: |-
+          Version is the number of the snapshot the live row currently carries.
+          Pending draft versions above this number exist in the history and are not
+          served.
+        example: 3
+        type: integer
+    type: object
+  script.Version:
+    properties:
+      approved_at:
+        type: string
+      approved_by:
+        example: admin@example.com
+        type: string
+      author:
+        example: jane@example.com
+        type: string
+      author_roles:
+        description: |-
+          AuthorRoles is the authority the author held when this snapshot was
+          written — the ceiling on what approving it can grant. See Author.
+        example:
+        - analyst
+        items:
+          type: string
+        type: array
+      created_at:
+        example: "2026-08-13T14:30:00Z"
+        type: string
+      description:
+        example: Summarize yesterday's sales by region
+        type: string
+      display_name:
+        example: Daily Sales Report
+        type: string
+      grants:
+        allOf:
+        - $ref: '#/definitions/script.Grants'
+        description: |-
+          Grants is the capability set bound to this version at approval: what the
+          approver approved this code to be able to do. It is empty on every
+          version that was never approved, and the approval action is the only
+          writer — changing what a script may reach means approving it again, which
+          re-stamps the approval alongside the new grant.
+      id:
+        example: sver_a1b2c3d4
+        type: string
+      params:
+        items:
+          $ref: '#/definitions/script.Param'
+        type: array
+      script_id:
+        example: script_a1b2c3d4
+        type: string
+      source:
+        type: string
+      status:
+        example: applied
+        type: string
+      tags:
+        example:
+        - sales
+        - reporting
+        items:
+          type: string
+        type: array
+      version:
+        example: 3
+        type: integer
+    type: object
+  scripthttp.approveRequest:
+    properties:
+      capabilities:
+        items:
+          type: string
+        type: array
+      connections:
+        items:
+          type: string
+        type: array
+      destinations:
+        items:
+          type: string
+        type: array
+    type: object
+  scripthttp.referenced:
+    properties:
+      capabilities:
+        items:
+          type: string
+        type: array
+      connections:
+        items:
+          type: string
+        type: array
+      dynamic_connections:
+        description: |-
+          DynamicConnections is true when at least one call computes its connection
+          instead of naming one, which makes the connection list incomplete — and
+          means the grant cannot be checked against the code by reading it.
+        type: boolean
+    type: object
+  scripthttp.scriptListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/script.Script'
+        type: array
+      total:
+        example: 3
+        type: integer
+    type: object
+  scripthttp.versionListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/script.Version'
+        type: array
+      total:
+        example: 4
+        type: integer
+    type: object
+  scripthttp.versionReviewResponse:
+    properties:
+      findings:
+        description: Findings are the validator's complaints about the source.
+        items:
+          $ref: '#/definitions/scriptrun.Finding'
+        type: array
+      missing_capabilities:
+        description: |-
+          MissingCapabilities and MissingConnections are what the code reaches for
+          that the current grant does not cover. On an unapproved version that is
+          everything, which is the point: it is the grant a reviewer would have to
+          bind for this code to work.
+        items:
+          type: string
+        type: array
+      missing_connections:
+        items:
+          type: string
+        type: array
+      referenced:
+        allOf:
+        - $ref: '#/definitions/scripthttp.referenced'
+        description: |-
+          Referenced is what a static read of the source says the script calls and
+          which connections it names.
+      version:
+        $ref: '#/definitions/script.Version'
+    type: object
+  scriptrun.Finding:
+    properties:
+      hint:
+        description: |-
+          Hint is the corrective action. It carries most of the value of this
+          validator: an author who writes Python at a Starlark interpreter needs to
+          be told what to write instead, not merely that the parser disagreed.
+        type: string
+      line:
+        example: 12
+        type: integer
+      message:
+        type: string
+      severity:
+        example: error
+        type: string
     type: object
   settingsapi.problemDetail:
     properties:
@@ -8610,6 +8912,151 @@ paths:
       summary: Prompt usage stats
       tags:
       - Prompts
+  /admin/scripts:
+    get:
+      description: Returns every managed script with its lifecycle status and the
+        id of the version the platform is allowed to execute (empty when nothing is
+        approved).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.scriptListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List managed scripts
+      tags:
+      - Scripts
+  /admin/scripts/{id}/versions:
+    get:
+      description: Returns every version of a script with its source, its author and
+        the roles that author held, and the approval stamp and capability grant bound
+        to it.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.versionListResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List script versions
+      tags:
+      - Scripts
+  /admin/scripts/{id}/versions/{version}:
+    get:
+      description: Returns one version's snapshot together with the capabilities and
+        connections its source reaches for, and which of those the version's current
+        grant does not cover.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.versionReviewResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a script version for review
+      tags:
+      - Scripts
+  /admin/scripts/{id}/versions/{version}/approve:
+    post:
+      consumes:
+      - application/json
+      description: Stamps the version approved, binds the capability grant it executes
+        under, and points the script's execution gate at it. The granted roles are
+        the roles the version's author held and cannot be set by the request. Approving
+        a pending draft also applies its snapshot to the live script.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      - description: Capability grant
+        in: body
+        name: grant
+        required: true
+        schema:
+          $ref: '#/definitions/scripthttp.approveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Version'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Approve a script version
+      tags:
+      - Scripts
   /admin/settings/review-queue-alert:
     get:
       description: Returns the knowledge review-queue staleness alert configuration.
@@ -13767,6 +14214,8 @@ tags:
     description: "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."
   - name: "Personas"
     description: "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."
+  - name: "Scripts"
+    description: "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version — which binds the capability grant it executes under and is the only thing that makes a script executable."
   - name: "System"
     description: "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."
   - name: "Tools"
@@ -13791,5 +14240,6 @@ x-tagGroups:
       - "Config"
       - "Connections"
       - "Personas"
+      - "Scripts"
       - "System"
       - "Tools"

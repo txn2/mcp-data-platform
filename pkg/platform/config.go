@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
@@ -128,6 +129,7 @@ type Config struct {
 	Elicitation          ElicitationConfig   `yaml:"elicitation"`
 	Workflow             WorkflowConfig      `yaml:"workflow"`
 	Notifications        NotificationsConfig `yaml:"notifications"`
+	Scripts              ScriptsConfig       `yaml:"scripts"`
 	SessionGate          SessionGateConfig   `yaml:"session_gate"`
 	RateLimit            RateLimitConfig     `yaml:"rate_limit"`
 	APIGateway           APIGatewayConfig    `yaml:"apigateway"`
@@ -1291,6 +1293,30 @@ type WorkflowConfig struct {
 // defaulting to true when not explicitly set.
 func (c *WorkflowConfig) IsRequireSearchEnabled() bool {
 	return !isExplicitlyDisabled(c.RequireSearch)
+}
+
+// ScriptsConfig configures managed-script execution. Authoring needs no
+// configuration; what a deployment chooses here is how long the record of what
+// its automations did is kept.
+type ScriptsConfig struct {
+	// RunRetentionDays is how long a finished run row is kept. It defaults to
+	// a year, far beyond the queue-shaped retention of the notification table,
+	// because a scheduled script's run history is its refresh history — what a
+	// dashboard was showing and when it last succeeded — which people read.
+	// Zero or negative takes the default.
+	RunRetentionDays int `yaml:"run_retention_days"`
+}
+
+// hoursPerDay converts a retention expressed in days to a duration.
+const hoursPerDay = 24
+
+// RunRetention returns the configured run retention, applying the default when
+// unset.
+func (c *ScriptsConfig) RunRetention() time.Duration {
+	if c.RunRetentionDays <= 0 {
+		return scriptexec.DefaultRunRetention
+	}
+	return time.Duration(c.RunRetentionDays) * hoursPerDay * time.Hour
 }
 
 // NotificationsConfig configures the email notification substrate: the

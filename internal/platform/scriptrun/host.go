@@ -9,6 +9,8 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
+
+	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
 // Tool names the host bindings call. They are ordinary platform tools invoked
@@ -23,14 +25,18 @@ const (
 // only possible while the surface stays small enough to list. Nondeterministic
 // tools (search, memory, catalog mutation) are deliberately absent — they have
 // no place inside an automation whose value proposition is reproducibility.
+//
+// The names live in the domain (pkg/script) because a grant is written in them:
+// the vocabulary a reviewer approves and the vocabulary this engine enforces
+// have to be one list, not two that agree by convention.
 const (
-	CapabilityQuery  = "platform.query"
-	CapabilityExport = "platform.export"
+	CapabilityQuery  = script.CapabilityQuery
+	CapabilityExport = script.CapabilityExport
 )
 
 // Capabilities is the full host surface, in the order help and validate report
 // it.
-var Capabilities = []string{CapabilityQuery, CapabilityExport}
+var Capabilities = script.Capabilities
 
 // exportFormats is the set platform.export accepts, matched to the formats
 // trino_export already writes so the contract does not change when preview
@@ -47,8 +53,8 @@ const maxExports = 16
 // Field counts for the dicts the host bindings return, named so the allocation
 // hint and the number of SetKey calls below it cannot drift apart.
 const (
-	queryResultFields   = 3
-	exportPreviewFields = 5
+	queryResultFields  = 3
+	exportRecordFields = 7
 )
 
 // argErr wraps an argument-unpacking failure with the binding it came from, so
@@ -63,7 +69,73 @@ type hostState struct {
 	opts    Options
 	ctx     context.Context //nolint:containedctx // one run's context, bound for the life of that run and used only by its host bindings
 	queries int
-	exports []ExportPreview
+	exports []ExportRecord
+}
+
+// allowCapability refuses a host binding the run's grant does not cover.
+//
+// This is the first of two independent checks, and the weaker one. It exists
+// because it fails fast, inside the interpreter, with a message naming what was
+// granted — an author reads why their script stopped instead of an
+// authorization denial from three layers down. The authority of record is the
+// middleware chain, which enforces the same call under the run's own principal
+// whatever this function decides.
+//
+// A nil grant means no grant layer applies, which is the draft case: a draft
+// runs as its author, with the author's own authority, and there is nothing to
+// narrow because nothing was widened.
+func (h *hostState) allowCapability(name string) error {
+	if h.opts.Grants == nil || h.opts.Grants.AllowsCapability(name) {
+		return nil
+	}
+	return fmt.Errorf("the %s binding is not in this script's approved grant (granted: %s); widening what a script may reach requires approving it again",
+		name, orNone(h.opts.Grants.Capabilities))
+}
+
+// allowConnection refuses a connection the run's grant does not cover.
+//
+// An unnamed connection is refused rather than defaulted. The platform would
+// resolve "" to whichever connection is configured as the default, which is a
+// connection the approval never named and which can change underneath an
+// approved script; requiring the name keeps the grant checkable and the script
+// reproducible.
+func (h *hostState) allowConnection(name string) error {
+	if h.opts.Grants == nil {
+		return nil
+	}
+	if name == "" {
+		return fmt.Errorf("an approved script must name the connection to query (granted: %s); the platform's default connection is not what was approved",
+			orNone(h.opts.Grants.Connections))
+	}
+	if !h.opts.Grants.AllowsConnection(name) {
+		return fmt.Errorf("connection %q is not in this script's approved grant (granted: %s); widening what a script may reach requires approving it again",
+			name, orNone(h.opts.Grants.Connections))
+	}
+	return nil
+}
+
+// allowDestination refuses an output destination the run's grant does not
+// cover. A grant with no destinations is a script approved to compute and not
+// to persist, which is a deliberate and useful state, so it gets its own
+// message rather than reading as a misconfiguration.
+func (h *hostState) allowDestination(name string) error {
+	if h.opts.Grants == nil || h.opts.Grants.AllowsDestination(name) {
+		return nil
+	}
+	if len(h.opts.Grants.Destinations) == 0 {
+		return fmt.Errorf("this script was approved with no output destinations, so it may compute but not write; approving it again with the %q destination would let it write", name)
+	}
+	return fmt.Errorf("destination %q is not in this script's approved grant (granted: %s); widening what a script may reach requires approving it again",
+		name, orNone(h.opts.Grants.Destinations))
+}
+
+// orNone renders a granted list for an error message, naming the empty case
+// rather than printing an empty bracket pair.
+func orNone(values []string) string {
+	if len(values) == 0 {
+		return "none"
+	}
+	return strings.Join(values, ", ")
 }
 
 // runValue builds the frozen run record — the script's ONLY source of time and
@@ -111,6 +183,12 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	}
 	if h.opts.Caller == nil {
 		return nil, fmt.Errorf("host binding %s is not available in this context", b.Name())
+	}
+	if err := h.allowCapability(CapabilityQuery); err != nil {
+		return nil, argErr(b, err)
+	}
+	if err := h.allowConnection(connection); err != nil {
+		return nil, argErr(b, err)
 	}
 	bound, err := bindSQL(sql, params)
 	if err != nil {
@@ -171,12 +249,15 @@ func (h *hostState) queryResult(name string, out map[string]any) (starlark.Value
 	return result, nil
 }
 
-// export implements platform.export. In this stage it PREVIEWS: it validates
-// the output contract and reports the shape and size the asset would have,
-// persisting nothing. Draft execution introduces no authority and writes no
-// state, and an author iterating on a report needs to see the shape long before
-// any approval exists to make it real. The persisting implementation lands with
-// the execution gate, behind an approved version and a granted destination.
+// export implements platform.export: validate the output contract, then either
+// persist the output or report the shape it would have.
+//
+// Which of the two happens is decided by the caller, not by the script. A draft
+// run is given no Exporter, so it previews: an author iterating on a report
+// sees the shape long before an approval exists to make it real, and a draft
+// still writes no state. An approved run is given one, and the same call writes
+// a new version of the run's output asset. The arguments are identical either
+// way, so the script an author finishes is the script that runs.
 func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var (
 		name   string
@@ -193,13 +274,39 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 	if !exportFormats[format] {
 		return nil, fmt.Errorf("in %s: format %q is not one of %s", b.Name(), format, sortedSet(exportFormats))
 	}
-	if strings.TrimSpace(name) == "" {
+	// Trimmed here rather than checked here: the name is the output's identity
+	// across runs, so "daily" and "daily " must not become two assets.
+	name = strings.TrimSpace(name)
+	if name == "" {
 		return nil, fmt.Errorf("in %s: name is required and identifies the output asset across runs", b.Name())
 	}
 	if len(h.exports) >= maxExports {
 		return nil, fmt.Errorf("in %s: a run may produce at most %d outputs", b.Name(), maxExports)
 	}
+	if err := h.allowCapability(CapabilityExport); err != nil {
+		return nil, argErr(b, err)
+	}
+	if err := h.allowDestination(script.DestinationPortal); err != nil {
+		return nil, argErr(b, err)
+	}
 
+	list, err := exportRows(b, rows)
+	if err != nil {
+		return nil, err
+	}
+	record, err := h.persistOrPreview(b, ExportRequest{
+		Name: name, Format: format, Columns: columnOrder(rows), Rows: list,
+	})
+	if err != nil {
+		return nil, err
+	}
+	h.exports = append(h.exports, record)
+	return exportValue(record), nil
+}
+
+// exportRows converts the rows argument to the list of dicts every output
+// format is written from.
+func exportRows(b *starlark.Builtin, rows starlark.Value) ([]any, error) {
 	goRows, err := fromStarlark(rows)
 	if err != nil {
 		return nil, argErr(b, err)
@@ -208,20 +315,47 @@ func (h *hostState) export(_ *starlark.Thread, b *starlark.Builtin, args starlar
 	if !ok {
 		return nil, fmt.Errorf("in %s: rows must be a list of dicts, got %s", b.Name(), rows.Type())
 	}
+	return list, nil
+}
 
-	preview := ExportPreview{
-		Name: name, Format: format,
-		RowCount: len(list), Bytes: approxJSONBytes(list),
+// persistOrPreview writes the output through the run's Exporter, or measures it
+// when the run has none.
+func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (ExportRecord, error) {
+	record := ExportRecord{
+		Name: req.Name, Format: req.Format,
+		RowCount: len(req.Rows), Bytes: approxJSONBytes(req.Rows),
+		Preview: h.opts.Exporter == nil,
 	}
-	h.exports = append(h.exports, preview)
+	if h.opts.Exporter == nil {
+		return record, nil
+	}
+	written, err := h.opts.Exporter.Export(h.ctx, req)
+	if err != nil {
+		return ExportRecord{}, argErr(b, err)
+	}
+	record.AssetID = written.AssetID
+	record.AssetVersion = written.AssetVersion
+	// The writer's own accounting wins: it knows the serialized size of the
+	// format it actually wrote, which the pre-serialization estimate does not.
+	if written.Bytes > 0 {
+		record.Bytes = written.Bytes
+	}
+	return record, nil
+}
 
-	out := starlark.NewDict(exportPreviewFields)
-	_ = out.SetKey(starlark.String("preview"), starlark.Bool(true))
-	_ = out.SetKey(starlark.String("name"), starlark.String(name))
-	_ = out.SetKey(starlark.String("format"), starlark.String(format))
-	_ = out.SetKey(starlark.String("row_count"), starlark.MakeInt(preview.RowCount))
-	_ = out.SetKey(starlark.String("bytes"), starlark.MakeInt(preview.Bytes))
-	return out, nil
+// exportValue renders one export record as the dict the script receives.
+func exportValue(record ExportRecord) starlark.Value {
+	out := starlark.NewDict(exportRecordFields)
+	_ = out.SetKey(starlark.String("preview"), starlark.Bool(record.Preview))
+	_ = out.SetKey(starlark.String("name"), starlark.String(record.Name))
+	_ = out.SetKey(starlark.String("format"), starlark.String(record.Format))
+	_ = out.SetKey(starlark.String("row_count"), starlark.MakeInt(record.RowCount))
+	_ = out.SetKey(starlark.String("bytes"), starlark.MakeInt(record.Bytes))
+	if record.AssetID != "" {
+		_ = out.SetKey(starlark.String("asset_id"), starlark.String(record.AssetID))
+		_ = out.SetKey(starlark.String("asset_version"), starlark.MakeInt(record.AssetVersion))
+	}
+	return out
 }
 
 // truncated reports whether the query tool says it stopped short of the full

@@ -63,6 +63,12 @@ const (
 	AuthTypeAPIKey    = "apikey"
 	AuthTypeAnonymous = "anonymous" // shared fallback identity when auth is allowed-anonymous
 	AuthTypeNoop      = "noop"      // shared identity from NoopAuthenticator (auth disabled)
+	// AuthTypeScript is a managed script executing an approved version. Its
+	// UserID is script:<name>, distinct per script, and its roles are the ones
+	// the version's author held when they wrote it — captured at authoring time
+	// because a scheduled run has no live identity to resolve. It is a distinct
+	// principal, so it stays out of nonDistinctAuthTypes.
+	AuthTypeScript = "script"
 )
 
 // NewToolResultError creates an error result using the SDK's SetError method.

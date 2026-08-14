@@ -2,7 +2,6 @@ package scriptlayer
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -113,7 +112,7 @@ func runnable(sc *script.Script) *mcp.CallToolResult {
 func draftResult(sc *script.Script, runID string, result *scriptrun.Result, runErr error) map[string]any {
 	out := map[string]any{
 		fieldName: sc.Name, "run_id": runID, "draft": true,
-		fieldStatus: "succeeded", "queries": 0, "exports": []scriptrun.ExportPreview{},
+		fieldStatus: "succeeded", "queries": 0, "exports": []scriptrun.ExportRecord{},
 	}
 	if result != nil {
 		out["log"] = result.Log
@@ -136,49 +135,11 @@ func draftResult(sc *script.Script, runID string, result *scriptrun.Result, runE
 
 // orEmptyExports normalizes a nil export slice so the response carries a list
 // rather than null.
-func orEmptyExports(exports []scriptrun.ExportPreview) []scriptrun.ExportPreview {
+func orEmptyExports(exports []scriptrun.ExportRecord) []scriptrun.ExportRecord {
 	if exports == nil {
-		return []scriptrun.ExportPreview{}
+		return []scriptrun.ExportRecord{}
 	}
 	return exports
-}
-
-// sessionCaller issues a script's platform calls over one in-memory MCP session.
-type sessionCaller struct {
-	session *mcp.ClientSession
-}
-
-// CallTool invokes one tool and returns its structured content.
-func (c *sessionCaller) CallTool(ctx context.Context, name string, args map[string]any) (map[string]any, error) {
-	res, err := c.session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
-	if err != nil {
-		return nil, fmt.Errorf("calling %s: %w", name, err)
-	}
-	if res.IsError {
-		return nil, errors.New(firstText(res))
-	}
-	if structured, ok := res.StructuredContent.(map[string]any); ok {
-		return structured, nil
-	}
-	// A tool that returns only a text block is still usable when that text is
-	// the JSON envelope; parsing it here keeps a script working against a tool
-	// that has not adopted structured output rather than failing on a shape
-	// difference the author cannot do anything about.
-	var parsed map[string]any
-	if err := json.Unmarshal([]byte(firstText(res)), &parsed); err != nil {
-		return nil, fmt.Errorf("tool %s returned no structured result", name)
-	}
-	return parsed, nil
-}
-
-// firstText returns the first text block of a tool result, or a placeholder.
-func firstText(res *mcp.CallToolResult) string {
-	for _, c := range res.Content {
-		if tc, ok := c.(*mcp.TextContent); ok && tc.Text != "" {
-			return tc.Text
-		}
-	}
-	return "the tool returned an error with no details"
 }
 
 // connectAuthorSession opens an in-memory MCP session against the assembled
@@ -194,10 +155,12 @@ func firstText(res *mcp.CallToolResult) string {
 // that keeps the run out of the author's own discovery and gate state. runID is
 // threaded onto that context as the session identity, so the whole run is one
 // session in audit rather than one session per platform call.
-func (h *Handle) connectAuthorSession(ctx context.Context, runID string) (*sessionCaller, func(), error) {
-	if h.server == nil {
-		return nil, nil, errors.New("script execution is unavailable on this deployment")
-	}
+//
+// An approved run differs from this in exactly one respect — it authenticates
+// as the script principal with the roles its approval bound — which is why the
+// session plumbing itself lives in scriptrun and only the identity is decided
+// here.
+func (h *Handle) connectAuthorSession(ctx context.Context, runID string) (*scriptrun.SessionCaller, func(), error) {
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil || pc.UserID == "" {
 		return nil, nil, errors.New("run_draft needs an authenticated caller to run as")
@@ -212,20 +175,9 @@ func (h *Handle) connectAuthorSession(ctx context.Context, runID string) (*sessi
 		Roles:    pc.Roles,
 		AuthType: pc.AuthType,
 	})
-
-	t1, t2 := mcp.NewInMemoryTransports()
-	serverSession, err := h.server.Connect(serverCtx, t1, nil)
+	caller, cleanup, err := scriptrun.Connect(serverCtx, h.server, "script-draft")
 	if err != nil {
-		return nil, nil, fmt.Errorf("opening a script session: %w", err)
+		return nil, nil, fmt.Errorf("opening the draft's session: %w", err)
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "script-draft", Version: "v1"}, nil)
-	session, err := client.Connect(ctx, t2, nil)
-	if err != nil {
-		_ = serverSession.Close()
-		return nil, nil, fmt.Errorf("opening a script session: %w", err)
-	}
-	return &sessionCaller{session: session}, func() {
-		_ = session.Close()
-		_ = serverSession.Close()
-	}, nil
+	return caller, cleanup, nil
 }

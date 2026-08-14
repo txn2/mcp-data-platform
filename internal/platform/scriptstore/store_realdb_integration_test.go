@@ -36,7 +36,7 @@ func TestRealDB_CreateNormalizesNilSlices(t *testing.T) {
 	ctx := context.Background()
 
 	sc := newScript("daily", "jane@example.com")
-	require.NoError(t, s.Create(ctx, sc), "nil params/personas/tags must not reach a NOT NULL column")
+	require.NoError(t, s.Create(ctx, sc, testAuthor), "nil params/personas/tags must not reach a NOT NULL column")
 	require.NotEmpty(t, sc.ID)
 
 	got, err := s.GetPersonal(ctx, "jane@example.com", "daily")
@@ -63,18 +63,18 @@ func TestRealDB_PersonalNamesAreUniquePerOwner(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	require.NoError(t, s.Create(ctx, newScript("daily", "jane@example.com")))
-	require.NoError(t, s.Create(ctx, newScript("daily", "bob@example.com")))
-	assert.Error(t, s.Create(ctx, newScript("daily", "jane@example.com")),
+	require.NoError(t, s.Create(ctx, newScript("daily", "jane@example.com"), testAuthor))
+	require.NoError(t, s.Create(ctx, newScript("daily", "bob@example.com"), testAuthor))
+	assert.Error(t, s.Create(ctx, newScript("daily", "jane@example.com"), testAuthor),
 		"the same owner may not hold two scripts of the same name")
 
 	shared := newScript("rollup", "admin@example.com")
 	shared.Scope = script.ScopeGlobal
-	require.NoError(t, s.Create(ctx, shared))
+	require.NoError(t, s.Create(ctx, shared, testAuthor), testAuthor)
 
 	second := newScript("rollup", "other@example.com")
 	second.Scope = script.ScopeGlobal
-	assert.Error(t, s.Create(ctx, second), "a shared name is unique platform-wide")
+	assert.Error(t, s.Create(ctx, second, testAuthor), "a shared name is unique platform-wide")
 }
 
 // TestRealDB_EditFunnelAppliesAndDefers drives the domain funnel against the
@@ -86,12 +86,12 @@ func TestRealDB_EditFunnelAppliesAndDefers(t *testing.T) {
 	ctx := context.Background()
 
 	sc := newScript("daily", "jane@example.com")
-	require.NoError(t, s.Create(ctx, sc))
+	require.NoError(t, s.Create(ctx, sc, testAuthor), testAuthor)
 
 	before := *sc
 	after := *sc
 	after.Source = "print(2)\n"
-	outcome, err := script.ApplyEdit(ctx, s, &before, &after, "jane@example.com")
+	outcome, err := script.ApplyEdit(ctx, s, &before, &after, testAuthor)
 	require.NoError(t, err)
 	assert.True(t, outcome.Applied)
 	assert.Equal(t, 2, after.Version)
@@ -116,7 +116,7 @@ func TestRealDB_EditFunnelAppliesAndDefers(t *testing.T) {
 	gatedBefore := *live
 	gatedAfter := *live
 	gatedAfter.Source = "print(3)\n"
-	outcome, err = script.ApplyEdit(ctx, s, &gatedBefore, &gatedAfter, "jane@example.com")
+	outcome, err = script.ApplyEdit(ctx, s, &gatedBefore, &gatedAfter, testAuthor)
 	require.NoError(t, err)
 	assert.False(t, outcome.Applied)
 	assert.Equal(t, 3, outcome.PendingVersion)
@@ -139,7 +139,7 @@ func TestRealDB_ApprovedVersionCannotBeDeletedOutFromUnderAScript(t *testing.T) 
 	ctx := context.Background()
 
 	sc := newScript("daily", "jane@example.com")
-	require.NoError(t, s.Create(ctx, sc))
+	require.NoError(t, s.Create(ctx, sc, testAuthor), testAuthor)
 	versions, err := s.ListVersions(ctx, sc.ID)
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
@@ -160,7 +160,7 @@ func TestRealDB_DeleteCascadesVersions(t *testing.T) {
 	ctx := context.Background()
 
 	sc := newScript("daily", "jane@example.com")
-	require.NoError(t, s.Create(ctx, sc))
+	require.NoError(t, s.Create(ctx, sc, testAuthor), testAuthor)
 	require.NoError(t, s.Delete(ctx, sc.ID))
 
 	versions, err := s.ListVersions(ctx, sc.ID)
@@ -177,8 +177,8 @@ func TestRealDB_ListFilters(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	require.NoError(t, s.Create(ctx, newScript("daily-sales", "jane@example.com")))
-	require.NoError(t, s.Create(ctx, newScript("weekly-rollup", "bob@example.com")))
+	require.NoError(t, s.Create(ctx, newScript("daily-sales", "jane@example.com"), testAuthor))
+	require.NoError(t, s.Create(ctx, newScript("weekly-rollup", "bob@example.com"), testAuthor))
 
 	all, err := s.List(ctx, script.ListFilter{})
 	require.NoError(t, err)
@@ -210,7 +210,7 @@ func TestRealDB_StatusCheckConstraint(t *testing.T) {
 	ctx := context.Background()
 
 	sc := newScript("daily", "jane@example.com")
-	require.NoError(t, s.Create(ctx, sc))
+	require.NoError(t, s.Create(ctx, sc, testAuthor), testAuthor)
 
 	for _, status := range []string{
 		script.StatusDraft, script.StatusActive, script.StatusDeprecated, script.StatusSuperseded,

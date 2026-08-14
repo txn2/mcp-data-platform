@@ -75,7 +75,9 @@ func unversionedFieldsChanged(before, after *Script) bool {
 // ApplyEdit lands a script edit through the one shared gate every mutation
 // surface crosses (the manage_script tool today; admin REST and the portal
 // later). before must be the persisted pre-edit state and after the fully
-// mutated copy; author is the actor recorded on any version produced.
+// mutated copy; author is the actor recorded on any version produced, together
+// with the authority they held, which becomes the ceiling on what approving
+// that version can grant (see Author).
 //
 // A review-gated edit (RequiresReview) becomes a pending draft version and
 // leaves the live row untouched, so the approved version keeps executing until
@@ -83,7 +85,7 @@ func unversionedFieldsChanged(before, after *Script) bool {
 // which snapshots a new applied version when a versioned field changed. The
 // versioning capability is asserted from the store itself; a store without it
 // degrades to a plain unversioned update.
-func ApplyEdit(ctx context.Context, store Store, before, after *Script, author string) (EditOutcome, error) {
+func ApplyEdit(ctx context.Context, store Store, before, after *Script, author Author) (EditOutcome, error) {
 	versions, _ := store.(VersionStore)
 	if versions == nil {
 		if err := store.Update(ctx, after); err != nil {
