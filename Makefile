@@ -153,6 +153,13 @@ coverage: test
 ## not part of `make verify`).
 lint:
 	@echo "Running patch-scoped lint (matches CI only-new-issues, includes uncommitted changes)..."
+	@# The cache is cleaned before the run: golangci-lint can serve a
+	@# previously FILTERED result for an unchanged package, so a warm cache
+	@# reports 0 issues on lines CI (which always runs cold) rejects. That
+	@# cost us a red Lint job on PR 1303 after a green `make verify`, which
+	@# is the same class of failure as #393 — a local gate that passes on
+	@# something CI does not.
+	@#
 	@# Auto-fetch so a fresh clone or a stale local mirror doesn't bypass
 	@# the gate. The fetch is shallow + quiet and tolerates network
 	@# absence; if BOTH origin/main and main remain unreachable, we
@@ -184,6 +191,7 @@ lint:
 		exit 0; \
 	fi; \
 	echo "Linting against merge-base $$MERGE_BASE (from $$BASE) — includes uncommitted changes"; \
+	$(GOLINT) cache clean; \
 	$(GOLINT) run --new-from-patch=$$PATCH ./...
 
 ## lint-full: Run linter against the ENTIRE codebase (not chained into verify)

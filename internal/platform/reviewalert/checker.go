@@ -127,7 +127,7 @@ func (c *Checker) Check(ctx context.Context) error {
 	}
 	rollup, err := c.cfg.Source.Pending(ctx, c.cfg.Now())
 	if err != nil {
-		return fmt.Errorf("%s alert check: %w", c.cfg.Target.Queue, err)
+		return fmt.Errorf("checking the %s alert queue: %w", c.cfg.Target.Queue, err)
 	}
 	if !settings.Crossed(rollup.Pending, rollup.OldestAgeDays) {
 		// Back under threshold: drop the marker so the next crossing is
@@ -136,7 +136,7 @@ func (c *Checker) Check(ctx context.Context) error {
 	}
 	claimed, err := c.cfg.State.ClaimAlert(ctx, settings.Cooldown(), c.cfg.Now())
 	if err != nil {
-		return fmt.Errorf("%s alert check: %w", c.cfg.Target.Queue, err)
+		return fmt.Errorf("checking the %s alert queue: %w", c.cfg.Target.Queue, err)
 	}
 	if !claimed {
 		return nil
