@@ -1305,6 +1305,26 @@ type ScriptsConfig struct {
 	// dashboard was showing and when it last succeeded — which people read.
 	// Zero or negative takes the default.
 	RunRetentionDays int `yaml:"run_retention_days"`
+
+	// Worker decides whether this replica executes queued runs or only
+	// enqueues them for another deployment to execute.
+	Worker ScriptsWorkerConfig `yaml:"worker"`
+}
+
+// ScriptsWorkerConfig configures the run worker on this replica.
+type ScriptsWorkerConfig struct {
+	// Enabled runs the queue worker here. Nil (the default) runs it, so the
+	// single-binary deployment executes what it enqueues. False leaves the
+	// replica serving, enqueueing, and waiting on results while a separate
+	// deployment with the worker on claims and executes them, which is how
+	// script execution is scaled and isolated apart from serving.
+	Enabled *bool `yaml:"enabled"`
+}
+
+// IsWorkerEnabled reports whether this replica claims and executes queued runs,
+// defaulting to true when not explicitly set.
+func (c *ScriptsConfig) IsWorkerEnabled() bool {
+	return !isExplicitlyDisabled(c.Worker.Enabled)
 }
 
 // hoursPerDay converts a retention expressed in days to a duration.

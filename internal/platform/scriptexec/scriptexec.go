@@ -89,6 +89,14 @@ type Config struct {
 
 	// RunRetention overrides DefaultRunRetention.
 	RunRetention time.Duration
+
+	// WorkerDisabled leaves this replica serving without ever claiming from the
+	// run queue. run_script still enqueues and still waits on the result, which
+	// a separate deployment of the same binary with the worker on produces, so
+	// script execution scales apart from serving and a pathological script
+	// reaches no pod an agent is talking to. The zero value runs the worker,
+	// which is the single-binary default.
+	WorkerDisabled bool
 }
 
 // ExportDeps is what turning a script's rows into a portal asset needs.
@@ -114,6 +122,12 @@ type listenerControl interface {
 }
 
 // Handle owns the running execution side.
+//
+// A handle with no worker is the split deployment's serving half: it still owns
+// the queue, so run_script enqueues and waits exactly as it does on a
+// single-binary replica, and nothing here ever claims. The listener goes with
+// the worker, because waking a replica that will not claim buys nothing but a
+// database connection.
 type Handle struct {
 	runs     script.RunStore
 	worker   *worker
@@ -129,6 +143,10 @@ func New(cfg Config) *Handle {
 		return nil
 	}
 	h := &Handle{runs: runs}
+	if cfg.WorkerDisabled {
+		slog.Info("scripts: the run worker is off on this replica; queued runs wait for a worker deployment")
+		return h
+	}
 	h.worker = newWorker(workerConfig{
 		runs:      runs,
 		scripts:   scripts,
@@ -188,7 +206,7 @@ func (h *Handle) Runs() script.RunStore {
 // enqueue on any replica reaches a worker on any other; a producer holding this
 // handle can call it directly and skip the round trip. Nil-safe.
 func (h *Handle) Notify() {
-	if h == nil {
+	if h == nil || h.worker == nil {
 		return
 	}
 	h.worker.Notify()
@@ -199,7 +217,7 @@ func (h *Handle) Notify() {
 // rather than failing startup: the wakeup is a latency optimization, and the
 // poll is what makes the queue correct. Nil-safe.
 func (h *Handle) Start(ctx context.Context) error {
-	if h == nil {
+	if h == nil || h.worker == nil {
 		return nil
 	}
 	h.worker.Start(ctx)
@@ -212,15 +230,19 @@ func (h *Handle) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop terminates the worker and the listener. An abandoned claimed run is
-// safe: its lease expires and another replica reclaims it. Nil-safe.
-func (h *Handle) Stop(_ context.Context) error {
+// Stop closes the listener, then drains the worker inside whatever budget ctx
+// carries: the run in flight finishes if it can and is released if it cannot.
+// The listener goes first so nothing wakes a worker that is already draining.
+// Nil-safe.
+func (h *Handle) Stop(ctx context.Context) error {
 	if h == nil {
 		return nil
 	}
 	if h.listener != nil {
 		h.listener.Stop()
 	}
-	h.worker.Stop()
+	if h.worker != nil {
+		h.worker.Stop(ctx)
+	}
 	return nil
 }

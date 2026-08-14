@@ -40,6 +40,26 @@ const (
 
 	// purgeEvery throttles the run-retention sweep.
 	purgeEvery = time.Hour
+
+	// drainWindowCap bounds how long a stopping worker waits for the run in
+	// flight to finish on its own. It is deliberately short against a run's own
+	// ceiling: the point is to let a run that is nearly done finish rather than
+	// be thrown away and re-executed from the start elsewhere, not to hold a
+	// rolling deploy open for the length of a report.
+	drainWindowCap = 3 * time.Second
+
+	// drainBudgetShare is the most of the caller's remaining shutdown budget
+	// the wait may take. The budget is not the worker's: it belongs to every
+	// component the lifecycle stops, and the ones registered before this go
+	// after it. Half, capped, leaves them a working share.
+	drainBudgetShare = 2
+
+	// releaseReserve is the slice of the shutdown budget held back for the
+	// release write, and the bound on that write. Without it a worker that
+	// spent the whole budget waiting would be killed still holding the lease,
+	// and the run would sit until the lease expired instead of being picked up
+	// by the replica that replaced it.
+	releaseReserve = 2 * time.Second
 )
 
 // ScriptReader is the script lookup the execution side needs, narrowed to the
@@ -107,6 +127,10 @@ type worker struct {
 	stopOnce  sync.Once
 	wg        sync.WaitGroup
 	started   atomic.Bool
+	// inFlight is set while a claimed run is executing. A shutdown waits only
+	// for that: time the loop spends in the queue's own calls is not work worth
+	// saving, and waiting it out would delay the cancel that unblocks them.
+	inFlight atomic.Bool
 	// lastPurge throttles the retention sweep. Only the run goroutine reads it.
 	lastPurge time.Time
 }
@@ -169,20 +193,79 @@ func (w *worker) Start(_ context.Context) {
 	go w.run()
 }
 
-// Stop terminates the worker loop and waits for the run in flight.
+// Stop drains the worker: claiming stops at once, a run in flight is given a
+// drain window to finish, and what the window does not cover is canceled and
+// released.
 //
-// The run in flight is CANCELED rather than waited out: an approved run may
-// have most of a ten-minute budget left, and a shutdown that waits for it turns
-// a rolling restart into a stall. A run canceled this way is not failed — a
-// shutdown decided nothing about it — so it is released back to the queue for
-// another replica to pick up immediately, and the outputs it already wrote are
-// on its row, so re-running it does not write them twice.
-func (w *worker) Stop() {
-	w.stopOnce.Do(func() {
-		close(w.stopCh)
-		w.cancelRun()
-	})
+// Both halves earn their place in a rolling deploy. Waiting is what keeps a run
+// seconds from done from being discarded and re-executed from the start on
+// another replica. Bounding the wait is what keeps a run with most of a
+// ten-minute budget left from holding the pod open past its termination grace
+// period; a run canceled that way is not failed, because a shutdown decides
+// nothing about it, so it goes straight back on the queue rather than sitting
+// there until its lease expires. The outputs it already wrote are recorded on
+// its row, so the replica that picks it up does not write them twice.
+//
+// The wait happens only when a run is actually executing. A loop sitting in the
+// queue's own calls has nothing worth saving, and waiting it out would only
+// delay the cancel that unblocks it. What follows the wait is bounded too: the
+// cancel ends the interpreter, and the write that records the outcome is
+// bounded by shutdownWrite.
+func (w *worker) Stop(ctx context.Context) {
+	w.stopOnce.Do(func() { close(w.stopCh) })
+	if w.inFlight.Load() && !w.awaitIdle(drainWindow(ctx)) {
+		slog.Info("scripts: the drain window is spent; canceling and releasing the run still executing")
+	}
+	w.cancelRun()
 	w.wg.Wait()
+}
+
+// awaitIdle waits up to d for the worker loop to exit, reporting whether it
+// did. A worker that never started, or whose run finished inside the window,
+// returns immediately; an exhausted budget waits for nothing.
+func (w *worker) awaitIdle(d time.Duration) bool {
+	if d <= 0 {
+		return false
+	}
+	idle := make(chan struct{})
+	go func() {
+		w.wg.Wait()
+		close(idle)
+	}()
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-idle:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+// shutdownWrite builds the context for a store write made while the worker is
+// stopping. It survives the run's cancellation, because the one thing a
+// shutting-down worker must still manage is recording what happened to the run
+// it was holding — and it is bounded by the reserve the drain window held back,
+// because a worker blocked on an unreachable database would otherwise spend the
+// pod's whole termination grace period on a write whose only alternative,
+// letting the lease expire, costs one reap interval.
+func shutdownWrite(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), releaseReserve)
+}
+
+// drainWindow is how much of the caller's shutdown budget the run in flight may
+// spend finishing. Deriving it from the deadline is what aligns the worker with
+// the HTTP drain that precedes it: the worker never spends time the process
+// does not have, never returns so late that the release write is cut off, and
+// never takes more than its share of a budget the whole lifecycle is spending.
+// A caller with no deadline — a stdio session, a test — gets the cap.
+func drainWindow(ctx context.Context) time.Duration {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return drainWindowCap
+	}
+	remaining := time.Until(deadline)
+	return min(remaining/drainBudgetShare, remaining-releaseReserve, drainWindowCap)
 }
 
 // run is the poll/wakeup loop.
@@ -247,6 +330,18 @@ func (w *worker) processNext(ctx context.Context) bool {
 		}
 		return false
 	}
+	// A claim in flight when the stop landed hands back work this worker will
+	// not finish: the drain window belongs to the run already executing, not to
+	// one that has not started. Give it straight back rather than spend the
+	// window on it.
+	select {
+	case <-w.stopCh:
+		releaseCtx, cancel := shutdownWrite(ctx)
+		defer cancel()
+		w.release(releaseCtx, run)
+		return false
+	default:
+	}
 	w.processRun(ctx, run)
 	return true
 }
@@ -254,6 +349,8 @@ func (w *worker) processNext(ctx context.Context) bool {
 // processRun loads what the claimed run needs and executes it, then resolves
 // the run to a terminal state or back onto the queue.
 func (w *worker) processRun(ctx context.Context, run *script.Run) {
+	w.inFlight.Store(true)
+	defer w.inFlight.Store(false)
 	slog.Info("scripts: running", logKeyRunID, run.ID,
 		"script_id", logsan.SanitizeForLog(run.ScriptID), "version", run.Version, "attempt", run.Attempt)
 	sc, v, loadErr := w.load(ctx, run)
@@ -303,11 +400,22 @@ func retryable(reason string) *attempt {
 // Every write here uses a context of its own rather than the run's, because the
 // run's context is what a shutdown cancels — and the one thing a shutting-down
 // worker must still manage is recording what happened to the run it was holding.
+//
+// A shutdown releases the run rather than recording a verdict on it, with one
+// exception: a run whose interpreter reported success finished, and the cancel
+// that raced it decided nothing. Releasing that one would re-execute a script
+// that had already done its work. Either way the write goes through
+// shutdownWrite, which bounds it.
 func (w *worker) resolve(runCtx context.Context, run *script.Run, a attempt) {
 	ctx := context.WithoutCancel(runCtx)
 	if runCtx.Err() != nil {
-		w.release(ctx, run)
-		return
+		var cancel context.CancelFunc
+		ctx, cancel = shutdownWrite(runCtx)
+		defer cancel()
+		if a.result.Status != script.RunStatusSucceeded {
+			w.release(ctx, run)
+			return
+		}
 	}
 	if a.retryable && run.Attempt < w.cfg.maxAttempts {
 		backoff := computeBackoff(run.Attempt)
@@ -328,7 +436,8 @@ func (w *worker) resolve(runCtx context.Context, run *script.Run, a attempt) {
 
 // release hands a run back to the queue because this worker is shutting down,
 // not because anything about the run failed. It bypasses the attempt budget for
-// the same reason: a restart is not an attempt at the work.
+// the same reason: a restart is not an attempt at the work. Its caller bounds
+// the write.
 func (w *worker) release(ctx context.Context, run *script.Run) {
 	slog.Info("scripts: releasing a run at shutdown", logKeyRunID, run.ID, "attempt", run.Attempt)
 	if err := w.cfg.runs.Retry(ctx, run.Lease(), "the worker executing this run shut down; it was requeued", 0); err != nil {

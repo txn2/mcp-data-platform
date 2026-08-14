@@ -75,6 +75,44 @@ Runs execute on the platform itself, on whichever replica claims them, so a
 long report does not hold an agent's connection open and a restart does not lose
 a queued run.
 
+## Where runs execute
+
+Every replica runs the queue worker by default, so the single-binary deployment
+executes what it enqueues and needs no configuration at all. One switch changes
+that:
+
+```yaml
+scripts:
+  worker:
+    # Claim and execute queued runs on this replica. Defaults to true.
+    enabled: false
+```
+
+A replica with the worker off still serves MCP and portal traffic, still
+registers `run_script`, still validates and enqueues a run, and still waits for
+the result. It simply never claims: the run is executed by a separate deployment
+of the same binary with the worker on, reading the same queue, and the waiting
+call picks the result up on its next poll of the run row.
+
+Splitting them is worth doing when script execution starts to matter. The
+interpreter has no hard memory cap (see the [security model](security.md)), so a
+pathological approved script pushes on the memory of whatever pod runs it;
+keeping that pod out of the serving path means the worst case is a restarted
+worker rather than a degraded agent session. It also lets the two scale on their
+own axes — serving on connections, execution on queue depth — since a replica
+executes one run at a time and concurrency comes from replica count.
+
+The two deployments are the same image and the same configuration bar that one
+key; the [deployment guide](../server/deployment.md#split-deployment-portal-and-script-workers)
+has the manifests.
+
+A worker shutting down stops claiming at once, gives the run it is holding a
+short window out of the shutdown budget to finish, and releases whatever does
+not finish back onto the queue rather than failing it — a shutdown decides
+nothing about a run. A released run is claimable immediately, so a rolling
+deploy costs a run at most the time it had already spent, not a wait for its
+lease to expire.
+
 ## What a run produces
 
 `platform.export` writes a portal asset. Output identity is stable: the pair of
@@ -131,4 +169,5 @@ scripts:
 | Authoring (`manage_script`) | A database |
 | Approving (admin REST) | A database and the admin API |
 | Running (`run_script`) | The above; the tool is not registered where there is no run queue |
+| Executing what was queued | At least one replica with `scripts.worker.enabled` left on, which is the default |
 | Writing outputs | A configured portal asset store and object storage; without them a run still executes and `platform.export` reports the shape it would have written |

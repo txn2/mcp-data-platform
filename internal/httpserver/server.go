@@ -317,7 +317,16 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg
 		preDelay = fallbackPreShutdownDelay
 	}
 
+	// drained closes when the drain sequence below has finished, which is what
+	// the return path waits on: every background component the platform holds —
+	// the notification worker, the managed-script run worker — is stopped by the
+	// caller once this function returns, and stopping them while requests are
+	// still in flight would tear down the machinery those requests are using.
+	// The documented shutdown budget (pre-shutdown delay, then the HTTP drain,
+	// then the lifecycle stop) describes exactly this order.
+	drained := make(chan struct{})
 	go func() { // #nosec G118 -- ctx is the application-level shutdown context, not a request-scoped context
+		defer close(drained)
 		<-ctx.Done()
 
 		// Mark not-ready so K8s load balancer stops sending traffic.
@@ -337,6 +346,26 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg
 		hc.SetReady()
 	}
 
+	err := listen(server, hcfg, addr)
+	if err != nil && ctx.Err() == nil {
+		// The server never came up, so no drain was started and nothing will
+		// ever close drained. Waiting here would hang on a startup failure.
+		return err
+	}
+
+	// Shutdown closes the listeners first and waits for connections second, so
+	// the listen call above returns while requests are still being served.
+	// Returning here would hand control back to the caller mid-drain — which is
+	// true of the error path during a drain as much as the clean one, so the
+	// wait comes before the error does. It is bounded by the drain's own grace
+	// deadline, so a connection that never goes idle cannot hold shutdown open.
+	<-drained
+	return err
+}
+
+// listen serves until the server is shut down, reporting only a real listen
+// failure: ErrServerClosed is the expected end of a drained server.
+func listen(server *http.Server, hcfg httpConfig, addr string) error {
 	if hcfg.tlsEnabled {
 		log.Printf("Starting HTTP server with TLS on %s\n", addr)
 		if err := server.ListenAndServeTLS(hcfg.tlsCertFile, hcfg.tlsKeyFile); err != http.ErrServerClosed {
