@@ -117,6 +117,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	mux.Handle("/api/v1/portal/", handler)
 	mux.Handle("/portal/view/", handler)
 	mountPromptVersionPortalAPI(mux, p, wrap, adminRoles)
+	mountScriptPortalAPI(mux, p, wrap, adminRoles)
 	mountMentionAPI(mux, p, wrap, adminRoles)
 	log.Println("Portal API enabled on /api/v1/portal/ (persona required)")
 	return nil
@@ -144,19 +145,79 @@ func mountPromptVersionAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix
 // script store is stateless over that pool, and the alternative would put a
 // pass-through accessor on a package that is at its size budget.
 func mountScriptAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string) {
-	if p.DB() == nil {
+	deps, ok := scriptDeps(p)
+	if !ok {
 		return
 	}
+	deps.AdminEmail = adminEmail
+	scripthttp.New(deps).RegisterAdmin(mux, prefix, buildAdminAuth(p))
+}
+
+// mountScriptPortalAPI registers the portal script read routes: the scripts a
+// caller may see, one script's contract, and — for the scripts they own — its
+// versions and its run history. Called from mountPortalAPI with the portal's
+// assembled auth middleware and admin roles.
+//
+// The portal surface exists because a script's owner is frequently not an
+// administrator, and every other script route is admin-only. It adds no
+// mutation: approval stays on the admin surface.
+func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, adminRoles []string) {
+	deps, ok := scriptDeps(p)
+	if !ok {
+		return
+	}
+	// Mirror the sibling persona wiring's nil guard (a nil registry would
+	// otherwise panic per-request inside the resolver closure).
+	var resolver portal.PersonaResolver
+	if pr := p.PersonaRegistry(); pr != nil {
+		resolver = buildPersonaResolver(pr, p.ToolkitRegistry())
+	}
+	deps.PortalUser = scriptPortalIdentity(adminRoles, resolver)
+	scripthttp.New(deps).RegisterPortal(mux, wrap)
+}
+
+// scriptDeps assembles the surface-independent script handler dependencies,
+// reporting ok=false when the deployment has nowhere to keep scripts.
+//
+// The store is built here, over the pool the platform already holds, rather
+// than reached through a facade accessor: this is a composition root, the
+// script store is stateless over that pool, and the alternative would put a
+// pass-through accessor on a package that is at its size budget.
+func scriptDeps(p *platform.Platform) (scripthttp.Deps, bool) {
+	if p.DB() == nil {
+		return scripthttp.Deps{}, false
+	}
 	store := scriptstore.New(p.DB())
-	scripthttp.New(scripthttp.Deps{
+	return scripthttp.Deps{
 		Scripts:    store,
 		Versions:   store,
 		Approvals:  store,
 		Reviews:    store,
 		Rejections: store,
 		Schedules:  store,
-		AdminEmail: adminEmail,
-	}).RegisterAdmin(mux, prefix, buildAdminAuth(p))
+		Runs:       store,
+		Contracts:  store,
+		LatestRuns: store,
+	}, true
+}
+
+// scriptPortalIdentity resolves the portal caller for the script routes: who
+// they are, the persona they resolved to, and whether they hold the admin
+// roles that make the surface unrestricted for them.
+func scriptPortalIdentity(adminRoles []string, resolver portal.PersonaResolver) func(r *http.Request) *scripthttp.PortalIdentity {
+	return func(r *http.Request) *scripthttp.PortalIdentity {
+		user := portal.GetUser(r.Context())
+		if user == nil {
+			return nil
+		}
+		id := &scripthttp.PortalIdentity{UserID: user.UserID, Email: user.Email, IsAdmin: rolesIntersect(user.Roles, adminRoles)}
+		if resolver != nil {
+			if pi := resolver(user.Roles); pi != nil {
+				id.Persona = pi.Name
+			}
+		}
+		return id
+	}
 }
 
 // mountPromptVersionPortalAPI registers the portal prompt-version routes.

@@ -266,3 +266,43 @@ export async function openScriptAlertSettings(page: Page): Promise<void> {
     .scrollIntoViewIfNeeded({ timeout: 3_000 });
   await page.waitForTimeout(500);
 }
+
+/**
+ * openScriptVersionHistory scrolls a script's detail page to its version
+ * history, which sits below the contract and the parameters. The served
+ * version's source is already open there: what is running right now is the
+ * question the section is usually opened with.
+ */
+export async function openScriptVersionHistory(page: Page): Promise<void> {
+  // Scroll to the grant rather than the section heading: the heading is already
+  // above the fold on this page, so stopping there captures the contract again
+  // under the version-history name and documents nothing new.
+  await page
+    .getByText("Runs with the authority of")
+    .scrollIntoViewIfNeeded({ timeout: 3_000 });
+  await page.waitForTimeout(500);
+}
+
+/**
+ * openScriptRunHistory scrolls to the run history, the refresh record of the
+ * automation: a success, the failure that woke somebody, and a fire skipped
+ * because the previous run was still going.
+ */
+export async function openScriptRunHistory(page: Page): Promise<void> {
+  await page.getByText("Run history").scrollIntoViewIfNeeded({ timeout: 3_000 });
+  await page.waitForTimeout(500);
+}
+
+/**
+ * openScriptRunLog opens the most recent run in place: its parameters, what it
+ * cost, the asset version it produced, and the log it printed while working.
+ */
+export async function openScriptRunLog(page: Page): Promise<void> {
+  await openScriptRunHistory(page);
+  await page.getByRole("button", { name: "Open" }).first().click();
+  await page.getByText("Computed against").waitFor({ state: "visible", timeout: 5_000 });
+  // The log is the point of this capture and sits under the run's facts, so
+  // scroll to the log itself rather than to the row that opened it.
+  await page.getByText(/wrote asset version/).scrollIntoViewIfNeeded({ timeout: 3_000 });
+  await page.waitForTimeout(600);
+}

@@ -4317,6 +4317,163 @@ definitions:
           type: string
         type: array
     type: object
+  script.Contract:
+    properties:
+      approval:
+        $ref: '#/definitions/script.ContractApproval'
+      description:
+        example: Summarize yesterday's sales by region
+        type: string
+      display_name:
+        example: Daily Sales Report
+        type: string
+      enabled:
+        example: true
+        type: boolean
+      id:
+        example: script_a1b2c3d4
+        type: string
+      last_successful_run:
+        allOf:
+        - $ref: '#/definitions/script.ContractRun'
+        description: |-
+          LastRun is the most recent successful run, nil when the script has never
+          completed one. It answers "what does this produce" with evidence rather
+          than with a promise.
+      name:
+        example: daily-sales-report
+        type: string
+      owner_email:
+        example: jane@example.com
+        type: string
+      params:
+        description: |-
+          Params is the typed parameter contract a run binds against: the approved
+          version's when one is approved, the live record's otherwise.
+        items:
+          $ref: '#/definitions/script.Param'
+        type: array
+      personas:
+        example:
+        - analyst
+        items:
+          type: string
+        type: array
+      schedule:
+        allOf:
+        - $ref: '#/definitions/script.ContractSchedule'
+        description: Schedule is the cadence this script fires on, nil when it has
+          none.
+      scope:
+        example: personal
+        type: string
+      status:
+        example: active
+        type: string
+      tags:
+        example:
+        - sales
+        - reporting
+        items:
+          type: string
+        type: array
+    type: object
+  script.ContractApproval:
+    properties:
+      approved:
+        description: Approved reports whether a version is approved for execution.
+        example: true
+        type: boolean
+      approved_at:
+        type: string
+      approved_by:
+        description: ApprovedBy and ApprovedAt stamp who admitted that version and
+          when.
+        example: admin@example.com
+        type: string
+      refusal:
+        description: |-
+          Refusal states why a run requested now would be refused, and is empty when
+          one would be admitted. It is the gate's own answer (RefuseNewRun), not a
+          second reading of it, so a caller is never told a script is runnable that
+          run_script would then decline.
+        example: the script has no approved version, so nothing may execute it
+        type: string
+      version:
+        description: Version is the approved version number, zero when none is approved.
+        example: 3
+        type: integer
+    type: object
+  script.ContractOutput:
+    properties:
+      asset_id:
+        description: AssetID and AssetVersion locate an OutputKindAsset output.
+        example: asset_a1b2c3d4
+        type: string
+      asset_version:
+        example: 7
+        type: integer
+      bucket:
+        description: Bucket and Key locate an OutputKindObject output.
+        example: acme-exports
+        type: string
+      bytes:
+        example: 98304
+        type: integer
+      destination:
+        description: |-
+          Destination is the granted destination the output went to; "portal" for an
+          output that named none.
+        example: portal
+        type: string
+      format:
+        example: csv
+        type: string
+      key:
+        example: weekly/2026/08/sales.csv
+        type: string
+      kind:
+        example: portal_asset
+        type: string
+      name:
+        example: sales_by_region
+        type: string
+      row_count:
+        example: 1420
+        type: integer
+    type: object
+  script.ContractRun:
+    properties:
+      finished_at:
+        type: string
+      outputs:
+        items:
+          $ref: '#/definitions/script.ContractOutput'
+        type: array
+      run_id:
+        example: run_a1b2c3d4
+        type: string
+      version:
+        example: 3
+        type: integer
+    type: object
+  script.ContractSchedule:
+    properties:
+      cron_spec:
+        example: 0 7 * * 1-5
+        type: string
+      enabled:
+        example: true
+        type: boolean
+      next_run_at:
+        description: |-
+          NextRunAt is the next due fire, nil when the schedule is disabled or its
+          expression has no further fire.
+        type: string
+      timezone:
+        example: America/Los_Angeles
+        type: string
+    type: object
   script.Destination:
     properties:
       bucket:
@@ -4472,6 +4629,44 @@ definitions:
       version_status:
         example: draft
         type: string
+    type: object
+  script.RunMetrics:
+    properties:
+      duration_ms:
+        type: integer
+      exports:
+        type: integer
+      queries:
+        type: integer
+      steps:
+        type: integer
+    type: object
+  script.RunOutput:
+    properties:
+      asset_id:
+        description: AssetID and AssetVersion identify a portal output.
+        type: string
+      asset_version:
+        type: integer
+      bucket:
+        description: Bucket and Key locate a delivered object.
+        type: string
+      bytes:
+        type: integer
+      destination:
+        description: |-
+          Destination is the granted destination's name. It is empty on rows
+          written before destinations existed, which Destination() reads as the
+          portal.
+        type: string
+      format:
+        type: string
+      key:
+        type: string
+      name:
+        type: string
+      row_count:
+        type: integer
     type: object
   script.Schedule:
     properties:
@@ -4721,6 +4916,169 @@ definitions:
       total:
         example: 2
         type: integer
+    type: object
+  scripthttp.portalRun:
+    properties:
+      duration_ms:
+        example: 1840
+        type: integer
+      error:
+        description: |-
+          Error is why a failed run failed, carried into the listing because a
+          history whose failures say only "failed" sends every reader to the detail
+          view to learn the same thing.
+        type: string
+      finished_at:
+        type: string
+      fire_time:
+        type: string
+      id:
+        example: run_a1b2c3d4
+        type: string
+      output_count:
+        description: |-
+          OutputCount counts what the run persisted. It is deliberately not called
+          "outputs": the run detail carries the outputs themselves under that name,
+          and one field meaning a count in one payload and a list in another is how
+          a client ends up rendering "3" where a link belongs.
+        example: 1
+        type: integer
+      requested_by:
+        description: |-
+          RequestedBy is who asked for the run, empty for a scheduled one, which
+          nobody requested.
+        example: jane@example.com
+        type: string
+      started_at:
+        type: string
+      status:
+        example: succeeded
+        type: string
+      trigger:
+        example: schedule
+        type: string
+      version:
+        example: 3
+        type: integer
+    type: object
+  scripthttp.portalRunDetail:
+    properties:
+      attempt:
+        type: integer
+      created_at:
+        type: string
+      duration_ms:
+        example: 1840
+        type: integer
+      error:
+        description: |-
+          Error is why a failed run failed, carried into the listing because a
+          history whose failures say only "failed" sends every reader to the detail
+          view to learn the same thing.
+        type: string
+      finished_at:
+        type: string
+      fire_time:
+        type: string
+      id:
+        example: run_a1b2c3d4
+        type: string
+      log:
+        description: |-
+          Log is the run's own account of itself, bounded at capture time, so
+          returning it whole is bounded too.
+        type: string
+      log_truncated:
+        type: boolean
+      metrics:
+        $ref: '#/definitions/script.RunMetrics'
+      output_count:
+        description: |-
+          OutputCount counts what the run persisted. It is deliberately not called
+          "outputs": the run detail carries the outputs themselves under that name,
+          and one field meaning a count in one payload and a list in another is how
+          a client ends up rendering "3" where a link belongs.
+        example: 1
+        type: integer
+      outputs:
+        items:
+          $ref: '#/definitions/script.RunOutput'
+        type: array
+      params:
+        additionalProperties: {}
+        type: object
+      requested_by:
+        description: |-
+          RequestedBy is who asked for the run, empty for a scheduled one, which
+          nobody requested.
+        example: jane@example.com
+        type: string
+      scheduled_for:
+        type: string
+      script_id:
+        type: string
+      started_at:
+        type: string
+      status:
+        example: succeeded
+        type: string
+      trigger:
+        example: schedule
+        type: string
+      version:
+        example: 3
+        type: integer
+    type: object
+  scripthttp.portalRunListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/scripthttp.portalRun'
+        type: array
+      total:
+        example: 12
+        type: integer
+    type: object
+  scripthttp.portalScriptListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/scripthttp.portalScriptRow'
+        type: array
+      total:
+        example: 3
+        type: integer
+    type: object
+  scripthttp.portalScriptResponse:
+    properties:
+      contract:
+        $ref: '#/definitions/script.Contract'
+      owned:
+        example: true
+        type: boolean
+    type: object
+  scripthttp.portalScriptRow:
+    properties:
+      last_run:
+        allOf:
+        - $ref: '#/definitions/scripthttp.portalRun'
+        description: |-
+          LastRun is the most recent run of this script, absent when it has never
+          run and when the caller does not own it — a run is owner-and-admin
+          reading, and so is the fact that one failed.
+      owned:
+        description: |-
+          Owned reports whether this caller may read the script's runs, source, and
+          grant, so the page offers those surfaces rather than linking a reader to
+          a refusal.
+        example: true
+        type: boolean
+      schedule:
+        allOf:
+        - $ref: '#/definitions/script.Schedule'
+        description: Schedule is the script's cadence, absent when it has none.
+      script:
+        $ref: '#/definitions/script.Script'
     type: object
   scripthttp.referenced:
     properties:
@@ -13412,6 +13770,189 @@ paths:
       summary: List prompts attaching a resource
       tags:
       - Resources
+  /portal/scripts:
+    get:
+      description: Returns every managed script the caller is entitled to see, each
+        with its cadence and, for the scripts they own, the state of its most recent
+        run. Administrators see every script.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.portalScriptListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List scripts visible to the portal caller
+      tags:
+      - Scripts
+  /portal/scripts/{id}:
+    get:
+      description: Returns what the script is, what it takes, whether anything will
+        execute it, on what cadence, and what it last produced. It is the same contract
+        document a reference to the script resolves to.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.portalScriptResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a script's contract
+      tags:
+      - Scripts
+  /portal/scripts/{id}/runs:
+    get:
+      description: 'Returns the run history of a script the caller owns, newest first:
+        what each run was triggered by, how it ended, how long it took, and how many
+        outputs it produced. Restricted to the script''s owner and to administrators.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Filter by run status
+        in: query
+        name: status
+        type: string
+      - description: Maximum rows to return
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.portalRunListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a script's runs
+      tags:
+      - Scripts
+  /portal/scripts/{id}/runs/{runID}:
+    get:
+      description: Returns one run with its parameters, metrics, outputs, and the
+        bounded log the run captured. Restricted to the script's owner, to administrators,
+        and to whoever requested that run.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Run ID
+        in: path
+        name: runID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.portalRunDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get one script run
+      tags:
+      - Scripts
+  /portal/scripts/{id}/versions:
+    get:
+      description: Returns every version of a script the caller owns, with its source,
+        its author, and the approval stamp and capability grant bound to it. Restricted
+        to the script's owner and to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.versionListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a script's versions
+      tags:
+      - Scripts
   /portal/search:
     get:
       description: One query fans across every source the caller can access (catalog,

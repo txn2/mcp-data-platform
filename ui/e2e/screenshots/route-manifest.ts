@@ -1,4 +1,5 @@
 import { drawerRoutes } from "./route-drawers";
+import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
 import {
   openFeedbackMentionComposer,
   openKnowledgeGraph,
@@ -6,9 +7,6 @@ import {
   openPersonaScopeTab,
   openResourceDetail,
   openResourceLifecycle,
-  openScriptDeliveryGrant,
-  openScriptFirstApproval,
-  openScriptReview,
   openScriptAlertSettings,
   openShareDialog,
   openShareDialogWithRecipient,
@@ -177,6 +175,7 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/prompts",
     category: "user",
   },
+  ...userScriptRoutes,
   {
     // Personal prompt create form.
     slug: "prompt-create",
@@ -490,37 +489,7 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
     beforeCapture: openScriptAlertSettings,
   },
-  {
-    // Managed-script review: the queue of versions waiting for approval and
-    // every script with what it is executing (#1287).
-    slug: "admin-scripts",
-    path: "/portal/admin/scripts",
-    category: "admin",
-  },
-  {
-    // The decision itself: the capability diff and the code diff for one
-    // version, which is what makes approving a review rather than a stamp.
-    slug: "admin-script-review",
-    path: "/portal/admin/scripts",
-    category: "admin",
-    beforeCapture: openScriptReview,
-  },
-  {
-    // The other decision: a script nothing has ever approved, where the whole
-    // source is the change and approving starts something running.
-    slug: "admin-script-first-approval",
-    path: "/portal/admin/scripts",
-    category: "admin",
-    beforeCapture: openScriptFirstApproval,
-  },
-  {
-    // The delivery grant: a script that sends data out of the platform, and the
-    // address a reviewer has to supply before approving it (#1288).
-    slug: "admin-script-delivery-grant",
-    path: "/portal/admin/scripts",
-    category: "admin",
-    beforeCapture: openScriptDeliveryGrant,
-  },
+  ...adminScriptRoutes,
 
   // =========================================================================
   // Editor / create forms — the rich authoring states behind the list views.

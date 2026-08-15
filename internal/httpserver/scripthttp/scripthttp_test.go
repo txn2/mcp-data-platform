@@ -25,7 +25,11 @@ platform.export(name="daily", rows=res["rows"])
 
 // stubStore serves the reads and the approval the review routes make.
 type stubStore struct {
-	scripts    []script.Script
+	scripts []script.Script
+	// lastFilter records what List was asked for, which is where the portal
+	// surface's visibility predicate is asserted: the rows a fake returns prove
+	// nothing about the predicate the handler applied.
+	lastFilter script.ListFilter
 	version    *script.Version
 	approved   *script.Version
 	grants     script.Grants
@@ -70,7 +74,8 @@ func (s *stubStore) GetByID(_ context.Context, id string) (*script.Script, error
 
 func (*stubStore) Update(context.Context, *script.Script) error { return nil }
 func (*stubStore) Delete(context.Context, string) error         { return nil }
-func (s *stubStore) List(context.Context, script.ListFilter) ([]script.Script, error) {
+func (s *stubStore) List(_ context.Context, filter script.ListFilter) ([]script.Script, error) {
+	s.lastFilter = filter
 	return s.scripts, s.listErr
 }
 

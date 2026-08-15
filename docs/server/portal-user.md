@@ -480,6 +480,83 @@ These prefixes are computed at serve time; the stored name stays bare. To make a
 
 You never need to type these names. Ask your agent to run a prompt by whatever handle you know: its name, its display name ("run the Daily Sales Report"), or a description of it. The agent resolves it against the prompt library with the `manage_prompt` `use` command.
 
+## Scripts
+
+Scripts are the automations the platform runs for you: an agent writes one once, an
+administrator approves it, and from then on it produces the same report, dashboard
+refresh, or export on a schedule or on request. The Scripts page is where you see what
+you have, what is scheduled, and how it has been going.
+
+![Scripts](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts](../images/screenshots/dark/user-scripts-dark.webp#only-dark)
+
+Each row states the four things worth knowing at a glance: what the script is executing
+(the approved version, or plainly that nothing is approved and so nothing will run),
+its cadence and next fire, and how its most recent run ended. A script with no schedule
+runs on demand; a paused schedule says so rather than showing a next fire that will not
+happen.
+
+Before an agent has written anything for you, the page says so rather than showing an
+empty table.
+
+![No scripts yet](../images/screenshots/light/user-scripts-empty-light.webp#only-light)![No scripts yet](../images/screenshots/dark/user-scripts-empty-dark.webp#only-dark)
+
+### One script
+
+Opening a script shows its contract: who owns it, who can see it, which version was
+approved and by whom, the cadence it fires on, and the parameters a run binds against.
+This is the same document an agent gets when it resolves a reference to the script, so
+the page and your agent describe the script identically.
+
+![Script detail](../images/screenshots/light/user-script-detail-light.webp#only-light)![Script detail](../images/screenshots/dark/user-script-detail-dark.webp#only-dark)
+
+When a run would be refused — nothing approved, the script disabled or deprecated — the
+page carries the platform's own reason for the refusal rather than leaving you to work it
+out from the status.
+
+### Version history
+
+Below the contract is every version of the script, each with its author, its approval
+provenance, and the capability grant that approval bound: the capabilities it may call,
+the connections it may query, where it may write, and the authority it runs with. The
+version behind the execution gate opens by default, because what is running right now is
+the usual question.
+
+![Version history](../images/screenshots/light/user-script-versions-light.webp#only-light)![Version history](../images/screenshots/dark/user-script-versions-dark.webp#only-dark)
+
+Approving a version is an administrator's decision and is made in the
+[review queue](admin-portal.md); this page is read-only.
+
+### Run history
+
+The run history is the refresh record of the automation: what triggered each run, which
+version it executed, how long it took, how many outputs it produced, and how it ended. A
+failure states its reason in the list. A fire that arrived while the previous run was
+still going is recorded as skipped rather than silently dropped, because a report that
+stopped producing is exactly what this history has to show.
+
+![Run history](../images/screenshots/light/user-script-runs-light.webp#only-light)![Run history](../images/screenshots/dark/user-script-runs-dark.webp#only-dark)
+
+Opening a run shows what it was given, what it cost, what it wrote, and the log it
+printed while working.
+
+![Run log](../images/screenshots/light/user-script-run-log-light.webp#only-light)![Run log](../images/screenshots/dark/user-script-run-log-dark.webp#only-dark)
+
+An output that went to the portal links to the asset version it produced. A recurring
+script writes new versions of the same asset rather than a new asset each time, so that
+asset's version history is the history of what the dashboard has been showing. An output
+delivered to a bucket names where it was written and is not a link: those bytes left the
+platform, and nothing here will serve them back.
+
+The source, the capability grant, and the run history of a script belong to its owner and
+to administrators. A script you can see but do not own shows its contract and says so.
+
+### Asking for the pages
+
+Ask your agent to show you your scripts — "show me my scripts", "what automations do I
+have", "did the daily report run" — and it opens this page with the `show_scripts` tool.
+That tool only opens the pages; every script operation an agent performs for its own
+work uses `manage_script`, which renders nothing.
+
 ## Settings
 
 The Settings page (user section of the sidebar) holds per-user preferences.

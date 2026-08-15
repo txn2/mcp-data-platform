@@ -43,6 +43,11 @@ type Config struct {
 	// AdminPersona is the persona name that grants authority over scripts at
 	// every scope; matched against the caller's persona in each command.
 	AdminPersona string
+	// PortalURL is the deployment's public portal address, used by show_scripts
+	// to name where the script pages are. Empty leaves the tool registered and
+	// linkless: a deployment that has not been told its own address cannot be
+	// given one by guessing.
+	PortalURL string
 }
 
 // Handle owns the assembled script layer. All accessors are nil-safe, so a
@@ -58,6 +63,9 @@ type Handle struct {
 	schedules    script.ScheduleStore
 	runs         script.RunStore
 	adminPersona string
+	// portalURL is the public portal address show_scripts points the human at,
+	// empty when the deployment has not been configured with one.
+	portalURL string
 	// server is the assembled MCP server, captured at RegisterTool. run_draft
 	// opens an in-memory session against it so a draft's platform calls cross
 	// the same middleware chain an agent's calls cross.
@@ -66,7 +74,7 @@ type Handle struct {
 
 // New assembles the script layer.
 func New(cfg Config) *Handle {
-	h := &Handle{store: cfg.Store, runs: cfg.Runs, adminPersona: cfg.AdminPersona}
+	h := &Handle{store: cfg.Store, runs: cfg.Runs, adminPersona: cfg.AdminPersona, portalURL: cfg.PortalURL}
 	if h.store == nil && cfg.DB != nil {
 		h.store = scriptstore.New(cfg.DB)
 	}
@@ -75,12 +83,30 @@ func New(cfg Config) *Handle {
 	return h
 }
 
-// resolveEmail returns the calling user's email, or "anonymous" when the call
-// carries no identity.
+// resolveEmail returns the identity a script is owned by and compared against:
+// the caller's email, their user id when the credential carries no email, and
+// "anonymous" only when there is no identity at all.
+//
+// The user-id fallback is load-bearing rather than cosmetic. An OIDC token
+// without an email claim leaves UserEmail empty, so falling straight through to
+// the "anonymous" sentinel would give every such caller the SAME owner string,
+// and a personal script is exactly as private as that comparison is specific:
+// two different people would read, edit, and run each other's scripts. A user
+// id is distinct per caller wherever a credential identifies one at all.
+//
+// "anonymous" therefore means what it says — no identity was presented — which
+// is the single-caller deployment with no authenticator configured, where one
+// owner string is the whole population. A script left owned by that string in a
+// deployment that later starts identifying its callers matches nobody but an
+// admin, which is the fail-closed answer for a record whose owner cannot be
+// established.
 func resolveEmail(ctx context.Context) string {
 	pc := middleware.GetPlatformContext(ctx)
 	if pc != nil && pc.UserEmail != "" {
 		return pc.UserEmail
+	}
+	if pc != nil && pc.UserID != "" {
+		return pc.UserID
 	}
 	return "anonymous"
 }

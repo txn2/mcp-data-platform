@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -145,6 +147,43 @@ func (s *Store) ListRuns(ctx context.Context, filter script.RunFilter) ([]script
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate script runs: %w", err)
+	}
+	return out, nil
+}
+
+// LatestRuns returns the most recent run of each named script, keyed by script
+// id, omitting the scripts that have never been run.
+//
+// A listing that shows one row per script needs each script's last run, and
+// asking for it script by script is a query per row. This is that answer in one
+// query. It orders on creation rather than on completion — unlike the contract's
+// last SUCCESSFUL run, which answers "what did this produce" and so must be a
+// finished one — because a listing reports the state of the automation: a run
+// that is pending or failed right now is the answer to "how is this going", and
+// ordering by finished_at would hide it behind an older success.
+func (s *Store) LatestRuns(ctx context.Context, scriptIDs []string) (map[string]script.Run, error) {
+	out := map[string]script.Run{}
+	if len(scriptIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT ON (script_id) `+runColumns+`
+		  FROM script_runs
+		 WHERE script_id = ANY($1)
+		 ORDER BY script_id, created_at DESC, id DESC`, pq.Array(scriptIDs))
+	if err != nil {
+		return nil, fmt.Errorf("list latest script runs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		r, scanErr := scanRun(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out[r.ScriptID] = *r
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate latest script runs: %w", err)
 	}
 	return out, nil
 }

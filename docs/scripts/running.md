@@ -331,6 +331,20 @@ can no longer write to it. An output the lost run had already written is not
 written twice: the run records each output as it lands, and a reclaimed run
 skips what it already produced.
 
+## Seeing what happened
+
+The portal's **Scripts** page is the human view of all of this: every script you
+can see, what it is executing, its cadence and next fire, and how its last run
+went. Opening one shows its contract, and — for a script you own — its version
+history with the grant bound to each approval, and its run history with each
+run's trigger, duration, outputs, and the log it printed. See the
+[portal guide](../server/portal-user.md#scripts).
+
+A run is the owner's and the administrator's to read, plus whoever requested
+that particular run. Asking an agent to show you your scripts opens the same
+pages through the presentation-only `show_scripts` tool; every script operation
+an agent performs for its own work uses `manage_script`, which renders nothing.
+
 ## Run history retention
 
 Run rows are history as much as queue bookkeeping — a scheduled report's run
@@ -349,6 +363,7 @@ scripts:
 | Capability | Requirement |
 |---|---|
 | Authoring (`manage_script`) | A database |
+| Reading scripts and runs in the portal | A database and the portal; the pages are read-only |
 | Approving (admin REST) | A database and the admin API |
 | Running (`run_script`) | The above; the tool is not registered where there is no run queue |
 | Executing what was queued | At least one replica with `scripts.worker.enabled` left on, which is the default |

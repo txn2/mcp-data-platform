@@ -52,6 +52,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, the script-reference commands (attach_script, detach_script), and the content verbs (patch, locate, get_content, outline, stats, diff) |
 | Platform | `show_prompts` | Render the prompt library as an interactive browser for the human (presentation-only; call only when the user wants to see their prompts) |
 | Platform | `manage_script` | Author, validate, and dry-run managed scripts: small governed Starlark programs for a process whose logic is settled and will repeat |
+| Platform | `show_scripts` | Open the user's scripts, their schedules, and their run history in the portal (presentation-only; call only when the user wants to see them) |
 
 ---
 
@@ -1324,6 +1325,14 @@ The same visibility rule attachments follow applies, over the script's own scope
 **Discoverable, and addressable.** A script is reachable the way every other platform entity is: it has an `mcp:script:<id>` reference, `search` finds it by name, description, and parameter contract, and `fetch` dereferences that reference to its contract — what it is, what it takes, whether a version is approved, its cadence, and the last successful run with what that run produced. The reference resolves by id, so renaming a script never breaks one that is stored. What a script is FOR is answered by that contract; the source stays behind `get` and the review surface, because reading code is a reviewer's job rather than a caller's. Discovery grants nothing: finding a script says it exists and what it takes, while running it is still `run_script` under the execution gate. Search shows a caller exactly the set `list` would — global scripts, their persona's, and their own — and skips dead ends (disabled, deprecated, superseded), though a reference to one still resolves and says plainly that it will not run.
 
 **Governance.** Every mutation snapshots an immutable version with its author. `scripts.approved_version_id` is the execution gate: the platform executes only an approved version, and until a version is approved `run_draft` is the only way a script runs at all. Once a script has an approved version, editing its source or parameter contract lands as a pending draft (`update` returns `status: "pending_approval"`) and the approved version keeps running; a gated edit cannot be combined with scope, status, or other non-versioned changes in one call. Non-admins manage their own personal scripts; admins manage every scope. The security model is documented in full in [Managed Scripts: Security Model](../scripts/security.md).
+
+### show_scripts
+
+Opens the user's managed scripts in the portal for the human to look at: what they own, what each one is scheduled to do, and how its recent runs went. Call it only when the human wants to see their scripts, schedules, or automations, or asks what ran and why something did not update ("show me my scripts", "did the daily report run"). It performs no data operation and returns a short confirmation with a link to the pages where the deployment is configured with its public address. For reading a script, its runs, or its log as part of your own work, use `manage_script`, which returns data and renders no UI. Optional `search` pre-focuses the pages.
+
+The pages themselves are read-only and described in the [portal guide](portal-user.md#scripts). Approving a version stays on the admin surface; the source, the capability grants, and the run history are the script's owner's and an administrator's to read, and one run is additionally readable by whoever requested it.
+
+---
 
 ### show_prompts
 

@@ -104,8 +104,9 @@ What approved execution DOES add, and what this document does not minimize:
 
   Because visibility is the control, widening WHERE a script can be seen is a
   security-relevant change even when it grants nothing. A script is reachable
-  from `search` and `fetch` (`mcp:script:<id>`), and from a prompt that
-  references it, in addition to `manage_script list`. Each of those surfaces
+  from `search` and `fetch` (`mcp:script:<id>`), from a prompt that references
+  it, and from the portal's own script pages, in addition to `manage_script
+  list`. Each of those surfaces
   applies the script's own scope rule as a store predicate rather than a filter
   over the answer, so a caller sees exactly the set `manage_script list` would
   show them and nothing more: a personal script belonging to somebody else has
@@ -115,7 +116,8 @@ What approved execution DOES add, and what this document does not minimize:
   gate and the grant its approval bound. What the surfaces return is the
   script's contract — name, description, owner, typed parameters, approval
   state, cadence, last successful run — never its source, which stays behind
-  `manage_script get` and the review surface.
+  `manage_script get`, the review surface, and the portal script page's version
+  history, all three of which are the owner's and the administrator's.
 
 `middleware.SourceScript` is a label on a call, not a capability. It records how
 the call arrived so audit can separate populations, and it selects three
@@ -130,7 +132,7 @@ behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
 | `script_versions.author_roles` | The authority ceiling an approval may bind. Whoever can write a version decides what approving it can grant |
 | `script_versions.grants` | What an approved version may reach: roles, connections, capabilities, destinations |
 | Data reachable through `platform.query` | Whatever the running identity's persona and connections allow |
-| Run records (`script_runs`) | Parameters, timings, output ids, and the log a run printed; readable by anyone who can see the script |
+| Run records (`script_runs`) | Parameters, timings, output ids, and the log a run printed; readable by the script's owner, an administrator, and whoever requested that particular run |
 | Output assets | Portal assets a run writes, with the script principal as owner and the script's owner as the accountable person |
 | Delivered objects | Data an approved run writes out of the platform, into the bucket and prefix its grant names, where the platform's own access controls no longer apply |
 | Run logs | Bounded free text a script chooses to emit; may echo queried data |
@@ -285,6 +287,67 @@ single-winner conditional claim is per queue key, so one queue's cooldown never
 silences the other. What it counts is what the review surface lists — the same
 query — so the number in the email is the number an operator finds when they
 open the queue.
+
+### Reading is a surface too, and it grants nothing
+
+The review surface above is an administrator's. The people who own the
+automations are frequently not administrators, and until the portal's own
+script pages existed (`ui/src/pages/scripts/MyScriptsPage.tsx` and
+`ScriptDetailPage.tsx`, over `internal/httpserver/scripthttp`'s portal routes)
+they could read their own scripts only by asking an agent to call a tool.
+
+The surface is read-only. There is no mutation on it: approving a version, and
+the grant that approval binds, stay on the admin API behind admin
+authentication, and no portal route writes anything. Widening who can READ a
+script is still a security-relevant change, for the reason stated above under
+definer rights, so the rules are stated exactly.
+
+**Who a caller is, before who may read.** Every rule below compares an owner
+with a caller, so the identity being compared has to be specific to one person.
+It is the caller's email; their user id when the credential carries no email,
+which an OIDC token without an `email` claim does not; and the name
+`anonymous` only when no identity was presented at all, which is the
+single-caller deployment with no authenticator. Collapsing the second case onto
+the third would make every email-less caller the same owner, and a personal
+script is exactly as private as that comparison is specific. A script whose
+owner cannot be established matches nobody but an administrator.
+
+**Three tiers, one rule each, applied by every surface.**
+
+| What | Who | Why |
+|---|---|---|
+| That a script exists, and its contract: name, owner, typed parameters, approval state, cadence, and the outputs of its last successful run | Anyone the scope rules admit (`Script.VisibleTo`) | This is what makes a script discoverable and usable, and it is what `search`, `fetch`, and a prompt reference already serve |
+| Its source, the capability grant bound to each version, and its run history | The script's owner, and administrators | The source and the grant are the material a review is made of; a run's log is free text the script printed while holding ITS grant and may echo rows the reader has no access to of their own |
+| One run in particular | The above, plus whoever requested that run | The result was handed to them when they asked for it, so a run id they hold stays followable |
+
+The listing applies the first rule as a store predicate rather than as a filter
+over the answer, exactly as `search` does; a script the caller may not see never
+reaches the response. The second and third rules answer "not yours" and "no such
+script" identically, so the difference cannot be used to learn that something
+exists. An administrator is unrestricted here, which is the same authority the
+admin API already gives them.
+
+**The listing asks about nothing it may not report.** Each script's most recent
+run is fetched for the OWNED rows only, in one query, so the row a caller is not
+entitled to is not read and then discarded. A listing that cannot reach the
+schedule store or the run store still lists the scripts, with those columns
+empty: a page that fails whole over a decoration is worse than a page that says
+less.
+
+**A run's outputs are named, and only some are offered.** An output written to
+the portal links to the asset version it produced; an object delivered to a
+granted bucket names its bucket and key and is not a link, because the platform
+wrote those bytes and does not hold them. The delivered copy is evidence of a
+delivery, not a way to read it back.
+
+**`show_scripts` performs no data work.** It is presentation-only, following the
+`show_prompts` split for the same reason: an app is rendered in response to a
+tool call, and tool calls are made by agents, so a presentation surface attached
+to the tool an agent uses for its own work would put a page in front of a user
+every time the agent read a script. It returns a confirmation and, where the
+deployment has been configured with its public address, a link to the pages; it
+carries no script data, which is also what keeps it useless to an agent as a
+source of one (`internal/platform/scriptlayer/show.go`).
 
 ### Schedules: cadence, and nothing else
 
@@ -757,7 +820,7 @@ retrying only multiplies the cost).
 | A key climbs out of the prefix a destination was granted | An absolute key, a `..` segment, or an empty segment is refused rather than normalized away | `pkg/script.ValidateObjectKey` |
 | A delivery leaves no trace | Each delivery is one audited tool call under the script principal, and is recorded on the run with its destination, bucket, key, and size | `scriptexec/deliver.go` |
 | A transient fault silently replays a script that already wrote | Retry is classified by where the failure happened; nothing the interpreter reports is retried | `scriptexec/worker.go` |
-| A caller reads the runs of a script they cannot see | Run reads apply the script's own visibility rule, and answer the same way for "not yours" and "no such run" | `scriptlayer/runs.go`, `readableRunScript` |
+| A caller reads the runs of a script that is not theirs | Run reads are the owner's, the administrator's, and the requester's own; every surface answers the same way for "not yours" and "no such run" | `scriptlayer/runs.go`, `runReadable`; `scripthttp/portal.go`, `ownedScript` |
 | A script escapes the interpreter | No IO, filesystem, network, or module system is predeclared | `scriptrun.go`, `predeclared` |
 | A script builds a statement out of untrusted values | Typed literal binding with a state-aware scanner | `bind.go` |
 | A script carries an inline credential | Secret scan blocks it as an error at validate time | `validate.go`, `secretPatterns` |

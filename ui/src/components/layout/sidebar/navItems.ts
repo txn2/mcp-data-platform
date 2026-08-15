@@ -33,6 +33,7 @@ export interface NavItem {
 export const portalNavItems: NavItem[] = [
   { path: "/", label: "Assets", icon: LayoutGrid },
   { path: "/prompts", label: "Prompts", icon: MessageSquare },
+  { path: "/scripts", label: "Scripts", icon: FileCode2 },
   { path: "/resources", label: "Resources", icon: FileUp },
   { path: "/feedback", label: "Feedback", icon: MessageCircle },
   { path: "/knowledge", label: "Knowledge", icon: BookOpen },

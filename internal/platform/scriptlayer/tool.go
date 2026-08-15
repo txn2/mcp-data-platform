@@ -110,10 +110,11 @@ type manageScriptInput struct {
 	ToVersion    int              `json:"to_version,omitempty"`
 }
 
-// RegisterTool registers manage_script and, where the deployment can execute
-// approved versions, run_script. It also captures the server the two run paths
-// open their in-memory sessions against. No-op on a nil Handle or a
-// no-database deployment (there is nowhere to keep a script).
+// RegisterTool registers manage_script; where the deployment can execute
+// approved versions, run_script; and the presentation-only show_scripts. It
+// also captures the server the two run paths open their in-memory sessions
+// against. No-op on a nil Handle or a no-database deployment (there is nowhere
+// to keep a script).
 func (h *Handle) RegisterTool(server *mcp.Server) {
 	if h == nil || h.store == nil || server == nil {
 		return
@@ -129,6 +130,7 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 		return h.handleManageScript(ctx, input)
 	})
 	h.registerRunScript(server)
+	h.registerShowScripts(server)
 }
 
 // commandHandler handles one manage_script command.

@@ -150,6 +150,49 @@ func TestListRuns_UnboundedListingTakesTheStoreCap(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestLatestRuns_OnePerScriptInOneQuery pins the listing read: a row per
+// script, keyed by script, taken from one statement rather than one per row.
+func TestLatestRuns_OnePerScriptInOneQuery(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT DISTINCT ON (script_id)")).
+		WillReturnRows(sqlmock.NewRows(runSelectColumns).AddRow(runRow(script.RunStatusFailed, 1, nil)...))
+
+	latest, err := s.LatestRuns(context.Background(), []string{"script_1", "script_2"})
+	require.NoError(t, err)
+	require.Len(t, latest, 1)
+	assert.Equal(t, script.RunStatusFailed, latest["script_1"].Status)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Asking about no scripts asks the database nothing. A caller who owns nothing
+// must not fall through to an unfiltered read.
+func TestLatestRuns_NoScriptsIsNoQuery(t *testing.T) {
+	s, mock := newMock(t)
+	latest, err := s.LatestRuns(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Empty(t, latest)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestLatestRuns_QueryFailureIsWrapped(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT DISTINCT ON (script_id)")).WillReturnError(errors.New("boom"))
+
+	_, err := s.LatestRuns(context.Background(), []string{"script_1"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "list latest script runs")
+}
+
+func TestLatestRuns_ScanFailureIsReported(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT DISTINCT ON (script_id)")).
+		WillReturnRows(sqlmock.NewRows(runSelectColumns).AddRow(runRow(script.RunStatusSucceeded, 1, []byte("not json"))...))
+
+	_, err := s.LatestRuns(context.Background(), []string{"script_1"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unmarshal run outputs")
+}
+
 func TestListRuns_QueryFailureIsWrapped(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("FROM script_runs")).WillReturnError(errors.New("boom"))

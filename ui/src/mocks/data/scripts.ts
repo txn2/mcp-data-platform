@@ -4,6 +4,12 @@ import type {
   ScriptVersion,
   VersionReview,
 } from "@/api/admin/types";
+import type {
+  ScriptContract,
+  ScriptRun,
+  ScriptRunDetail,
+  ScriptSchedule,
+} from "@/api/portal/hooks/scripts";
 
 // Managed-script review fixtures (#1287). The set is chosen to show the three
 // decisions the surface exists for: a first approval, a change to a script that
@@ -344,4 +350,353 @@ export const mockScriptReviewAlert = {
   updated_by: "sarah.chen@example.com",
   updated_at: daysAgo(11),
   warnings: [] as string[],
+};
+
+// ---------------------------------------------------------------------------
+// Portal script pages (#1290): the owner's view of the same scripts — their
+// cadence, their runs, and what those runs produced.
+// ---------------------------------------------------------------------------
+
+const hoursAgo = (n: number) => new Date(now.getTime() - n * 3_600_000).toISOString();
+const hoursAhead = (n: number) => new Date(now.getTime() + n * 3_600_000).toISOString();
+
+export const mockScriptSchedules: Record<string, ScriptSchedule> = {
+  "script-001": {
+    id: "sched-001",
+    script_id: "script-001",
+    cron_spec: "0 7 * * 1-5",
+    timezone: "America/Los_Angeles",
+    enabled: true,
+    next_run_at: hoursAhead(22),
+    last_fire_at: hoursAgo(2),
+    missed_fires: 0,
+  },
+  "script-003": {
+    id: "sched-003",
+    script_id: "script-003",
+    cron_spec: "*/30 * * * *",
+    timezone: "UTC",
+    enabled: false,
+    last_fire_at: daysAgo(6),
+    missed_fires: 2,
+  },
+};
+
+// The run history of the daily report: a success this morning, the failure that
+// woke somebody yesterday, a fire skipped because the previous run was still
+// going, and an older success. Between them they are every terminal state a run
+// history has to be able to show.
+export const mockScriptRuns: Record<string, ScriptRun[]> = {
+  "script-001": [
+    {
+      id: "run-001",
+      status: "succeeded",
+      trigger: "schedule",
+      version: 2,
+      fire_time: hoursAgo(2),
+      started_at: hoursAgo(2),
+      finished_at: hoursAgo(2),
+      duration_ms: 8_420,
+      output_count: 1,
+    },
+    {
+      id: "run-002",
+      status: "failed",
+      trigger: "schedule",
+      version: 2,
+      fire_time: hoursAgo(26),
+      started_at: hoursAgo(26),
+      finished_at: hoursAgo(26),
+      duration_ms: 3_110,
+      error: "platform.query: connection \"acme-warehouse\" refused the query: relation \"sales.orders\" does not exist",
+      output_count: 0,
+    },
+    {
+      id: "run-003",
+      status: "skipped_overlap",
+      trigger: "schedule",
+      version: 2,
+      fire_time: hoursAgo(50),
+      duration_ms: 0,
+      output_count: 0,
+    },
+    {
+      id: "run-004",
+      status: "succeeded",
+      trigger: "tool",
+      version: 2,
+      fire_time: hoursAgo(74),
+      started_at: hoursAgo(74),
+      finished_at: hoursAgo(74),
+      duration_ms: 9_050,
+      output_count: 1,
+      requested_by: "sarah.chen@example.com",
+    },
+  ],
+  "script-002": [],
+  "script-003": [
+    {
+      id: "run-101",
+      status: "succeeded",
+      trigger: "schedule",
+      version: 5,
+      fire_time: daysAgo(6),
+      started_at: daysAgo(6),
+      finished_at: daysAgo(6),
+      duration_ms: 2_400,
+      output_count: 1,
+    },
+  ],
+};
+
+const salesRunLog = `binding report_date=2026-08-13
+querying acme-warehouse
+1,420 rows in 6.8s
+exporting daily-sales as csv
+wrote asset version 42
+`;
+
+export const mockScriptRunDetails: Record<string, ScriptRunDetail> = {
+  "run-001": {
+    id: "run-001",
+    script_id: "script-001",
+    version: 2,
+    status: "succeeded",
+    trigger: "schedule",
+    duration_ms: 8_420,
+    output_count: 1,
+    fire_time: hoursAgo(2),
+    scheduled_for: hoursAgo(2),
+    started_at: hoursAgo(2),
+    finished_at: hoursAgo(2),
+    params: { report_date: "2026-08-13" },
+    log: salesRunLog,
+    metrics: { steps: 1_284, duration_ms: 8_420, queries: 1, exports: 1 },
+    outputs: [
+      {
+        name: "daily-sales",
+        destination: "portal",
+        asset_id: "asset-1",
+        asset_version: 42,
+        format: "csv",
+        row_count: 1_420,
+        bytes: 98_304,
+      },
+    ],
+    attempt: 1,
+    created_at: hoursAgo(2),
+  },
+  "run-002": {
+    id: "run-002",
+    script_id: "script-001",
+    version: 2,
+    status: "failed",
+    trigger: "schedule",
+    duration_ms: 3_110,
+    output_count: 0,
+    fire_time: hoursAgo(26),
+    scheduled_for: hoursAgo(26),
+    started_at: hoursAgo(26),
+    finished_at: hoursAgo(26),
+    params: { report_date: "2026-08-12" },
+    error:
+      'platform.query: connection "acme-warehouse" refused the query: relation "sales.orders" does not exist\n  at daily-sales-report.star:3:9 in <toplevel>',
+    log: "binding report_date=2026-08-12\nquerying acme-warehouse\n",
+    metrics: { steps: 61, duration_ms: 3_110, queries: 1, exports: 0 },
+    outputs: [],
+    attempt: 1,
+    created_at: hoursAgo(26),
+  },
+  "run-003": {
+    id: "run-003",
+    script_id: "script-001",
+    version: 2,
+    status: "skipped_overlap",
+    trigger: "schedule",
+    duration_ms: 0,
+    output_count: 0,
+    fire_time: hoursAgo(50),
+    scheduled_for: hoursAgo(50),
+    metrics: { steps: 0, duration_ms: 0, queries: 0, exports: 0 },
+    outputs: [],
+    attempt: 0,
+    created_at: hoursAgo(50),
+  },
+  "run-004": {
+    id: "run-004",
+    script_id: "script-001",
+    version: 2,
+    status: "succeeded",
+    trigger: "tool",
+    duration_ms: 9_050,
+    output_count: 2,
+    fire_time: hoursAgo(74),
+    scheduled_for: hoursAgo(74),
+    started_at: hoursAgo(74),
+    finished_at: hoursAgo(74),
+    requested_by: "sarah.chen@example.com",
+    params: { report_date: "2026-08-11" },
+    log: salesRunLog.replace("2026-08-13", "2026-08-11").replace("version 42", "version 41"),
+    log_truncated: true,
+    metrics: { steps: 1_301, duration_ms: 9_050, queries: 1, exports: 1 },
+    outputs: [
+      {
+        name: "daily-sales",
+        destination: "portal",
+        asset_id: "asset-1",
+        asset_version: 41,
+        format: "csv",
+        row_count: 1_402,
+        bytes: 97_112,
+      },
+      {
+        name: "daily-sales",
+        destination: "acme-crm-drop",
+        bucket: "acme-exports",
+        key: "sales/2026/08/11/daily-sales.csv",
+        format: "csv",
+        row_count: 1_402,
+        bytes: 97_112,
+      },
+    ],
+    attempt: 1,
+    created_at: hoursAgo(74),
+  },
+  "run-101": {
+    id: "run-101",
+    script_id: "script-003",
+    version: 5,
+    status: "succeeded",
+    trigger: "schedule",
+    duration_ms: 2_400,
+    output_count: 1,
+    fire_time: daysAgo(6),
+    scheduled_for: daysAgo(6),
+    started_at: daysAgo(6),
+    finished_at: daysAgo(6),
+    log: "checked 38 tables\n",
+    metrics: { steps: 402, duration_ms: 2_400, queries: 1, exports: 1 },
+    outputs: [
+      {
+        name: "freshness",
+        destination: "portal",
+        asset_id: "asset-2",
+        asset_version: 12,
+        format: "csv",
+        row_count: 38,
+        bytes: 4_096,
+      },
+    ],
+    attempt: 1,
+    created_at: daysAgo(6),
+  },
+};
+
+// The contract each script resolves to. It is the same document an agent's
+// fetch of an mcp:script reference returns, which is why the page reads it
+// rather than assembling its own answer.
+export const mockScriptContracts: Record<string, ScriptContract> = {
+  "script-001": {
+    id: "script-001",
+    name: "daily-sales-report",
+    display_name: "Daily Sales Report",
+    description: "Yesterday's sales by region, exported for the morning review.",
+    owner_email: "sarah.chen@example.com",
+    scope: "global",
+    tags: ["sales", "reporting"],
+    status: "active",
+    enabled: true,
+    params: [
+      {
+        name: "report_date",
+        type: "date",
+        description: "The business date to report on; the schedule pins it to the fire time.",
+        required: true,
+      },
+    ],
+    approval: {
+      approved: true,
+      version: 2,
+      approved_by: "admin@acme.example.com",
+      approved_at: daysAgo(30),
+    },
+    schedule: {
+      cron_spec: "0 7 * * 1-5",
+      timezone: "America/Los_Angeles",
+      enabled: true,
+      next_run_at: hoursAhead(22),
+    },
+    last_successful_run: {
+      run_id: "run-001",
+      version: 2,
+      finished_at: hoursAgo(2),
+      outputs: [
+        {
+          name: "daily-sales",
+          kind: "portal_asset",
+          destination: "portal",
+          format: "csv",
+          row_count: 1_420,
+          bytes: 98_304,
+          asset_id: "asset-1",
+          asset_version: 42,
+        },
+      ],
+    },
+  },
+  "script-002": {
+    id: "script-002",
+    name: "dormant-accounts",
+    display_name: "Dormant Accounts",
+    description: "Accounts with no orders in 90 days, for the retention review.",
+    owner_email: "marcus.webb@example.com",
+    scope: "persona",
+    personas: ["analyst"],
+    tags: ["retention"],
+    status: "draft",
+    enabled: true,
+    params: [
+      { name: "cutoff", type: "date", description: "Accounts idle since this date.", required: true },
+    ],
+    approval: {
+      approved: false,
+      refusal: "the script has no approved version, so nothing may execute it",
+    },
+  },
+  "script-003": {
+    id: "script-003",
+    name: "warehouse-freshness",
+    display_name: "Warehouse Freshness Check",
+    description: "Row counts and max load timestamps per warehouse table.",
+    owner_email: "sarah.chen@example.com",
+    scope: "global",
+    tags: ["operations"],
+    status: "active",
+    enabled: true,
+    params: [],
+    approval: {
+      approved: true,
+      version: 5,
+      approved_by: "admin@acme.example.com",
+      approved_at: daysAgo(21),
+    },
+    schedule: { cron_spec: "*/30 * * * *", timezone: "UTC", enabled: false },
+    last_successful_run: {
+      run_id: "run-101",
+      version: 5,
+      finished_at: daysAgo(6),
+      outputs: [
+        {
+          name: "freshness",
+          kind: "portal_asset",
+          destination: "portal",
+          format: "csv",
+          row_count: 38,
+          bytes: 4_096,
+          asset_id: "asset-2",
+          asset_version: 12,
+        },
+      ],
+    },
+  },
 };

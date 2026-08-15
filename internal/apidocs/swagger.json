@@ -12987,6 +12987,285 @@
                 }
             }
         },
+        "/portal/scripts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every managed script the caller is entitled to see, each with its cadence and, for the scripts they own, the state of its most recent run. Administrators see every script.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List scripts visible to the portal caller",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.portalScriptListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns what the script is, what it takes, whether anything will execute it, on what cadence, and what it last produced. It is the same contract document a reference to the script resolves to.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Get a script's contract",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.portalScriptResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/runs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the run history of a script the caller owns, newest first: what each run was triggered by, how it ended, how long it took, and how many outputs it produced. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List a script's runs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by run status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum rows to return",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.portalRunListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/runs/{runID}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one run with its parameters, metrics, outputs, and the bounded log the run captured. Restricted to the script's owner, to administrators, and to whoever requested that run.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Get one script run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Run ID",
+                        "name": "runID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.portalRunDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/versions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every version of a script the caller owns, with its source, its author, and the approval stamp and capability grant bound to it. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List a script's versions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.versionListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/search": {
             "get": {
                 "security": [
@@ -20811,6 +21090,207 @@
                 }
             }
         },
+        "script.Contract": {
+            "type": "object",
+            "properties": {
+                "approval": {
+                    "$ref": "#/definitions/script.ContractApproval"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Summarize yesterday's sales by region"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "Daily Sales Report"
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "id": {
+                    "type": "string",
+                    "example": "script_a1b2c3d4"
+                },
+                "last_successful_run": {
+                    "description": "LastRun is the most recent successful run, nil when the script has never\ncompleted one. It answers \"what does this produce\" with evidence rather\nthan with a promise.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/script.ContractRun"
+                        }
+                    ]
+                },
+                "name": {
+                    "type": "string",
+                    "example": "daily-sales-report"
+                },
+                "owner_email": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "params": {
+                    "description": "Params is the typed parameter contract a run binds against: the approved\nversion's when one is approved, the live record's otherwise.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.Param"
+                    }
+                },
+                "personas": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst"
+                    ]
+                },
+                "schedule": {
+                    "description": "Schedule is the cadence this script fires on, nil when it has none.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/script.ContractSchedule"
+                        }
+                    ]
+                },
+                "scope": {
+                    "type": "string",
+                    "example": "personal"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "active"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "sales",
+                        "reporting"
+                    ]
+                }
+            }
+        },
+        "script.ContractApproval": {
+            "type": "object",
+            "properties": {
+                "approved": {
+                    "description": "Approved reports whether a version is approved for execution.",
+                    "type": "boolean",
+                    "example": true
+                },
+                "approved_at": {
+                    "type": "string"
+                },
+                "approved_by": {
+                    "description": "ApprovedBy and ApprovedAt stamp who admitted that version and when.",
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "refusal": {
+                    "description": "Refusal states why a run requested now would be refused, and is empty when\none would be admitted. It is the gate's own answer (RefuseNewRun), not a\nsecond reading of it, so a caller is never told a script is runnable that\nrun_script would then decline.",
+                    "type": "string",
+                    "example": "the script has no approved version, so nothing may execute it"
+                },
+                "version": {
+                    "description": "Version is the approved version number, zero when none is approved.",
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "script.ContractOutput": {
+            "type": "object",
+            "properties": {
+                "asset_id": {
+                    "description": "AssetID and AssetVersion locate an OutputKindAsset output.",
+                    "type": "string",
+                    "example": "asset_a1b2c3d4"
+                },
+                "asset_version": {
+                    "type": "integer",
+                    "example": 7
+                },
+                "bucket": {
+                    "description": "Bucket and Key locate an OutputKindObject output.",
+                    "type": "string",
+                    "example": "acme-exports"
+                },
+                "bytes": {
+                    "type": "integer",
+                    "example": 98304
+                },
+                "destination": {
+                    "description": "Destination is the granted destination the output went to; \"portal\" for an\noutput that named none.",
+                    "type": "string",
+                    "example": "portal"
+                },
+                "format": {
+                    "type": "string",
+                    "example": "csv"
+                },
+                "key": {
+                    "type": "string",
+                    "example": "weekly/2026/08/sales.csv"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "portal_asset"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "sales_by_region"
+                },
+                "row_count": {
+                    "type": "integer",
+                    "example": 1420
+                }
+            }
+        },
+        "script.ContractRun": {
+            "type": "object",
+            "properties": {
+                "finished_at": {
+                    "type": "string"
+                },
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.ContractOutput"
+                    }
+                },
+                "run_id": {
+                    "type": "string",
+                    "example": "run_a1b2c3d4"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "script.ContractSchedule": {
+            "type": "object",
+            "properties": {
+                "cron_spec": {
+                    "type": "string",
+                    "example": "0 7 * * 1-5"
+                },
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "next_run_at": {
+                    "description": "NextRunAt is the next due fire, nil when the schedule is disabled or its\nexpression has no further fire.",
+                    "type": "string"
+                },
+                "timezone": {
+                    "type": "string",
+                    "example": "America/Los_Angeles"
+                }
+            }
+        },
         "script.Destination": {
             "type": "object",
             "properties": {
@@ -20972,6 +21452,58 @@
                 "version_status": {
                     "type": "string",
                     "example": "draft"
+                }
+            }
+        },
+        "script.RunMetrics": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "exports": {
+                    "type": "integer"
+                },
+                "queries": {
+                    "type": "integer"
+                },
+                "steps": {
+                    "type": "integer"
+                }
+            }
+        },
+        "script.RunOutput": {
+            "type": "object",
+            "properties": {
+                "asset_id": {
+                    "description": "AssetID and AssetVersion identify a portal output.",
+                    "type": "string"
+                },
+                "asset_version": {
+                    "type": "integer"
+                },
+                "bucket": {
+                    "description": "Bucket and Key locate a delivered object.",
+                    "type": "string"
+                },
+                "bytes": {
+                    "type": "integer"
+                },
+                "destination": {
+                    "description": "Destination is the granted destination's name. It is empty on rows\nwritten before destinations existed, which Destination() reads as the\nportal.",
+                    "type": "string"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "row_count": {
+                    "type": "integer"
                 }
             }
         },
@@ -21271,6 +21803,205 @@
                 "total": {
                     "type": "integer",
                     "example": 2
+                }
+            }
+        },
+        "scripthttp.portalRun": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer",
+                    "example": 1840
+                },
+                "error": {
+                    "description": "Error is why a failed run failed, carried into the listing because a\nhistory whose failures say only \"failed\" sends every reader to the detail\nview to learn the same thing.",
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "fire_time": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "run_a1b2c3d4"
+                },
+                "output_count": {
+                    "description": "OutputCount counts what the run persisted. It is deliberately not called\n\"outputs\": the run detail carries the outputs themselves under that name,\nand one field meaning a count in one payload and a list in another is how\na client ends up rendering \"3\" where a link belongs.",
+                    "type": "integer",
+                    "example": 1
+                },
+                "requested_by": {
+                    "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "succeeded"
+                },
+                "trigger": {
+                    "type": "string",
+                    "example": "schedule"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "scripthttp.portalRunDetail": {
+            "type": "object",
+            "properties": {
+                "attempt": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer",
+                    "example": 1840
+                },
+                "error": {
+                    "description": "Error is why a failed run failed, carried into the listing because a\nhistory whose failures say only \"failed\" sends every reader to the detail\nview to learn the same thing.",
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "fire_time": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "run_a1b2c3d4"
+                },
+                "log": {
+                    "description": "Log is the run's own account of itself, bounded at capture time, so\nreturning it whole is bounded too.",
+                    "type": "string"
+                },
+                "log_truncated": {
+                    "type": "boolean"
+                },
+                "metrics": {
+                    "$ref": "#/definitions/script.RunMetrics"
+                },
+                "output_count": {
+                    "description": "OutputCount counts what the run persisted. It is deliberately not called\n\"outputs\": the run detail carries the outputs themselves under that name,\nand one field meaning a count in one payload and a list in another is how\na client ends up rendering \"3\" where a link belongs.",
+                    "type": "integer",
+                    "example": 1
+                },
+                "outputs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/script.RunOutput"
+                    }
+                },
+                "params": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "requested_by": {
+                    "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "scheduled_for": {
+                    "type": "string"
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "succeeded"
+                },
+                "trigger": {
+                    "type": "string",
+                    "example": "schedule"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "scripthttp.portalRunListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scripthttp.portalRun"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 12
+                }
+            }
+        },
+        "scripthttp.portalScriptListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scripthttp.portalScriptRow"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "scripthttp.portalScriptResponse": {
+            "type": "object",
+            "properties": {
+                "contract": {
+                    "$ref": "#/definitions/script.Contract"
+                },
+                "owned": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "scripthttp.portalScriptRow": {
+            "type": "object",
+            "properties": {
+                "last_run": {
+                    "description": "LastRun is the most recent run of this script, absent when it has never\nrun and when the caller does not own it \u2014 a run is owner-and-admin\nreading, and so is the fact that one failed.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/scripthttp.portalRun"
+                        }
+                    ]
+                },
+                "owned": {
+                    "description": "Owned reports whether this caller may read the script's runs, source, and\ngrant, so the page offers those surfaces rather than linking a reader to\na refusal.",
+                    "type": "boolean",
+                    "example": true
+                },
+                "schedule": {
+                    "description": "Schedule is the script's cadence, absent when it has none.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/script.Schedule"
+                        }
+                    ]
+                },
+                "script": {
+                    "$ref": "#/definitions/script.Script"
                 }
             }
         },
