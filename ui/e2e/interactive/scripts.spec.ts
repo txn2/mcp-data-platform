@@ -52,7 +52,7 @@ test.describe("Portal script pages", () => {
     // The contract: what will execute, on what cadence, and what it takes.
     await expect(page.getByRole("heading", { name: "Daily Sales Report" })).toBeVisible();
     await expect(page.getByText("report_date")).toBeVisible();
-    await expect(page.getByText(/0 7 \* \* 1-5 \(America\/Los_Angeles\)/)).toBeVisible();
+    await expect(page.getByText(/0 7 \* \* 1-5 \(America\/Los_Angeles\)/).first()).toBeVisible();
 
     // The served version's source, open without a click.
     await expect(page.getByText("Executing")).toBeVisible();
@@ -97,5 +97,60 @@ test.describe("Portal script pages", () => {
     await page.locator("main").getByRole("button", { name: "Scripts" }).click();
     await expect(page.getByRole("heading", { name: "Scripts", level: 1 })).toBeVisible();
     await expect(page.getByText("Dormant Accounts")).toBeVisible();
+  });
+});
+
+test.describe("Portal script schedule", () => {
+  test("an owner sets a cadence, pauses it, and resumes it", async ({ page }) => {
+    await gotoScripts(page);
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Daily Sales Report" })
+      .getByRole("button", { name: "Open" })
+      .click();
+    await expect(page.getByRole("heading", { name: "Daily Sales Report" })).toBeVisible();
+
+    // The cadence the script already runs on is in the field, not an empty box.
+    await expect(page.getByLabel("Cadence")).toHaveValue("0 7 * * 1-5");
+
+    // A common cadence is a click; saving it reports the new state.
+    await page.getByRole("button", { name: "Weekly, Monday 07:00" }).click();
+    await expect(page.getByLabel("Cadence")).toHaveValue("0 7 * * 1");
+    await page.getByRole("button", { name: "Update schedule" }).click();
+    await expect(page.getByText("0 7 * * 1 (America/Los_Angeles)").first()).toBeVisible();
+
+    // Pausing is its own action and leaves the cadence alone.
+    await page.getByRole("button", { name: "Pause" }).click();
+    await expect(page.getByText("Paused", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Cadence")).toHaveValue("0 7 * * 1");
+
+    await page.getByRole("button", { name: "Resume" }).click();
+    await expect(page.getByText("Scheduled", { exact: true })).toBeVisible();
+  });
+
+  test("refuses a cadence the platform cannot parse", async ({ page }) => {
+    await gotoScripts(page);
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Warehouse Freshness Check" })
+      .getByRole("button", { name: "Open" })
+      .click();
+
+    await page.getByLabel("Cadence").fill("every other tuesday");
+    await page.getByRole("button", { name: "Update schedule" }).click();
+    await expect(page.getByText(/unparseable cron expression/)).toBeVisible();
+  });
+
+  test("offers to schedule a script that has none", async ({ page }) => {
+    await gotoScripts(page);
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Dormant Accounts" })
+      .getByRole("button", { name: "Open" })
+      .click();
+
+    await expect(page.getByRole("button", { name: "Schedule it" })).toBeVisible();
+    // Nothing is approved, so the page says a cadence will be kept and inert.
+    await expect(page.getByText(/will start firing as soon as a version/)).toBeVisible();
   });
 });

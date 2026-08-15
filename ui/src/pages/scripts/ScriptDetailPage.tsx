@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { executionState, formatWhen } from "./runFormat";
+import { ScheduleEditor } from "./ScheduleEditor";
 import { ScriptRunHistory } from "./ScriptRunHistory";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 
@@ -81,15 +82,45 @@ export function ScriptDetailPage({ scriptId, onBack, onNavigate }: Props) {
         <ParameterTable contract={contract} />
       </SectionCard>
 
-      {owned && <ScriptVersionHistory scriptId={scriptId} contract={contract} />}
-      {owned && <ScriptRunHistory scriptId={scriptId} onNavigate={onNavigate} />}
-      {!owned && (
-        <p className="text-xs text-muted-foreground">
-          This script belongs to {contract.owner_email || "someone else"}. Its source, its
-          capability grant, and its run history are theirs and the administrators' to read.
-        </p>
-      )}
+      <OwnerSections
+        scriptId={scriptId}
+        contract={contract}
+        owned={owned}
+        onNavigate={onNavigate}
+      />
     </div>
+  );
+}
+
+// OwnerSections is everything that belongs to the script's owner: when it runs,
+// the code behind the execution gate, and what every run did. A reader who does
+// not own the script is told whose it is instead, rather than shown controls
+// that would refuse them.
+function OwnerSections({
+  scriptId,
+  contract,
+  owned,
+  onNavigate,
+}: {
+  scriptId: string;
+  contract: ScriptContract;
+  owned: boolean;
+  onNavigate: (path: string) => void;
+}) {
+  if (!owned) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        This script belongs to {contract.owner_email || "someone else"}. Its source, its
+        capability grant, and its run history are theirs and the administrators' to read.
+      </p>
+    );
+  }
+  return (
+    <>
+      <ScheduleEditor contract={contract} />
+      <ScriptVersionHistory scriptId={scriptId} contract={contract} />
+      <ScriptRunHistory scriptId={scriptId} onNavigate={onNavigate} />
+    </>
   );
 }
 

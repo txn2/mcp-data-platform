@@ -109,12 +109,18 @@ func portalDeps(store *stubStore, runs *stubRuns, contracts *stubContracts, user
 	return deps
 }
 
-// servePortal mounts the portal routes and runs one request against them.
+// servePortal mounts the portal routes and runs one GET against them.
 func servePortal(t *testing.T, deps Deps, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	return servePortalMethod(t, deps, http.MethodGet, path, "")
+}
+
+// servePortalMethod runs one request of any method against the portal routes.
+func servePortalMethod(t *testing.T, deps Deps, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	mux := http.NewServeMux()
 	New(deps).RegisterPortal(mux, func(h http.Handler) http.Handler { return h })
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, strings.NewReader(""))
+	req := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
@@ -489,4 +495,93 @@ func TestPortalGetRun_RefusedForANonOwner(t *testing.T) {
 	rec := servePortal(t, portalDeps(portalStore(), runs, nil, stranger),
 		"/api/v1/portal/scripts/script_2/runs/run_2")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// The cadence is the one thing an owner changes here. It carries no authority —
+// the gate and the grant are read again at every fire — so the person
+// accountable for an automation sets when it runs without an administrator.
+func TestPortalSetSchedule_OwnerSetsTheCadence(t *testing.T) {
+	store := portalStore()
+	store.version.ApprovedBy = "admin@example.com"
+	rec := servePortalMethod(t, portalDeps(store, nil, nil, owner), http.MethodPut,
+		"/api/v1/portal/scripts/script_1/schedule",
+		`{"cron":"0 7 * * 1-5","timezone":"America/Los_Angeles"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	require.NotNil(t, store.schedule)
+	assert.Equal(t, "0 7 * * 1-5", store.schedule.CronSpec)
+	assert.Equal(t, "script_1", store.schedule.ScriptID)
+	// The person who changed it is stamped on the row.
+	assert.Equal(t, "jane@example.com", store.schedule.UpdatedBy)
+}
+
+func TestPortalSetSchedule_RefusedForANonOwner(t *testing.T) {
+	rec := servePortalMethod(t, portalDeps(portalStore(), nil, nil, stranger), http.MethodPut,
+		"/api/v1/portal/scripts/script_2/schedule", `{"cron":"@daily","timezone":"UTC"}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestPortalSetSchedule_RefusesAnUnparseableCadence(t *testing.T) {
+	rec := servePortalMethod(t, portalDeps(portalStore(), nil, nil, owner), http.MethodPut,
+		"/api/v1/portal/scripts/script_1/schedule", `{"cron":"not a cron","timezone":"UTC"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestPortalSetSchedule_RejectsAMalformedBody(t *testing.T) {
+	rec := servePortalMethod(t, portalDeps(portalStore(), nil, nil, owner), http.MethodPut,
+		"/api/v1/portal/scripts/script_1/schedule", "{")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// Pausing is its own action: a paused schedule resumes on the fire it was
+// parked on rather than being re-based by a round trip through the cadence.
+func TestPortalSchedule_PauseAndResume(t *testing.T) {
+	store := portalStore()
+	store.schedule = &script.Schedule{ID: "sched_1", ScriptID: "script_1", CronSpec: "0 7 * * *", Enabled: true}
+
+	rec := servePortalMethod(t, portalDeps(store, nil, nil, owner), http.MethodPost,
+		"/api/v1/portal/scripts/script_1/schedule/disable", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.False(t, store.schedule.Enabled)
+	assert.Equal(t, "jane@example.com", store.schedule.UpdatedBy)
+
+	rec = servePortalMethod(t, portalDeps(store, nil, nil, owner), http.MethodPost,
+		"/api/v1/portal/scripts/script_1/schedule/enable", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, store.schedule.Enabled)
+	// The cadence itself is untouched by a pause.
+	assert.Equal(t, "0 7 * * *", store.schedule.CronSpec)
+}
+
+func TestPortalSchedule_PauseRefusedForANonOwner(t *testing.T) {
+	store := portalStore()
+	store.schedule = &script.Schedule{ID: "sched_1", ScriptID: "script_2", CronSpec: "0 7 * * *", Enabled: true}
+	rec := servePortalMethod(t, portalDeps(store, nil, nil, stranger), http.MethodPost,
+		"/api/v1/portal/scripts/script_2/schedule/disable", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestPortalSchedule_PauseWithoutASchedule(t *testing.T) {
+	rec := servePortalMethod(t, portalDeps(portalStore(), nil, nil, owner), http.MethodPost,
+		"/api/v1/portal/scripts/script_1/schedule/disable", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// A deployment that cannot keep a schedule mounts no cadence controls rather
+// than failing them per request.
+func TestPortalScheduleRoutesUnmountedWithoutAScheduleStore(t *testing.T) {
+	deps := portalDeps(portalStore(), nil, nil, owner)
+	deps.Schedules = nil
+	rec := servePortalMethod(t, deps, http.MethodPut,
+		"/api/v1/portal/scripts/script_1/schedule", `{"cron":"@daily","timezone":"UTC"}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// An administrator remains unrestricted here, as everywhere else.
+func TestPortalSchedule_AdminIsUnrestricted(t *testing.T) {
+	store := portalStore()
+	rec := servePortalMethod(t, portalDeps(store, nil, nil, admin), http.MethodPut,
+		"/api/v1/portal/scripts/script_2/schedule", `{"cron":"@daily","timezone":"UTC"}`)
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "admin@example.com", store.schedule.UpdatedBy)
 }

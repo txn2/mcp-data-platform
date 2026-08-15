@@ -296,11 +296,12 @@ script pages existed (`ui/src/pages/scripts/MyScriptsPage.tsx` and
 `ScriptDetailPage.tsx`, over `internal/httpserver/scripthttp`'s portal routes)
 they could read their own scripts only by asking an agent to call a tool.
 
-The surface is read-only. There is no mutation on it: approving a version, and
-the grant that approval binds, stay on the admin API behind admin
-authentication, and no portal route writes anything. Widening who can READ a
-script is still a security-relevant change, for the reason stated above under
-definer rights, so the rules are stated exactly.
+The surface writes exactly one thing: a script's cadence, and only on a script
+the caller owns. Approving a version, and the grant that approval binds, stay on
+the admin API behind admin authentication; no portal route approves, rejects, or
+changes a version, or touches a grant. Widening who can READ a script is still a
+security-relevant change, for the reason stated above under definer rights, so
+the rules are stated exactly.
 
 **Who a caller is, before who may read.** Every rule below compares an owner
 with a caller, so the identity being compared has to be specific to one person.
@@ -339,6 +340,20 @@ the portal links to the asset version it produced; an object delivered to a
 granted bucket names its bucket and key and is not a link, because the platform
 wrote those bytes and does not hold them. The delivered copy is evidence of a
 delivery, not a way to read it back.
+
+**The cadence is the owner's, at every scope.** Setting when a script runs, and
+pausing or resuming it, is an ownership decision rather than an edit: a schedule
+is cadence, timezone, and bound parameters, and the execution gate and the
+capability grant are read again at every fire, so re-timing a script cannot make
+it reach anything it could not already reach. The person accountable for an
+automation is the one who knows when it should run, and they are frequently not
+an administrator. It is one rule applied by both surfaces —
+`scriptlayer.schedulable` for `manage_script`, `ownedScript` for the portal
+routes — over one implementation of the cadence rules themselves
+(`script.BuildSchedule`), so neither surface can accept a cadence the other
+would refuse. Changing what a script DOES stays under the edit rule and the
+review gate it defers to, and an administrator can disable a schedule, or the
+script, at any time.
 
 **`show_scripts` performs no data work.** It is presentation-only, following the
 `show_prompts` split for the same reason: an app is rendered in response to a

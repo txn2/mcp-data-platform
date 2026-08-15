@@ -44,6 +44,22 @@ function emptyDemoRequested(surface: string): boolean {
   return new URLSearchParams(window.location.search).get("empty") === surface;
 }
 
+// setScheduleEnabled pauses or resumes a schedule, keeping the contract the
+// detail page reads in step with it. Pausing never touches the cadence, which
+// is why it is its own route rather than a field of one.
+function setScheduleEnabled(scriptID: string, enabled: boolean) {
+  const sched = mockScriptSchedules[scriptID];
+  if (!sched) {
+    return HttpResponse.json({ detail: "this script has no schedule" }, { status: 404 });
+  }
+  sched.enabled = enabled;
+  const contract = mockScriptContracts[scriptID];
+  if (contract?.schedule) {
+    contract.schedule.enabled = enabled;
+  }
+  return HttpResponse.json(sched);
+}
+
 // alertWarnings mirrors the server's check for a configuration that saves
 // cleanly and delivers nothing.
 function alertWarnings(): string[] {
@@ -197,6 +213,47 @@ export const scriptHandlers = [
     }
     return HttpResponse.json(run);
   }),
+
+  // The cadence is the owner's to set, and the only mutation the portal's
+  // script surface has (#1307).
+  http.put(`${PORTAL_BASE}/scripts/:id/schedule`, async ({ params, request }) => {
+    const body = (await request.json()) as { cron?: string; timezone?: string };
+    const id = String(params.id);
+    if (!body.cron || !/^(@\w+|[\d*/,\- ]+)$/.test(body.cron)) {
+      return HttpResponse.json(
+        { detail: `unparseable cron expression: ${body.cron ?? ""}` },
+        { status: 400 },
+      );
+    }
+    const existing = mockScriptSchedules[id];
+    const sched = {
+      id: existing?.id ?? `sched-${id}`,
+      script_id: id,
+      cron_spec: body.cron,
+      timezone: body.timezone || "UTC",
+      enabled: existing?.enabled ?? true,
+      next_run_at: existing?.next_run_at,
+    };
+    mockScriptSchedules[id] = sched;
+    const contract = mockScriptContracts[id];
+    if (contract) {
+      contract.schedule = {
+        cron_spec: sched.cron_spec,
+        timezone: sched.timezone,
+        enabled: sched.enabled,
+        next_run_at: sched.next_run_at,
+      };
+    }
+    return HttpResponse.json(sched);
+  }),
+
+  http.post(`${PORTAL_BASE}/scripts/:id/schedule/enable`, ({ params }) =>
+    setScheduleEnabled(String(params.id), true),
+  ),
+
+  http.post(`${PORTAL_BASE}/scripts/:id/schedule/disable`, ({ params }) =>
+    setScheduleEnabled(String(params.id), false),
+  ),
 
   http.put(`${ADMIN_BASE}/settings/script-review-alert`, async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;

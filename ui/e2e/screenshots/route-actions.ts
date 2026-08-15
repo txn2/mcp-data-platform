@@ -306,3 +306,25 @@ export async function openScriptRunLog(page: Page): Promise<void> {
   await page.getByText(/wrote asset version/).scrollIntoViewIfNeeded({ timeout: 3_000 });
   await page.waitForTimeout(600);
 }
+
+/**
+ * openScriptSchedule scrolls a script's detail page to the cadence control,
+ * which is where the person accountable for an automation says when it runs
+ * (#1307). It sits below the contract and the parameters.
+ */
+export async function openScriptSchedule(page: Page): Promise<void> {
+  await page.getByLabel("Cadence").scrollIntoViewIfNeeded({ timeout: 3_000 });
+  await page.waitForTimeout(500);
+}
+
+/**
+ * openScriptScheduleUnapproved shows the same control on a script nothing has
+ * approved: the cadence is savable and kept, and the page says plainly that
+ * nothing will execute it yet rather than implying an approval it cannot grant.
+ */
+export async function openScriptScheduleUnapproved(page: Page): Promise<void> {
+  await page
+    .getByText(/will start firing as soon as a version/)
+    .scrollIntoViewIfNeeded({ timeout: 3_000 });
+  await page.waitForTimeout(500);
+}

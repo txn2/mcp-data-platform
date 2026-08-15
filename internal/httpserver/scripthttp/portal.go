@@ -93,11 +93,103 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 		mux.Handle("GET /api/v1/portal/scripts/{id}", wrap(h.portalHandler(h.portalGetScript)))
 	}
 	mux.Handle("GET /api/v1/portal/scripts/{id}/versions", wrap(h.portalHandler(h.portalListVersions)))
+	h.registerPortalSchedule(mux, wrap)
 	if h.deps.Runs == nil {
 		return
 	}
 	mux.Handle("GET /api/v1/portal/scripts/{id}/runs", wrap(h.portalHandler(h.portalListRuns)))
 	mux.Handle("GET /api/v1/portal/scripts/{id}/runs/{runID}", wrap(h.portalHandler(h.portalGetRun)))
+}
+
+// registerPortalSchedule mounts the cadence controls, which are the only
+// mutations on this surface.
+//
+// They are here rather than on the admin API alone because a cadence carries no
+// authority: it says when an already-approved version runs, and the execution
+// gate and the capability grant are read again at every fire. The person
+// accountable for an automation is the one who knows when it should run, and
+// they are frequently not an administrator. Approving a version stays admin-only.
+//
+// Pausing is its own action rather than a field of the cadence: sending the
+// whole schedule back to turn it off would re-base its next fire, and a paused
+// schedule must resume on the fire it was parked on.
+func (h *Handler) registerPortalSchedule(mux *http.ServeMux, wrap func(http.Handler) http.Handler) {
+	if h.deps.Schedules == nil {
+		return
+	}
+	mux.Handle("PUT /api/v1/portal/scripts/{id}/schedule", wrap(h.portalHandler(h.portalSetSchedule)))
+	mux.Handle("POST /api/v1/portal/scripts/{id}/schedule/enable", wrap(h.portalHandler(h.portalEnableSchedule)))
+	mux.Handle("POST /api/v1/portal/scripts/{id}/schedule/disable", wrap(h.portalHandler(h.portalDisableSchedule)))
+}
+
+// portalSetSchedule sets or replaces the cadence of a script the caller owns.
+//
+// @Summary      Set a script's schedule
+// @Description  Sets or replaces the cadence a script the caller owns runs on, its timezone, and the parameters every fire binds. Restricted to the script's owner and to administrators. A schedule saved against a script with no approved version is kept and stays inert, because nothing executes an unapproved script.
+// @Tags         Scripts
+// @Accept       json
+// @Produce      json
+// @Param        id        path  string           true  "Script ID"
+// @Param        schedule  body  scheduleRequest  true  "Cadence"
+// @Success      200  {object}  script.Schedule
+// @Failure      400  {object}  httpjson.ProblemDetail
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/scripts/{id}/schedule [put]
+func (h *Handler) portalSetSchedule(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
+	sc, ok := h.ownedScript(w, r, user)
+	if !ok {
+		return
+	}
+	h.writeSchedule(w, r, sc, user.owner())
+}
+
+// portalEnableSchedule resumes a paused schedule on a script the caller owns.
+//
+// @Summary      Enable a script's schedule
+// @Description  Resumes a paused schedule on a script the caller owns without touching its cadence. Restricted to the script's owner and to administrators.
+// @Tags         Scripts
+// @Produce      json
+// @Param        id  path  string  true  "Script ID"
+// @Success      200  {object}  script.Schedule
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/scripts/{id}/schedule/enable [post]
+func (h *Handler) portalEnableSchedule(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
+	h.portalScheduleEnabled(w, r, user, true)
+}
+
+// portalDisableSchedule pauses a schedule on a script the caller owns.
+//
+// @Summary      Disable a script's schedule
+// @Description  Stops a schedule firing on a script the caller owns, keeping the row that explains the runs it produced. Restricted to the script's owner and to administrators.
+// @Tags         Scripts
+// @Produce      json
+// @Param        id  path  string  true  "Script ID"
+// @Success      200  {object}  script.Schedule
+// @Failure      401  {object}  httpjson.ProblemDetail
+// @Failure      404  {object}  httpjson.ProblemDetail
+// @Failure      500  {object}  httpjson.ProblemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/scripts/{id}/schedule/disable [post]
+func (h *Handler) portalDisableSchedule(w http.ResponseWriter, r *http.Request, user *PortalIdentity) {
+	h.portalScheduleEnabled(w, r, user, false)
+}
+
+// portalScheduleEnabled applies a pause state on a script the caller owns.
+func (h *Handler) portalScheduleEnabled(w http.ResponseWriter, r *http.Request, user *PortalIdentity, enabled bool) {
+	sc, ok := h.ownedScript(w, r, user)
+	if !ok {
+		return
+	}
+	h.applyScheduleEnabled(w, r, sc, user.owner(), enabled)
 }
 
 // portalHandler adapts a portal handler by resolving the caller first,

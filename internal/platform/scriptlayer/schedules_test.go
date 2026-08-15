@@ -402,3 +402,68 @@ func TestScheduleList_ResolvesAScriptTheListingCutOff(t *testing.T) {
 	fields = resultFields(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdScheduleList}))
 	assert.EqualValues(t, 2, fields["count"], "an admin sees both real scripts' schedules")
 }
+
+// TestScheduleIsTheOwnersToSet pins who may time a script. A cadence carries no
+// authority — the gate and the grant are read again at every fire — so the
+// person accountable for an automation sets when it runs, at every scope, and
+// an administrator can still turn it off.
+func TestScheduleIsTheOwnersToSet(t *testing.T) {
+	for _, scope := range []string{script.ScopePersonal, script.ScopePersona, script.ScopeGlobal} {
+		t.Run(scope, func(t *testing.T) {
+			h, store := newHandle()
+			ctx := authorCtx()
+			require.False(t, call(t, h, ctx, manageScriptInput{
+				Command: cmdCreate, Name: "daily", Source: "print(1)\n",
+			}).IsError)
+
+			sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+			require.NoError(t, err)
+			sc.Scope = scope
+			if scope == script.ScopePersona {
+				sc.Personas = []string{"analyst"}
+			}
+			require.NoError(t, store.Update(context.Background(), sc))
+
+			// The owner sets the cadence and pauses it, whatever the scope.
+			set := call(t, h, ctx, manageScriptInput{
+				Command: cmdScheduleSet, Name: "daily", Cron: "0 7 * * *", Timezone: "UTC",
+			})
+			require.False(t, set.IsError, resultText(set))
+			assert.False(t, call(t, h, ctx, manageScriptInput{
+				Command: cmdScheduleDisable, Name: "daily",
+			}).IsError)
+
+			// An admin remains unrestricted. A personal script is addressed by
+			// naming its owner, which is how an admin reaches one at all.
+			adminInput := manageScriptInput{Command: cmdScheduleEnable, Name: "daily"}
+			if scope == script.ScopePersonal {
+				adminInput.OwnerEmail = "jane@example.com"
+			}
+			enabled := call(t, h, adminCtx(), adminInput)
+			assert.False(t, enabled.IsError, resultText(enabled))
+		})
+	}
+}
+
+// A colleague who can see a shared script cannot re-time it: seeing an
+// automation and being accountable for it are different things.
+func TestScheduleRefusesANonOwner(t *testing.T) {
+	h, store := newHandle()
+	require.False(t, call(t, h, authorCtx(), manageScriptInput{
+		Command: cmdCreate, Name: "daily", Source: "print(1)\n",
+	}).IsError)
+	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+	require.NoError(t, err)
+	sc.Scope, sc.Personas = script.ScopePersona, []string{"analyst"}
+	require.NoError(t, store.Update(context.Background(), sc))
+
+	colleague := callerCtx("marcus@example.com", "analyst")
+	require.False(t, call(t, h, colleague, manageScriptInput{Command: cmdGet, Name: "daily"}).IsError,
+		"the colleague can see the script")
+
+	res := call(t, h, colleague, manageScriptInput{
+		Command: cmdScheduleSet, Name: "daily", Cron: "0 7 * * *", Timezone: "UTC",
+	})
+	assert.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "only the owner of a script can change when it runs")
+}

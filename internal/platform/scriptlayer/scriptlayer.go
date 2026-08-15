@@ -196,6 +196,26 @@ func personaName(ctx context.Context) string {
 	return pc.PersonaName
 }
 
+// schedulable resolves the script a cadence command names and checks the caller
+// may time it: its owner, at any scope, or an admin.
+//
+// Timing a script is not editing it. A schedule is cadence, timezone, and bound
+// parameters; the execution gate and the capability grant are read again at
+// every fire, so re-timing a script cannot make it reach anything it could not
+// already reach, and the person accountable for an automation is the one who
+// knows when it should run. Changing what a script DOES stays under editable
+// and the review gate it defers to.
+func (h *Handle) schedulable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
+	sc, errResult := h.readable(ctx, input)
+	if errResult != nil {
+		return nil, errResult
+	}
+	if !h.ownsScript(ctx, sc) {
+		return nil, errorResult("only the owner of a script can change when it runs")
+	}
+	return sc, nil
+}
+
 // editable resolves the script a mutation names and checks the caller may
 // change it. It is the one place that rule is applied, so update, patch, and
 // delete cannot drift apart.

@@ -15,6 +15,8 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   usePortalScriptVersions: vi.fn(),
   useScriptRuns: vi.fn(),
   useScriptRun: vi.fn(),
+  useSetScriptSchedule: vi.fn(),
+  useSetScriptScheduleEnabled: vi.fn(),
   // The page size is the module's own constant, not a hook: the run history
   // states it when a result fills it.
   RUN_PAGE_SIZE: 25,
@@ -25,12 +27,19 @@ import {
   usePortalScriptVersions,
   useScriptRun,
   useScriptRuns,
+  useSetScriptSchedule,
+  useSetScriptScheduleEnabled,
 } from "@/api/portal/hooks/scripts";
 
 const mockContract = vi.mocked(useScriptContract);
 const mockVersions = vi.mocked(usePortalScriptVersions);
 const mockRuns = vi.mocked(useScriptRuns);
 const mockRun = vi.mocked(useScriptRun);
+const mockSaveSchedule = vi.mocked(useSetScriptSchedule);
+const mockPauseSchedule = vi.mocked(useSetScriptScheduleEnabled);
+
+const saveSchedule = vi.fn();
+const pauseSchedule = vi.fn();
 
 const onBack = vi.fn();
 const onNavigate = vi.fn();
@@ -164,6 +173,8 @@ beforeEach(() => {
   mockVersions.mockReturnValue(query({ data: [version], total: 1 }));
   mockRuns.mockReturnValue(query({ data: runs, total: runs.length }));
   mockRun.mockReturnValue(query(runDetail));
+  mockSaveSchedule.mockReturnValue({ mutate: saveSchedule, isPending: false, error: null } as never);
+  mockPauseSchedule.mockReturnValue({ mutate: pauseSchedule, isPending: false, error: null } as never);
 });
 
 afterEach(cleanup);
@@ -177,7 +188,8 @@ describe("ScriptDetailPage: the contract", () => {
     renderPage();
     expect(screen.getByText("Daily Sales Report")).toBeInTheDocument();
     expect(screen.getByText("Approved v2")).toBeInTheDocument();
-    expect(screen.getByText(/0 7 \* \* 1-5 \(America\/Los_Angeles\)/)).toBeInTheDocument();
+    // The cadence reads on the contract itself and again on the control below it.
+    expect(screen.getAllByText(/0 7 \* \* 1-5 \(America\/Los_Angeles\)/).length).toBeGreaterThan(0);
     expect(screen.getByText("report_date")).toBeInTheDocument();
     expect(screen.getByText("required")).toBeInTheDocument();
   });
@@ -197,7 +209,7 @@ describe("ScriptDetailPage: the contract", () => {
     );
     renderPage();
     expect(screen.getByText("Nothing approved")).toBeInTheDocument();
-    expect(screen.getByText(/no approved version/)).toBeInTheDocument();
+    expect(screen.getByText(/no approved version, so nothing may execute it/)).toBeInTheDocument();
   });
 
   it("says a script takes no parameters rather than showing an empty table", () => {
@@ -313,5 +325,66 @@ describe("ScriptDetailPage: the run history", () => {
     renderPage();
     fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0]!);
     expect(screen.getByText("This run printed nothing.")).toBeInTheDocument();
+  });
+});
+
+describe("ScriptDetailPage: the schedule", () => {
+  it("lets the owner set a cadence and says what it will do", () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Cadence"), { target: { value: "0 6 * * 1" } });
+    fireEvent.change(screen.getByLabelText("Timezone"), { target: { value: "UTC" } });
+    fireEvent.click(screen.getByRole("button", { name: "Update schedule" }));
+
+    expect(saveSchedule).toHaveBeenCalledWith({ cron: "0 6 * * 1", timezone: "UTC" });
+  });
+
+  it("offers the common cadences as a click rather than a remembered expression", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Every weekday, 07:00" }));
+    expect(screen.getByLabelText("Cadence")).toHaveValue("0 7 * * 1-5");
+  });
+
+  // Pausing is its own action: it never re-bases the next fire.
+  it("pauses and resumes without touching the cadence", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(pauseSchedule).toHaveBeenCalledWith(false);
+  });
+
+  it("offers to schedule a script that has no cadence yet", () => {
+    mockContract.mockReturnValue(query({ contract: { ...contract, schedule: undefined }, owned: true }));
+    renderPage();
+    expect(screen.getByText(/runs on demand/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Schedule it" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+  });
+
+  // A cadence on an unapproved script is kept and inert, and the page says so
+  // rather than implying an approval it cannot grant.
+  it("says a cadence will not fire while nothing is approved", () => {
+    mockContract.mockReturnValue(
+      query({
+        contract: { ...contract, approval: { approved: false }, schedule: undefined },
+        owned: true,
+      }),
+    );
+    renderPage();
+    expect(screen.getByText(/will start firing as soon as a version/)).toBeInTheDocument();
+  });
+
+  it("reports a refused cadence instead of appearing to save it", () => {
+    mockSaveSchedule.mockReturnValue({
+      mutate: saveSchedule,
+      isPending: false,
+      error: new Error("cron expression is not parseable"),
+    } as never);
+    renderPage();
+    expect(screen.getByText("cron expression is not parseable")).toBeInTheDocument();
+  });
+
+  it("does not offer the schedule to a caller who does not own the script", () => {
+    mockContract.mockReturnValue(query({ contract, owned: false }));
+    renderPage();
+    expect(screen.queryByLabelText("Cadence")).not.toBeInTheDocument();
   });
 });

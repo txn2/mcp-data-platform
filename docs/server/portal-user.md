@@ -445,6 +445,24 @@ Features:
 - **Request Promotion** — On your own personal prompt, ask an admin to promote it to a persona (you choose which) or to global scope. The prompt stays personal and shows a "Promotion requested" badge until an admin approves or rejects it in the admin review queue.
 - **Share** — Share your prompt directly with another user by email. The recipient gets a real, runnable prompt (with its arguments intact), not a markdown snapshot. "Save as Asset" remains a separate action for exporting the content as a markdown asset.
 
+### Scheduling it
+
+The Schedule section on a script you own is where you say when it runs: a cron
+expression, the timezone it is read in, and pause or resume. Common cadences are
+one click; the field takes any standard expression. You do not need an
+administrator for this — a cadence carries no authority, and every fire still
+runs the approved version under the capabilities its approval bound.
+
+![Schedule a script](../images/screenshots/light/user-script-schedule-light.webp#only-light)![Schedule a script](../images/screenshots/dark/user-script-schedule-dark.webp#only-dark)
+
+A cadence set on a script with no approved version is kept and stays inert until
+a version is approved, which the page says rather than implying otherwise.
+
+![Schedule on an unapproved script](../images/screenshots/light/user-script-schedule-unapproved-light.webp#only-light)![Schedule on an unapproved script](../images/screenshots/dark/user-script-schedule-unapproved-dark.webp#only-dark)
+
+Pausing is its own action rather than an edit to the cadence: a paused schedule
+resumes on the fire it was parked on instead of being re-timed by the round trip.
+
 ### Version history and diffs
 
 The prompt page renders the full version history with per-version approval provenance: each version's author, timestamp, status (applied, draft, superseded, rejected), and, bound to that specific version, who approved it and when. A pending draft on an approved shared prompt is flagged with a banner: readers keep being served the approved version until an admin approves the draft. Any version can be diffed against the current content as a line diff.

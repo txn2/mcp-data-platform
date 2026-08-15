@@ -106,6 +106,16 @@ func (h *Handler) setSchedule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	h.writeSchedule(w, r, sc, h.deps.AdminEmail(r))
+}
+
+// writeSchedule replaces one script's cadence, stamping actor as the person who
+// changed it. Both surfaces call it with their own authorization already
+// applied and their own caller: an administrator through the admin API, and a
+// script's owner through the portal. The rules a cadence must satisfy — a
+// parseable expression, a known zone, a binding the approved contract accepts —
+// live in script.BuildSchedule, so neither surface can drift from the other.
+func (h *Handler) writeSchedule(w http.ResponseWriter, r *http.Request, sc *script.Script, actor string) {
 	var req scheduleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, "invalid request body")
@@ -121,7 +131,7 @@ func (h *Handler) setSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	sched, err := script.BuildSchedule(sc, approved, prev, script.ScheduleRequest{
 		CronSpec: req.Cron, Timezone: req.Timezone, Params: req.Params,
-		Enabled: req.Enabled, Actor: h.deps.AdminEmail(r),
+		Enabled: req.Enabled, Actor: actor,
 	}, time.Now())
 	if err != nil {
 		// Every failure here is the request's: an unparseable expression, an
@@ -176,7 +186,14 @@ func (h *Handler) setScheduleEnabled(w http.ResponseWriter, r *http.Request, ena
 	if !ok {
 		return
 	}
-	err := h.deps.Schedules.SetScheduleEnabled(r.Context(), sc.ID, enabled, h.deps.AdminEmail(r))
+	h.applyScheduleEnabled(w, r, sc, h.deps.AdminEmail(r), enabled)
+}
+
+// applyScheduleEnabled pauses or resumes one script's schedule, stamping actor.
+// It is the shared half of the two surfaces' pause controls, for the same
+// reason writeSchedule is.
+func (h *Handler) applyScheduleEnabled(w http.ResponseWriter, r *http.Request, sc *script.Script, actor string, enabled bool) {
+	err := h.deps.Schedules.SetScheduleEnabled(r.Context(), sc.ID, enabled, actor)
 	if errors.Is(err, script.ErrScheduleNotFound) {
 		httpjson.WriteError(w, http.StatusNotFound, errScheduleNot)
 		return

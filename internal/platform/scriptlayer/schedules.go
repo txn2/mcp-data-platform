@@ -20,7 +20,7 @@ import (
 // calling run_script can. What executes and what it may touch were both decided
 // at approval.
 func (h *Handle) handleScheduleSet(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
-	sc, errResult := h.editable(ctx, input)
+	sc, errResult := h.schedulable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -202,7 +202,7 @@ func (h *Handle) handleScheduleDisable(ctx context.Context, input manageScriptIn
 
 // setScheduleEnabled applies an enable/disable to the named script's schedule.
 func (h *Handle) setScheduleEnabled(ctx context.Context, input manageScriptInput, enabled bool) (*mcp.CallToolResult, any, error) {
-	sc, errResult := h.editable(ctx, input)
+	sc, errResult := h.schedulable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}

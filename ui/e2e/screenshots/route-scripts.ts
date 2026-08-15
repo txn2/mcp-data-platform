@@ -4,6 +4,8 @@ import {
   openScriptReview,
   openScriptRunHistory,
   openScriptRunLog,
+  openScriptSchedule,
+  openScriptScheduleUnapproved,
   openScriptVersionHistory,
 } from "./route-actions";
 import { type ScreenshotRoute } from "./route-types";
@@ -36,6 +38,22 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     slug: "script-detail",
     path: "/portal/scripts/script-001",
     category: "user",
+  },
+  {
+    // The cadence control (#1307): the owner of an automation says when it
+    // runs, on the page where they read it.
+    slug: "script-schedule",
+    path: "/portal/scripts/script-001",
+    category: "user",
+    beforeCapture: openScriptSchedule,
+  },
+  {
+    // The same control on a script nothing has approved: a cadence is kept and
+    // stays inert, which the page says rather than implying an approval.
+    slug: "script-schedule-unapproved",
+    path: "/portal/scripts/script-002",
+    category: "user",
+    beforeCapture: openScriptScheduleUnapproved,
   },
   {
     // The version history, where the source of the version behind the

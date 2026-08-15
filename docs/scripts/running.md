@@ -331,6 +331,16 @@ can no longer write to it. An output the lost run had already written is not
 written twice: the run records each output as it lands, and a reclaimed run
 skips what it already produced.
 
+## Who sets the cadence
+
+The script's owner, at any scope, and administrators. Setting when a script runs
+is not editing it: a schedule carries cadence, timezone, and bound parameters,
+and the execution gate and the capability grant are read again at every fire, so
+re-timing a script cannot widen what it reaches. Do it from the portal's script
+page, or with `manage_script schedule_set` / `schedule_enable` /
+`schedule_disable`. Approving a version stays an administrator's decision, and an
+administrator can pause a schedule or disable the script at any time.
+
 ## Seeing what happened
 
 The portal's **Scripts** page is the human view of all of this: every script you

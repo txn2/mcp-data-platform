@@ -13917,6 +13917,126 @@ paths:
       summary: Get one script run
       tags:
       - Scripts
+  /portal/scripts/{id}/schedule:
+    put:
+      consumes:
+      - application/json
+      description: Sets or replaces the cadence a script the caller owns runs on,
+        its timezone, and the parameters every fire binds. Restricted to the script's
+        owner and to administrators. A schedule saved against a script with no approved
+        version is kept and stays inert, because nothing executes an unapproved script.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Cadence
+        in: body
+        name: schedule
+        required: true
+        schema:
+          $ref: '#/definitions/scripthttp.scheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Schedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set a script's schedule
+      tags:
+      - Scripts
+  /portal/scripts/{id}/schedule/disable:
+    post:
+      description: Stops a schedule firing on a script the caller owns, keeping the
+        row that explains the runs it produced. Restricted to the script's owner and
+        to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Schedule'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Disable a script's schedule
+      tags:
+      - Scripts
+  /portal/scripts/{id}/schedule/enable:
+    post:
+      description: Resumes a paused schedule on a script the caller owns without touching
+        its cadence. Restricted to the script's owner and to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Schedule'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Enable a script's schedule
+      tags:
+      - Scripts
   /portal/scripts/{id}/versions:
     get:
       description: Returns every version of a script the caller owns, with its source,

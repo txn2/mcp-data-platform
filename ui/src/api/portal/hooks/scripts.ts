@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Script, ScriptVersion } from "@/api/admin/types";
 import { apiFetch } from "../client";
 
@@ -199,5 +199,50 @@ export function useScriptRun(scriptID: string | null, runID: string | null) {
     queryKey: [...scriptsKey, scriptID, "runs", runID],
     queryFn: () => apiFetch<ScriptRunDetail>(`/scripts/${scriptID}/runs/${runID}`),
     enabled: !!scriptID && !!runID,
+  });
+}
+
+// ScheduleInput is the cadence an owner sets: when it runs, in which zone, and
+// the parameter values every fire binds.
+export interface ScheduleInput {
+  cron: string;
+  timezone: string;
+  params?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+// useSetScriptSchedule replaces a script's cadence. A cadence carries no
+// authority — the execution gate and the capability grant are read again at
+// every fire — so it is the owner's to set, and this is the only mutation the
+// portal's script surface has.
+export function useSetScriptSchedule(scriptID: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ScheduleInput) =>
+      apiFetch<ScriptSchedule>(`/scripts/${scriptID}/schedule`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: scriptsKey });
+    },
+  });
+}
+
+// useSetScriptScheduleEnabled pauses or resumes a schedule. It is a separate
+// action from setting the cadence because sending the whole cadence back to
+// turn it off would re-base the next fire, and a paused schedule must resume on
+// the fire it was parked on.
+export function useSetScriptScheduleEnabled(scriptID: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiFetch<ScriptSchedule>(
+        `/scripts/${scriptID}/schedule/${enabled ? "enable" : "disable"}`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: scriptsKey });
+    },
   });
 }
