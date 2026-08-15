@@ -7,3 +7,4 @@ export * from "./threads";
 export * from "./mentions";
 export * from "./knowledge-pages";
 export * from "./notifications";
+export * from "./scripts";

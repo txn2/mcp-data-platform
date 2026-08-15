@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -398,4 +399,109 @@ func TestRunScriptSchema_ClosedAndInSyncWithTheInputStruct(t *testing.T) {
 	for name := range fields {
 		assert.NotNil(t, obj.Properties[name], "the input struct decodes %q but the closed schema does not publish it", name)
 	}
+}
+
+// TestRunReads_AreTheOwnersAndTheAdmins pins who may read what a script did,
+// which is a narrower entitlement than seeing that the script exists: a run
+// carries the parameters it bound, the error it failed with, and free text the
+// script printed while holding ITS grant.
+func TestRunReads_AreTheOwnersAndTheAdmins(t *testing.T) {
+	h, store, _ := runnableHandle(t, true)
+	// Make the script visible to every analyst, so a colleague can see it and
+	// still not be its owner.
+	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+	require.NoError(t, err)
+	sc.Scope, sc.Personas = script.ScopePersona, []string{"analyst"}
+	require.NoError(t, store.Update(context.Background(), sc))
+
+	colleague := callerCtx("marcus@example.com", "analyst")
+	res := call(t, h, colleague, manageScriptInput{Command: cmdGet, Name: "daily"})
+	require.False(t, res.IsError, "a colleague can see the script itself")
+
+	res = call(t, h, colleague, manageScriptInput{Command: cmdRuns, Name: "daily"})
+	assert.True(t, res.IsError)
+	assert.Contains(t, resultText(res), "only the owner of a script can read its runs")
+
+	// The owner and an admin read them.
+	assert.False(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdRuns, Name: "daily"}).IsError)
+	assert.False(t, call(t, h, adminCtx(), manageScriptInput{Command: cmdRuns, Name: "daily"}).IsError)
+}
+
+// TestGetRun_ReadableByWhoeverAskedForIt covers the third entitlement: a
+// caller who ran the script gets the result when they ask for it, so a run id
+// they were handed must stay followable even though the script is not theirs.
+func TestGetRun_ReadableByWhoeverAskedForIt(t *testing.T) {
+	h, store, runs := runnableHandle(t, true)
+	sc, err := store.GetPersonal(context.Background(), "jane@example.com", "daily")
+	require.NoError(t, err)
+	sc.Scope, sc.Personas = script.ScopePersona, []string{"analyst"}
+	require.NoError(t, store.Update(context.Background(), sc))
+
+	colleague := callerCtx("marcus@example.com", "analyst")
+	res, _, err := h.handleRunScript(colleague, runScriptInput{Name: "daily", WaitSeconds: -1})
+	require.NoError(t, err)
+	require.False(t, res.IsError, resultText(res))
+	runID, ok := resultFields(t, res)["run_id"].(string)
+	require.True(t, ok)
+	assert.NotNil(t, runs)
+
+	own := call(t, h, colleague, manageScriptInput{Command: cmdGetRun, RunID: runID})
+	assert.False(t, own.IsError, resultText(own))
+
+	// Somebody else's run of the same script stays out of reach.
+	stranger := callerCtx("dana@example.com", "analyst")
+	other := call(t, h, stranger, manageScriptInput{Command: cmdGetRun, RunID: runID})
+	assert.True(t, other.IsError)
+	assert.Contains(t, resultText(other), "run not found")
+}
+
+// callerCtxWithoutEmail is a caller the identity provider named but issued no
+// email for: an OIDC token carrying a subject and no email claim.
+func callerCtxWithoutEmail(userID, persona string) context.Context {
+	pc := middleware.NewPlatformContext("req_1")
+	pc.UserID, pc.PersonaName = userID, persona
+	pc.Roles = []string{persona}
+	return middleware.WithPlatformContext(context.Background(), pc)
+}
+
+// TestEmaillessCallersAreDistinctOwners pins the identity a personal script is
+// owned by. A token without an email claim leaves the email empty, and
+// collapsing every such caller onto one sentinel would make their personal
+// scripts a shared pool: distinct people reading, editing, and running each
+// other's work.
+func TestEmaillessCallersAreDistinctOwners(t *testing.T) {
+	store := newMemStore()
+	h := New(Config{Store: store, Runs: newStubRuns(), AdminPersona: "admin"})
+
+	sarah := callerCtxWithoutEmail("oidc|sarah", "analyst")
+	marcus := callerCtxWithoutEmail("oidc|marcus", "analyst")
+
+	res := call(t, h, sarah, manageScriptInput{Command: cmdCreate, Name: "daily", Source: "print(1)\n"})
+	require.False(t, res.IsError, resultText(res))
+
+	sc, err := store.GetPersonal(context.Background(), "oidc|sarah", "daily")
+	require.NoError(t, err)
+	require.NotNil(t, sc, "the script is owned by the caller's own identity, not by a shared sentinel")
+
+	// The other caller cannot see it, read its runs, or change it.
+	for _, command := range []string{cmdGet, cmdRuns, cmdUpdate} {
+		other := call(t, h, marcus, manageScriptInput{Command: command, Name: "daily", Source: "print(2)\n"})
+		assert.True(t, other.IsError, command)
+		assert.Contains(t, resultText(other), "not found", command)
+	}
+
+	// And the owner still reaches their own.
+	assert.False(t, call(t, h, sarah, manageScriptInput{Command: cmdGet, Name: "daily"}).IsError)
+}
+
+// A deployment that presents no identity at all has exactly one caller, and
+// that caller owns their scripts under the "anonymous" name.
+func TestUnidentifiedCallerIsStillAnOwner(t *testing.T) {
+	store := newMemStore()
+	h := New(Config{Store: store, Runs: newStubRuns(), AdminPersona: "admin"})
+	ctx := middleware.WithPlatformContext(context.Background(), middleware.NewPlatformContext("req_1"))
+
+	res := call(t, h, ctx, manageScriptInput{Command: cmdCreate, Name: "daily", Source: "print(1)\n"})
+	require.False(t, res.IsError, resultText(res))
+	assert.False(t, call(t, h, ctx, manageScriptInput{Command: cmdGet, Name: "daily"}).IsError)
 }

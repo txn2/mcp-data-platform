@@ -1,0 +1,141 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import type { PortalScriptRow } from "@/api/portal/hooks/scripts";
+import { MyScriptsPage } from "./MyScriptsPage";
+
+vi.mock("@/api/portal/hooks/scripts", () => ({
+  useMyScripts: vi.fn(),
+}));
+
+import { useMyScripts } from "@/api/portal/hooks/scripts";
+
+const mockScripts = vi.mocked(useMyScripts);
+const onNavigate = vi.fn();
+
+function query<T>(data: T, extra: Record<string, unknown> = {}) {
+  return { data, isLoading: false, error: null, ...extra } as never;
+}
+
+function row(overrides: Partial<PortalScriptRow> = {}): PortalScriptRow {
+  return {
+    script: {
+      id: "script-001",
+      name: "daily-sales-report",
+      display_name: "Daily Sales Report",
+      description: "Yesterday's sales by region.",
+      scope: "global",
+      owner_email: "sarah.chen@example.com",
+      status: "active",
+      enabled: true,
+      version: 2,
+      approved_version_id: "sver-001-v2",
+      updated_at: new Date().toISOString(),
+    },
+    schedule: {
+      id: "sched-001",
+      script_id: "script-001",
+      cron_spec: "0 7 * * 1-5",
+      timezone: "America/Los_Angeles",
+      enabled: true,
+      next_run_at: new Date("2026-08-15T14:00:00Z").toISOString(),
+    },
+    last_run: {
+      id: "run-001",
+      status: "succeeded",
+      trigger: "schedule",
+      version: 2,
+      fire_time: new Date("2026-08-14T07:00:00Z").toISOString(),
+      finished_at: new Date("2026-08-14T07:00:08Z").toISOString(),
+      duration_ms: 8_420,
+      output_count: 1,
+    },
+    owned: true,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockScripts.mockReturnValue(query({ data: [row()], total: 1 }));
+});
+
+afterEach(cleanup);
+
+describe("MyScriptsPage", () => {
+  it("reports what a script is executing, its cadence, and how it last ran", () => {
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+
+    expect(screen.getByText("Daily Sales Report")).toBeInTheDocument();
+    expect(screen.getByText("Approved v2")).toBeInTheDocument();
+    expect(screen.getByText("0 7 * * 1-5")).toBeInTheDocument();
+    expect(screen.getByText("succeeded")).toBeInTheDocument();
+  });
+
+  it("says a script runs nothing when no version is approved", () => {
+    mockScripts.mockReturnValue(
+      query({
+        data: [row({ script: { ...row().script, approved_version_id: undefined } })],
+        total: 1,
+      }),
+    );
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.getByText("Nothing approved")).toBeInTheDocument();
+  });
+
+  it("reports a paused schedule rather than a next fire that will not happen", () => {
+    mockScripts.mockReturnValue(
+      query({ data: [row({ schedule: { ...row().schedule!, enabled: false } })], total: 1 }),
+    );
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.getByText("paused")).toBeInTheDocument();
+  });
+
+  it("says a script with no schedule runs on demand", () => {
+    mockScripts.mockReturnValue(query({ data: [row({ schedule: undefined })], total: 1 }));
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.getByText("On demand")).toBeInTheDocument();
+  });
+
+  it("distinguishes a script that has never run from one whose runs are not the caller's", () => {
+    mockScripts.mockReturnValue(
+      query({
+        data: [
+          row({ last_run: undefined }),
+          row({
+            script: { ...row().script, id: "script-002", display_name: "Someone Else's" },
+            owned: false,
+            last_run: undefined,
+          }),
+        ],
+        total: 2,
+      }),
+    );
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.getByText("Never run")).toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("opens a script's detail page", () => {
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(onNavigate).toHaveBeenCalledWith("/scripts/script-001");
+  });
+
+  it("says plainly when there are no scripts at all", () => {
+    mockScripts.mockReturnValue(query({ data: [], total: 0 }));
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.getByText(/You have no scripts yet/)).toBeInTheDocument();
+  });
+
+  it("reports a listing that could not be loaded instead of showing it as empty", () => {
+    mockScripts.mockReturnValue(query(undefined, { error: new Error("boom") }));
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.getByText(/scripts could not be loaded/)).toBeInTheDocument();
+  });
+
+  it("shows a loading state rather than an empty one while the listing is in flight", () => {
+    mockScripts.mockReturnValue(query(undefined, { isLoading: true }));
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.getByText("Loading scripts...")).toBeInTheDocument();
+  });
+});

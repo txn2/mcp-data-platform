@@ -43,6 +43,7 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 		DB:           p.db,
 		Runs:         scripts.Runs(),
 		AdminPersona: p.config.Admin.Persona,
+		PortalURL:    p.config.Portal.PublicBaseURL,
 	}).RegisterTool(p.mcpServer)
 	return scripts
 }

@@ -212,6 +212,30 @@ func TestRealDB_PurgeLeavesLiveWorkAlone(t *testing.T) {
 	assert.Equal(t, script.RunStatusPending, survivors[0].Status)
 }
 
+// TestRealDB_LatestRunsIsOneRowPerScript is the portal listing's read against
+// the real schema: DISTINCT ON is Postgres-specific and sqlmock validates no
+// SQL, so only a real database shows that each script yields its newest run and
+// that a script asked about but never run is simply absent.
+func TestRealDB_LatestRunsIsOneRowPerScript(t *testing.T) {
+	db := testdb.New(t)
+	s := New(db)
+	ctx := context.Background()
+
+	daily, dailyVersion := approvedScript(ctx, t, s, "daily")
+	weekly, _ := approvedScript(ctx, t, s, "weekly")
+	for _, id := range []string{"dpx_old", "dpx_new"} {
+		require.NoError(t, s.Enqueue(ctx, &script.Run{
+			ID: id, ScriptID: daily.ID, VersionID: dailyVersion.ID, Version: dailyVersion.Version,
+			Trigger: script.TriggerTool,
+		}))
+	}
+
+	latest, err := s.LatestRuns(ctx, []string{daily.ID, weekly.ID})
+	require.NoError(t, err)
+	require.Len(t, latest, 1, "a script that has never run contributes no row")
+	assert.Equal(t, "dpx_new", latest[daily.ID].ID, "the newest run wins")
+}
+
 // TestRealDB_RunHoldsItsVersionInPlace exercises the ON DELETE RESTRICT foreign
 // key from a run to the version it executed: run history that cannot name the
 // code it ran is not history.

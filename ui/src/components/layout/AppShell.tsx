@@ -9,6 +9,7 @@ import { MyAssetsPage } from "@/pages/assets/MyAssetsPage";
 import { KnowledgeHub } from "@/pages/knowledge/KnowledgeHub";
 import { MyPromptsPage } from "@/pages/prompts/MyPromptsPage";
 import { PromptViewerPage } from "@/pages/prompts/PromptViewerPage";
+import { PortalScriptRoutes } from "@/pages/scripts/ScriptRoutes";
 import { AssetViewerPage } from "@/pages/viewer/AssetViewerPage";
 import { CollectionsPage } from "@/pages/collections/CollectionsPage";
 import { CollectionViewerPage } from "@/pages/collections/CollectionViewerPage";
@@ -43,6 +44,7 @@ const pageTitles: Record<string, string> = {
   "/feedback": "Feedback",
   "/knowledge": "Knowledge",
   "/prompts": "Prompts",
+  "/scripts": "Scripts",
   "/settings": "Settings",
   "/admin": "Dashboard",
   "/admin/assets": "Assets",
@@ -61,6 +63,14 @@ const pageTitles: Record<string, string> = {
   "/admin/changelog": "Change Log",
   "/admin/settings": "Settings",
 };
+
+// pageTitleFor resolves the header title for a route with no detail view of
+// its own in the chain below: a section's own detail routes answer here rather
+// than adding a branch to it.
+function pageTitleFor(route: string): string {
+  if (route.startsWith("/scripts/")) return "Script";
+  return pageTitles[route] ?? "Assets";
+}
 
 const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
 
@@ -271,7 +281,7 @@ export function AppShell() {
             ? "Prompt"
             : knowledgePagesList || knowledgePageMatch || catalogRoute
               ? "Knowledge"
-              : (pageTitles[route] ?? "Assets");
+              : pageTitleFor(route);
 
   // Admin routes start with /admin
   const isAdminRoute = route.startsWith("/admin");
@@ -368,6 +378,7 @@ export function AppShell() {
               onBack={() => navigate("/prompts")}
             />
           )}
+          {!isAdminRoute && <PortalScriptRoutes route={route} onNavigate={navigate} />}
           {collectionAssetMatch && (
             <AssetViewerPage assetId={collectionAssetMatch[2]!} onNavigate={navigate} onBack={() => navigate(`/collections/${collectionAssetMatch[1]!}`)} />
           )}

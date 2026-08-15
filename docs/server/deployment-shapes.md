@@ -77,13 +77,14 @@ personas:
 
 There is no `semantic:` or `query:` block. Omitting them selects the noop providers, which is a supported configuration rather than an error, and enrichment stays enabled at no cost because it no-ops without a semantic provider.
 
-Starting with the configuration above and an empty database, `tools/list` returns seventeen tools:
+Starting with the configuration above and an empty database, `tools/list` returns twenty tools:
 
 ```
-api_get_endpoint_schema   apply_knowledge   manage_asset      memory_manage        save_asset
-api_invoke_endpoint       fetch             manage_feedback   platform_find_tools  search
-api_list_endpoints        list_connections  manage_prompt     platform_info        show_prompts
-api_list_specs                              memory_capture
+api_get_endpoint_schema   fetch              manage_script         run_script
+api_invoke_endpoint       list_connections   memory_capture        save_asset
+api_list_endpoints        manage_asset       memory_manage         search
+api_list_specs            manage_feedback    platform_find_tools   show_prompts
+apply_knowledge           manage_prompt      platform_info         show_scripts
 ```
 
 ### What this shape does not have

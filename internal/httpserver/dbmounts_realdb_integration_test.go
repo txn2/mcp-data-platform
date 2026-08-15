@@ -62,6 +62,34 @@ func TestMountPortalAPI_RealDB(t *testing.T) {
 	require.NotEqual(t, http.StatusNotFound, w.Code, "portal route should be registered")
 }
 
+// TestMountScriptPortalAPI_RealDB proves the portal script read routes are
+// registered when the deployment has a database to keep scripts in. They are
+// mounted from mountPortalAPI, so this is the assembly the unit suite cannot
+// reach: an unauthenticated request must be refused by the handler (401),
+// never miss the route (404).
+func TestMountScriptPortalAPI_RealDB(t *testing.T) {
+	p := newRealDBPlatform(t)
+
+	mux := http.NewServeMux()
+	require.NoError(t, mountPortalAPI(mux, p, buildNotifications(p)))
+
+	// The pattern the mux matched is what proves these routes exist: every
+	// /api/v1/portal/ path is answered by the portal subtree handler otherwise,
+	// and an unauthenticated request is refused by the shared auth wrapper
+	// either way, so a status code cannot tell the two apart.
+	for path, want := range map[string]string{
+		"/api/v1/portal/scripts":                     "GET /api/v1/portal/scripts",
+		"/api/v1/portal/scripts/script_1":            "GET /api/v1/portal/scripts/{id}",
+		"/api/v1/portal/scripts/script_1/versions":   "GET /api/v1/portal/scripts/{id}/versions",
+		"/api/v1/portal/scripts/script_1/runs":       "GET /api/v1/portal/scripts/{id}/runs",
+		"/api/v1/portal/scripts/script_1/runs/run_1": "GET /api/v1/portal/scripts/{id}/runs/{runID}",
+	} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, http.NoBody)
+		_, pattern := mux.Handler(req)
+		require.Equal(t, want, pattern, "portal script route should be registered: %s", path)
+	}
+}
+
 // TestMountResourcesAPI_RealDB proves the managed-resources REST routes are
 // registered when the platform has a live resource store.
 func TestMountResourcesAPI_RealDB(t *testing.T) {

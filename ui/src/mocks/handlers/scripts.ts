@@ -5,14 +5,19 @@ import type {
   ScriptVersion,
 } from "@/api/admin/types";
 import {
+  mockScriptContracts,
   mockScriptReviewAlert,
   mockScriptReviewPayloads,
   mockScriptReviews,
+  mockScriptRunDetails,
+  mockScriptRuns,
+  mockScriptSchedules,
   mockScriptVersions,
   mockScripts,
 } from "../data/scripts";
 
 const ADMIN_BASE = "/api/v1/admin";
+const PORTAL_BASE = "/api/v1/portal";
 
 // Mutable copies so approving and rejecting move a row out of the queue within
 // one mock-server session, which is what the demo and the screenshots read.
@@ -29,6 +34,14 @@ const alert = JSON.parse(JSON.stringify(mockScriptReviewAlert));
 function resolveDecision(scriptID: string, version: number) {
   const at = reviews.findIndex((r) => r.script_id === scriptID && r.version === version);
   if (at >= 0) reviews.splice(at, 1);
+}
+
+// emptyDemoRequested reports whether the page URL asks this surface to answer
+// as though the caller had nothing: ?empty=scripts. It is a fixture control, so
+// it lives here in the mocks and nothing in the application reads it.
+function emptyDemoRequested(surface: string): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("empty") === surface;
 }
 
 // alertWarnings mirrors the server's check for a configuration that saves
@@ -132,6 +145,57 @@ export const scriptHandlers = [
   http.get(`${ADMIN_BASE}/settings/script-review-alert`, () => {
     alert.warnings = alertWarnings();
     return HttpResponse.json(alert);
+  }),
+
+  // Portal script pages (#1290). The mock caller is an administrator, so every
+  // script comes back owned: that is what the server answers an admin, whose
+  // reach into this surface is unrestricted by design.
+  http.get(`${PORTAL_BASE}/scripts`, () => {
+    // An account with no automations is a real product state, and the fixture
+    // set is deliberately not empty. The demo and the screenshots reach it by
+    // asking for it in the page URL: the handlers run in the page and can see
+    // it, and the app itself ignores query parameters it does not know.
+    if (emptyDemoRequested("scripts")) {
+      return HttpResponse.json({ data: [], total: 0 });
+    }
+    const data = scripts.map((script) => {
+      const runs = mockScriptRuns[script.id] ?? [];
+      return {
+        script,
+        schedule: mockScriptSchedules[script.id],
+        last_run: runs[0],
+        owned: true,
+      };
+    });
+    return HttpResponse.json({ data, total: data.length });
+  }),
+
+  http.get(`${PORTAL_BASE}/scripts/:id`, ({ params }) => {
+    const contract = mockScriptContracts[String(params.id)];
+    if (!contract) {
+      return HttpResponse.json({ detail: "script not found" }, { status: 404 });
+    }
+    return HttpResponse.json({ contract, owned: true });
+  }),
+
+  http.get(`${PORTAL_BASE}/scripts/:id/versions`, ({ params }) => {
+    const list = versions[String(params.id)] ?? [];
+    return HttpResponse.json({ data: list, total: list.length });
+  }),
+
+  http.get(`${PORTAL_BASE}/scripts/:id/runs`, ({ params }) => {
+    const list = mockScriptRuns[String(params.id)] ?? [];
+    return HttpResponse.json({ data: list, total: list.length });
+  }),
+
+  http.get(`${PORTAL_BASE}/scripts/:id/runs/:runID`, ({ params }) => {
+    const run = mockScriptRunDetails[String(params.runID)];
+    // A run of another script is answered exactly as a run that does not
+    // exist, which is what the server does with it.
+    if (!run || run.script_id !== String(params.id)) {
+      return HttpResponse.json({ detail: "run not found" }, { status: 404 });
+    }
+    return HttpResponse.json(run);
   }),
 
   http.put(`${ADMIN_BASE}/settings/script-review-alert`, async ({ request }) => {

@@ -40,9 +40,23 @@ type Deps struct {
 	// which is the honest shape for a deployment that cannot keep a schedule.
 	Schedules script.ScheduleStore
 
+	// Runs is the run history. Nil leaves the portal run routes unmounted: a
+	// deployment that keeps no runs has no history to show.
+	Runs script.RunStore
+	// Contracts composes one script's contract document for the portal detail
+	// route. Nil leaves that route unmounted.
+	Contracts ContractReader
+	// LatestRuns reports each script's most recent run for the portal listing.
+	// Nil leaves the listing's last-run column empty rather than unmounting it.
+	LatestRuns LatestRunReader
+
 	// AdminEmail returns the authenticated administrator's email, which is
 	// stamped on the approval.
 	AdminEmail func(r *http.Request) string
+	// PortalUser resolves the authenticated portal caller, or nil when the
+	// request carries no user. Nil leaves the portal routes unmounted, which is
+	// what the admin surface passes.
+	PortalUser func(r *http.Request) *PortalIdentity
 }
 
 // Handler serves the script review routes.
@@ -57,8 +71,10 @@ func New(deps Deps) *Handler { return &Handler{deps: deps} }
 const (
 	pathID           = "id"
 	pathVersion      = "version"
+	pathRunID        = "runID"
 	errScriptNot     = "script not found"
 	errVersionNot    = "version not found"
+	errRunNot        = "run not found"
 	errListVersions  = "failed to list versions"
 	errScheduleNot   = "this script has no schedule"
 	errListSchedules = "failed to read schedules"

@@ -18,7 +18,7 @@ func (h *Handle) handleRuns(ctx context.Context, input manageScriptInput) (*mcp.
 	if h.runs == nil {
 		return errorResult("this deployment keeps no script runs"), nil, nil
 	}
-	sc, errResult := h.readable(ctx, input)
+	sc, errResult := h.runReadable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -73,12 +73,12 @@ func (h *Handle) handleGetRun(ctx context.Context, input manageScriptInput) (*mc
 	return jsonResult(out)
 }
 
-// readableRunScript resolves the script a run belongs to and applies the same
-// visibility rule reading that script directly would.
+// readableRunScript resolves the script a run belongs to and applies the run
+// reading rule to it.
 //
 // A run id is unguessable, but unguessable is not an authorization rule: the
 // run carries the log, the parameters, and the output ids of a script the
-// caller may have no business seeing. The same message covers "no such run" and
+// caller may have no business reading. The same message covers "no such run" and
 // "not yours", so a caller cannot use the difference to learn that a run exists.
 func (h *Handle) readableRunScript(ctx context.Context, run *script.Run) (*script.Script, *mcp.CallToolResult) {
 	sc, err := h.store.GetByID(ctx, run.ScriptID)
@@ -86,11 +86,48 @@ func (h *Handle) readableRunScript(ctx context.Context, run *script.Run) (*scrip
 		slog.Error("failed to read the script a run belongs to", "run_id", run.ID, logKeyError, err)
 		return nil, errorResult("failed to read the run")
 	}
-	if sc == nil {
-		return nil, errorResult("run not found")
-	}
-	if !h.isAdminPersona(ctx) && !sc.VisibleTo(resolveEmail(ctx), personaName(ctx)) {
+	// Whoever asked for a run may read it back, whether or not they own the
+	// script: the result was already handed to them when they requested it, and
+	// a run they cannot re-read is a run id they cannot follow.
+	if sc == nil || (!h.ownsScript(ctx, sc) && !requestedBy(run, resolveEmail(ctx))) {
 		return nil, errorResult("run not found")
 	}
 	return sc, nil
+}
+
+// requestedBy reports whether caller is the identified requester of run.
+func requestedBy(run *script.Run, caller string) bool {
+	return run.RequestedBy != "" && run.RequestedBy == caller
+}
+
+// runReadable resolves the script a run command names and checks the caller may
+// read its runs.
+//
+// Seeing a script and reading what it did are different entitlements. The
+// contract of a script — what it is, what it takes, what it last produced — is
+// readable by anyone the scope rules admit, because that is what makes a script
+// discoverable. A run carries more: the parameters it bound, the error it
+// failed with, and the log it printed, which is free text a script emitted
+// while holding ITS grant and may echo rows the reader has no access to of
+// their own. That is the owner's and the administrator's to read.
+func (h *Handle) runReadable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
+	sc, errResult := h.readable(ctx, input)
+	if errResult != nil {
+		return nil, errResult
+	}
+	if !h.ownsScript(ctx, sc) {
+		return nil, errorResult("only the owner of a script can read its runs")
+	}
+	return sc, nil
+}
+
+// ownsScript reports whether the caller may read a script's runs: its owner, or
+// an admin. Both sides must be identified, so a script authored by a principal
+// carrying no email is not owned by every caller the platform cannot name.
+func (h *Handle) ownsScript(ctx context.Context, sc *script.Script) bool {
+	if h.isAdminPersona(ctx) {
+		return true
+	}
+	caller := resolveEmail(ctx)
+	return sc.OwnerEmail != "" && sc.OwnerEmail == caller
 }
