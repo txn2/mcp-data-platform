@@ -52,6 +52,35 @@ test.describe("Prompt library buckets", () => {
     await expect(main).not.toContainText(/\bPersona\b/);
   });
 
+  test("My Prompts groups by collection, like the Library", async ({ page }) => {
+    await openPrompts(page);
+
+    // prompt-010 (My Weekly Summary) is in Sales Reporting; the rest of the
+    // owned and shared prompts are uncollected and land in General.
+    const salesGroup = page.getByRole("table").filter({ hasText: "My Weekly Summary" });
+    await expect(page.getByRole("heading", { name: "Sales Reporting" })).toBeVisible();
+    await expect(salesGroup.getByRole("row")).toHaveCount(2);
+    await expect(page.getByRole("heading", { name: "General" })).toBeVisible();
+    await expect(page.getByText("Shared by carol@example.com")).toBeVisible();
+
+    // Grouping replaces the per-row collection column.
+    await expect(page.getByRole("columnheader", { name: "Collection" })).toHaveCount(0);
+  });
+
+  test("a collection description reads under its name, not beside it", async ({ page }) => {
+    await openLibraryTab(page);
+
+    const heading = page.getByRole("heading", { name: "Sales Reporting" });
+    const description = page.getByText("Daily and weekly sales SOPs", { exact: true });
+    await expect(description).toBeVisible();
+
+    const headingBox = await heading.boundingBox();
+    const descriptionBox = await description.boundingBox();
+    expect(headingBox).not.toBeNull();
+    expect(descriptionBox).not.toBeNull();
+    expect(descriptionBox!.y).toBeGreaterThan(headingBox!.y + headingBox!.height - 1);
+  });
+
   test("Library groups prompts by collection with a trailing default group", async ({ page }) => {
     await openLibraryTab(page);
 

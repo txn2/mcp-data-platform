@@ -413,11 +413,11 @@ See [Knowledge Capture](../knowledge/overview.md) and [Memory Layer](../memory/o
 
 ## Prompts
 
-Prompts are reusable templates that guide AI agent behavior: the organization's SOP manual for agent-run procedures. The library presents two buckets: **My Prompts** (every prompt you own, whatever its scope — shared-scope prompts carry a scope badge — plus prompts shared with you, each attributed to its sharer) and **Library** (the approved team prompts visible to you, grouped by collection). Scope and persona mechanics appear only inside the promote and admin flows.
+Prompts are reusable templates that guide AI agent behavior: the organization's SOP manual for agent-run procedures. The library presents two buckets: **My Prompts** (every prompt you own, whatever its scope — shared-scope prompts carry a scope badge — plus prompts shared with you, each attributed to its sharer) and **Library** (the approved team prompts visible to you). Scope and persona mechanics appear only inside the promote and admin flows.
 
 ![Prompts](../images/screenshots/light/user-prompts-light.webp#only-light)![Prompts](../images/screenshots/dark/user-prompts-dark.webp#only-dark)
 
-The Library bucket groups prompts into **collections**: named groups organized by team, domain, or workflow. Uncollected prompts list under a default General group.
+Both buckets group prompts into **collections**: named groups organized by team, domain, or workflow. Each group heads its table with the collection name, its prompt count, and the collection description beneath. Uncollected prompts list under a default General group. Search results are the exception: they hold their relevance order in one flat list.
 
 ![Prompt library](../images/screenshots/light/user-prompts-library-light.webp#only-light)![Prompt library](../images/screenshots/dark/user-prompts-library-dark.webp#only-dark)
 

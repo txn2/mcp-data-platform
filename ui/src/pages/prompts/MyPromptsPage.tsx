@@ -117,10 +117,10 @@ export function MyPromptsPage({ onNavigate }: Props) {
     );
   }, [rows, facets, usageMap, usageReady, sortBy, sortDir]);
 
-  // Library groups by collection; uncollected prompts land in the trailing
-  // default group. My Prompts stays flat (a collection column instead).
-  const groupedLibrary = useMemo<LibraryGroup[]>(() => {
-    if (isMineTab) return [];
+  // Both buckets group by collection; uncollected prompts land in the trailing
+  // default group. A prompt shared from a collection the caller cannot see
+  // groups as uncollected, since the group header would have no name to carry.
+  const grouped = useMemo<LibraryGroup[]>(() => {
     const groups = new Map<string, Row[]>();
     for (const r of visibleRows) {
       const key = r.prompt.collection_id && collectionById.has(r.prompt.collection_id)
@@ -137,7 +137,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
     const rest = groups.get("");
     if (rest) named.push({ collection: undefined, rows: rest });
     return named;
-  }, [isMineTab, visibleRows, collectionById]);
+  }, [visibleRows, collectionById]);
 
   // Search mode: server-ranked results across personal and Library, plus
   // client-side matches from the shared-with-me list (which the server's
@@ -237,9 +237,8 @@ export function MyPromptsPage({ onNavigate }: Props) {
       <PromptResults
         loading={listLoading}
         searching={searching}
-        isMineTab={isMineTab}
-        rows={searching ? searchRows : visibleRows}
-        groups={groupedLibrary}
+        rows={searchRows}
+        groups={grouped}
         emptyMessage={emptyMessage}
         emptyHint={emptyHint}
         tableProps={tableProps}

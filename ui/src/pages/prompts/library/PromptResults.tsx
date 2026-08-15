@@ -15,13 +15,13 @@ type TableProps = Omit<
 >;
 
 // PromptResults picks the one list the library shows: the skeleton while a
-// query is in flight, the ranked flat table in search mode, the flat owned
-// table on My Prompts, or the Library bucket grouped by collection. Kept apart
-// from the page so the page holds state and this holds the choice.
+// query is in flight, the ranked flat table in search mode, or the browsed
+// bucket grouped by collection. Both buckets group the same way, so a reader
+// moving between the tabs reads one shape. Kept apart from the page so the page
+// holds state and this holds the choice.
 export function PromptResults({
   loading,
   searching,
-  isMineTab,
   rows,
   groups,
   emptyMessage,
@@ -30,10 +30,9 @@ export function PromptResults({
 }: {
   loading: boolean;
   searching: boolean;
-  isMineTab: boolean;
-  // The flat list: search results, or the caller's own prompts.
+  // The flat list: search results, which keep their server rank order.
   rows: Row[];
-  // The Library bucket in browse mode, one entry per collection.
+  // The browsed bucket, one entry per collection.
   groups: LibraryGroup[];
   emptyMessage: string;
   // Shown only when nothing is filtered out — a hint about an empty bucket is
@@ -50,9 +49,9 @@ export function PromptResults({
 
   if (loading) return <ListSkeleton />;
 
-  if (searching || isMineTab) {
+  if (searching) {
     if (rows.length === 0) return empty;
-    return <PromptListTable rows={rows} showCollection sortable={!searching} {...tableProps} />;
+    return <PromptListTable rows={rows} showCollection sortable={false} {...tableProps} />;
   }
 
   if (groups.length === 0) return empty;
@@ -61,17 +60,23 @@ export function PromptResults({
     <div className="space-y-4">
       {groups.map((group) => (
         <div key={group.collection?.id ?? "uncollected"} className="space-y-1.5">
-          <div className="flex items-baseline gap-2 px-1">
-            <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-              <FolderOpen className="size-3.5 text-muted-foreground" />
-              {group.collection?.name ?? "General"}
-            </h3>
+          <div className="px-1">
+            <div className="flex items-baseline gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+                <FolderOpen className="size-3.5 text-muted-foreground" />
+                {group.collection?.name ?? "General"}
+              </h3>
+              <span className="text-xs text-muted-foreground/70">({group.rows.length})</span>
+            </div>
             {group.collection?.description && (
-              <span className="truncate text-xs text-muted-foreground">
+              // The description gets its own line under the name, indented to
+              // the name's text so the folder icon leads the group alone. It
+              // wraps rather than truncating: a collection's stated purpose is
+              // what tells a reader which group a prompt belongs in.
+              <p className="mt-0.5 pl-5 text-xs text-muted-foreground">
                 {markdownToPlainText(group.collection.description)}
-              </span>
+              </p>
             )}
-            <span className="text-xs text-muted-foreground/70">({group.rows.length})</span>
           </div>
           <PromptListTable rows={group.rows} showCollection={false} sortable {...tableProps} />
         </div>
