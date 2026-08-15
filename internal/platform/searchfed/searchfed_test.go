@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
+	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -292,6 +293,50 @@ func TestNew_ResourceStoreProvider(t *testing.T) {
 	var absent resource.Store
 	assert.Nil(t, New(Config{ToolkitName: "default", ResourceStore: absent, Registry: registry.NewRegistry()}),
 		"no resource store and no other source must leave no handle")
+}
+
+// stubScriptStore embeds script.Store (nil) and adds the two reads the scripts
+// provider needs, so it satisfies knowledge.ScriptSearcher.
+type stubScriptStore struct {
+	script.Store
+}
+
+func (stubScriptStore) Search(context.Context, script.SearchQuery) ([]script.ScoredScript, error) {
+	return nil, nil
+}
+
+func (stubScriptStore) Contract(context.Context, string) (*script.Contract, error) {
+	return nil, nil //nolint:nilnil // the searcher's not-found contract
+}
+
+// unrankedScriptStore is a script store with no ranking capability, the shape a
+// non-PostgreSQL implementation has.
+type unrankedScriptStore struct{ script.Store }
+
+// TestNew_ScriptStoreProvider proves managed scripts join the corpus when the
+// store can rank and resolve a contract (#1302), and contribute nothing when it
+// cannot — an always-empty source would answer every query with silence while
+// claiming to cover scripts.
+func TestNew_ScriptStoreProvider(t *testing.T) {
+	h := New(Config{
+		ToolkitName: "default",
+		ScriptStore: stubScriptStore{},
+		Registry:    registry.NewRegistry(),
+	})
+	assert.Contains(t, providerNames(t, h), knowledge.SourceScripts)
+
+	h = New(Config{
+		ToolkitName: "default",
+		ScriptStore: unrankedScriptStore{},
+		MemoryStore: memory.NewNoopStore(), // keeps a provider present so New returns a handle
+		Registry:    registry.NewRegistry(),
+	})
+	assert.NotContains(t, providerNames(t, h), knowledge.SourceScripts,
+		"a script store without ranking must not register the scripts provider")
+
+	var absent script.Store
+	assert.Nil(t, New(Config{ToolkitName: "default", ScriptStore: absent, Registry: registry.NewRegistry()}),
+		"no script store and no other source must leave no handle")
 }
 
 func TestNew_ConnectionsFederationRule(t *testing.T) {

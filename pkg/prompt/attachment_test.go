@@ -21,9 +21,9 @@ func TestAttachmentScopeConstantsMatchResource(t *testing.T) {
 }
 
 func TestCheckAttachScope(t *testing.T) {
-	global := AttachmentScope{ResourceID: "r1", DisplayName: "Brand Header", Scope: "global"}
-	analyst := AttachmentScope{ResourceID: "r2", DisplayName: "Analyst Rubric", Scope: "persona", ScopeID: "analyst"}
-	private := AttachmentScope{ResourceID: "r3", DisplayName: "My Draft", Scope: "user", ScopeID: "sub-1"}
+	global := AttachmentScope{ID: "r1", DisplayName: "Brand Header", Scope: "global"}
+	analyst := AttachmentScope{ID: "r2", DisplayName: "Analyst Rubric", Scope: "persona", ScopeIDs: []string{"analyst"}}
+	private := AttachmentScope{ID: "r3", DisplayName: "My Draft", Scope: "user", ScopeIDs: []string{"sub-1"}}
 
 	tests := []struct {
 		name     string
@@ -48,7 +48,7 @@ func TestCheckAttachScope(t *testing.T) {
 		{"private resource on persona prompt", ScopePersona, []string{"analyst"}, private, true},
 		{"private resource on global prompt", ScopeGlobal, nil, private, true},
 
-		{"unknown resource scope is refused", ScopePersonal, nil, AttachmentScope{ResourceID: "r4", Scope: "team"}, true},
+		{"unknown resource scope is refused", ScopePersonal, nil, AttachmentScope{ID: "r4", Scope: "team"}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -69,7 +69,7 @@ func TestCheckAttachScope(t *testing.T) {
 // leave an author with several attachments guessing.
 func TestCheckAttachScopeErrorNamesResource(t *testing.T) {
 	err := CheckAttachScope(ScopeGlobal, nil, AttachmentScope{
-		ResourceID: "r9", DisplayName: "Q4 Template", Scope: "persona", ScopeID: "analyst",
+		ID: "r9", DisplayName: "Q4 Template", Scope: "persona", ScopeIDs: []string{"analyst"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Q4 Template")
@@ -79,13 +79,13 @@ func TestCheckAttachScopeErrorNamesResource(t *testing.T) {
 // TestCheckAttachScopeErrorFallsBackToID covers a resource saved without a
 // display name: the message must still identify it.
 func TestCheckAttachScopeErrorFallsBackToID(t *testing.T) {
-	err := CheckAttachScope(ScopeGlobal, nil, AttachmentScope{ResourceID: "res_abc", Scope: "user", ScopeID: "sub-1"})
+	err := CheckAttachScope(ScopeGlobal, nil, AttachmentScope{ID: "res_abc", Scope: "user", ScopeIDs: []string{"sub-1"}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "res_abc")
 }
 
 func TestCheckAttachOwnership(t *testing.T) {
-	private := AttachmentScope{ResourceID: "r1", DisplayName: "My Draft", Scope: "user", ScopeID: "sub-1"}
+	private := AttachmentScope{ID: "r1", DisplayName: "My Draft", Scope: "user", ScopeIDs: []string{"sub-1"}}
 
 	t.Run("owner attaching their own private resource to their own prompt", func(t *testing.T) {
 		assert.NoError(t, CheckAttachOwnership("sub-1", "me@example.com", "me@example.com", private))
@@ -121,17 +121,17 @@ func TestCheckAttachOwnership(t *testing.T) {
 		// An admin can scope a resource to a user by email before that user has
 		// ever signed in; resource.VisibleScopes makes it readable by them, so
 		// this check must agree or the author could read it but not attach it.
-		byEmail := AttachmentScope{ResourceID: "r2", Scope: "user", ScopeID: "Me@Example.com"}
+		byEmail := AttachmentScope{ID: "r2", Scope: "user", ScopeIDs: []string{"Me@Example.com"}}
 		assert.NoError(t, CheckAttachOwnership("sub-1", "me@example.com", "me@example.com", byEmail))
 	})
 
 	t.Run("an empty scope id belongs to nobody", func(t *testing.T) {
-		orphan := AttachmentScope{ResourceID: "r3", Scope: "user"}
+		orphan := AttachmentScope{ID: "r3", Scope: "user"}
 		require.Error(t, CheckAttachOwnership("sub-1", "me@example.com", "me@example.com", orphan))
 	})
 
 	t.Run("non-user scopes are not this check's business", func(t *testing.T) {
-		global := AttachmentScope{ResourceID: "r2", Scope: "global"}
+		global := AttachmentScope{ID: "r2", Scope: "global"}
 		assert.NoError(t, CheckAttachOwnership("", "", "", global))
 	})
 }
@@ -141,8 +141,8 @@ func TestCheckAttachOwnership(t *testing.T) {
 // names itself.
 func TestCheckPromotionAttachments(t *testing.T) {
 	attached := []AttachmentScope{
-		{ResourceID: "r1", DisplayName: "Brand Header", Scope: "global"},
-		{ResourceID: "r2", DisplayName: "Private Draft", Scope: "user", ScopeID: "sub-1"},
+		{ID: "r1", DisplayName: "Brand Header", Scope: "global"},
+		{ID: "r2", DisplayName: "Private Draft", Scope: "user", ScopeIDs: []string{"sub-1"}},
 	}
 
 	t.Run("staying personal is fine", func(t *testing.T) {

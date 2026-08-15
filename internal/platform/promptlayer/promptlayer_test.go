@@ -296,6 +296,14 @@ func newTestCollectionHandle() (*Handle, *mockCollectionStore) {
 	return h, store
 }
 
+// testCommandNames returns the command set the tool dispatches, which is what
+// the schema advertises: deriving it here too keeps a schema assertion honest
+// about the commands the layer actually handles.
+func testCommandNames() []string {
+	h, _ := newTestHandle()
+	return h.commandNames()
+}
+
 func adminCtx() context.Context {
 	pc := middleware.NewPlatformContext("")
 	pc.PersonaName = "admin"

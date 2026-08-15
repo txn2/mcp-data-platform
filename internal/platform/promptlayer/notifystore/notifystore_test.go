@@ -219,4 +219,28 @@ func TestWrap_CapabilityAccessors(t *testing.T) {
 	s := Wrap(newFakeStore(), func() {}, nil)
 	assert.Nil(t, prompt.AsCollectionStore(s))
 	assert.Nil(t, prompt.AsAttachmentStore(s))
+	assert.Nil(t, prompt.AsScriptAttachmentStore(s))
+}
+
+// scriptLinkingStore is a base store that also persists prompt-to-script
+// references.
+type scriptLinkingStore struct {
+	*fakeStore
+}
+
+func (scriptLinkingStore) AttachScript(context.Context, prompt.ScriptAttachment) error { return nil }
+func (scriptLinkingStore) DetachScript(context.Context, string, string) error          { return nil }
+func (scriptLinkingStore) ListScriptsByPrompt(context.Context, string) ([]prompt.ScriptAttachment, error) {
+	return nil, nil
+}
+
+// TestWrap_ScriptAttachmentPassthrough proves the wrapper does not hide the
+// prompt-to-script reference capability (#1289). The composition root resolves
+// it from the WRAPPED store, so a missing passthrough would leave every prompt
+// serving with no automations, silently and with nothing to say why.
+func TestWrap_ScriptAttachmentPassthrough(t *testing.T) {
+	base := scriptLinkingStore{fakeStore: newFakeStore()}
+
+	assert.NotNil(t, prompt.AsScriptAttachmentStore(Wrap(base, func() {}, nil)),
+		"the capability must survive the notifying wrapper")
 }

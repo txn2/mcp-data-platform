@@ -40,8 +40,8 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | S3 | `s3_put_object` | Upload object (if not read-only) |
 | S3 | `s3_delete_object` | Delete object (if not read-only) |
 | S3 | `s3_copy_object` | Copy object (if not read-only) |
-| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across the catalog, context documents, knowledge pages, memory, insights, feedback, assets, prompts, API endpoints, and connections |
-| Knowledge | `fetch` | Read a search result in full: dereferences any reference search emits (knowledge page, context document, dataset, asset, prompt, connection) to its complete content, under the same per-user scope |
+| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across the catalog, context documents, knowledge pages, memory, insights, feedback, assets, prompts, managed scripts, API endpoints, and connections |
+| Knowledge | `fetch` | Read a search result in full: dereferences any reference search emits (knowledge page, context document, dataset, asset, prompt, managed script, connection) to its complete content, under the same per-user scope |
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
@@ -49,7 +49,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, and edit asset content in place (patch, locate, get_content, outline, stats, diff) |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
-| Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, and the content verbs (patch, locate, get_content, outline, stats, diff) |
+| Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, the script-reference commands (attach_script, detach_script), and the content verbs (patch, locate, get_content, outline, stats, diff) |
 | Platform | `show_prompts` | Render the prompt library as an interactive browser for the human (presentation-only; call only when the user wants to see their prompts) |
 | Platform | `manage_script` | Author, validate, and dry-run managed scripts: small governed Starlark programs for a process whose logic is settled and will repeat |
 
@@ -589,16 +589,16 @@ domains), context documents, canonical knowledge pages (the internal-knowledge h
 business/domain ontology, searched over their full markdown content), the caller's
 personal memory, captured insights, the caller's feedback threads, saved assets,
 managed resources (human-uploaded reference material, searched over their metadata
-**and their extracted file content**), prompts, API endpoints (aggregated across
+**and their extracted file content**), prompts, managed scripts, API endpoints (aggregated across
 every API gateway connection, reusing
 the per-connection semantic ranking of `api_list_endpoints`), and connections. Memory, insights, and
 assets are per-user, scoped server-side to the caller, so a search never surfaces
 another user's private records; the catalog, the governance vocabulary, knowledge
-pages, prompts, endpoints
+pages, prompts, scripts, endpoints
 (each gateway applies its own route policy), and connections are shared. Resources
-are visibility-scoped: global material reaches every caller, persona material only
-its members, and user material only its owner, exactly as `resources/list` computes
-it. Persona visibility is **membership** (derived from the caller's roles), not the
+and scripts are visibility-scoped: global material reaches every caller, persona
+material only its members, and user (personal) material only its owner, exactly as
+`resources/list` and the script listing compute it. Persona visibility is **membership** (derived from the caller's roles), not the
 persona the request resolved to — resolution falls back to the configured default
 persona for a caller whose roles match none, and that fallback must not hand them
 the default persona's material.
@@ -762,6 +762,7 @@ routing each well-formed reference by its form to the owning source:
 | `mcp:asset:<id>` | assets | the asset's metadata record (blob bytes stay in S3, reached with `s3_get_object`/`s3_presign_url`) |
 | `mcp:resource:<id>` | resources | the resource's metadata record, plus its contents inline for a text resource at or under 1 MB; a binary or oversized one returns metadata with its canonical `mcp://` URI, MIME type, and size |
 | `mcp:prompt:<id>` | prompts | the full prompt |
+| `mcp:script:<id>` | scripts | the managed script's contract: name, description, owner, typed parameters, approval state, schedule, and the last successful run with what it produced. Never the source code (fetch-only, not citable on a page) |
 | `mcp:connection:(kind,name)` | connections | the connection descriptor |
 | `mcp:insight:<id>` | insights | the full captured insight (scoped to the caller; fetch-only, not citable on a page) |
 | `mcp:memory:<id>` | memory | the full personal memory record (scoped to the caller; fetch-only, not citable on a page) |
@@ -787,7 +788,7 @@ labels carry.
 **Scope mirrors `search` exactly:** the per-user sources (assets, your memory, your
 insights) are read only for the identity that owns the record, a
 persona/personal-scoped prompt only for the matching caller, and a managed resource
-only for a caller whose visible scopes include it, so `fetch` never
+or managed script only for a caller whose visible scopes include it, so `fetch` never
 returns content the same caller could not have
 found with `search`. The connection boundary applies here too: a dataset URN or
 connection reference belonging to a connection the caller's persona is not granted
@@ -1286,6 +1287,12 @@ The rule is enforced when the attachment is made and again when the prompt chang
 
 Authors manage attachments from the prompt viewer in the portal, and the resource detail view lists the prompts that attach a resource, so the cost of deleting it is visible first.
 
+**Referenced scripts.** A prompt can also reference the [managed scripts](#manage_script) its procedure depends on: the report the analysis reads, the export it compares against. `attach_script` adds one and `detach_script` removes it; both take `script`, either the `mcp:script:<id>` reference `search` and `fetch` return or a bare script id from `manage_script`. Referencing is an edit to the prompt and takes the same authority every other prompt mutation does.
+
+Serving a prompt delivers each referenced script's **contract** — what it is, what parameters it takes, whether a version is approved, its schedule, and the last successful run with what that run produced — plus the instruction to call `run_script` for fresh output. `use` also lists them in a `scripts` array. Serving never executes a script: a prompt read is a read path, and running code from it would blur audit attribution and turn every read into a potential asset write. The contract never carries the script's source; reading the code is what `manage_script` get is for.
+
+The same visibility rule attachments follow applies, over the script's own scope (`global`, `persona`, `personal`), so a shared procedure never arrives naming an automation most of its audience cannot see. It is enforced at attach time, again when the prompt changes scope or requests promotion, and a third time at serve time against the reader: a caller who cannot see a referenced script receives the prompt with a note that part of its automation was unavailable, never the script's name or parameters. Deleting a referenced script does not break the prompt; it still serves, and the payload reports the reference as no longer existing.
+
 **Prompt browser app.** In MCP Apps-capable hosts, the built-in `prompt-browser` app is bound to the `show_prompts` tool. `show_prompts` is presentation-only: its only job is to render the interactive library browser (search, facets, argument forms, a Run action) for the human, so an agent calls it only when the user wants to see their prompts. `manage_prompt` carries no app and renders nothing, so the agent's own prompt work (resolve, run, create, edit) never puts a UI in front of the user. The rendered app populates itself from its own `manage_prompt` calls. See [MCP Apps: Overview](../mcpapps/overview.md#built-in-app-prompt-browser). `manage_prompt`'s JSON results are complete on their own in clients that do not render apps.
 
 ### manage_script
@@ -1313,6 +1320,8 @@ Authors manage attachments from the prompt viewer in the portal, and the resourc
 **Determinism, precisely.** Same script version + same parameters + same underlying data produce the same output. That is reproducibility, not "identical forever" — the warehouse changes between runs, and that is the point of re-running. There is deliberately no `now()` and no `today()`: the fire time is pinned on `run.fire_time` when the run is created, so a daily report recomputes "yesterday" identically when it is re-run months later to explain what it said. A script error is deterministic and is never retried.
 
 **Scheduling.** `schedule_set` gives an approved script a cadence: a cron expression (`0 7 * * 1-5`) or a descriptor (`@daily`), the IANA timezone it is read in, and the parameter values every fire binds. A script has at most one schedule, and setting one again replaces it. Bound values may contain `${fire_date}`, which expands at each fire to that fire's date in the schedule's timezone and is written onto the run — which is what lets a scheduled run be re-read months later and explain itself. The schedule confers no authority: it decides when the approved version runs, never what it may reach. A fire arriving while the previous run is still going is skipped and recorded, a gap in service produces one run for the latest fire rather than a burst, and a failed scheduled run emails the script's owner and its approving administrator. Full behavior in [Running Managed Scripts](../scripts/running.md#running-one-on-a-schedule).
+
+**Discoverable, and addressable.** A script is reachable the way every other platform entity is: it has an `mcp:script:<id>` reference, `search` finds it by name, description, and parameter contract, and `fetch` dereferences that reference to its contract — what it is, what it takes, whether a version is approved, its cadence, and the last successful run with what that run produced. The reference resolves by id, so renaming a script never breaks one that is stored. What a script is FOR is answered by that contract; the source stays behind `get` and the review surface, because reading code is a reviewer's job rather than a caller's. Discovery grants nothing: finding a script says it exists and what it takes, while running it is still `run_script` under the execution gate. Search shows a caller exactly the set `list` would — global scripts, their persona's, and their own — and skips dead ends (disabled, deprecated, superseded), though a reference to one still resolves and says plainly that it will not run.
 
 **Governance.** Every mutation snapshots an immutable version with its author. `scripts.approved_version_id` is the execution gate: the platform executes only an approved version, and until a version is approved `run_draft` is the only way a script runs at all. Once a script has an approved version, editing its source or parameter contract lands as a pending draft (`update` returns `status: "pending_approval"`) and the approved version keeps running; a gated edit cannot be combined with scope, status, or other non-versioned changes in one call. Non-admins manage their own personal scripts; admins manage every scope. The security model is documented in full in [Managed Scripts: Security Model](../scripts/security.md).
 

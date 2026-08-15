@@ -247,6 +247,34 @@ func RefuseRun(sc *Script, v *Version, run *Run) error {
 	return nil
 }
 
+// RefuseNewRun reports why a run requested right now would be refused, or nil
+// when one would be admitted. approved is the script's approved version, nil
+// when it has none.
+//
+// It answers the question a discovery surface has to answer — "if I call
+// run_script on this, will anything happen?" — and it answers it by asking the
+// gate itself against the run such a request would create, rather than by
+// re-deriving the gate's rules. A caller is therefore never told a script is
+// runnable that run_script would then decline.
+func RefuseNewRun(sc *Script, approved *Version) error {
+	if sc == nil {
+		return errors.New("the script does not exist")
+	}
+	if sc.Executable() && (approved == nil || approved.ID != sc.ApprovedVersionID) {
+		// The live row points at an approved version the caller did not read, or
+		// read a different one. Reporting it as runnable either way would promise
+		// execution against a version nothing here has seen.
+		return errors.New("the approved version of this script could not be read")
+	}
+	// The run is the one a fresh request would create: the approved version, at
+	// the version number that version carries.
+	run := &Run{VersionID: sc.ApprovedVersionID}
+	if approved != nil {
+		run.Version = approved.Version
+	}
+	return RefuseRun(sc, approved, run)
+}
+
 // RunFilter selects runs for a history listing.
 type RunFilter struct {
 	// ScriptID scopes the listing to one script; empty lists across scripts.

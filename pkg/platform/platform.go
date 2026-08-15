@@ -45,6 +45,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/searchfed"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
@@ -1664,6 +1665,7 @@ func (p *Platform) initSearch() error {
 		ResourceBlobs:      p.resources.S3Client(),
 		ResourceBucket:     p.config.Resources.Managed.S3Bucket,
 		ResourceReads:      p.resources.ReadRecorder(),
+		ScriptStore:        scriptstore.NewDiscoveryStore(p.db),
 		VerifiableInsights: p.config.Knowledge.IsVerifiableInsightsEnabled(),
 		QueryProvider:      p.queryProvider,
 		PersonasForRoles:   iam.PersonasForRoles(p.personaRegistry),
@@ -2244,6 +2246,14 @@ func (p *Platform) bindPromptCollaborators() {
 		Resources:   p.ResourceStore(),
 		Blobs:       p.ResourceS3Client(),
 		Bucket:      p.config.Resources.Managed.S3Bucket,
+	}))
+	// Prompt-to-script references (#1289). Nil on a deployment with no database
+	// (no scripts to reference) or no attachment-capable prompt store, which
+	// serves every prompt exactly as before.
+	scriptReader, _ := scriptstore.NewDiscoveryStore(p.db).(attachserve.ScriptReader)
+	p.prompts.SetScriptResolver(attachserve.NewScripts(attachserve.ScriptDeps{
+		Attachments: prompt.AsScriptAttachmentStore(p.PromptStore()),
+		Scripts:     scriptReader,
 	}))
 }
 

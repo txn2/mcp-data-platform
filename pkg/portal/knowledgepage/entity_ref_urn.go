@@ -42,6 +42,8 @@ func (r EntityRef) URN() string {
 		return mcpScheme + RefTargetMemory + refKeySep + r.MemoryID
 	case RefTargetResource:
 		return mcpScheme + RefTargetResource + refKeySep + r.ResourceID
+	case RefTargetScript:
+		return mcpScheme + RefTargetScript + refKeySep + r.ScriptID
 	default:
 		return ""
 	}
@@ -74,24 +76,33 @@ func ParseEntityRef(s string) (EntityRef, error) {
 // ParseCitableRef parses a reference for attachment to a knowledge page. It is
 // ParseEntityRef plus the page-citation policy: a reference type that is fetchable
 // but not citable on a shared page is rejected here, even though it parses and
-// dereferences. Today those are the per-user sources, personal memory
-// (mcp:memory:<id>) and captured insights (mcp:insight:<id>): both are ScopePerUser,
-// so a citation embedded in a shared page would resolve only for its owner and be a
-// broken citation for everyone else (#699). An insight that is promoted to the
-// catalog via apply_knowledge becomes a shared DataHub entity, which IS citable as
-// its urn:li:... form. Use this on the page-authoring paths (apply_knowledge
-// references, the REST picker, the inline body scan); fetch keeps using
-// ParseEntityRef so both forms remain fetchable by their owner.
+// dereferences. Two groups are refused, for the same underlying reason — the
+// reference reaches a narrower audience than the page carrying it, so the citation
+// would be broken for most of its readers:
+//
+//   - the per-user sources, personal memory (mcp:memory:<id>) and captured insights
+//     (mcp:insight:<id>), which are ScopePerUser and resolve only for their owner
+//     (#699). An insight promoted to the catalog via apply_knowledge becomes a
+//     shared DataHub entity, which IS citable as its urn:li:... form.
+//   - the visibility-scoped sources, managed resources (mcp:resource:<id>, #1012)
+//     and managed scripts (mcp:script:<id>, #1302), whose global/persona/personal
+//     scope reaches fewer readers than a shared page does.
+//
+// Use this on the page-authoring paths (apply_knowledge references, the REST
+// picker, the inline body scan); fetch keeps using ParseEntityRef so every form
+// remains fetchable by a caller its own scope reaches.
 func ParseCitableRef(s string) (EntityRef, error) {
 	ref, err := ParseEntityRef(s)
 	if err != nil {
 		return EntityRef{}, err
 	}
-	if ref.TargetType == RefTargetMemory || ref.TargetType == RefTargetInsight {
+	switch ref.TargetType {
+	case RefTargetMemory, RefTargetInsight:
 		return EntityRef{}, fmt.Errorf("a personal %s reference (%q) cannot be cited on a knowledge page: it is private to its owner, so the citation would resolve for no one else; promote the insight to the catalog and cite the resulting urn:li:... entity, or cite a shared entity instead", ref.TargetType, s)
-	}
-	if ref.TargetType == RefTargetResource {
+	case RefTargetResource:
 		return EntityRef{}, fmt.Errorf("a managed resource reference (%q) cannot be cited on a knowledge page: a resource is visibility-scoped (global, persona, or user), so the citation would be broken for every reader outside that scope; link to the resource from the page body, or describe its content on the page instead", s)
+	case RefTargetScript:
+		return EntityRef{}, fmt.Errorf("a managed script reference (%q) cannot be cited on a knowledge page: a script is visibility-scoped (global, persona, or personal), so the citation would be broken for every reader outside that scope; attach the script to a prompt, or describe what it produces on the page instead", s)
 	}
 	return ref, nil
 }
@@ -141,6 +152,12 @@ func parseSimpleMCPRef(typ, id, s string) (EntityRef, error) {
 		// Resource ids are opaque server-generated strings, accepted as-is; the
 		// scope-checked fetch resolves them and reports a stale id as not-found.
 		return EntityRef{TargetType: RefTargetResource, ResourceID: id}, nil
+	case RefTargetScript:
+		// Script ids are opaque server-generated strings ("script_<uuid>"), accepted
+		// as-is; the visibility-checked fetch resolves them and reports a stale id as
+		// not-found. Resolution is by id and never by name, so renaming a script
+		// leaves every stored reference to it intact.
+		return EntityRef{TargetType: RefTargetScript, ScriptID: id}, nil
 	default:
 		return EntityRef{}, fmt.Errorf("unknown internal reference type %q in %q", typ, s)
 	}

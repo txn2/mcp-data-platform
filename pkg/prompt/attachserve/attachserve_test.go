@@ -405,7 +405,7 @@ func TestScopesProjectsResourceVisibility(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "persona", got[0].Scope)
-	assert.Equal(t, "analyst", got[0].ScopeID)
+	assert.Equal(t, []string{"analyst"}, got[0].ScopeIDs)
 	assert.Equal(t, "Analyst Rubric", got[0].DisplayName)
 }
 

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/promptschema"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -313,7 +315,7 @@ func TestManagePromptContentCommandsRespectVisibility(t *testing.T) {
 }
 
 func TestManagePromptSchemaAdvertisesTheSharedGrammar(t *testing.T) {
-	schema, ok := managePromptSchema().(map[string]any)
+	schema, ok := promptschema.ManagePrompt(testCommandNames()).(map[string]any)
 	require.True(t, ok)
 	props, ok := schema["properties"].(map[string]any)
 	require.True(t, ok)
