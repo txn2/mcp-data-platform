@@ -206,14 +206,51 @@ type Script struct {
 // but unreadable or the reverse. Admin authority is applied by the caller, not
 // here: this answers only what the scope rules say.
 func (s *Script) VisibleTo(email, persona string) bool {
-	switch s.Scope {
+	return scopeVisible(s.Scope, s.Personas, s.OwnerEmail, email, persona)
+}
+
+// VisibleToAny reports whether a caller who BELONGS TO any of personas may see
+// this script. It is the discovery arity of the same rule: a listing scopes on
+// the single persona a request resolved to act as, while search and fetch scope
+// on the caller's whole membership set, which is an entitlement they hold
+// rather than a property of one request. An empty set means "belongs to no
+// persona", so persona-scoped scripts are invisible — the fail-closed answer.
+func (s *Script) VisibleToAny(email string, personas []string) bool {
+	return scopeVisibleToAny(s.Scope, s.Personas, s.OwnerEmail, email, personas)
+}
+
+// scopeVisible is the one definition of script visibility, over the three
+// fields that carry it. Every surface answers through it — the record, the
+// contract document, and the store predicate — so a script can never be
+// listable but unreadable, or findable but unfetchable.
+func scopeVisible(scope string, scriptPersonas []string, ownerEmail, email, persona string) bool {
+	switch scope {
 	case ScopeGlobal:
 		return true
 	case ScopePersona:
-		return persona != "" && slices.Contains(s.Personas, persona)
+		return persona != "" && slices.Contains(scriptPersonas, persona)
 	default:
-		return s.OwnerEmail == email
+		// Both sides must be identified. A script whose owner is empty — one
+		// authored by a principal carrying no email, such as an API key — would
+		// otherwise match a caller who is equally unidentified, and a personal
+		// script would be readable by anyone holding its id. The store's list
+		// and search predicates require the same, so a caller can never fetch
+		// what a listing would have hidden.
+		return ownerEmail != "" && ownerEmail == email
 	}
+}
+
+// scopeVisibleToAny applies scopeVisible across a persona membership set.
+func scopeVisibleToAny(scope string, scriptPersonas []string, ownerEmail, email string, personas []string) bool {
+	if scope != ScopePersona {
+		return scopeVisible(scope, scriptPersonas, ownerEmail, email, "")
+	}
+	for _, p := range personas {
+		if scopeVisible(scope, scriptPersonas, ownerEmail, email, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // Validate checks the whole record: name, scope, source, parameter contract,

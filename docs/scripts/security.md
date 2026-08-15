@@ -102,6 +102,21 @@ What approved execution DOES add, and what this document does not minimize:
   script is runnable by everyone who can see it, and scope is part of what a
   reviewer approves.
 
+  Because visibility is the control, widening WHERE a script can be seen is a
+  security-relevant change even when it grants nothing. A script is reachable
+  from `search` and `fetch` (`mcp:script:<id>`), and from a prompt that
+  references it, in addition to `manage_script list`. Each of those surfaces
+  applies the script's own scope rule as a store predicate rather than a filter
+  over the answer, so a caller sees exactly the set `manage_script list` would
+  show them and nothing more: a personal script belonging to somebody else has
+  neither a hit, nor a fetchable document, nor a resolvable reference from a
+  prompt. Discovery reports; it grants nothing. Finding a script says it exists
+  and what it takes, and running it is still `run_script` under the execution
+  gate and the grant its approval bound. What the surfaces return is the
+  script's contract — name, description, owner, typed parameters, approval
+  state, cadence, last successful run — never its source, which stays behind
+  `manage_script get` and the review surface.
+
 `middleware.SourceScript` is a label on a call, not a capability. It records how
 the call arrived so audit can separate populations, and it selects three
 behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
@@ -777,7 +792,9 @@ retrying only multiplies the cost).
   add a second gate that saves a persona misconfiguration.
 - **Running a script is not restricted separately from seeing it.** Anyone who
   can see a script can run it, and it runs with its own authority. Scope is the
-  control, and it is part of what a reviewer approves.
+  control, and it is part of what a reviewer approves. This is why a surface
+  that widens who can SEE a script is reviewed as a security change even though
+  it confers no new capability.
 - **No content sanitization of outputs.** A run writes what the script produced;
   nothing inspects it for sensitive values before it becomes an asset or an
   object delivered to a bucket.
@@ -864,6 +881,6 @@ retrying only multiplies the cost).
 This document is revised in the same change as the code, not afterwards. Any
 change that adds a host function, changes a limit, changes what identity a run
 carries, adds an execution path, changes the grant model, changes where output
-may go, or changes the approval model must update the corresponding section
-here. A change to the managed-scripts surface
+may go, changes who can see a script or through which surface, or changes the
+approval model must update the corresponding section here. A change to the managed-scripts surface
 that leaves this document untouched is incomplete.

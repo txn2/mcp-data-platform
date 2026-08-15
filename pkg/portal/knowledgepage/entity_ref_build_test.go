@@ -1,6 +1,11 @@
 package knowledgepage
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestReferenceBuilders_RoundTrip(t *testing.T) {
 	const promptUUID = "11111111-1111-1111-1111-111111111111"
@@ -51,4 +56,18 @@ func TestReferenceBuilders_EmptyForUnresolvable(t *testing.T) {
 			t.Errorf("%s: expected empty reference, got %q", name, got)
 		}
 	}
+}
+
+// TestScriptRef proves the one minter of a script reference: it round-trips
+// through the parser, and refuses to emit anything for an empty id rather than
+// producing a reference that resolves to nothing.
+func TestScriptRef(t *testing.T) {
+	ref := ScriptRef("script_01HK7")
+	assert.Equal(t, "mcp:script:script_01HK7", ref)
+
+	parsed, err := ParseEntityRef(ref)
+	require.NoError(t, err)
+	assert.Equal(t, "script_01HK7", parsed.ScriptID)
+
+	assert.Empty(t, ScriptRef(""), "an empty id has no reference")
 }

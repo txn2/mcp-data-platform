@@ -3,6 +3,8 @@ package promptlayer
 import (
 	"context"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/promptschema"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -75,12 +77,12 @@ func (*Handle) handleShowPrompts(_ context.Context, input showPromptsInput) (*mc
 // showPromptsSchema returns the JSON schema for show_prompts.
 func showPromptsSchema() any {
 	return map[string]any{
-		schemaKeyType:          "object",
+		promptschema.KeyType:   "object",
 		"additionalProperties": false,
 		"properties": map[string]any{
 			"search": map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyDescription: "Optional term to pre-focus the library on matching prompts.",
+				promptschema.KeyType:        promptschema.ValString,
+				promptschema.KeyDescription: "Optional term to pre-focus the library on matching prompts.",
 			},
 		},
 	}

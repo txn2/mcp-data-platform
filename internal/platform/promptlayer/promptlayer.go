@@ -33,6 +33,7 @@ import (
 	"sync"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/promptindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/attachbind"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/notifystore"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
@@ -123,12 +124,13 @@ type Handle struct {
 	embedder   embedding.Provider
 	shareStore ShareLister
 
-	// attachments resolves a prompt's attached reference material for the
-	// caller (#1013). Bound after construction because it needs the resource
-	// store and blob backend, which are assembled later; nil serves every
-	// prompt without materials, which is exactly the behavior a deployment
-	// with managed resources disabled should get.
-	attachments *attachserve.Resolver
+	// attach binds a prompt's attached reference material (#1013) and its
+	// referenced managed scripts (#1289) into the serving surfaces. Each
+	// resolver is bound after construction because both are assembled later
+	// than this layer; an unbound one serves every prompt without that kind of
+	// material, which is what a deployment with managed resources or managed
+	// scripts absent should get.
+	attach *attachbind.Binder
 
 	// auditLogger receives prompt_serve audit events on every successful
 	// database-prompt serve (prompts/get, manage_prompt use); usage reads the
@@ -160,6 +162,7 @@ type Handle struct {
 // directory; the caller starts it with LoadPrompts.
 func New(cfg Config) *Handle {
 	h := &Handle{
+		attach:            attachbind.New(),
 		promptManager:     tuning.NewPromptManager(tuning.PromptConfig{PromptsDir: cfg.PromptsDir}),
 		registry:          cfg.Registry,
 		serverName:        cfg.ServerName,
@@ -188,7 +191,7 @@ func New(cfg Config) *Handle {
 		// (search, versioning), so version writes that change what is served
 		// fire list_changed like every other write; the notifier is bound
 		// later via SetListChangedNotifier.
-		h.store = notifystore.Wrap(base, h.notifyListChanged, h.guardAttachmentScope)
+		h.store = notifystore.Wrap(base, h.notifyListChanged, h.attach.GuardScope)
 	}
 	return h
 }
@@ -197,7 +200,14 @@ func New(cfg Config) *Handle {
 // resource links into served material. Called once the managed-resource layer
 // is assembled; nil (or never calling this) serves prompts without attachments.
 func (h *Handle) SetAttachmentResolver(r *attachserve.Resolver) {
-	h.attachments = r
+	h.attach.SetResources(r)
+}
+
+// SetScriptResolver binds the resolver that turns a prompt's referenced
+// managed scripts into served contracts. Called once the script store is
+// available; nil (or never calling this) serves prompts without them.
+func (h *Handle) SetScriptResolver(r *attachserve.ScriptResolver) {
+	h.attach.SetScripts(r)
 }
 
 // SetAuditLogger binds the audit logger that receives prompt_serve events.

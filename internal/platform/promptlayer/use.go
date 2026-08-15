@@ -69,7 +69,7 @@ func (h *Handle) servePromptUse(ctx context.Context, pr *prompt.Prompt, args map
 	h.auditPromptServe(ctx, pr, serveSurfaceUse, resolveEmail(ctx))
 	// The tool path has no resolved persona list of its own; PlatformContext's
 	// single persona is the caller's identity there.
-	return promptUseResult(pr, args, h.resolveAttachments(ctx, pr, nil))
+	return promptUseResult(pr, args, h.attach.ResolveResources(ctx, pr, nil), h.attach.ResolveScripts(ctx, pr, nil))
 }
 
 // canViewPrompt applies the same visibility rule as manage_prompt get: global
@@ -340,16 +340,21 @@ func promptProvenance(pr *prompt.Prompt) map[string]any {
 
 // promptUseResult renders a resolved prompt: content with the supplied argument
 // values substituted, the argument specs, provenance, any required arguments
-// still missing, and the prompt's attached reference material (#1013).
+// still missing, the prompt's attached reference material (#1013), and the
+// managed scripts it references (#1289).
 //
-// Attachments appear twice by design. The JSON "attachments" list is the
+// Both kinds of material appear twice by design. The JSON "attachments" list is the
 // provenance record, so the agent can state what materials it received and
 // which were withheld. The trailing MCP content items are the materials
 // themselves in protocol form — an embedded resource for inlined text, a
 // resource_link for anything binary or oversized — so a client that understands
 // resource content handles them natively instead of parsing them out of a JSON
-// string.
-func promptUseResult(pr *prompt.Prompt, args map[string]string, attached []attachserve.Resolved) (*mcp.CallToolResult, any, error) {
+// string. Referenced scripts follow the same shape: the JSON "scripts" list is
+// the provenance record, and the trailing content block carries each script's
+// contract with the instruction to run it.
+func promptUseResult(pr *prompt.Prompt, args map[string]string,
+	attached []attachserve.Resolved, scripts []attachserve.ResolvedScript,
+) (*mcp.CallToolResult, any, error) {
 	resp := map[string]any{
 		fieldStatus:  "resolved",
 		"prompt":     promptProvenance(pr),
@@ -362,11 +367,15 @@ func promptUseResult(pr *prompt.Prompt, args map[string]string, attached []attac
 	if summary := attachserve.Summary(attached); len(summary) > 0 {
 		resp["attachments"] = summary
 	}
+	if summary := attachserve.ScriptSummary(scripts); len(summary) > 0 {
+		resp["scripts"] = summary
+	}
 	res, out, err := promptJSONResult(resp)
 	if err != nil || res == nil || res.IsError {
 		return res, out, err
 	}
 	res.Content = append(res.Content, attachserve.Content(attached)...)
+	res.Content = append(res.Content, attachserve.ScriptContent(scripts)...)
 	return res, out, err
 }
 

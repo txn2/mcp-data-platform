@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/promptschema"
 )
 
 // promptSchemaShape reports a schema's top-level property names and whether it
@@ -53,7 +55,7 @@ func TestPromptSchemas_ClosedAndInSyncWithInputStructs(t *testing.T) {
 		schema any
 		input  any
 	}{
-		{ToolNameManagePrompt, managePromptSchema(), managePromptInput{}},
+		{ToolNameManagePrompt, promptschema.ManagePrompt(testCommandNames()), managePromptInput{}},
 		{ToolNameShowPrompts, showPromptsSchema(), showPromptsInput{}},
 	}
 	for _, tc := range cases {

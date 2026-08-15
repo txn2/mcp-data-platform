@@ -47,6 +47,14 @@ const (
 	// resolve only for its owner and be a broken citation for everyone else (#699).
 	// It has no DB column and is rejected by the page-citation path (ParseCitableRef).
 	RefTargetMemory = "memory"
+	// RefTargetScript is a managed script (#1302). It resolves by id rather than by
+	// name so renaming a script cannot break a stored reference. It is fetchable by
+	// anyone the script's visibility rule reaches, and it is what a prompt stores to
+	// attach one (#1289), but it is NOT citable on a shared knowledge page: a script
+	// is visibility-scoped (global, persona, or personal), so the citation would be
+	// broken for every reader outside that scope. The page-citation path rejects it
+	// (ParseCitableRef).
+	RefTargetScript = "script"
 )
 
 // Entity-reference sources, recording how a reference came to be so the inline
@@ -78,10 +86,14 @@ type EntityRef struct {
 	// ResourceID is set only by the parser for an mcp:resource: reference
 	// (fetch-only); it is never persisted, since a managed resource is not citable
 	// on a page (#1012).
-	ResourceID string    `json:"resource_id,omitempty"`
-	Source     string    `json:"source,omitempty"`
-	CreatedBy  string    `json:"created_by,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	ResourceID string `json:"resource_id,omitempty"`
+	// ScriptID is set only by the parser for an mcp:script: reference (#1302). Like
+	// the memory and resource ids it is never persisted on a page, since a managed
+	// script is not citable there; a prompt stores the serialized reference instead.
+	ScriptID  string    `json:"script_id,omitempty"`
+	Source    string    `json:"source,omitempty"`
+	CreatedBy string    `json:"created_by,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // refKeySep separates the target type from its id in a reference identity key.
@@ -116,6 +128,8 @@ func (r EntityRef) identity() string {
 		return RefTargetMemory + refKeySep + r.MemoryID
 	case RefTargetResource:
 		return RefTargetResource + refKeySep + r.ResourceID
+	case RefTargetScript:
+		return RefTargetScript + refKeySep + r.ScriptID
 	default:
 		return r.TargetType + refKeySep
 	}

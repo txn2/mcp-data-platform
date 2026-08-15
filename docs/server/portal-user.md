@@ -261,7 +261,7 @@ Knowledge pages are facts to be searched and synthesized into new answers. A fil
 
 ### Knowledge (default)
 
-- **Unified search** - One query fans across every source you can access (the DataHub catalog, canonical knowledge pages, your memory, captured insights, saved assets, uploaded resources, prompts, API endpoints, and connections) and returns results grouped by source with a coverage summary. It is the same federation behind the `search` tool, exposed over `GET /api/v1/portal/search`. It ranks semantically when an embedding provider is configured and degrades to lexical search otherwise
+- **Unified search** - One query fans across every source you can access (the DataHub catalog, canonical knowledge pages, your memory, captured insights, saved assets, uploaded resources, prompts, managed scripts, API endpoints, and connections) and returns results grouped by source with a coverage summary. It is the same federation behind the `search` tool, exposed over `GET /api/v1/portal/search`. It ranks semantically when an embedding provider is configured and degrades to lexical search otherwise
 - **Browse** - With the search box empty, the tab browses the canonical knowledge pages. Personas with `apply_knowledge` can create, edit, and remove pages
 - **Changesets** (`apply_knowledge` holders) - The record of insights promoted into knowledge: the catalog and knowledge-page changes applied when your agent runs `apply_knowledge`, with rollback to undo a changeset's writes. They live here, with the promoted knowledge, rather than with the unpromoted insights in the review pipeline
 

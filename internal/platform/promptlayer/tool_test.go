@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/promptschema"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -554,7 +556,7 @@ func TestApplyPromptUpdates(t *testing.T) {
 // --- schema and helpers ---
 
 func TestManagePromptSchema(t *testing.T) {
-	schema := managePromptSchema()
+	schema := promptschema.ManagePrompt(testCommandNames())
 	assert.NotNil(t, schema)
 
 	m, ok := schema.(map[string]any)

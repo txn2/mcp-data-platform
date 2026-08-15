@@ -253,14 +253,20 @@ func (r *Resolver) Scopes(ctx context.Context, promptID string) ([]prompt.Attach
 	return out, nil
 }
 
-// ScopeOf projects a resource onto the fields the scope rule needs.
+// ScopeOf projects a resource onto the fields the scope rule needs. A resource
+// names exactly one audience, so its id set is one element — or none for a
+// global resource, which names no audience because it reaches everyone.
 func ScopeOf(res *resource.Resource) prompt.AttachmentScope {
-	return prompt.AttachmentScope{
-		ResourceID:  res.ID,
+	out := prompt.AttachmentScope{
+		Kind:        prompt.AttachKindResource,
+		ID:          res.ID,
 		DisplayName: displayName(res),
 		Scope:       string(res.Scope),
-		ScopeID:     res.ScopeID,
 	}
+	if res.ScopeID != "" {
+		out.ScopeIDs = []string{res.ScopeID}
+	}
+	return out
 }
 
 // CheckPromotion reports whether a prompt's current attachments would still

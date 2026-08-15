@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/promptschema"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
@@ -57,6 +58,11 @@ type managePromptInput struct {
 	Status       string            `json:"status,omitempty"`
 	SupersededBy string            `json:"superseded_by,omitempty"`
 	Search       string            `json:"search,omitempty"`
+
+	// Script is the managed script an attach_script / detach_script command
+	// acts on: the mcp:script:<id> reference search and fetch return, or a bare
+	// script id from manage_script.
+	Script string `json:"script,omitempty"`
 
 	// CollectionID places the prompt in a shared collection (create/update).
 	// A pointer so "not sent" (leave placement alone) is distinct from ""
@@ -120,6 +126,11 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 			"inventing a format, follow an attached checklist, and read any attachment delivered as a " +
 			"resource link before using it. When the response reports an attachment as unavailable or " +
 			"missing, proceed and say that your reference material was incomplete. " +
+			"A resolved prompt may also reference managed scripts: governed automations the platform " +
+			"executes on request. Each arrives with its contract and its last successful output; call " +
+			"run_script to produce fresh output rather than re-deriving the same result yourself. Use " +
+			"'attach_script' and 'detach_script' to change which scripts a prompt references, passing the " +
+			"mcp:script:<id> reference search returns or a bare script id. " +
 			"Non-admin users can manage their own personal prompts. " +
 			"Admins can manage prompts at all scope levels (global, persona, personal). " +
 			"Editing the content or arguments of an approved global or persona prompt saves the change as a " +
@@ -129,7 +140,7 @@ func (h *Handle) RegisterTool(server *mcp.Server) {
 			"configuration are not editable here, though 'use' resolves operator, workflow, and " +
 			"toolkit prompts too. " +
 			textpatch.VerbsDescription,
-		InputSchema: managePromptSchema(),
+		InputSchema: promptschema.ManagePrompt(h.commandNames()),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input managePromptInput) (*mcp.CallToolResult, any, error) {
 		return h.handleManagePrompt(ctx, input)
 	})
@@ -144,19 +155,34 @@ type promptCommandHandler func(context.Context, managePromptInput) (*mcp.CallToo
 // buildActions.
 func (h *Handle) promptCommands() map[string]promptCommandHandler {
 	return map[string]promptCommandHandler{
-		"create":      h.handlePromptCreate,
-		"update":      h.handlePromptUpdate,
-		"delete":      h.handlePromptDelete,
-		cmdList:       h.handlePromptList,
-		"get":         h.handlePromptGet,
-		cmdUse:        h.handlePromptUse,
-		cmdPatch:      h.handlePromptPatch,
-		cmdLocate:     h.handlePromptLocate,
-		cmdGetContent: h.handlePromptGetContent,
-		cmdOutline:    h.handlePromptOutline,
-		cmdStats:      h.handlePromptStats,
-		cmdDiff:       h.handlePromptDiff,
+		"create":        h.handlePromptCreate,
+		"update":        h.handlePromptUpdate,
+		"delete":        h.handlePromptDelete,
+		cmdList:         h.handlePromptList,
+		"get":           h.handlePromptGet,
+		cmdUse:          h.handlePromptUse,
+		cmdPatch:        h.handlePromptPatch,
+		cmdLocate:       h.handlePromptLocate,
+		cmdGetContent:   h.handlePromptGetContent,
+		cmdOutline:      h.handlePromptOutline,
+		cmdStats:        h.handlePromptStats,
+		cmdDiff:         h.handlePromptDiff,
+		cmdAttachScript: h.handlePromptAttachScript,
+		cmdDetachScript: h.handlePromptDetachScript,
 	}
+}
+
+// commandNames returns the dispatched command set, which the tool schema
+// advertises. Deriving it from the table rather than restating it is what keeps
+// a command the layer handles from being missing from the schema an agent
+// reads.
+func (h *Handle) commandNames() []string {
+	commands := h.promptCommands()
+	names := make([]string, 0, len(commands))
+	for name := range commands {
+		names = append(names, name)
+	}
+	return names
 }
 
 // handleManagePrompt dispatches manage_prompt commands.
@@ -978,159 +1004,4 @@ func promptJSONResult(v any) (*mcp.CallToolResult, any, error) {
 			&mcp.TextContent{Text: string(data)},
 		},
 	}, nil, nil
-}
-
-// JSON schema key constants used in managePromptSchema.
-const (
-	schemaKeyType        = "type"        //nolint:revive // schema key constant
-	schemaKeyDescription = "description" //nolint:revive // schema key constant
-	schemaKeyItems       = "items"       //nolint:revive // schema key constant
-	schemaKeyEnum        = "enum"        //nolint:revive // schema key constant
-	schemaValString      = "string"      //nolint:revive // schema value constant
-	schemaValArray       = "array"       //nolint:revive // schema value constant
-)
-
-// promotionRequestScopes are the shared scopes a personal prompt can request
-// promotion into (every scope except personal). Built with append rather than a
-// two-element composite literal, which a semgrep registry rule misflags as an
-// unbounded make() capacity.
-var promotionRequestScopes = append([]string{prompt.ScopePersona}, prompt.ScopeGlobal)
-
-// managePromptSchema returns the JSON schema for the manage_prompt tool.
-func managePromptSchema() any {
-	schema := map[string]any{
-		schemaKeyType: "object",
-		"properties": map[string]any{
-			"command": map[string]any{
-				schemaKeyType: schemaValString,
-				schemaKeyEnum: []string{
-					"create", "update", "delete", cmdList, "get", cmdUse,
-					cmdPatch, cmdLocate, cmdGetContent, cmdOutline, cmdStats, cmdDiff,
-				},
-				schemaKeyDescription: "The operation to perform. 'use' resolves any handle to a " +
-					"ready-to-run prompt; prefer it when the user names a procedure or report. " +
-					"'patch' edits part of a prompt's content without resending the whole body.",
-			},
-			fieldName: map[string]any{
-				schemaKeyType: schemaValString,
-				schemaKeyDescription: "Prompt name (required for create, update, delete, get, use, " +
-					"patch, locate, get_content, outline, stats, diff). " +
-					"For use it may also be a display name, an mcp:prompt:<id> reference, or free text.",
-			},
-			"display_name": map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyDescription: "Human-readable display name",
-			},
-			schemaKeyDescription: map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyDescription: "Prompt description",
-			},
-			fieldContent: map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyDescription: "Prompt content template. Use {arg_name} for argument placeholders.",
-			},
-			"arguments": map[string]any{
-				schemaKeyType: schemaValArray,
-				schemaKeyItems: map[string]any{
-					schemaKeyType: "object",
-					"properties": map[string]any{
-						fieldName:            map[string]any{schemaKeyType: schemaValString},
-						schemaKeyDescription: map[string]any{schemaKeyType: schemaValString},
-						"required":           map[string]any{schemaKeyType: "boolean"},
-					},
-				},
-				schemaKeyDescription: "Prompt arguments with name, description, and required flag",
-			},
-			"category": map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyDescription: "Organization category for grouping",
-			},
-			"scope": map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyEnum:        []string{prompt.ScopeGlobal, prompt.ScopePersona, prompt.ScopePersonal},
-				schemaKeyDescription: "Visibility scope. Non-admins can only use 'personal'.",
-			},
-			"owner_email": map[string]any{
-				schemaKeyType: schemaValString,
-				schemaKeyDescription: "Owner of a personal prompt to target by name (get, delete, update, " +
-					"patch and the other content verbs). Admin only: lets an operator address or " +
-					"disambiguate another user's personal prompt that admin list already shows. " +
-					"Ignored for non-admins, who can only act on their own prompts.",
-			},
-			"personas": map[string]any{
-				schemaKeyType:        schemaValArray,
-				schemaKeyItems:       map[string]any{schemaKeyType: schemaValString},
-				schemaKeyDescription: "Personas this prompt is assigned to. Defaults to empty list if omitted.",
-			},
-			"tags": map[string]any{
-				schemaKeyType:        schemaValArray,
-				schemaKeyItems:       map[string]any{schemaKeyType: schemaValString},
-				schemaKeyDescription: "Free-form tags for organizing and searching prompts (create/update).",
-			},
-			"status": map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyEnum:        []string{prompt.StatusDraft, prompt.StatusApproved, prompt.StatusDeprecated, prompt.StatusSuperseded},
-				schemaKeyDescription: "Lifecycle status (update). Transitions: draft->approved->deprecated->superseded. Approval is admin-only.",
-			},
-			"superseded_by": map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyDescription: "Name of the prompt that replaces this one (set when transitioning status to 'superseded').",
-			},
-			"search": map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyDescription: "Substring filter on name, display name, and description (for list command).",
-			},
-			"query": map[string]any{
-				schemaKeyType: schemaValString,
-				schemaKeyDescription: "Free-text relevance query (for list command). Ranks the prompts visible " +
-					"to you (approved shared prompts plus your own) by similarity to the query. " +
-					"Takes precedence over 'search'.",
-			},
-			"limit": map[string]any{
-				schemaKeyType:        "integer",
-				schemaKeyDescription: "Max ranked results to return when 'query' is set (default 20).",
-			},
-			"args": map[string]any{
-				schemaKeyType:          "object",
-				"additionalProperties": map[string]any{schemaKeyType: schemaValString},
-				schemaKeyDescription:   "Argument values for the 'use' command, substituted into the resolved prompt's content.",
-			},
-			"requested_scope": map[string]any{
-				schemaKeyType:        schemaValString,
-				schemaKeyEnum:        promotionRequestScopes,
-				schemaKeyDescription: "Request promotion of your personal prompt to this shared scope (update). Flags it for the admin review queue; an admin approves to apply it. Does not change the scope by itself.",
-			},
-			"collection_id": map[string]any{
-				schemaKeyType: schemaValString,
-				schemaKeyDescription: "Collection to place the prompt in (create/update): an id from the " +
-					"'collections' array returned by list. An empty string clears the placement. " +
-					"Collections themselves are created and managed in the portal.",
-			},
-			"requested_personas": map[string]any{
-				schemaKeyType:        schemaValArray,
-				schemaKeyItems:       map[string]any{schemaKeyType: schemaValString},
-				schemaKeyDescription: "Target personas for a 'persona' promotion request (required when requested_scope is 'persona').",
-			},
-		},
-		"required":             []string{"command"},
-		"additionalProperties": false,
-	}
-	addPatchProperties(schema)
-	return schema
-}
-
-// addPatchProperties splices the shared textpatch grammar into the manage_prompt
-// schema, so the patch and navigation arguments are the identical schema
-// manage_asset advertises. A name manage_prompt already defines keeps its own
-// wording.
-func addPatchProperties(schema map[string]any) {
-	props, ok := schema["properties"].(map[string]any)
-	if !ok {
-		return
-	}
-	for name, prop := range textpatch.PropertiesMap() {
-		if _, exists := props[name]; !exists {
-			props[name] = prop
-		}
-	}
 }

@@ -32,20 +32,43 @@ type Attachment struct {
 	AttachedBy string `json:"attached_by,omitempty" example:"analyst@example.com"`
 }
 
-// AttachmentScope is the subset of a resource's identity the attach-time scope
-// rule needs. It exists so the rule can live in pkg/prompt without importing
-// pkg/resource: the caller reads the resource and passes its scope through.
+// Attachment kinds. A prompt attaches material of more than one kind — managed
+// resources (#1013) and managed scripts (#1289) — and the kind appears only in
+// the wording of a refusal, never in the rule: both are governed by one
+// audience test, because the failure they prevent is identical.
+const (
+	AttachKindResource = "resource"
+	AttachKindScript   = "script"
+)
+
+// AttachmentScope is the subset of an attachment's identity the attach-time
+// scope rule needs. It exists so the rule can live in pkg/prompt without
+// importing pkg/resource or pkg/script: the caller reads the material and
+// passes its visibility through.
+//
+// Scope uses the resource vocabulary ("global", "persona", "user") for every
+// kind, and a kind whose own vocabulary differs is translated at the projection
+// that builds this value — a personal script is a "user"-scoped attachment
+// here. One vocabulary is what keeps one rule; two would be two rules wearing
+// the same name.
 type AttachmentScope struct {
-	// ResourceID identifies the resource in error messages.
-	ResourceID string
-	// DisplayName names the resource in error messages, so an author who is
+	// Kind is what sort of material this is (AttachKindResource,
+	// AttachKindScript), used only to word a refusal.
+	Kind string
+	// ID identifies the material in error messages.
+	ID string
+	// DisplayName names the material in error messages, so an author who is
 	// blocked learns which attachment is at fault without a second lookup.
 	DisplayName string
-	// Scope is the resource's visibility: "global", "persona", or "user".
+	// Scope is the material's visibility: "global", "persona", or "user".
 	Scope string
-	// ScopeID is the persona name for a persona-scoped resource, the owning
-	// user's subject for a user-scoped one, and empty for a global one.
-	ScopeID string
+	// ScopeIDs is the audience the scope names: every persona a persona-scoped
+	// attachment is visible to, or the owning user's subject and/or email for a
+	// user-scoped one. It is a set because a script may serve several personas
+	// while a resource serves exactly one, and the rule below asks whether the
+	// prompt's audience is contained in it — a question a single id cannot
+	// answer.
+	ScopeIDs []string
 }
 
 // Resource scope values mirrored from pkg/resource. Duplicated rather than
@@ -127,11 +150,11 @@ func AsAttachmentStore(store Store) AttachmentStore {
 // reader who cannot fix it, rather than at authoring time to the one person who
 // can.
 //
-//	resource global    -> any prompt
-//	resource persona P -> personal prompts, and persona prompts scoped to
-//	                      exactly P (a prompt serving several personas would
-//	                      reach readers outside P)
-//	resource user U     -> personal prompts only, and only the attaching
+//	global             -> any prompt
+//	persona P...       -> personal prompts, and persona prompts whose every
+//	                      persona is among P... (a prompt serving a persona the
+//	                      material does not would reach readers outside it)
+//	user U             -> personal prompts only, and only the attaching
 //	                      author's own (enforced by the caller, which knows the
 //	                      subject; see CheckAttachOwnership)
 func CheckAttachScope(promptScope string, promptPersonas []string, res AttachmentScope) error {
@@ -142,36 +165,64 @@ func CheckAttachScope(promptScope string, promptPersonas []string, res Attachmen
 		return checkPersonaAttach(promptScope, promptPersonas, res)
 	case resourceScopeUser:
 		if promptScope != ScopePersonal {
-			return attachScopeErr(res, "a private resource can only be attached to a personal prompt")
+			return attachScopeErr(res, fmt.Sprintf("a private %s can only be attached to a personal prompt", kindWord(res)))
 		}
 		return nil
 	default:
-		return attachScopeErr(res, fmt.Sprintf("unknown resource scope %q", res.Scope))
+		return attachScopeErr(res, fmt.Sprintf("unknown %s scope %q", kindWord(res), res.Scope))
 	}
 }
 
-// checkPersonaAttach applies the persona-resource half of CheckAttachScope.
+// checkPersonaAttach applies the persona half of CheckAttachScope: every
+// persona the prompt serves must be one the attached material is visible to.
 func checkPersonaAttach(promptScope string, promptPersonas []string, res AttachmentScope) error {
 	switch promptScope {
 	case ScopePersonal:
 		return nil
 	case ScopePersona:
 		for _, p := range promptPersonas {
-			if !strings.EqualFold(p, res.ScopeID) {
+			if !containsFold(res.ScopeIDs, p) {
 				return attachScopeErr(res, fmt.Sprintf(
-					"it is visible only to persona %q but the prompt also serves persona %q",
-					res.ScopeID, p))
+					"it is visible only to %s but the prompt also serves persona %q",
+					personaList(res.ScopeIDs), p))
 			}
 		}
 		if len(promptPersonas) == 0 {
 			return attachScopeErr(res, fmt.Sprintf(
-				"it is visible only to persona %q but the prompt names no persona", res.ScopeID))
+				"it is visible only to %s but the prompt names no persona", personaList(res.ScopeIDs)))
 		}
 		return nil
 	default:
 		return attachScopeErr(res, fmt.Sprintf(
-			"it is visible only to persona %q but the prompt is %s", res.ScopeID, promptScope))
+			"it is visible only to %s but the prompt is %s", personaList(res.ScopeIDs), promptScope))
 	}
+}
+
+// containsFold reports whether values holds v, case-insensitively.
+func containsFold(values []string, v string) bool {
+	for _, candidate := range values {
+		if strings.EqualFold(candidate, v) {
+			return true
+		}
+	}
+	return false
+}
+
+// personaList renders an audience for a refusal message: "persona \"analyst\"" for
+// one, "personas \"analyst\", \"engineer\"" for several, and "no persona" for an
+// empty set, which is a material nobody reaches by persona at all.
+func personaList(personas []string) string {
+	switch len(personas) {
+	case 0:
+		return "no persona"
+	case 1:
+		return "persona " + strconv.Quote(personas[0])
+	}
+	quoted := make([]string, 0, len(personas))
+	for _, p := range personas {
+		quoted = append(quoted, strconv.Quote(p))
+	}
+	return "personas " + strings.Join(quoted, ", ")
 }
 
 // CheckAttachOwnership reports whether the caller may attach a user-scoped
@@ -192,25 +243,30 @@ func CheckAttachOwnership(callerSub, callerEmail, promptOwnerEmail string, res A
 	if res.Scope != resourceScopeUser {
 		return nil
 	}
-	if !ownsUserScope(callerSub, callerEmail, res.ScopeID) {
-		return attachScopeErr(res, "it is another user's private resource")
+	if !ownsUserScope(callerSub, callerEmail, res.ScopeIDs) {
+		return attachScopeErr(res, fmt.Sprintf("it is another user's private %s", kindWord(res)))
 	}
 	if !strings.EqualFold(callerEmail, promptOwnerEmail) {
-		return attachScopeErr(res, "a private resource can only be attached to your own prompt")
+		return attachScopeErr(res, fmt.Sprintf("a private %s can only be attached to your own prompt", kindWord(res)))
 	}
 	return nil
 }
 
-// ownsUserScope reports whether a user-scope id names the caller, by subject or
-// by email.
-func ownsUserScope(callerSub, callerEmail, scopeID string) bool {
-	if scopeID == "" {
-		return false
+// ownsUserScope reports whether any of a user scope's ids names the caller, by
+// subject or by email. An empty set names nobody and is never the caller.
+func ownsUserScope(callerSub, callerEmail string, scopeIDs []string) bool {
+	for _, scopeID := range scopeIDs {
+		if scopeID == "" {
+			continue
+		}
+		if callerSub != "" && scopeID == callerSub {
+			return true
+		}
+		if callerEmail != "" && strings.EqualFold(scopeID, callerEmail) {
+			return true
+		}
 	}
-	if callerSub != "" && scopeID == callerSub {
-		return true
-	}
-	return callerEmail != "" && strings.EqualFold(scopeID, callerEmail)
+	return false
 }
 
 // CheckPromotionAttachments reports whether every attachment on a prompt would
@@ -227,12 +283,23 @@ func CheckPromotionAttachments(targetScope string, targetPersonas []string, atta
 	return nil
 }
 
-// attachScopeErr formats a scope rejection so the message always names the
-// resource the author must fix.
+// attachScopeErr formats a scope rejection so the message always names the kind
+// of material and the one the author must fix.
 func attachScopeErr(res AttachmentScope, reason string) error {
 	name := res.DisplayName
 	if name == "" {
-		name = res.ResourceID
+		name = res.ID
 	}
-	return fmt.Errorf("resource %s cannot be attached: %s: %w", strconv.Quote(name), reason, ErrAttachmentScope)
+	//nolint:revive // string-format: the message is a complete author-facing sentence, matching the pre-existing refusal wording
+	return fmt.Errorf("%s %s cannot be attached: %s: %w",
+		kindWord(res), strconv.Quote(name), reason, ErrAttachmentScope)
+}
+
+// kindWord names the kind of material in a refusal, defaulting to "resource"
+// for a value built before kinds existed.
+func kindWord(res AttachmentScope) string {
+	if res.Kind == "" {
+		return AttachKindResource
+	}
+	return res.Kind
 }

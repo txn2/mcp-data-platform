@@ -22,6 +22,7 @@ func TestEntityRef_URNRoundTrip(t *testing.T) {
 		{"insight", EntityRef{TargetType: RefTargetInsight, InsightID: "ins_01HK7"}, "mcp:insight:ins_01HK7"},
 		{"memory", EntityRef{TargetType: RefTargetMemory, MemoryID: "mem_01HK7"}, "mcp:memory:mem_01HK7"},
 		{"resource", EntityRef{TargetType: RefTargetResource, ResourceID: "res_01HK7"}, "mcp:resource:res_01HK7"},
+		{"script", EntityRef{TargetType: RefTargetScript, ScriptID: "script_01HK7"}, "mcp:script:script_01HK7"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -119,4 +120,22 @@ func TestParseCitableRef_AllowsSharedForms(t *testing.T) {
 	if _, err := ParseCitableRef("mcp:bogus:x"); err == nil {
 		t.Error("ParseCitableRef should propagate a parse error")
 	}
+}
+
+// A managed script is fetchable but not citable on a shared page (#1302): it is
+// visibility-scoped, so the citation would be broken for every reader outside
+// that scope. The refusal must name both the reason and what to do instead,
+// because an author who is blocked has to be told where the reference DOES
+// belong.
+func TestParseCitableRef_RejectsScriptForm(t *testing.T) {
+	parsed, err := ParseEntityRef("mcp:script:script_01HK7")
+	require.NoError(t, err, "ParseEntityRef accepts a script reference (fetch uses it)")
+	assert.Equal(t, RefTargetScript, parsed.TargetType)
+	assert.Equal(t, "script_01HK7", parsed.ScriptID)
+
+	_, err = ParseCitableRef("mcp:script:script_01HK7")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be cited on a knowledge page")
+	assert.Contains(t, err.Error(), "visibility-scoped")
+	assert.Contains(t, err.Error(), "attach the script to a prompt")
 }

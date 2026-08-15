@@ -121,6 +121,18 @@ func (s *notifyingStore) Attachments() prompt.AttachmentStore {
 	return prompt.AsAttachmentStore(s.Store)
 }
 
+// ScriptAttachments exposes the wrapped store's prompt-to-script reference
+// capability (#1289) via prompt.ScriptAttachmentProvider, on the same terms as
+// Attachments: referencing a script changes what a prompt carries, not the
+// prompt list, so it needs no list_changed hook and passes through undecorated.
+//
+// Without this the capability would be invisible behind the wrapper — the
+// composition root resolves it from the wrapped store, so a missing passthrough
+// leaves every prompt serving with no automations and no error to say why.
+func (s *notifyingStore) ScriptAttachments() prompt.ScriptAttachmentStore {
+	return prompt.AsScriptAttachmentStore(s.Store)
+}
+
 // Create persists a new prompt and notifies on success.
 func (s *notifyingStore) Create(ctx context.Context, p *prompt.Prompt) error {
 	if err := s.Store.Create(ctx, p); err != nil {

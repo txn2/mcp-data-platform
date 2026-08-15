@@ -219,6 +219,7 @@ var knownSourceNames = map[string]bool{
 	SourceAssets:           true,
 	SourceResources:        true,
 	SourcePrompts:          true,
+	SourceScripts:          true,
 	SourceEndpoints:        true,
 	SourceConnections:      true,
 }

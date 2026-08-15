@@ -6,7 +6,8 @@
 // Unlike the store-owning layers, this layer is a reader/aggregator: it owns no
 // store. Its constructor takes explicit inputs — the searchable source
 // handles/stores (memory store, knowledge insight store, portal
-// knowledge-page/asset/thread stores, prompt store, managed resource store), the semantic.Provider plus
+// knowledge-page/asset/thread stores, prompt store, managed resource store,
+// managed script store), the semantic.Provider plus
 // a catalog-enabled flag, the *registry.Registry, the shared embedding.Provider,
 // the resolved search-timeout values, the persona connection boundary discovery
 // enforces, and the toolkit instance name — performs
@@ -15,7 +16,8 @@
 // LineageExpander and the knowledge.Router, and constructs the search toolkit.
 // It imports pkg/knowledge, pkg/knowledge/federation, pkg/toolkits/search,
 // pkg/toolkits/knowledge, pkg/semantic, pkg/memory, pkg/portal,
-// pkg/portal/knowledgepage, pkg/prompt, pkg/registry, and pkg/embedding — never
+// pkg/portal/knowledgepage, pkg/prompt, pkg/script, pkg/registry, and
+// pkg/embedding — never
 // pkg/platform. Every federated store is owned by another subsystem and is
 // passed in; the registry, embedding provider, and semantic provider are shared
 // foundations passed in the same way.
@@ -44,6 +46,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
+	"github.com/txn2/mcp-data-platform/pkg/script"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	searchkit "github.com/txn2/mcp-data-platform/pkg/toolkits/search"
@@ -89,6 +92,13 @@ type Config struct {
 	ThreadStore        portal.ThreadStore
 	PromptStore        prompt.Store
 	ResourceStore      resource.Store
+
+	// ScriptStore federates managed scripts into the corpus (#1302). A script is
+	// the platform's most reusable artifact — a solved process, reviewed and
+	// often scheduled — and under the search-first gate an agent that cannot find
+	// one through search cannot find it at all. Only the PostgreSQL store ranks,
+	// so a store that cannot contributes no provider.
+	ScriptStore script.Store
 
 	// ResourceBlobs and ResourceBucket let the resources provider return a text
 	// resource's contents inline from `fetch`. Nil leaves fetch returning
@@ -180,7 +190,8 @@ func New(cfg Config) *Handle {
 
 // storeProviders builds the store-backed search providers (memory, insights,
 // technical catalog, context documents, knowledge pages, prompts, assets,
-// managed resources, and feedback threads), each added only when its backing source exists and
+// managed resources, feedback threads, and managed scripts), each added only
+// when its backing source exists and
 // implements the relevant searcher interface, so a no-database deployment adds
 // none of them.
 func storeProviders(cfg Config) []knowledge.Provider {
@@ -268,6 +279,17 @@ func appendPortalStoreProviders(cfg Config, providers []knowledge.Provider) []kn
 	// embedding).
 	if s, ok := cfg.ThreadStore.(knowledge.ThreadSearcher); ok {
 		providers = append(providers, knowledge.NewThreadsProvider(s))
+	}
+	return appendScriptProvider(cfg, providers)
+}
+
+// appendScriptProvider adds managed scripts to the corpus (#1302), gated the
+// same way every store-backed source is: only a store that can rank and resolve
+// a contract contributes a provider, so a deployment whose script store cannot
+// (or that has none) adds nothing rather than an always-empty source.
+func appendScriptProvider(cfg Config, providers []knowledge.Provider) []knowledge.Provider {
+	if s, ok := cfg.ScriptStore.(knowledge.ScriptSearcher); ok {
+		providers = append(providers, knowledge.NewScriptsProvider(s))
 	}
 	return providers
 }

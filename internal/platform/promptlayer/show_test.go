@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer/promptschema"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,7 +58,7 @@ func TestRegisterShowPromptsTool(_ *testing.T) {
 func TestShowPromptsSchemaIsAnObjectWithSearch(t *testing.T) {
 	schema, ok := showPromptsSchema().(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "object", schema[schemaKeyType])
+	assert.Equal(t, "object", schema[promptschema.KeyType])
 	props, ok := schema["properties"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, props, "search")

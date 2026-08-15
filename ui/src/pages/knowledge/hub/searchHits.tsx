@@ -15,6 +15,7 @@ const SOURCE_LABELS: Record<string, string> = {
   insights: "Insights",
   assets: "Assets",
   prompts: "Prompts",
+  scripts: "Managed scripts",
   endpoints: "API endpoints",
   connections: "Connections",
 };

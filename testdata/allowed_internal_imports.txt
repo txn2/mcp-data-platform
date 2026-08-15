@@ -197,7 +197,9 @@ internal/platform/portalstore -> pkg/toolkits/portal
 internal/platform/promptindex -> pkg/indexjobs
 internal/platform/promptindex -> pkg/prompt
 internal/platform/promptlayer -> internal/platform/promptindex
+internal/platform/promptlayer -> internal/platform/promptlayer/attachbind
 internal/platform/promptlayer -> internal/platform/promptlayer/notifystore
+internal/platform/promptlayer -> internal/platform/promptlayer/promptschema
 internal/platform/promptlayer -> pkg/audit
 internal/platform/promptlayer -> pkg/embedding
 internal/platform/promptlayer -> pkg/indexjobs
@@ -207,11 +209,16 @@ internal/platform/promptlayer -> pkg/prompt
 internal/platform/promptlayer -> pkg/prompt/attachserve
 internal/platform/promptlayer -> pkg/prompt/postgres
 internal/platform/promptlayer -> pkg/registry
-internal/platform/promptlayer -> pkg/resource
 internal/platform/promptlayer -> pkg/textpatch
 internal/platform/promptlayer -> pkg/textpatch/patchmcp
 internal/platform/promptlayer -> pkg/tuning
+internal/platform/promptlayer/attachbind -> pkg/middleware
+internal/platform/promptlayer/attachbind -> pkg/prompt
+internal/platform/promptlayer/attachbind -> pkg/prompt/attachserve
+internal/platform/promptlayer/attachbind -> pkg/resource
 internal/platform/promptlayer/notifystore -> pkg/prompt
+internal/platform/promptlayer/promptschema -> pkg/prompt
+internal/platform/promptlayer/promptschema -> pkg/textpatch
 internal/platform/reflexivecapture -> pkg/memory
 internal/platform/reflexivecapture -> pkg/middleware
 internal/platform/reflexivecapture -> pkg/toolkits/memory
@@ -267,6 +274,7 @@ internal/platform/searchfed -> pkg/prompt
 internal/platform/searchfed -> pkg/query
 internal/platform/searchfed -> pkg/registry
 internal/platform/searchfed -> pkg/resource
+internal/platform/searchfed -> pkg/script
 internal/platform/searchfed -> pkg/semantic
 internal/platform/searchfed -> pkg/toolkits/knowledge
 internal/platform/searchfed -> pkg/toolkits/search
@@ -381,6 +389,7 @@ pkg/knowledge -> pkg/portal/threads
 pkg/knowledge -> pkg/prompt
 pkg/knowledge -> pkg/query
 pkg/knowledge -> pkg/resource
+pkg/knowledge -> pkg/script
 pkg/knowledge -> pkg/semantic
 pkg/knowledge -> pkg/toolkits/knowledge
 pkg/knowledge/federation -> pkg/knowledge
@@ -445,6 +454,7 @@ pkg/platform -> internal/platform/resourcelayer
 pkg/platform -> internal/platform/routepolicy
 pkg/platform -> internal/platform/scriptexec
 pkg/platform -> internal/platform/scriptlayer
+pkg/platform -> internal/platform/scriptstore
 pkg/platform -> internal/platform/searchfed
 pkg/platform -> internal/platform/sessionsync
 pkg/platform -> internal/platform/toolkitcfg
@@ -535,8 +545,10 @@ pkg/portal/knowledgepage -> pkg/indexjobs
 pkg/portal/mention -> internal/logsan
 pkg/portal/threads -> pkg/portal/mention
 pkg/prompt/attachserve -> pkg/contenttype
+pkg/prompt/attachserve -> pkg/portal/knowledgepage
 pkg/prompt/attachserve -> pkg/prompt
 pkg/prompt/attachserve -> pkg/resource
+pkg/prompt/attachserve -> pkg/script
 pkg/prompt/postgres -> pkg/indexjobs
 pkg/prompt/postgres -> pkg/prompt
 pkg/query/trino -> pkg/observability
