@@ -1,4 +1,5 @@
 import { useAdminScriptRuns } from "@/api/admin/hooks/scripts";
+import type { AdminScriptRun } from "@/api/admin/hooks/scripts";
 import type { Script } from "@/api/admin/types";
 import {
   isBackendUnconfigured,
@@ -208,18 +209,14 @@ function failureHint(total: number | undefined, failed: number | undefined): str
 function RecentRuns({ scripts }: { scripts: Script[] }) {
   const { data, isLoading, error } = useAdminScriptRuns();
   const runs = data?.data ?? [];
-  const nameOf = (id: string) => {
-    const script = scripts.find((s) => s.id === id);
-    return script ? script.display_name || script.name : id;
-  };
+  const nameOf = (id: string) =>
+    scripts.find((s) => s.id === id)?.display_name || idOrName(scripts, id);
 
   return (
     <SectionCard title="Recent runs">
       {isLoading && <p className="text-sm text-muted-foreground">Loading runs...</p>}
       {error && (
-        <p className="text-sm text-muted-foreground">
-          The run history could not be loaded.
-        </p>
+        <p className="text-sm text-muted-foreground">The run history could not be loaded.</p>
       )}
       {!isLoading && !error && runs.length === 0 && (
         <EmptyState icon={Activity}>
@@ -227,15 +224,7 @@ function RecentRuns({ scripts }: { scripts: Script[] }) {
           and only an approved version ever executes.
         </EmptyState>
       )}
-      {runs.length > 0 && data && runs.length >= data.limit && (
-        <p className="pb-2 text-xs text-muted-foreground">
-          Showing the {data.limit} most recent runs. Older ones are kept until this
-          deployment's retention window ends — a year by default
-          (<span className="font-mono">scripts.run_retention_days</span>) — and the charts
-          above are computed from the metrics rather than from this list, so they cover the
-          whole window whatever it holds.
-        </p>
-      )}
+      <CapNotice shown={runs.length} limit={data?.limit} />
       {runs.length > 0 && (
         <Table>
           <TableHeader>
@@ -250,29 +239,55 @@ function RecentRuns({ scripts }: { scripts: Script[] }) {
           </TableHeader>
           <TableBody>
             {runs.map((run) => (
-              <TableRow key={run.id}>
-                <TableCell>
-                  <div className="font-medium">{nameOf(run.script_id)}</div>
-                  {run.error && (
-                    <div className="text-xs text-red-700 dark:text-red-300">{run.error}</div>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={runStatusVariant(run.status)}>
-                    {runStatusLabel(run.status)}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-xs">{run.trigger}</TableCell>
-                <TableCell className="text-xs">{runWhen(run)}</TableCell>
-                <TableCell className="text-xs">
-                  {run.duration_ms > 0 ? formatDuration(run.duration_ms) : "—"}
-                </TableCell>
-                <TableCell className="text-xs">{run.output_count}</TableCell>
-              </TableRow>
+              <RunRow key={run.id} run={run} script={nameOf(run.script_id)} />
             ))}
           </TableBody>
         </Table>
       )}
     </SectionCard>
+  );
+}
+
+// idOrName falls back to the script's name, and then to its id: a run whose
+// script is not in the listing still names something a person can search for.
+function idOrName(scripts: Script[], id: string): string {
+  return scripts.find((s) => s.id === id)?.name || id;
+}
+
+// CapNotice says the listing was cut off. A page that filled its limit and said
+// nothing would read as the whole history, which is the failure this whole
+// surface exists to prevent.
+function CapNotice({ shown, limit }: { shown: number; limit?: number }) {
+  if (!limit || shown < limit) return null;
+  return (
+    <p className="pb-2 text-xs text-muted-foreground">
+      Showing the {limit} most recent runs. Older ones are kept until this deployment's
+      retention window ends — a year by default
+      (<span className="font-mono">scripts.run_retention_days</span>) — and the charts above
+      are computed from the metrics rather than from this list, so they cover the whole
+      window whatever it holds.
+    </p>
+  );
+}
+
+// RunRow is one run across every script: what it was, how it ended, and the
+// reason when it failed, which is what decides whether anyone opens it.
+function RunRow({ run, script }: { run: AdminScriptRun; script: string }) {
+  return (
+    <TableRow>
+      <TableCell>
+        <div className="font-medium">{script}</div>
+        {run.error && <div className="text-xs text-red-700 dark:text-red-300">{run.error}</div>}
+      </TableCell>
+      <TableCell>
+        <Badge variant={runStatusVariant(run.status)}>{runStatusLabel(run.status)}</Badge>
+      </TableCell>
+      <TableCell className="text-xs">{run.trigger}</TableCell>
+      <TableCell className="text-xs">{runWhen(run)}</TableCell>
+      <TableCell className="text-xs">
+        {run.duration_ms > 0 ? formatDuration(run.duration_ms) : "—"}
+      </TableCell>
+      <TableCell className="text-xs">{run.output_count}</TableCell>
+    </TableRow>
   );
 }
