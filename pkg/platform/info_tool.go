@@ -253,6 +253,9 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 	if p.resources.Store() != nil {
 		notes = append(notes, instructions.ResourcesNote(accessibleTools))
 	}
+	if p.config.Purpose.IsEnabled() {
+		notes = append(notes, instructions.PurposeNote(p.config.Purpose.IsRequired()))
+	}
 	agentInstructions := instructions.ComposeForCaller(
 		p.config.ServerAgentInstructions(ctx),
 		p.toolkitRegistry.AllTools(),

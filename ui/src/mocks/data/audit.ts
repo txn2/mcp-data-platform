@@ -204,6 +204,47 @@ function toolParameters(tool: ToolDef): Record<string, unknown> {
   }
 }
 
+// The wider tasks an agent states as its `purpose` (#1317). They read as
+// analyst work, not as restatements of the arguments, because that is the
+// distinction the column exists to make legible.
+const purposeSentences = [
+  "Checking whether Q3 revenue fell in the western region for the board deck.",
+  "Tracing which upstream table feeds the churn model before the retraining run.",
+  "Confirming the inventory reorder threshold the store managers were briefed on.",
+  "Answering whether the returns spike is concentrated in one product line.",
+  "Reconciling the finance close against the warehouse totals for October.",
+  "Finding which datasets carry customer email so they can be masked.",
+  "Sizing the backfill needed after the ingestion gap last Tuesday.",
+  "Establishing the current definition of an active account for the exec summary.",
+];
+
+// purposeGatedTools mirrors the platform's default purpose tool set: the
+// data-access surface, not the orientation tools. A call on any other tool has
+// no purpose, which is what the "-" in the events table means.
+const purposeGatedTools = new Set([
+  "search",
+  "fetch",
+  "trino_query",
+  "trino_execute",
+  "trino_export",
+  "trino_describe_table",
+  "api_invoke_endpoint",
+  "api_export",
+  "datahub_get_entity",
+  "datahub_get_schema",
+  "datahub_get_lineage",
+  "s3_get_object",
+  "s3_list_objects",
+]);
+
+// toolPurpose returns the purpose a call carries. Only an MCP agent states one:
+// the REST shim and portal tool runner cannot thread arguments, so their rows
+// carry none — the same split the real platform produces.
+function toolPurpose(tool: ToolDef, source: string): string {
+  if (source !== "mcp" || !purposeGatedTools.has(tool.name)) return "";
+  return seededItem(purposeSentences);
+}
+
 function errorMessage(tool: ToolDef): string {
   const trinoErrors = [
     "Query exceeded maximum execution time of 300s",
@@ -273,6 +314,7 @@ function generateEvents(count: number): AuditEvent[] {
     const daysAgo = Math.floor(rand() * rand() * 7);
     const baseDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo);
     const timestamp = businessHourTimestamp(baseDate);
+    const source = pickSource(tool.kind);
 
     events.push({
       id: `evt-${String(i).padStart(4, "0")}`,
@@ -287,6 +329,7 @@ function generateEvents(count: number): AuditEvent[] {
       toolkit_kind: tool.kind,
       toolkit_name: tool.toolkit,
       connection: tool.connection,
+      purpose: toolPurpose(tool, source),
       parameters: toolParameters(tool),
       success,
       error_message: success ? "" : errorMessage(tool),
@@ -294,7 +337,7 @@ function generateEvents(count: number): AuditEvent[] {
       request_chars: seededInt(50, 800),
       content_blocks: seededInt(1, 5),
       transport: "http",
-      source: pickSource(tool.kind),
+      source,
       enrichment_applied: rand() > 0.22, // 78% enrichment rate
       authorized: true,
     });

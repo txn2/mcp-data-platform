@@ -228,12 +228,14 @@ Features:
 
 - **Filters** — User, tool, status (success/failure), and time range dropdowns
 - **Sortable columns** — Timestamp, user, tool, toolkit, connection, duration, status, and enrichment
+- **Purpose** — The one sentence the agent stated about why the call was made, truncated to fit and shown in full on hover and in the drawer. A dash means none was stated: the tool is outside the [gated set](configuration.md#purpose-configuration), or the caller (an MCP App, a managed script, the REST shim, a portal run) cannot thread arguments at all. The column does not sort — alphabetical order over free prose means nothing — but the search box matches it, so an operator can find every call made for a given task.
 - **Export** — Export CSV and Export JSON buttons
 - **Event detail drawer** — Click any row to open the full detail:
     - **Identity** — User email, persona, session ID
     - **Execution** — Tool name, toolkit, connection, duration
     - **Status** — Success/failure, enrichment status
     - **Transport** — HTTP or stdio, request/response sizes, content block count
+    - **Purpose** — The full stated purpose, above the parameters; omitted when none was stated
     - **Parameters** — Full request parameters as JSON
 
 ![Event detail](../images/screenshots/light/admin-admin-audit-event-detail-light.webp#only-light)![Event detail](../images/screenshots/dark/admin-admin-audit-event-detail-dark.webp#only-dark)

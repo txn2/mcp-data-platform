@@ -23,6 +23,7 @@ type AuditEvent struct {
 	ToolkitKind           string         `json:"toolkit_kind"`
 	ToolkitName           string         `json:"toolkit_name"`
 	Connection            string         `json:"connection"`
+	Purpose               string         `json:"purpose,omitempty"`
 	Parameters            map[string]any `json:"parameters"`
 	Success               bool           `json:"success"`
 	ErrorMessage          string         `json:"error_message,omitempty"`

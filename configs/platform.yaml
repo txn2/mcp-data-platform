@@ -381,6 +381,24 @@ enrichment:
 #   # discovery_tools: []           # Tools that satisfy the gate (defaults to search + the datahub_* tools)
 #   # query_tools: []               # Tools that are gated (defaults to trino_query, trino_execute)
 
+# Purpose: why a data-access call was made
+# Data-access tools advertise a `purpose` argument: one sentence naming the wider
+# task the agent is working on and why the call serves it. The platform strips it
+# before the tool handler runs and records it on the audit row's purpose column,
+# so an operator reading history sees the question behind a query, not just the
+# SQL. Enabled and required by default. A call that states none is refused with
+# PURPOSE_REQUIRED, but only when the caller threaded a session_id handle on the
+# same call — an MCP App, a managed script, and the REST shim cannot thread
+# arguments at all and are never refused for it.
+# purpose:
+#   enabled: true                   # Default: true. false removes the argument.
+#   require: false                  # Default: true. false records but never refuses.
+#   # tools: []                     # Gated set: tool-name globs plus kind:<toolkit-kind>
+#   #   - search                    #   entries. Defaults to the data-access surface plus
+#   #   - trino_query               #   "kind:mcp" (every gateway-proxied tool).
+#   #   - "datahub_get_*"
+#   #   - "kind:mcp"
+
 # Per-user tool-call rate limiting
 # A safety net on authenticated tools/call requests, keyed on the authenticated
 # user. Bounds a runaway agent loop or a compromised account before it can

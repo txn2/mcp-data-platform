@@ -950,6 +950,44 @@ The gate's memory of an initialized session expires after the session TTL, which
 !!! note "Superseded by explicit session handles"
     When [explicit session handles](#explicit-session-handles) (`sessions.handles`) are enabled, the session gate is skipped: handle resolution enforces initialization instead, and the gate's `exempt_tools` are carried into the handle resolver. Enabling both does not double-gate.
 
+## Purpose Configuration
+
+The `purpose` block controls the `purpose` argument (issue #1317): one sentence, stated by the agent, naming the wider task a data-access call serves. Audit records what a call did and, without this, never why. The platform advertises `purpose` on the input schema of each gated tool, takes it off the request before the tool sees it, and stores it in the audit row's `purpose` column.
+
+It is enabled and required by default. The name is `purpose`, not `intent`, because `search` already takes an `intent` argument that is the query text and keeps that meaning.
+
+```yaml
+purpose:
+  enabled: true      # advertise, strip, and record (default on)
+  require: true      # refuse a gated call that states none (default on)
+  tools:             # override the gated set; empty means the default below
+    - search
+    - trino_query
+    - "datahub_get_*"
+    - "kind:mcp"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Advertise `purpose` on the gated tools, strip it before the handler, and record it on the audit event. Set `false` to remove the argument entirely. |
+| `require` | bool | `true` | Refuse a gated call that states no purpose with `PURPOSE_REQUIRED` (error category `purpose_required`). Set `false` to record a purpose whenever one is stated but never refuse a call for omitting it. |
+| `tools` | array | see below | The gated set. Entries are tool-name globs (`filepath.Match` semantics, e.g. `datahub_get_*`) plus `kind:<toolkit-kind>` entries that gate every tool a toolkit of that kind serves. |
+
+The default set is the data-access surface: `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, `datahub_get_*`, `s3_get_object`, `s3_list_objects`, and `kind:mcp` — the last covering every tool an MCP gateway connection proxies, whose names are chosen upstream and change when the upstream does. Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) are deliberately outside it: their purpose is their name, and gating them would tax every call an agent makes to set itself up.
+
+### Who is refused
+
+`require: true` refuses only a caller that threaded an explicit `session_id` handle on the same call, which is the platform's proof that the caller can thread a platform-injected argument at all. That single condition covers every exemption the feature needs:
+
+- An **MCP App**'s sandboxed call is session-adopted from its authenticated identity and threads nothing (see [Explicit Session Handles](#explicit-session-handles)).
+- The **gateway REST shim**, the **admin tool runner**, and a **managed script** drive a fresh in-memory session per request and thread nothing.
+- An **isolated `dpp_`/`dpx_` run** has its session minted server-side rather than passed in.
+
+None of them can state a purpose, so none is refused for not stating one. A real MCP agent, which the platform already requires to thread a handle, is. Because the condition is the handle, setting `sessions.handles.enabled: false` also stops `purpose` from ever being required, though it is still advertised and recorded.
+
+!!! note "The platform owns the argument name on a gated tool"
+    On a gated tool the platform advertises `purpose` and strips it before the handler runs. A deployment whose upstream MCP server defines a `purpose` parameter of its own should drop `kind:mcp` from `purpose.tools` (or list the tools it wants gated by name) so that tool keeps its own argument.
+
 ## Tool-Call Rate Limiting
 
 A per-identity safety net on authenticated `tools/call` requests. It bounds a runaway agent loop or a compromised account before it can saturate the audit pipeline, the shared database pool, or an upstream (Trino, DataHub, S3, a proxied MCP server). It is **not** a throughput throttle: the default limit is generous enough that ordinary interactive and agent use never touches it. When a user exceeds the limit, the offending call is short-circuited before its handler runs and a `RATE_LIMITED` error result is returned (error category `rate_limited`) with a retry hint, so an agent backs off and retries rather than seeing a transport failure. `platform_info` is always exempt so a throttled agent can re-read platform guidance.

@@ -45,6 +45,20 @@ type PlatformContext struct {
 	SessionID string
 	StartTime time.Time
 
+	// SessionHandleThreaded records that THIS call carried an explicit
+	// platform-minted session handle as an argument, as opposed to having its
+	// session resolved for it (adopted from the caller's identity, taken from
+	// the transport, or minted server-side for an isolated run). It is the
+	// platform's only proof that a caller is able to thread a platform-injected
+	// argument, which is what the purpose requirement is conditioned on. Set by
+	// the session resolver (#792), read by the purpose resolver (#1317).
+	SessionHandleThreaded bool
+
+	// Purpose is the one-sentence reason the caller gave for this call, taken
+	// off the request by the purpose resolver and recorded on the audit event
+	// (#1317). Empty when the tool is not gated or the caller stated none.
+	Purpose string
+
 	// User information
 	UserID      string
 	UserEmail   string

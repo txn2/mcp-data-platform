@@ -106,6 +106,7 @@ type ToolCallConfig struct {
 	AdminPersona    string                  // persona name that grants platform admin
 	WorkflowTracker *SessionWorkflowTracker // optional workflow tracker
 	SessionResolver *SessionResolver        // optional explicit session-handle resolver (#792)
+	PurposeResolver *PurposeResolver        // optional purpose-argument resolver (#1317)
 }
 
 // MCPToolCallMiddleware creates MCP protocol-level middleware that intercepts
@@ -180,6 +181,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 				adminPersona:    cfg.AdminPersona,
 				workflowTracker: tracker,
 				sessionResolver: cfg.SessionResolver,
+				purposeResolver: cfg.PurposeResolver,
 			})
 		}
 	}
@@ -272,6 +274,7 @@ type authParams struct {
 	adminPersona    string
 	workflowTracker *SessionWorkflowTracker
 	sessionResolver *SessionResolver
+	purposeResolver *PurposeResolver
 }
 
 // authenticateAndAuthorize runs authentication and authorization, returning
@@ -369,6 +372,15 @@ func authenticateAndAuthorize(
 	// argument before the handler sees it, and short-circuits a handle-less
 	// gated call with SESSION_REQUIRED before it is recorded or executed.
 	if errResult := params.sessionResolver.resolve(ctx, req, params.pc, params.toolName); errResult != nil {
+		return errResult, nil
+	}
+
+	// Take the stated purpose off the request and record it on the platform
+	// context for audit (#1317). It runs after the session resolver because its
+	// refusal is conditioned on pc.SessionHandleThreaded, which that resolver
+	// sets, and before the workflow tracker so a refused call is not recorded as
+	// a step the agent took.
+	if errResult := params.purposeResolver.resolve(req, params.pc, params.toolName); errResult != nil {
 		return errResult, nil
 	}
 

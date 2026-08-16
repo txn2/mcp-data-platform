@@ -17874,6 +17874,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "data-engineer"
                 },
+                "purpose": {
+                    "description": "Purpose is the one sentence the caller gave for WHY this call was made:\nthe wider task it serves, stated by the agent as the ` + "`" + `purpose` + "`" + ` argument\nand taken off the request before the tool saw it (issue #1317). Empty on a\ncall the platform does not gate, on a caller that cannot thread arguments\n(an MCP App, a script run, the REST shim), and on every row written before\nthe feature existed. It is not an argument value, so the parameter\nredaction policy does not apply to it.",
+                    "type": "string",
+                    "example": "Sizing Q3 revenue by region for the board deck."
+                },
                 "request_chars": {
                     "type": "integer",
                     "example": 120

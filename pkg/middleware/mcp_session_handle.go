@@ -1,12 +1,9 @@
 package middleware
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"maps"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -130,6 +127,12 @@ func (r *SessionResolver) resolve(ctx context.Context, req mcp.Request, pc *Plat
 	// Always take (and strip) the handle before the tool handler or any
 	// gateway-proxied upstream server can observe the platform-injected arg.
 	handle, present := takeSessionHandleArg(req)
+	// Record that the caller threaded a handle itself, before any of the
+	// branches below replace pc.SessionID with a resolved or adopted one. This
+	// is what the purpose requirement keys on (#1317): a caller that threaded
+	// one argument can thread another, and a caller that could not thread this
+	// one cannot be asked for the other.
+	pc.SessionHandleThreaded = present && handle != ""
 
 	// The init tool mints the handle in its own handler, so it is never gated
 	// OR validated. This must precede the explicit-handle branch: an agent told
@@ -358,37 +361,8 @@ func transportSource(sid string) string {
 // tool) is left untouched and reported absent, so the handler still receives it.
 // Platform handles are prefix-tagged and unguessable, so this cannot be spoofed
 // by an ordinary caller value.
-//
-// The re-encode uses a json.Number decoder so that removing the handle does not
-// silently rewrite the other arguments' numbers (a large int64 ID would
-// otherwise round-trip through float64 and lose precision). When nothing is
-// removed, the arguments are left byte-identical.
 func takeSessionHandleArg(req mcp.Request) (handle string, present bool) {
-	callParams := toolCallParams(req)
-	if callParams == nil || len(callParams.Arguments) == 0 {
-		return "", false
-	}
-	dec := json.NewDecoder(bytes.NewReader(callParams.Arguments))
-	dec.UseNumber()
-	var args map[string]any
-	if err := dec.Decode(&args); err != nil {
-		return "", false
-	}
-	v, ok := args[sessionHandleArg]
-	if !ok {
-		return "", false
-	}
-	s, _ := v.(string)
-	// Only consume a value that looks like a platform-minted handle; a tool's
-	// own session_id argument is left in place for the handler.
-	if !pkgsession.IsHandle(s) {
-		return "", false
-	}
-	delete(args, sessionHandleArg)
-	if updated, err := json.Marshal(args); err == nil {
-		callParams.Arguments = updated
-	}
-	return s, true
+	return takeStringArg(req, sessionHandleArg, pkgsession.IsHandle)
 }
 
 // toolCallParams returns the raw tool-call params, or nil if the request does
@@ -458,62 +432,19 @@ func MCPSessionHandleSchemaMiddleware(initTool string) mcp.Middleware {
 }
 
 // injectSessionHandleSchema adds the session_id property to each listed tool's
-// input schema. It replaces the Tool pointer in the result slice with a shallow
-// copy carrying the augmented schema, so the server's shared tool registry is
-// never mutated.
+// input schema, except the init tool's.
 func injectSessionHandleSchema(initTool string, result mcp.Result) mcp.Result {
-	listResult, ok := result.(*mcp.ListToolsResult)
-	if !ok || listResult == nil {
-		return result
-	}
-	for i, tool := range listResult.Tools {
-		if tool == nil || tool.Name == initTool {
-			continue
-		}
-		injected, ok := withSessionHandleProperty(tool.InputSchema)
-		if !ok {
-			continue
-		}
-		cp := *tool
-		cp.InputSchema = injected
-		listResult.Tools[i] = &cp
-	}
-	return listResult
+	return injectListedToolProperty(result, sessionHandleArg, map[string]any{
+		"type":        "string",
+		"description": sessionHandleSchemaDescription,
+	}, func(toolName string) bool { return toolName != initTool })
 }
 
 // withSessionHandleProperty returns a copy of a tool input schema with a
-// session_id string property added to its properties. It normalizes any schema
-// representation (*jsonschema.Schema, json.RawMessage, or map) via a JSON
-// round-trip, so one code path covers every registration style. The second
-// return is false when the schema is not a JSON object (the tool is then left
-// unchanged).
+// session_id string property added to its properties.
 func withSessionHandleProperty(schema any) (any, bool) {
-	if schema == nil {
-		return nil, false
-	}
-	raw, err := json.Marshal(schema)
-	if err != nil {
-		return nil, false
-	}
-	var obj map[string]any
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return nil, false
-	}
-	// Only object schemas carry named properties.
-	if t, _ := obj["type"].(string); t != "" && t != "object" {
-		return nil, false
-	}
-	existing, _ := obj["properties"].(map[string]any)
-	// No capacity hint: len(existing) derives from a decoded schema, which the
-	// allocation-size-overflow analysis treats as untrusted; the map grows fine.
-	props := make(map[string]any)
-	maps.Copy(props, existing)
-	if _, exists := props[sessionHandleArg]; !exists {
-		props[sessionHandleArg] = map[string]any{
-			"type":        "string",
-			"description": sessionHandleSchemaDescription,
-		}
-	}
-	obj["properties"] = props
-	return obj, true
+	return withSchemaProperty(schema, sessionHandleArg, map[string]any{
+		"type":        "string",
+		"description": sessionHandleSchemaDescription,
+	})
 }

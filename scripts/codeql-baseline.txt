@@ -16,7 +16,11 @@
 # Triaging them out of scope; track separately if any becomes a real
 # concern.
 
-go/sql-injection pkg/audit/postgres/store.go:195
+# Line moved 195 -> 198 by #1317, which added the purpose column to the
+# SELECT list and its ILIKE to the search filter above this line. The flagged
+# statement itself is unchanged: the ORDER BY column is taken from the
+# audit.ValidSortColumns allowlist, never from caller input.
+go/sql-injection pkg/audit/postgres/store.go:198
 
 # request-forgery on the MCP gateway admin OAuth handler's
 # authorization_code token exchange. The request POSTs to the
