@@ -330,12 +330,15 @@ func TestCanEditAssetSilent(t *testing.T) {
 		{"soft-deleted asset denies the owner", map[string]*portaldomain.Asset{"a1": {ID: "a1", OwnerID: "u-owner", DeletedAt: &deleted}}, owner(), nil, false},
 		{"viewer share is not enough", map[string]*portaldomain.Asset{"a1": {ID: "a1", OwnerID: "u-owner"}}, viewer(), []portaldomain.Share{share(portaldomain.PermissionViewer, "u-view", "")}, false},
 		{"editor share", map[string]*portaldomain.Asset{"a1": {ID: "a1", OwnerID: "u-owner"}}, viewer(), []portaldomain.Share{share(portaldomain.PermissionEditor, "u-view", "")}, true},
+		{"admin who owns nothing and holds no share", map[string]*portaldomain.Asset{"a1": {ID: "a1", OwnerID: "u-owner"}}, admin(), nil, true},
+		{"soft-deleted asset denies the admin too", map[string]*portaldomain.Asset{"a1": {ID: "a1", OwnerID: "u-owner", DeletedAt: &deleted}}, admin(), nil, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := New(Config{
-				Assets: &fakeAssetStore{assets: tt.assets},
-				Shares: &fakeShareStore{byAsset: map[string][]portaldomain.Share{"a1": tt.direct}},
+				AdminRoles: []string{"dp_admin"},
+				Assets:     &fakeAssetStore{assets: tt.assets},
+				Shares:     &fakeShareStore{byAsset: map[string][]portaldomain.Share{"a1": tt.direct}},
 			})
 			assert.Equal(t, tt.want, c.CanEditAssetSilent(context.Background(), "a1", tt.user))
 		})
@@ -386,14 +389,83 @@ func TestCollectionAccess(t *testing.T) {
 		{name: "missing collection", store: &fakeCollectionStore{colls: colls}, id: "nope", user: owner(), want: false},
 		{name: "viewer share is not enough", store: &fakeCollectionStore{colls: colls}, id: "c1", user: viewer(), perm: portaldomain.PermissionViewer, want: false},
 		{name: "editor share", store: &fakeCollectionStore{colls: colls}, id: "c1", user: viewer(), perm: portaldomain.PermissionEditor, want: true},
+		{name: "admin who owns nothing and holds no share", store: &fakeCollectionStore{colls: colls}, id: "c1", user: admin(), want: true},
+		{name: "soft-deleted denies the admin too", store: &fakeCollectionStore{colls: colls}, id: "c2", user: admin(), want: false},
 	}
 	for _, tt := range editTests {
 		t.Run("edit/"+tt.name, func(t *testing.T) {
 			c := New(Config{
+				AdminRoles:  []string{"dp_admin"},
 				Collections: tt.store,
 				Shares:      &fakeShareStore{collectionPerm: map[string]portaldomain.SharePermission{tt.id: tt.perm}},
 			})
 			assert.Equal(t, tt.want, c.CanEditCollectionSilent(context.Background(), tt.id, tt.user))
+		})
+	}
+}
+
+// TestCanManage pins the seam every "only the owner can ..." gate now runs
+// through: the owner, an admin, and nobody else (#1293).
+func TestCanManage(t *testing.T) {
+	c := New(Config{AdminRoles: []string{"dp_admin"}})
+
+	assert.True(t, c.CanManage("u-owner", owner()), "the owner manages their own")
+	assert.True(t, c.CanManage("u-owner", admin()), "an admin manages what they do not own")
+	assert.False(t, c.CanManage("u-owner", viewer()), "a stranger manages nothing")
+	assert.False(t, c.CanManage("u-owner", nil), "an unauthenticated caller manages nothing")
+	assert.False(t, c.CanManage("", viewer()), "an empty owner never matches an identified caller")
+
+	// With no admin roles configured, the admin arm cannot grant: only the
+	// owner comparison remains, which is the pre-#1293 behavior.
+	none := New(Config{})
+	assert.False(t, none.CanManage("u-owner", admin()))
+	assert.True(t, none.CanManage("u-owner", owner()))
+}
+
+// TestCanManageEmail covers the email-keyed form used for prompts, whose
+// ownership is an address rather than a user ID.
+func TestCanManageEmail(t *testing.T) {
+	c := New(Config{AdminRoles: []string{"dp_admin"}})
+
+	assert.True(t, c.CanManageEmail("owner@example.com", owner()))
+	assert.True(t, c.CanManageEmail("OWNER@EXAMPLE.COM", owner()), "addresses compare case-insensitively")
+	assert.True(t, c.CanManageEmail("owner@example.com", admin()))
+	assert.False(t, c.CanManageEmail("owner@example.com", viewer()))
+	assert.False(t, c.CanManageEmail("owner@example.com", nil))
+	assert.False(t, c.CanManageEmail("", &User{Email: ""}),
+		"an unowned prompt is not owned by a caller with no address")
+	assert.True(t, c.CanManageEmail("", admin()), "an admin still manages an unowned prompt")
+}
+
+// TestCanEditCollection covers the collection-edit authority directly, over a
+// collection the caller already holds — the form the CRUD handlers call.
+func TestCanEditCollection(t *testing.T) {
+	coll := &portaldomain.Collection{ID: "c1", OwnerID: "u-owner"}
+	tests := []struct {
+		name string
+		user *User
+		perm portaldomain.SharePermission
+		want bool
+	}{
+		{"owner", owner(), "", true},
+		{"admin", admin(), "", true},
+		{"editor share", viewer(), portaldomain.PermissionEditor, true},
+		{"viewer share cannot edit", viewer(), portaldomain.PermissionViewer, false},
+		{"no share", viewer(), "", false},
+		{"nil caller", nil, "", false},
+	}
+	t.Run("no share store denies rather than panicking", func(t *testing.T) {
+		c := New(Config{AdminRoles: []string{"dp_admin"}})
+		assert.False(t, c.CanEditCollection(context.Background(), coll, viewer()))
+		assert.True(t, c.CanEditCollection(context.Background(), coll, owner()))
+	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := New(Config{
+				AdminRoles: []string{"dp_admin"},
+				Shares:     &fakeShareStore{collectionPerm: map[string]portaldomain.SharePermission{"c1": tt.perm}},
+			})
+			assert.Equal(t, tt.want, c.CanEditCollection(context.Background(), coll, tt.user))
 		})
 	}
 }

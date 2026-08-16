@@ -125,7 +125,7 @@ The editor arranges a collection into drag-and-drop sections of assets, with a m
 - **Section navigation** — Each section has a title, markdown description, and ordered asset list
 - **Asset cards** — Thumbnail previews with name, description, content type badge, and file size
 - **Thumbnail size** — Configurable per collection (Large, Medium, Small, None) via Settings
-- **Actions** — Back, Edit, Share, and Delete
+- **Actions** — Back, Edit, Share, and Delete, offered according to what you may actually do with this collection (see [Sharing Collections](#sharing-collections)). A collection you did not create carries a badge naming your access, the same way a shared asset does.
 
 Click any asset card to open it in the asset viewer:
 
@@ -138,6 +138,10 @@ Collections use the same sharing system as individual assets:
 - **Links**: time-limited token URL, opening for signed-in users or, by explicit choice, for anyone
 - **User shares**: share with specific email addresses, restricted to that recipient, with Viewer or Editor permission. The email field suggests known teammates as you type (name + email, with an "Invited" badge for people an admin pre-added who have not signed in yet); you can still type any email that is not in the directory
 - **Share management**: view active shares with their access mode, copy links, revoke access
+
+An **Editor** share on a collection grants the collection itself, not only the assets in it: the recipient can rename it, rewrite its description, add and reorder sections, change the thumbnail size, and replace the thumbnail image. What an Editor never gets is owner authority — deleting the collection, sharing it onward, and reading its list of shares stay with the owner, so a person you trusted to edit cannot hand your collection to someone else or destroy it. A **Viewer** share reads and nothing more; the viewer is offered no edit control at all rather than one that fails on save.
+
+Platform administrators hold owner authority over every asset, collection, and personal prompt, including sharing one they do not own. That is not an extra power: an admin can already read, edit, and delete any asset from the admin portal, so sharing is the weaker right of the two. Every share still records who created it, so an admin-created share is attributed to the admin rather than to the owner.
 
 ## Resources
 

@@ -796,7 +796,7 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /portal/assets/{id}/thumbnail [put]
 func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
-	asset, ok := h.requireOwnedAsset(w, r)
+	asset, ok := h.requireManageableAsset(w, r)
 	if !ok {
 		return
 	}
@@ -847,9 +847,11 @@ func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, statusResponse{Status: statusUpdated})
 }
 
-// requireOwnedAsset validates auth, fetches the asset, checks deletion and ownership.
-// Returns the asset and true on success, or writes the error response and returns false.
-func (h *Handler) requireOwnedAsset(w http.ResponseWriter, r *http.Request) (*Asset, bool) {
+// requireManageableAsset validates auth, fetches the asset, checks deletion, and
+// checks that the caller may exercise owner authority over it (owner or admin).
+// Returns the asset and true on success, or writes the error response and
+// returns false.
+func (h *Handler) requireManageableAsset(w http.ResponseWriter, r *http.Request) (*Asset, bool) {
 	user := GetUser(r.Context())
 	if user == nil {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
@@ -868,7 +870,7 @@ func (h *Handler) requireOwnedAsset(w http.ResponseWriter, r *http.Request) (*As
 		return nil, false
 	}
 
-	if asset.OwnerID != user.UserID {
+	if !h.access.CanManage(asset.OwnerID, user) {
 		writeError(w, http.StatusForbidden, "only the owner can update this asset")
 		return nil, false
 	}
@@ -1018,7 +1020,7 @@ type updateAssetRequest struct {
 // updateAsset handles PUT /api/v1/portal/assets/{id}.
 //
 // @Summary      Update asset metadata
-// @Description  Updates the asset's name, description, or tags. Only the owner can update.
+// @Description  Updates the asset's name, description, or tags. The owner, an admin, or an asset Editor.
 // @Tags         Assets
 // @Accept       json
 // @Produce      json
@@ -1084,7 +1086,7 @@ func (h *Handler) updateAsset(w http.ResponseWriter, r *http.Request) {
 // deleteAsset handles DELETE /api/v1/portal/assets/{id}.
 //
 // @Summary      Delete asset
-// @Description  Soft-deletes an asset. Only the owner can delete.
+// @Description  Soft-deletes an asset. The owner or an admin.
 // @Tags         Assets
 // @Produce      json
 // @Param        id  path  string  true  "Asset ID"
@@ -1109,7 +1111,7 @@ func (h *Handler) deleteAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errAssetNotFound)
 		return
 	}
-	if asset.OwnerID != user.UserID {
+	if !h.access.CanManage(asset.OwnerID, user) {
 		writeError(w, http.StatusForbidden, "only the owner can delete this asset")
 		return
 	}
@@ -1434,7 +1436,7 @@ type shareResponse struct {
 // createShare handles POST /api/v1/portal/assets/{id}/shares.
 //
 // @Summary      Create asset share
-// @Description  Creates a share link or user-targeted share for an asset. Only the owner can share.
+// @Description  Creates a share link or user-targeted share for an asset. The owner or an admin.
 // @Tags         Shares
 // @Accept       json
 // @Produce      json
@@ -1462,7 +1464,7 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errAssetNotFound)
 		return
 	}
-	if asset.OwnerID != user.UserID {
+	if !h.access.CanManage(asset.OwnerID, user) {
 		writeError(w, http.StatusForbidden, "only the owner can share this asset")
 		return
 	}
@@ -1576,7 +1578,7 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 // listShares handles GET /api/v1/portal/assets/{id}/shares.
 //
 // @Summary      List asset shares
-// @Description  Returns all shares for an asset. Only the owner can view shares.
+// @Description  Returns all shares for an asset. The owner or an admin.
 // @Tags         Shares
 // @Produce      json
 // @Param        id  path  string  true  "Asset ID"
@@ -1601,7 +1603,7 @@ func (h *Handler) listShares(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errAssetNotFound)
 		return
 	}
-	if asset.OwnerID != user.UserID {
+	if !h.access.CanManage(asset.OwnerID, user) {
 		writeError(w, http.StatusForbidden, "only the owner can view shares for this asset")
 		return
 	}
@@ -1621,7 +1623,7 @@ func (h *Handler) listShares(w http.ResponseWriter, r *http.Request) {
 // revokeShare handles DELETE /api/v1/portal/shares/{id}.
 //
 // @Summary      Revoke share
-// @Description  Revokes a share by its ID. Only the owner can revoke.
+// @Description  Revokes a share by its ID. The owner of the shared item, or an admin.
 // @Tags         Shares
 // @Produce      json
 // @Param        id  path  string  true  "Share ID"
@@ -1658,12 +1660,12 @@ func (h *Handler) revokeShare(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "associated prompt not found")
 			return
 		}
-		if pr.OwnerEmail != user.Email {
+		if !h.access.CanManageEmail(pr.OwnerEmail, user) {
 			writeError(w, http.StatusForbidden, "only the owner can revoke this share")
 			return
 		}
 	case share.CollectionID != "":
-		if err := h.verifyCollectionOwner(r.Context(), share.CollectionID, user); err != nil {
+		if err := h.verifyCollectionManager(r.Context(), share.CollectionID, user); err != nil {
 			writeError(w, err.code, err.message)
 			return
 		}
@@ -1673,7 +1675,7 @@ func (h *Handler) revokeShare(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "associated asset not found")
 			return
 		}
-		if asset.OwnerID != user.UserID {
+		if !h.access.CanManage(asset.OwnerID, user) {
 			writeError(w, http.StatusForbidden, "only the owner can revoke this share")
 			return
 		}
@@ -1694,7 +1696,10 @@ type ownerError struct {
 
 func (e *ownerError) Error() string { return e.message }
 
-func (h *Handler) verifyCollectionOwner(ctx context.Context, collectionID string, user *User) *ownerError {
+// verifyCollectionManager reports that the caller may exercise owner authority
+// over the collection a share targets. Revoking a share is a share-management
+// right, so an Editor on the collection is deliberately not admitted.
+func (h *Handler) verifyCollectionManager(ctx context.Context, collectionID string, user *User) *ownerError {
 	if h.deps.CollectionStore == nil {
 		return &ownerError{http.StatusNotFound, "collections not available"}
 	}
@@ -1702,7 +1707,7 @@ func (h *Handler) verifyCollectionOwner(ctx context.Context, collectionID string
 	if err != nil {
 		return &ownerError{http.StatusNotFound, "associated collection not found"}
 	}
-	if coll.OwnerID != user.UserID {
+	if !h.access.CanManage(coll.OwnerID, user) {
 		return &ownerError{http.StatusForbidden, "only the owner can revoke this share"}
 	}
 	return nil
@@ -2358,9 +2363,10 @@ func (h *Handler) userCanViewAsset(r *http.Request, assetID string, asset *Asset
 	return h.access.CanViewAsset(r.Context(), assetID, asset, user)
 }
 
-// canEditAsset checks owner or editor share access, writing an HTTP error on failure.
+// canEditAsset checks owner, admin, or editor share access, writing an HTTP
+// error on failure.
 func (h *Handler) canEditAsset(w http.ResponseWriter, r *http.Request, assetID string, asset *Asset, user *User) bool {
-	if asset.OwnerID == user.UserID {
+	if h.access.CanManage(asset.OwnerID, user) {
 		return true
 	}
 	perm, err := h.access.ResolveAssetPermission(r.Context(), assetID, user)
@@ -2368,7 +2374,7 @@ func (h *Handler) canEditAsset(w http.ResponseWriter, r *http.Request, assetID s
 		writeError(w, http.StatusInternalServerError, "failed to check share access")
 		return false
 	}
-	if perm == PermissionEditor {
+	if access.GrantsEdit(perm) {
 		return true
 	}
 	writeError(w, http.StatusForbidden, "only the owner or an editor can update this asset")

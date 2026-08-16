@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -39,7 +39,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { EditorHeaderActions } from "./editor/EditorHeaderActions";
 import { SortableSection } from "./editor/SortableSection";
+import { ViewOnlyNotice } from "./editor/ViewOnlyNotice";
 import { type SectionDraft, draftId } from "./editor/types";
 
 interface Props {
@@ -97,7 +99,7 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
     }
   }, [coll, initialized]);
 
-  const assets: Asset[] = assetsData?.data ?? [];
+  const assets: Asset[] = assetList(assetsData);
 
   const addSection = useCallback(() => {
     setSections((prev) => [...prev, { id: draftId(), title: "", description: "", items: [] }]);
@@ -182,8 +184,17 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
   // Saving is three writes; the page is busy while any of them is in flight.
   const isSaving = [updateMutation, sectionsMutation, configMutation].some((m) => m.isPending);
 
+  // The two authorities the server resolved. A reader who may not edit gets the
+  // notice below instead of the form; Delete needs the stronger of the two.
+  const viewOnly = isViewOnly(coll);
+  const canManage = coll?.can_manage === true;
+
   if (isLoading) {
     return <p className="py-12 text-center text-sm text-muted-foreground">Loading...</p>;
+  }
+
+  if (viewOnly) {
+    return <ViewOnlyNotice ownerEmail={ownerLabel(coll)} onBack={onBack} />;
   }
 
   return (
@@ -192,22 +203,13 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
         onBack={onBack}
         title={headerTitle(coll)}
         actions={
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDeleteOpen(true)}
-              title="Delete collection"
-              className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              <Trash2 />
-              Delete
-            </Button>
-            <Button size="sm" onClick={() => void handleSave()} disabled={isSaving || !name}>
-              <Save />
-              {isSaving ? "Saving..." : "Save"}
-            </Button>
-          </>
+          <EditorHeaderActions
+            canManage={canManage}
+            canSave={name.length > 0}
+            isSaving={isSaving}
+            onDelete={() => setDeleteOpen(true)}
+            onSave={() => void handleSave()}
+          />
         }
       />
 
@@ -333,4 +335,19 @@ export function CollectionEditorPage({ collectionId, onBack, onNavigate }: Props
  */
 function headerTitle(coll: { name: string } | undefined): string {
   return coll?.name || "Untitled Collection";
+}
+
+/** The assets the section builder can choose from, empty until they load. */
+function assetList(data: { data?: Asset[] } | undefined): Asset[] {
+  return data?.data ?? [];
+}
+
+/** True once a collection has loaded and it grants no edit rights. */
+function isViewOnly(coll: { can_edit?: boolean } | undefined): boolean {
+  return coll !== undefined && coll.can_edit !== true;
+}
+
+/** Who to ask for an Editor share, named when the record knows. */
+function ownerLabel(coll: { owner_email?: string } | undefined): string {
+  return coll?.owner_email || "its owner";
 }

@@ -2472,6 +2472,8 @@ export const handlers = [
     const enriched = {
       ...col,
       is_owner: true,
+      can_edit: true,
+      can_manage: true,
       sections: (col.sections ?? []).map((s) => ({
         ...s,
         items: (s.items ?? []).map((item) => {
