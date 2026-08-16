@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -650,4 +653,53 @@ func TestDrainWindow_ComesFromTheCallersBudget(t *testing.T) {
 	spent, cancelSpent := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancelSpent()
 	assert.Negative(t, drainWindow(spent), "a spent budget waits for nothing")
+}
+
+// TestWorker_RecordsTheRunItExecuted proves the metric reaches the exporter
+// rather than only the recorder: the worker is assembled with a real Metrics,
+// a run is drained through it, and the scrape is read back. A unit test that
+// asserted a fake recorder was called would not show that the series an
+// operator watches actually exists.
+func TestWorker_RecordsTheRunItExecuted(t *testing.T) {
+	m, err := observability.New(observability.Config{Enabled: true, ListenAddr: ":0"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
+
+	w, _, _ := newTestWorker(t, nil, succeeded)
+	w.cfg.metrics = m
+	w.drain()
+
+	body := scrapeWorkerMetrics(t, m)
+	assert.Contains(t, body, "script_runs_total")
+	assert.Contains(t, body, `script="daily"`)
+	assert.Contains(t, body, `trigger="tool"`)
+	assert.Contains(t, body, `status="succeeded"`)
+	assert.Contains(t, body, "script_run_duration_seconds")
+}
+
+// A run whose script could not be loaded still counts: it reached a terminal
+// state, and a script failing to load every night is exactly what an operator
+// needs to see.
+func TestWorker_RecordsARunThatCouldNotLoadItsScript(t *testing.T) {
+	m, err := observability.New(observability.Config{Enabled: true, ListenAddr: ":0"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
+
+	w, _, _ := newTestWorker(t, nil, succeeded)
+	w.cfg.scripts = &fakeScripts{}
+	w.cfg.metrics = m
+	w.drain()
+
+	body := scrapeWorkerMetrics(t, m)
+	assert.Contains(t, body, `status="failed"`)
+}
+
+// scrapeWorkerMetrics reads the exporter's own output.
+func scrapeWorkerMetrics(t *testing.T, m *observability.Metrics) string {
+	t.Helper()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/metrics", http.NoBody)
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	return rec.Body.String()
 }

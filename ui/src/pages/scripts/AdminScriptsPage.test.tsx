@@ -161,7 +161,7 @@ describe("AdminScriptsPage: the queue", () => {
 describe("AdminScriptsPage: the review", () => {
   function openReview() {
     render(<AdminScriptsPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Review Daily Sales Report/ }));
     return screen.getByRole("dialog");
   }
 
@@ -246,7 +246,7 @@ describe("AdminScriptsPage: the review", () => {
 
   it("keeps a part-edited grant when the review is refetched underneath it", () => {
     const { rerender } = render(<AdminScriptsPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Review Daily Sales Report/ }));
     const dialog = screen.getByRole("dialog");
 
     fireEvent.click(within(dialog).getByRole("button", { name: /platform\.export/ }));
@@ -362,15 +362,15 @@ describe("AdminScriptsPage: version history", () => {
     mockVersions.mockReturnValue(query({ data: [approved], total: 1 }));
     render(<AdminScriptsPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    fireEvent.click(screen.getByRole("row", { name: /Daily Sales Report/ }));
     // v2 is the version executing today, so the history offers it as "View".
-    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    fireEvent.click(screen.getByRole("button", { name: "View version 2" }));
 
-    // The queue row is for v3; the drawer is on v2, so the queue's button must
-    // not read as the decision being made.
+    // The queue row is for v3; the drawer is on v2, so the queue item must not
+    // read as the decision being made.
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    const queueButton = screen.getAllByRole("button", { name: "Review" })[0]!;
-    expect(queueButton.className).not.toContain("secondary");
+    const queued = screen.getByRole("button", { name: /^Review Daily Sales Report/ });
+    expect(queued).not.toHaveAttribute("aria-current", "true");
   });
 
   it("opens any version for review, which is how a rollback is approved", () => {
@@ -384,12 +384,12 @@ describe("AdminScriptsPage: version history", () => {
     mockVersions.mockReturnValue(query({ data: [draftVersion, approved], total: 2 }));
     render(<AdminScriptsPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    fireEvent.click(screen.getByRole("row", { name: /Daily Sales Report/ }));
     // One badge on the version the gate points at; the column header of the
     // same name is the other match.
     expect(screen.getAllByText("Executing")).toHaveLength(2);
     // The executing version opens too: a reviewer can read what is running.
-    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    fireEvent.click(screen.getByRole("button", { name: "View version 2" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });

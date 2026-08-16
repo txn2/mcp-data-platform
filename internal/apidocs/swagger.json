@@ -6464,6 +6464,54 @@
                 }
             }
         },
+        "/admin/scripts/runs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns recent runs across every script, newest first, with what triggered each one, how it ended, how long it took, and how many outputs it produced. The operator view of what the platform has been running unattended.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "List managed-script runs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by run status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum rows to return",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.adminRunListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/scripts/schedules": {
             "get": {
                 "security": [
@@ -13188,6 +13236,315 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/scripthttp.portalRunDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/schedule": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the cadence a script the caller owns runs on, the parameters every fire binds, when it fires next, and how many fires it has missed. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Get a script's schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/script.Schedule"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates or replaces the cadence a script the caller owns runs on, with the parameters every fire binds. A schedule grants no authority: which version runs and what it may reach were both bound at approval. Restricted to the script's owner and to administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Set a script's schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Cadence",
+                        "name": "schedule",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.scheduleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/script.Schedule"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/schedule/disable": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Stops a schedule on a script the caller owns from firing, keeping the row that explains the runs it produced. There is deliberately no way to delete a schedule. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Disable a script's schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/script.Schedule"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/schedule/enable": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resumes a paused schedule on a script the caller owns, without touching its cadence. The next fire is the one it was parked on. Restricted to the script's owner and to administrators.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Enable a script's schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/script.Schedule"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/scripts/{id}/source": {
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Saves new Starlark for a script the caller owns. A script with an approved version keeps executing that version and the edit becomes a draft awaiting review; a script with nothing approved yet applies the edit directly. The source is parsed before anything is stored. Restricted to the script's owner and to administrators.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Scripts"
+                ],
+                "summary": "Edit a script's source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Script ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Starlark source",
+                        "name": "source",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.sourceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/scripthttp.sourceResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     },
                     "401": {
@@ -21734,6 +22091,77 @@
                 }
             }
         },
+        "scripthttp.adminRun": {
+            "type": "object",
+            "properties": {
+                "duration_ms": {
+                    "type": "integer",
+                    "example": 1840
+                },
+                "error": {
+                    "description": "Error is why a failed run failed, carried into the listing because a\nhistory whose failures say only \"failed\" sends every reader to the detail\nview to learn the same thing.",
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "fire_time": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "run_a1b2c3d4"
+                },
+                "output_count": {
+                    "description": "OutputCount counts what the run persisted. It is deliberately not called\n\"outputs\": the run detail carries the outputs themselves under that name,\nand one field meaning a count in one payload and a list in another is how\na client ends up rendering \"3\" where a link belongs.",
+                    "type": "integer",
+                    "example": 1
+                },
+                "requested_by": {
+                    "description": "RequestedBy is who asked for the run, empty for a scheduled one, which\nnobody requested.",
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "script_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "succeeded"
+                },
+                "trigger": {
+                    "type": "string",
+                    "example": "schedule"
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "scripthttp.adminRunListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/scripthttp.adminRun"
+                    }
+                },
+                "limit": {
+                    "description": "Limit is the cap this answer was read under. A page that filled it has\nolder runs behind it, and saying so is the difference between a listing\nthat ended and one that was truncated.",
+                    "type": "integer",
+                    "example": 50
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 42
+                }
+            }
+        },
         "scripthttp.approveRequest": {
             "type": "object",
             "properties": {
@@ -21973,6 +22401,10 @@
                 "owned": {
                     "type": "boolean",
                     "example": true
+                },
+                "source": {
+                    "description": "Source is the live script's code, present only for the owner and an\nadministrator: it is what the editor on that page opens (#1307), and the\ncontract document deliberately does not carry it, because that document\nis served to everyone the scope rules admit.",
+                    "type": "string"
                 }
             }
         },
@@ -21993,7 +22425,7 @@
                     "example": true
                 },
                 "schedule": {
-                    "description": "Schedule is the script's cadence, absent when it has none.",
+                    "description": "Schedule is the script's cadence, absent when it has none. On a row this\ncaller does not own it carries the cadence alone (see reportableSchedule).",
                     "allOf": [
                         {
                             "$ref": "#/definitions/script.Schedule"
@@ -22087,6 +22519,34 @@
                 "total": {
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "scripthttp.sourceRequest": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "scripthttp.sourceResponse": {
+            "type": "object",
+            "properties": {
+                "applied": {
+                    "description": "Applied is true when the live script now carries this source.",
+                    "type": "boolean",
+                    "example": false
+                },
+                "message": {
+                    "description": "Message states the outcome in the owner's terms.",
+                    "type": "string",
+                    "example": "Saved as version 4, awaiting review."
+                },
+                "pending_version": {
+                    "description": "PendingVersion is the draft version awaiting review, zero when applied.",
+                    "type": "integer",
+                    "example": 4
                 }
             }
         },

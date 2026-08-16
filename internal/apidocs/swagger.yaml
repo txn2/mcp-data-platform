@@ -4864,6 +4864,69 @@ definitions:
         example: 3
         type: integer
     type: object
+  scripthttp.adminRun:
+    properties:
+      duration_ms:
+        example: 1840
+        type: integer
+      error:
+        description: |-
+          Error is why a failed run failed, carried into the listing because a
+          history whose failures say only "failed" sends every reader to the detail
+          view to learn the same thing.
+        type: string
+      finished_at:
+        type: string
+      fire_time:
+        type: string
+      id:
+        example: run_a1b2c3d4
+        type: string
+      output_count:
+        description: |-
+          OutputCount counts what the run persisted. It is deliberately not called
+          "outputs": the run detail carries the outputs themselves under that name,
+          and one field meaning a count in one payload and a list in another is how
+          a client ends up rendering "3" where a link belongs.
+        example: 1
+        type: integer
+      requested_by:
+        description: |-
+          RequestedBy is who asked for the run, empty for a scheduled one, which
+          nobody requested.
+        example: jane@example.com
+        type: string
+      script_id:
+        type: string
+      started_at:
+        type: string
+      status:
+        example: succeeded
+        type: string
+      trigger:
+        example: schedule
+        type: string
+      version:
+        example: 3
+        type: integer
+    type: object
+  scripthttp.adminRunListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/scripthttp.adminRun'
+        type: array
+      limit:
+        description: |-
+          Limit is the cap this answer was read under. A page that filled it has
+          older runs behind it, and saying so is the difference between a listing
+          that ended and one that was truncated.
+        example: 50
+        type: integer
+      total:
+        example: 42
+        type: integer
+    type: object
   scripthttp.approveRequest:
     properties:
       capabilities:
@@ -5056,6 +5119,13 @@ definitions:
       owned:
         example: true
         type: boolean
+      source:
+        description: |-
+          Source is the live script's code, present only for the owner and an
+          administrator: it is what the editor on that page opens (#1307), and the
+          contract document deliberately does not carry it, because that document
+          is served to everyone the scope rules admit.
+        type: string
     type: object
   scripthttp.portalScriptRow:
     properties:
@@ -5076,7 +5146,9 @@ definitions:
       schedule:
         allOf:
         - $ref: '#/definitions/script.Schedule'
-        description: Schedule is the script's cadence, absent when it has none.
+        description: |-
+          Schedule is the script's cadence, absent when it has none. On a row this
+          caller does not own it carries the cadence alone (see reportableSchedule).
       script:
         $ref: '#/definitions/script.Script'
     type: object
@@ -5149,6 +5221,27 @@ definitions:
         type: array
       total:
         example: 3
+        type: integer
+    type: object
+  scripthttp.sourceRequest:
+    properties:
+      source:
+        type: string
+    type: object
+  scripthttp.sourceResponse:
+    properties:
+      applied:
+        description: Applied is true when the live script now carries this source.
+        example: false
+        type: boolean
+      message:
+        description: Message states the outcome in the owner's terms.
+        example: Saved as version 4, awaiting review.
+        type: string
+      pending_version:
+        description: PendingVersion is the draft version awaiting review, zero when
+          applied.
+        example: 4
         type: integer
     type: object
   scripthttp.versionListResponse:
@@ -9864,6 +9957,37 @@ paths:
       summary: List script versions awaiting review
       tags:
       - Scripts
+  /admin/scripts/runs:
+    get:
+      description: Returns recent runs across every script, newest first, with what
+        triggered each one, how it ended, how long it took, and how many outputs it
+        produced. The operator view of what the platform has been running unattended.
+      parameters:
+      - description: Filter by run status
+        in: query
+        name: status
+        type: string
+      - description: Maximum rows to return
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.adminRunListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List managed-script runs
+      tags:
+      - Scripts
   /admin/scripts/schedules:
     get:
       description: Returns every managed-script schedule with its cadence, its bound
@@ -13915,6 +14039,212 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Get one script run
+      tags:
+      - Scripts
+  /portal/scripts/{id}/schedule:
+    get:
+      description: Returns the cadence a script the caller owns runs on, the parameters
+        every fire binds, when it fires next, and how many fires it has missed. Restricted
+        to the script's owner and to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Schedule'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a script's schedule
+      tags:
+      - Scripts
+    put:
+      consumes:
+      - application/json
+      description: 'Creates or replaces the cadence a script the caller owns runs
+        on, with the parameters every fire binds. A schedule grants no authority:
+        which version runs and what it may reach were both bound at approval. Restricted
+        to the script''s owner and to administrators.'
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Cadence
+        in: body
+        name: schedule
+        required: true
+        schema:
+          $ref: '#/definitions/scripthttp.scheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Schedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set a script's schedule
+      tags:
+      - Scripts
+  /portal/scripts/{id}/schedule/disable:
+    post:
+      description: Stops a schedule on a script the caller owns from firing, keeping
+        the row that explains the runs it produced. There is deliberately no way to
+        delete a schedule. Restricted to the script's owner and to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Schedule'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Disable a script's schedule
+      tags:
+      - Scripts
+  /portal/scripts/{id}/schedule/enable:
+    post:
+      description: Resumes a paused schedule on a script the caller owns, without
+        touching its cadence. The next fire is the one it was parked on. Restricted
+        to the script's owner and to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/script.Schedule'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Enable a script's schedule
+      tags:
+      - Scripts
+  /portal/scripts/{id}/source:
+    put:
+      consumes:
+      - application/json
+      description: Saves new Starlark for a script the caller owns. A script with
+        an approved version keeps executing that version and the edit becomes a draft
+        awaiting review; a script with nothing approved yet applies the edit directly.
+        The source is parsed before anything is stored. Restricted to the script's
+        owner and to administrators.
+      parameters:
+      - description: Script ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Starlark source
+        in: body
+        name: source
+        required: true
+        schema:
+          $ref: '#/definitions/scripthttp.sourceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/scripthttp.sourceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Edit a script's source
       tags:
       - Scripts
   /portal/scripts/{id}/versions:

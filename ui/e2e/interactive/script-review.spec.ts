@@ -14,16 +14,30 @@ async function gotoScripts(page: Page): Promise<void> {
 }
 
 async function openReview(page: Page, script: string): Promise<void> {
+  // The queue item is itself the control that opens the review, named for what
+  // it opens, as every other row in the portal is.
   await page
-    .locator("li")
-    .filter({ hasText: script })
-    .getByRole("button", { name: "Review" })
+    .getByRole("button", { name: new RegExp(`^Review ${script}`) })
     .first()
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
 }
 
 test.describe("Script review queue", () => {
+  // The operator's other question: not what needs a decision, but what has
+  // been running (#1307).
+  test("the Runs tab shows what the platform has been running", async ({ page }) => {
+    await gotoScripts(page);
+    await page.getByRole("tab", { name: "Runs" }).click();
+
+    // The charts read the metrics the run worker emits; the table reads the
+    // run rows. Both are on the page, and neither can do the other's job.
+    await expect(page.getByText("Runs over time")).toBeVisible();
+    await expect(page.getByText("Missed fires")).toBeVisible();
+    await expect(page.getByText("Recent runs")).toBeVisible();
+    await expect(page.getByRole("row").filter({ hasText: "succeeded" }).first()).toBeVisible();
+  });
+
   test("lists what is not executing, and says which kind of decision each row is", async ({
     page,
   }) => {
@@ -166,18 +180,12 @@ test.describe("Script review queue", () => {
   }) => {
     await gotoScripts(page);
 
-    await page
-      .getByRole("row")
-      .filter({ hasText: "daily-sales-report" })
-      .getByRole("button", { name: "History" })
-      .click();
+    await page.getByRole("row").filter({ hasText: "daily-sales-report" }).click();
 
     await expect(page.getByText("Executing").last()).toBeVisible();
     // v1 is an earlier approved version: opening it is the rollback path.
     await page
-      .locator("li")
-      .filter({ hasText: "v2" })
-      .getByRole("button", { name: /Review|View/ })
+      .getByRole("button", { name: /^(Review|View) version 2$/ })
       .first()
       .click();
     await expect(page.getByRole("dialog")).toBeVisible();

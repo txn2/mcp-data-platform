@@ -12,6 +12,28 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
+// schedulable resolves the script a schedule command names and checks the
+// caller may set its cadence: its owner, or an administrator.
+//
+// It is deliberately NOT the edit rule. Editing changes what a script does and
+// sends the result back through review, so it is confined to a personal script
+// unless an admin makes it; a schedule changes only when an already-approved
+// version runs and with which parameters, and the execution gate and the
+// capability grant are re-read at every fire. Re-timing therefore cannot reach
+// anything the script could not already reach, and there is no reason the owner
+// of a global or persona script must ask an administrator to pause their own
+// report.
+func (h *Handle) schedulable(ctx context.Context, input manageScriptInput) (*script.Script, *mcp.CallToolResult) {
+	sc, errResult := h.readable(ctx, input)
+	if errResult != nil {
+		return nil, errResult
+	}
+	if !h.ownsScript(ctx, sc) {
+		return nil, errorResult("only the owner of a script can change its schedule")
+	}
+	return sc, nil
+}
+
 // handleScheduleSet creates or replaces a script's schedule.
 //
 // It is an owner-or-admin action, not a reviewer's, and that is the whole
@@ -20,7 +42,7 @@ import (
 // calling run_script can. What executes and what it may touch were both decided
 // at approval.
 func (h *Handle) handleScheduleSet(ctx context.Context, input manageScriptInput) (*mcp.CallToolResult, any, error) {
-	sc, errResult := h.editable(ctx, input)
+	sc, errResult := h.schedulable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}
@@ -202,7 +224,7 @@ func (h *Handle) handleScheduleDisable(ctx context.Context, input manageScriptIn
 
 // setScheduleEnabled applies an enable/disable to the named script's schedule.
 func (h *Handle) setScheduleEnabled(ctx context.Context, input manageScriptInput, enabled bool) (*mcp.CallToolResult, any, error) {
-	sc, errResult := h.editable(ctx, input)
+	sc, errResult := h.schedulable(ctx, input)
 	if errResult != nil {
 		return errResult, nil, nil
 	}

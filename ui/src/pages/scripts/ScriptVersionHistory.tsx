@@ -1,10 +1,10 @@
 import { useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { usePortalScriptVersions } from "@/api/portal/hooks/scripts";
 import type { ScriptContract } from "@/api/portal/hooks/scripts";
 import type { ScriptVersion } from "@/api/admin/types";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { SourceView } from "./DiffView";
 import { formatWhen } from "./runFormat";
 
@@ -68,9 +68,29 @@ function VersionRow({
 }) {
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* The header opens the version, with a chevron saying so — the same
+          expander the portal uses for a block that is not a table row
+          (settings/persona/primitives). */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        className="flex cursor-pointer flex-wrap items-center justify-between gap-2 select-none"
+      >
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-1.5 text-sm">
+            {open ? (
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="size-3.5 text-muted-foreground" />
+            )}
             <span className="font-mono">v{version.version}</span>
             <Badge variant={version.status === "draft" ? "warning" : "muted"}>
               {version.status}
@@ -84,9 +104,9 @@ function VersionRow({
               : " · never approved"}
           </div>
         </div>
-        <Button size="sm" variant="outline" onClick={onToggle}>
-          {open ? "Hide source" : "Source"}
-        </Button>
+        <span className="text-xs text-muted-foreground">
+          {open ? "Hide source" : "Source and grant"}
+        </span>
       </div>
       {open && (
         <div className="mt-3 space-y-3">

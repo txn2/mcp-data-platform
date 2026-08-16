@@ -93,6 +93,10 @@ and a README covering how to load them and confirm scraping with
 | `datahub_request_duration_seconds` | histogram | `operation` |
 | `s3_operations_total` | counter | `operation`, `status` |
 | `s3_operation_duration_seconds` | histogram | `operation` |
+| `script_runs_total` | counter | `script`, `trigger`, `status` |
+| `script_run_duration_seconds` | histogram | `script` |
+| `script_runs_running` | gauge | (none) |
+| `script_missed_fires_total` | counter | `script` |
 | `oauth_token_issuance_total` | counter | `grant_type`, `status` |
 | `oauth_token_refresh_total` | counter | `status` |
 | `oauth_token_refresh_duration_seconds` | histogram | (none) |
@@ -115,6 +119,31 @@ queries, or the metadata operation (`list_catalogs`, `list_schemas`,
 implemented: the mcp-trino client (v1.3.0) does not expose a
 bytes-scanned figure in its query stats, so there is no honest source
 for it.
+
+**Managed scripts** are measured where a run reaches a terminal state, not
+where it is enqueued, so the counter is of executions rather than intentions
+and the histogram carries what the run actually took. `script` is the script's
+name — bounded by what people wrote and reviewed — and `trigger` separates a
+scheduled fire from a `run_script` call. `script_runs_running` is bracketed
+around the execution rather than incremented at the end: a run that never
+finishes never records a terminal observation, and a worker wedged on one is
+what the gauge exists to show. `script_missed_fires_total` counts the fires the
+misfire policy stepped over, which is the one thing the run table cannot show,
+because a missed fire is precisely a run that does not exist:
+
+```promql
+# automations that are failing
+sum by (script) (increase(script_runs_total{status="failed"}[24h]))
+
+# automations that are not keeping their cadence
+sum by (script) (increase(script_missed_fires_total[24h]))
+
+# the slowest 5% of runs
+histogram_quantile(0.95, sum by (le) (rate(script_run_duration_seconds_bucket[24h])))
+```
+
+The portal's admin Scripts page reads these on its Runs tab, beside the run
+rows themselves; see [Admin portal](admin-portal.md).
 
 **Enrichment overhead**: `mcp_enrichment_bytes_total` accumulates the byte
 size of the cross-enrichment content (semantic context, memories, knowledge

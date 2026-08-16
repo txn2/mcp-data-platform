@@ -149,3 +149,68 @@ func TestUpstreamStatus(t *testing.T) {
 		t.Errorf("UpstreamStatus(err) = %q, want %q", got, StatusUpstreamErr)
 	}
 }
+
+// TestRecordScriptRunInstruments pins the managed-script series (#1307): what
+// an operator watching the platform sees of the automations it is running
+// unattended. Without these, a failing or slowing script is visible only by
+// querying the run table.
+func TestRecordScriptRunInstruments(t *testing.T) {
+	m := newEnabledMetrics(t)
+	ctx := context.Background()
+
+	m.RecordScriptRun(ctx, ScriptRunAttrs{
+		Script: "daily-sales-report", Trigger: "schedule", Status: "succeeded",
+	}, 8*time.Second)
+	m.RecordScriptRun(ctx, ScriptRunAttrs{
+		Script: "daily-sales-report", Trigger: "schedule", Status: "failed",
+	}, 3*time.Second)
+	m.RecordScriptRun(ctx, ScriptRunAttrs{
+		Script: "warehouse-freshness", Trigger: "tool", Status: "succeeded",
+	}, time.Second)
+	m.RecordScriptMissedFires(ctx, "daily-sales-report", 2)
+
+	// A run in flight is visible while it runs, which is what shows a worker
+	// wedged on a script that never returns.
+	m.ScriptRunStarted(ctx)
+
+	body := scrapeMetrics(t, m.Handler())
+	for _, want := range []string{
+		"script_runs_total",
+		`script="daily-sales-report"`,
+		`trigger="schedule"`,
+		`trigger="tool"`,
+		`status="succeeded"`,
+		`status="failed"`,
+		"script_run_duration_seconds",
+		"script_runs_running",
+		"script_missed_fires_total",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scrape missing %q", want)
+		}
+	}
+
+	m.ScriptRunFinished(ctx)
+}
+
+// A missed-fire count of zero is not an observation: recording it would put a
+// series on every schedule that is keeping its cadence perfectly.
+func TestRecordScriptMissedFires_ZeroRecordsNothing(t *testing.T) {
+	m := newEnabledMetrics(t)
+	m.RecordScriptMissedFires(context.Background(), "quiet-script", 0)
+
+	if body := scrapeMetrics(t, m.Handler()); strings.Contains(body, `script="quiet-script"`) {
+		t.Error("a zero missed-fire count produced a series")
+	}
+}
+
+// Every script recorder is nil-safe: a deployment with observability off still
+// executes runs.
+func TestScriptRecorders_NilSafe(*testing.T) {
+	var m *Metrics
+	ctx := context.Background()
+	m.RecordScriptRun(ctx, ScriptRunAttrs{Script: "x", Trigger: "tool", Status: "failed"}, time.Second)
+	m.RecordScriptMissedFires(ctx, "x", 3)
+	m.ScriptRunStarted(ctx)
+	m.ScriptRunFinished(ctx)
+}

@@ -36,6 +36,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -87,6 +88,13 @@ type Config struct {
 	// incomplete set leaves scripts able to query and unable to persist, which
 	// each affected run reports.
 	Export ExportDeps
+
+	// Metrics records what the run queue is doing: runs by script, trigger and
+	// status, their duration, how many are executing on this replica, and the
+	// fires the misfire policy stepped over (#1307). Optional — every method on
+	// it is nil-safe — but without it the automations are invisible to an
+	// operator watching the platform rather than reading the run table.
+	Metrics *observability.Metrics
 
 	// Audit records the script_run lifecycle event. Optional.
 	Audit middleware.AuditLogger
@@ -207,6 +215,7 @@ func New(cfg Config) *Handle {
 		runner:    newRunner(stores.runs, cfg),
 		retention: orDefaultRetention(cfg.RunRetention),
 		notifier:  notifier,
+		metrics:   cfg.Metrics,
 	})
 	// Materializing where the worker runs, for the same reason the listener
 	// does: a replica that will not claim gains nothing by producing rows for
@@ -216,6 +225,7 @@ func New(cfg Config) *Handle {
 		scripts:   stores.scripts,
 		versions:  stores.versions,
 		wake:      h.worker.Notify,
+		metrics:   cfg.Metrics,
 	})
 	if cfg.DSN != "" {
 		h.listener = pglisten.New(cfg.DSN, scriptstore.NotifyChannel, h)

@@ -48,7 +48,37 @@ const MiB = 1024 * 1024;
 // promInstantFor returns a canned instant-query response based on the
 // shape of the PromQL query (which "by (label)" grouping or scalar
 // aggregate it is).
+// SCRIPT_NAMES are the fixture's automations, so the per-script breakdowns
+// name the same scripts the rest of the surface shows.
+const SCRIPT_NAMES = ["daily-sales-report", "warehouse-freshness", "dormant-accounts"];
+
+// scriptVector answers a per-script breakdown, positionally.
+function scriptVector(values: number[]): PromVectorResponse {
+  return vector(
+    SCRIPT_NAMES.map((script, i) => ({ metric: { script }, value: values[i] ?? 0 })),
+  );
+}
+
 export function promInstantFor(query: string): PromVectorResponse {
+  // --- Managed scripts (#1307) ---
+  // Matched before the generic aggregates below: these name their own metric,
+  // and the answers are what the Runs tab's tiles and breakdowns read.
+  if (query.includes("script_missed_fires_total")) {
+    return scriptVector([0, 2, 0]);
+  }
+  if (query.includes("script_runs_running")) {
+    return scalarVector(1);
+  }
+  if (query.includes("script_run_duration_seconds_bucket")) {
+    return scalarVector(8.4); // p95 seconds
+  }
+  if (query.includes("script_runs_total")) {
+    if (query.includes("by (script)")) {
+      return scriptVector([124, 48, 3]);
+    }
+    return scalarVector(query.includes('status="failed"') ? 6 : 175);
+  }
+
   // --- Per-node health (Go runtime / process / MCP gauges) ---
   // Matched first because these are specific metric names; order matters so
   // they are not shadowed by the apigateway grouping checks below. Each
@@ -194,6 +224,21 @@ export function promRangeFor(
     }
     return out;
   };
+
+  // Managed-script runs by status (#1307): mostly succeeding, with a thin line
+  // of failures, which is what a healthy set of automations looks like.
+  if (query.includes("script_runs_total") && query.includes("by (status)")) {
+    return {
+      status: "success",
+      data: {
+        resultType: "matrix",
+        result: [
+          { metric: { status: "succeeded" }, values: wave(6, 2.5, 0) },
+          { metric: { status: "failed" }, values: wave(0.4, 0.35, 1.5) },
+        ],
+      },
+    };
+  }
 
   if (query.includes("by (status_class)")) {
     return {

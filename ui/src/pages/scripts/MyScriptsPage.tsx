@@ -5,7 +5,6 @@ import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -14,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { formatWhen, runStatusLabel, runStatusVariant, runWhen } from "./runFormat";
 
 // MyScriptsPage is what the people who own the automations see (#1290): every
@@ -42,10 +42,71 @@ export function MyScriptsPage({ onNavigate }: Props) {
         </Alert>
       )}
 
+      {rows.length > 0 && <AutomationSummary rows={rows} />}
+
       <SectionCard title="Scripts">
         <ScriptsSection rows={rows} isLoading={isLoading} onNavigate={onNavigate} />
       </SectionCard>
     </div>
+  );
+}
+
+// AutomationSummary is the state of this caller's automations in four numbers,
+// computed from the listing itself rather than from a second query (#1307): how
+// many there are, how many the platform will actually run, how many are firing
+// on a cadence, and how many last ended badly.
+//
+// The last one is the number somebody opens this page for. A report that has
+// been failing every morning is otherwise a red badge in a table they have to
+// read row by row.
+function AutomationSummary({ rows }: { rows: PortalScriptRow[] }) {
+  const executable = rows.filter((r) => !!r.script.approved_version_id).length;
+  const scheduled = rows.filter((r) => r.schedule?.enabled).length;
+  const failing = rows.filter((r) => r.last_run?.status === "failed").length;
+  return (
+    <div className="grid gap-4 sm:grid-cols-4">
+      <SummaryTile label="Automations" value={rows.length} hint="you can see" />
+      <SummaryTile
+        label="Approved"
+        value={executable}
+        hint={executable === rows.length ? "all of them" : "the rest run nothing"}
+      />
+      <SummaryTile label="On a cadence" value={scheduled} hint="firing unattended" />
+      <SummaryTile
+        label="Last run failed"
+        value={failing}
+        hint={failing === 0 ? "nothing is broken" : "worth opening"}
+        alarming={failing > 0}
+      />
+    </div>
+  );
+}
+
+function SummaryTile({
+  label,
+  value,
+  hint,
+  alarming,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+  alarming?: boolean;
+}) {
+  return (
+    <SectionCard title={label}>
+      <div className="space-y-0.5">
+        <div
+          className={cn(
+            "text-2xl font-semibold tabular-nums",
+            alarming && "text-red-700 dark:text-red-300",
+          )}
+        >
+          {value}
+        </div>
+        <div className="text-xs text-muted-foreground">{hint}</div>
+      </div>
+    </SectionCard>
   );
 }
 
@@ -81,7 +142,6 @@ function ScriptsSection({
           <TableHead>Executing</TableHead>
           <TableHead>Schedule</TableHead>
           <TableHead>Last run</TableHead>
-          <TableHead className="text-right">Detail</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -102,7 +162,9 @@ function ScriptRow({
 }) {
   const { script } = row;
   return (
-    <TableRow>
+    // The row opens the script, which is how every other listing in the portal
+    // opens a record (assets, collections, resources, prompts, insights).
+    <TableRow className="cursor-pointer" onClick={() => onNavigate(`/scripts/${script.id}`)}>
       <TableCell>
         <div className="font-medium">{script.display_name || script.name}</div>
         <div className="font-mono text-xs text-muted-foreground">{script.name}</div>
@@ -116,11 +178,6 @@ function ScriptRow({
       </TableCell>
       <TableCell>
         <LastRunCell row={row} />
-      </TableCell>
-      <TableCell className="text-right">
-        <Button size="sm" variant="outline" onClick={() => onNavigate(`/scripts/${script.id}`)}>
-          Open
-        </Button>
       </TableCell>
     </TableRow>
   );

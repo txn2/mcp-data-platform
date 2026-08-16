@@ -94,6 +94,15 @@ const (
 	// NOT implemented: mcp-trino v1.3.0 QueryStats exposes row_count, duration,
 	// truncated, limit_applied, and query_id but no bytes-scanned figure, so
 	// there is no honest source for it. Revisit if the upstream client adds it.
+	// Managed-script execution (#1307). Nothing about a script run was
+	// measured before: the run rows carry the history, but an operator watching
+	// the platform could not see that the automations were failing, slowing
+	// down, or piling up without querying the database.
+	instScriptRuns        = "script_runs"
+	instScriptRunDuration = "script_run_duration"
+	instScriptRunsRunning = "script_runs_running"
+	instScriptMissedFires = "script_missed_fires"
+
 	instTrinoQueries        = "trino_queries"
 	instTrinoQueryDuration  = "trino_query_duration"
 	instDataHubRequests     = "datahub_requests"
@@ -164,6 +173,8 @@ const (
 	attrStatusClass    = "status_class"
 	attrIdentity       = "identity"
 	// Toolkit / provider metric attribute keys (issue #461).
+	attrScript    = "script"
+	attrTrigger   = "trigger"
 	attrStatus    = "status"
 	attrQueryKind = "query_kind"
 	attrOperation = "operation"
@@ -232,6 +243,11 @@ type Metrics struct {
 	rateLimited           metric.Int64Counter
 
 	// Toolkit / provider instruments (issue #461).
+	scriptRunsTotal   metric.Int64Counter
+	scriptRunDuration metric.Float64Histogram
+	scriptRunsRunning metric.Int64UpDownCounter
+	scriptMissedFires metric.Int64Counter
+
 	trinoQueriesTotal    metric.Int64Counter
 	trinoQueryDuration   metric.Float64Histogram
 	datahubRequestsTotal metric.Int64Counter
@@ -450,6 +466,30 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 // per instrument.
 func (m *Metrics) registerToolkitInstruments(meter metric.Meter) error {
 	regs := []func() error{
+		func() error {
+			v, err := meter.Int64Counter(instScriptRuns,
+				metric.WithDescription("Total managed-script runs that reached a terminal state, labeled by script, trigger (schedule or tool), and status (succeeded, failed, skipped_overlap)."))
+			m.scriptRunsTotal = v
+			return wrapReg(instScriptRuns, err)
+		},
+		func() error {
+			v, err := meter.Float64Histogram(instScriptRunDuration,
+				metric.WithDescription("Managed-script run duration in seconds, from claim to terminal state, labeled by script."), metric.WithUnit(unitSeconds))
+			m.scriptRunDuration = v
+			return wrapReg(instScriptRunDuration, err)
+		},
+		func() error {
+			v, err := meter.Int64UpDownCounter(instScriptRunsRunning,
+				metric.WithDescription("Managed-script runs currently executing on this replica. A run that never returns to zero is a worker holding a lease it cannot finish."))
+			m.scriptRunsRunning = v
+			return wrapReg(instScriptRunsRunning, err)
+		},
+		func() error {
+			v, err := meter.Int64Counter(instScriptMissedFires,
+				metric.WithDescription("Total scheduled fires stepped over by the misfire policy, labeled by script. A rising value is an automation that is not keeping its cadence."))
+			m.scriptMissedFires = v
+			return wrapReg(instScriptMissedFires, err)
+		},
 		func() error {
 			v, err := meter.Int64Counter(instTrinoQueries,
 				metric.WithDescription("Total Trino queries executed through the platform's Trino toolkit, labeled by status and query_kind."))
@@ -758,6 +798,65 @@ func (m *Metrics) RegisterDBPool(db *sql.DB, name string) {
 		}
 	}
 	m.dbPools = append(m.dbPools, registeredPool{db: db, name: name})
+}
+
+// ScriptRunAttrs identifies one managed-script run observation. Script is the
+// script's NAME rather than its id, because a metric is read by a person: the
+// cardinality is the number of scripts a deployment has, which is bounded by
+// what humans wrote and reviewed.
+type ScriptRunAttrs struct {
+	Script  string
+	Trigger string
+	Status  string
+}
+
+// RecordScriptRun records one managed-script run reaching a terminal state.
+// Nil-safe.
+//
+// It is recorded where the run finishes rather than where it is enqueued, so
+// the count is of executions rather than intentions, and the duration is what
+// the run actually took.
+func (m *Metrics) RecordScriptRun(ctx context.Context, attrs ScriptRunAttrs, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.scriptRunsTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(attrScript, attrs.Script),
+		attribute.String(attrTrigger, attrs.Trigger),
+		attribute.String(attrStatus, attrs.Status),
+	))
+	m.scriptRunDuration.Record(ctx, duration.Seconds(),
+		metric.WithAttributes(attribute.String(attrScript, attrs.Script)))
+}
+
+// ScriptRunStarted and ScriptRunFinished bracket a run executing on this
+// replica. They are separate from RecordScriptRun because a run that never
+// finishes never records one, and a worker wedged on a run is exactly what an
+// operator needs to see. Nil-safe.
+func (m *Metrics) ScriptRunStarted(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	m.scriptRunsRunning.Add(ctx, 1)
+}
+
+// ScriptRunFinished is the other half of ScriptRunStarted.
+func (m *Metrics) ScriptRunFinished(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	m.scriptRunsRunning.Add(ctx, -1)
+}
+
+// RecordScriptMissedFires records fires the misfire policy stepped over for one
+// script. Nil-safe, and a no-op for zero, so the caller can hand it whatever
+// the materializer counted.
+func (m *Metrics) RecordScriptMissedFires(ctx context.Context, scriptName string, missed int) {
+	if m == nil || missed <= 0 {
+		return
+	}
+	m.scriptMissedFires.Add(ctx, int64(missed),
+		metric.WithAttributes(attribute.String(attrScript, scriptName)))
 }
 
 // RecordTrinoQuery records one Trino query observation. status is one of the

@@ -1,3 +1,4 @@
+import type { ScriptRun } from "@/api/portal/hooks/scripts";
 import { describe, it, expect } from "vitest";
 import {
   executionState,
@@ -6,6 +7,8 @@ import {
   runStatusLabel,
   runStatusVariant,
   runWhen,
+  successRate,
+  summarize,
 } from "./runFormat";
 
 describe("run status", () => {
@@ -103,5 +106,45 @@ describe("execution state", () => {
     expect(state.label).toBe("Approved v3");
     expect(state.variant).toBe("success");
     expect(state.detail).toBeUndefined();
+  });
+});
+
+describe("what a run history adds up to", () => {
+  const run = (status: string, duration_ms: number, id = status): ScriptRun => ({
+    id,
+    status,
+    trigger: "schedule",
+    version: 2,
+    fire_time: "2026-08-14T07:00:00Z",
+    duration_ms,
+    output_count: 0,
+  });
+
+  it("counts each terminal state and takes the median duration", () => {
+    const summary = summarize([
+      run("succeeded", 1000, "a"),
+      run("failed", 3000, "b"),
+      run("succeeded", 2000, "c"),
+      run("skipped_overlap", 0, "d"),
+    ]);
+    expect(summary).toMatchObject({ total: 4, succeeded: 2, failed: 1, skipped: 1, medianMs: 2000 });
+    expect(summary.lastFailure?.id).toBe("b");
+  });
+
+  it("takes the mean of the middle two on an even count", () => {
+    expect(summarize([run("succeeded", 1000, "a"), run("succeeded", 2000, "b")]).medianMs).toBe(1500);
+  });
+
+  // A run that never started has no duration to average, and counting it as
+  // zero would drag the median toward a number no run took.
+  it("ignores runs that recorded no duration", () => {
+    expect(summarize([run("skipped_overlap", 0, "a"), run("succeeded", 4000, "b")]).medianMs).toBe(4000);
+  });
+
+  // No runs is not a 0% success rate.
+  it("has no success rate to report over an empty history", () => {
+    expect(successRate(summarize([]))).toBeUndefined();
+    expect(successRate(summarize([run("succeeded", 10, "a")]))).toBe(100);
+    expect(successRate(summarize([run("failed", 10, "a"), run("succeeded", 10, "b")]))).toBe(50);
   });
 });

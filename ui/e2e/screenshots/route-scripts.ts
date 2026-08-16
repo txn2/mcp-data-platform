@@ -4,6 +4,9 @@ import {
   openScriptReview,
   openScriptRunHistory,
   openScriptRunLog,
+  openScriptRunsTab,
+  openScriptSource,
+  openScriptSchedule,
   openScriptVersionHistory,
 } from "./route-actions";
 import { type ScreenshotRoute } from "./route-types";
@@ -36,6 +39,35 @@ export const userScriptRoutes: ScreenshotRoute[] = [
     slug: "script-detail",
     path: "/portal/scripts/script-001",
     category: "user",
+  },
+  {
+    // A paused automation, and the control that resumes it (#1307). The
+    // running case is on the detail capture above, where the cadence, its
+    // zone, and the binding every fire passes are already in frame; what this
+    // one adds is the state a report sits in when its owner has stopped it.
+    slug: "script-schedule-paused",
+    path: "/portal/scripts/script-003",
+    category: "user",
+    beforeCapture: openScriptSchedule,
+  },
+  {
+    // The same controls on a script nothing has approved. A cadence saves here
+    // and fires nothing, and the page says so rather than implying an approval
+    // it cannot grant.
+    slug: "script-schedule-unapproved",
+    path: "/portal/scripts/script-002",
+    category: "user",
+    beforeCapture: openScriptSchedule,
+  },
+  {
+    // The code, editable by the person who owns it (#1307). The portal's own
+    // source editor, told the content is Python, which is what Starlark reads
+    // as — and an edit to an approved script goes to review rather than
+    // changing what runs tonight.
+    slug: "script-source",
+    path: "/portal/scripts/script-001",
+    category: "user",
+    beforeCapture: openScriptSource,
   },
   {
     // The version history, where the source of the version behind the
@@ -94,5 +126,17 @@ export const adminScriptRoutes: ScreenshotRoute[] = [
     path: "/portal/admin/scripts",
     category: "admin",
     beforeCapture: openScriptDeliveryGrant,
+  },
+  {
+    // What the platform has been running unattended (#1307): the metrics the
+    // run worker emits, and the exact recent history beneath them.
+    //
+    // Last in the list on purpose: the tab it selects persists on the page the
+    // captures share, so it must not sit in front of the ones that read the
+    // review queue.
+    slug: "admin-script-runs",
+    path: "/portal/admin/scripts",
+    category: "admin",
+    beforeCapture: openScriptRunsTab,
   },
 ];

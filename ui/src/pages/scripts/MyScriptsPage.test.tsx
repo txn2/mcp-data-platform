@@ -115,9 +115,10 @@ describe("MyScriptsPage", () => {
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 
-  it("opens a script's detail page", () => {
+  // The row is the target, as it is on every other listing in the portal.
+  it("opens a script's detail page from the row", () => {
     render(<MyScriptsPage onNavigate={onNavigate} />);
-    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("row", { name: /Daily Sales Report/ }));
     expect(onNavigate).toHaveBeenCalledWith("/scripts/script-001");
   });
 

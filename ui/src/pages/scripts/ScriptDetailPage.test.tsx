@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import type {
   ScriptContract,
   ScriptRun,
@@ -15,6 +15,13 @@ vi.mock("@/api/portal/hooks/scripts", () => ({
   usePortalScriptVersions: vi.fn(),
   useScriptRuns: vi.fn(),
   useScriptRun: vi.fn(),
+  // The schedule editor's hooks. The editor has its own tests; here they only
+  // have to answer, so the page composes with the one section that mutates.
+  useScriptSchedule: vi.fn(),
+  useSetScriptSchedule: vi.fn(),
+  useSetScriptSchedulePaused: vi.fn(),
+  // The source editor's hook. It has its own tests; here it only has to answer.
+  useSaveScriptSource: vi.fn(),
   // The page size is the module's own constant, not a hook: the run history
   // states it when a result fills it.
   RUN_PAGE_SIZE: 25,
@@ -25,12 +32,20 @@ import {
   usePortalScriptVersions,
   useScriptRun,
   useScriptRuns,
+  useSaveScriptSource,
+  useScriptSchedule,
+  useSetScriptSchedule,
+  useSetScriptSchedulePaused,
 } from "@/api/portal/hooks/scripts";
 
 const mockContract = vi.mocked(useScriptContract);
 const mockVersions = vi.mocked(usePortalScriptVersions);
 const mockRuns = vi.mocked(useScriptRuns);
 const mockRun = vi.mocked(useScriptRun);
+const mockSchedule = vi.mocked(useScriptSchedule);
+const mockSaveSchedule = vi.mocked(useSetScriptSchedule);
+const mockPauseSchedule = vi.mocked(useSetScriptSchedulePaused);
+const mockSaveSource = vi.mocked(useSaveScriptSource);
 
 const onBack = vi.fn();
 const onNavigate = vi.fn();
@@ -164,6 +179,20 @@ beforeEach(() => {
   mockVersions.mockReturnValue(query({ data: [version], total: 1 }));
   mockRuns.mockReturnValue(query({ data: runs, total: runs.length }));
   mockRun.mockReturnValue(query(runDetail));
+  mockSchedule.mockReturnValue(
+    query({
+      id: "sched-001",
+      script_id: "script-001",
+      cron_spec: "0 7 * * 1-5",
+      timezone: "America/Los_Angeles",
+      params: { report_date: "${fire_date}" },
+      enabled: true,
+      next_run_at: "2026-08-16T14:00:00Z",
+    }),
+  );
+  mockSaveSchedule.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+  mockPauseSchedule.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
+  mockSaveSource.mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
 });
 
 afterEach(cleanup);
@@ -178,8 +207,12 @@ describe("ScriptDetailPage: the contract", () => {
     expect(screen.getByText("Daily Sales Report")).toBeInTheDocument();
     expect(screen.getByText("Approved v2")).toBeInTheDocument();
     expect(screen.getByText(/0 7 \* \* 1-5 \(America\/Los_Angeles\)/)).toBeInTheDocument();
-    expect(screen.getByText("report_date")).toBeInTheDocument();
-    expect(screen.getByText("required")).toBeInTheDocument();
+    // Scoped to the parameter table, which is the first on the page: the
+    // schedule editor below also names the parameter, because that is the box
+    // its binding goes in.
+    const params = within(screen.getAllByRole("table")[0]!);
+    expect(params.getByText("report_date")).toBeInTheDocument();
+    expect(params.getByText("required")).toBeInTheDocument();
   });
 
   it("carries the gate's own refusal when nothing will run the script", () => {
@@ -244,7 +277,7 @@ describe("ScriptDetailPage: what an owner may read", () => {
       query({ contract: { ...contract, approval: { approved: false } }, owned: true }),
     );
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Source" }));
+    fireEvent.click(screen.getByRole("button", { name: /v2/ }));
     expect(screen.getByText(/No grant is bound to this version/)).toBeInTheDocument();
   });
 });
@@ -262,7 +295,7 @@ describe("ScriptDetailPage: the run history", () => {
 
   it("opens one run's log, parameters, and outputs", () => {
     renderPage();
-    fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0]!);
+    fireEvent.click(screen.getAllByRole("row", { name: /succeeded/ })[0]!);
     expect(screen.getByText(/wrote asset version 42/)).toBeInTheDocument();
     expect(screen.getByText("report_date=2026-08-13")).toBeInTheDocument();
     expect(screen.getByText("1284 steps · 1 queries · 1 exports")).toBeInTheDocument();
@@ -270,7 +303,7 @@ describe("ScriptDetailPage: the run history", () => {
 
   it("links a portal asset and never a delivered object", () => {
     renderPage();
-    fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0]!);
+    fireEvent.click(screen.getAllByRole("row", { name: /succeeded/ })[0]!);
 
     // The asset is still served by the platform, so it is reachable.
     fireEvent.click(screen.getByRole("button", { name: "daily-sales" }));
@@ -304,14 +337,14 @@ describe("ScriptDetailPage: the run history", () => {
   it("reports a truncated log as truncated", () => {
     mockRun.mockReturnValue(query({ ...runDetail, log_truncated: true }));
     renderPage();
-    fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0]!);
+    fireEvent.click(screen.getAllByRole("row", { name: /succeeded/ })[0]!);
     expect(screen.getByText(/log was truncated at capture/)).toBeInTheDocument();
   });
 
   it("says a run printed nothing rather than showing an empty log box", () => {
     mockRun.mockReturnValue(query({ ...runDetail, log: undefined }));
     renderPage();
-    fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0]!);
+    fireEvent.click(screen.getAllByRole("row", { name: /succeeded/ })[0]!);
     expect(screen.getByText("This run printed nothing.")).toBeInTheDocument();
   });
 });

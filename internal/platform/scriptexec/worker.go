@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -99,11 +100,16 @@ type attempt struct {
 
 // workerConfig is what the run worker needs to drain the queue.
 type workerConfig struct {
-	runs        script.RunStore
-	scripts     ScriptReader
-	versions    VersionReader
-	runner      executor
-	notifier    Notifier
+	runs     script.RunStore
+	scripts  ScriptReader
+	versions VersionReader
+	runner   executor
+	notifier Notifier
+	// metrics records what the run queue is doing, so an operator watching the
+	// platform sees a failing or slowing automation without querying the run
+	// table (#1307). Nil is a no-op: every method on *observability.Metrics is
+	// nil-safe, and a deployment without observability still executes runs.
+	metrics     *observability.Metrics
 	retention   time.Duration
 	pollEvery   time.Duration
 	lease       time.Duration
@@ -352,6 +358,12 @@ func (w *worker) processNext(ctx context.Context) bool {
 func (w *worker) processRun(ctx context.Context, run *script.Run) {
 	w.inFlight.Store(true)
 	defer w.inFlight.Store(false)
+	// Bracketing the execution rather than counting it at the end: a run that
+	// never finishes never records a terminal observation, and a worker wedged
+	// on one is exactly what this gauge exists to show.
+	w.cfg.metrics.ScriptRunStarted(ctx)
+	defer w.cfg.metrics.ScriptRunFinished(ctx)
+	started := time.Now()
 	slog.Info("scripts: running", logKeyRunID, run.ID,
 		"script_id", logsan.SanitizeForLog(run.ScriptID), "version", run.Version, "attempt", run.Attempt)
 	sc, v, loadErr := w.load(ctx, run)
@@ -366,8 +378,21 @@ func (w *worker) processRun(ctx context.Context, run *script.Run) {
 	// has not failed — mailing about either would report an outcome the run has
 	// not reached.
 	if w.resolve(ctx, run, outcome) {
+		w.cfg.metrics.RecordScriptRun(ctx, observability.ScriptRunAttrs{
+			Script: scriptName(sc, run), Trigger: run.Trigger, Status: outcome.result.Status,
+		}, time.Since(started))
 		w.notifyFailure(ctx, run, sc, v, outcome.result)
 	}
+}
+
+// scriptName labels an observation with the script's name, falling back to its
+// id when the run could not load the script — which is itself a terminal
+// outcome worth counting rather than dropping.
+func scriptName(sc *script.Script, run *script.Run) string {
+	if sc != nil {
+		return sc.Name
+	}
+	return run.ScriptID
 }
 
 // load reads the script and the version the run names, and puts both back

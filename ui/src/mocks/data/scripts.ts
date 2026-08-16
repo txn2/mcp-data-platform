@@ -366,6 +366,9 @@ export const mockScriptSchedules: Record<string, ScriptSchedule> = {
     script_id: "script-001",
     cron_spec: "0 7 * * 1-5",
     timezone: "America/Los_Angeles",
+    // The binding a fire passes, with the token as written: it expands to the
+    // day of the fire, which is what makes a scheduled run reproducible.
+    params: { report_date: "${fire_date}" },
     enabled: true,
     next_run_at: hoursAhead(22),
     last_fire_at: hoursAgo(2),

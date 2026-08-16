@@ -244,12 +244,13 @@ export async function openScriptDeliveryGrant(page: Page): Promise<void> {
   await page.waitForTimeout(600);
 }
 
-/** openQueuedReview clicks the Review button of one queue row by script name. */
+/**
+ * openQueuedReview opens one queue row by script name. The row itself is the
+ * control, named for what it opens, as every other row in the portal is.
+ */
 async function openQueuedReview(page: Page, script: string): Promise<void> {
   await page
-    .locator("li")
-    .filter({ hasText: script })
-    .getByRole("button", { name: "Review" })
+    .getByRole("button", { name: new RegExp(`^Review ${script}`) })
     .first()
     .click();
   await page.getByRole("dialog").waitFor({ state: "visible", timeout: 5_000 });
@@ -284,6 +285,45 @@ export async function openScriptVersionHistory(page: Page): Promise<void> {
 }
 
 /**
+ * openScriptSource scrolls to the code, which is the section an owner edits.
+ * The editor is above the cadence controls, so the capture frames the code
+ * itself rather than the contract above it.
+ */
+export async function openScriptSource(page: Page): Promise<void> {
+  await page
+    .getByText("Version 2 is approved and keeps running")
+    .scrollIntoViewIfNeeded({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(600);
+}
+
+/**
+ * openScriptRunsTab switches the admin script surface to the operator's view
+ * of what has been running: the metric panels and the cross-script history.
+ */
+export async function openScriptRunsTab(page: Page): Promise<void> {
+  await page
+    .getByRole("tab", { name: "Runs" })
+    .click({ timeout: 3_000 })
+    .catch(() => {});
+  await page.waitForTimeout(900);
+}
+
+/**
+ * openScriptSchedule scrolls to the cadence controls, which are the only thing
+ * an owner changes on these pages: the expression, the zone it is read in, the
+ * binding every fire passes, and the pause that retires it.
+ */
+export async function openScriptSchedule(page: Page): Promise<void> {
+  // The builder's first control, which is where the cadence is chosen — the
+  // page no longer has a cron field to scroll to (#1307).
+  await page
+    .getByRole("group", { name: "How often this script runs" })
+    .scrollIntoViewIfNeeded({ timeout: 3_000 });
+  await page.waitForTimeout(500);
+}
+
+/**
  * openScriptRunHistory scrolls to the run history, the refresh record of the
  * automation: a success, the failure that woke somebody, and a fire skipped
  * because the previous run was still going.
@@ -299,7 +339,7 @@ export async function openScriptRunHistory(page: Page): Promise<void> {
  */
 export async function openScriptRunLog(page: Page): Promise<void> {
   await openScriptRunHistory(page);
-  await page.getByRole("button", { name: "Open" }).first().click();
+  await page.getByRole("row").filter({ hasText: "succeeded" }).first().click();
   await page.getByText("Computed against").waitFor({ state: "visible", timeout: 5_000 });
   // The log is the point of this capture and sits under the run's facts, so
   // scroll to the log itself rather than to the row that opened it.

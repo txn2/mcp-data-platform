@@ -35,6 +35,22 @@ On first run, seed data (~5K audit events, 8 knowledge insights) is automaticall
 
 **API Key**: `acme-dev-key-2024`
 
+### Managed scripts
+
+The seed creates three scripts so the Scripts pages have something to be about,
+and it puts two of them under `analyst@example.com` — who is not an
+administrator — because that is the caller the owner-side controls are for:
+
+| Script | Owner | State |
+|---|---|---|
+| `daily-sales-report` | analyst@example.com | Global, approved, running weekday mornings with a `${fire_date}` binding, four runs of history |
+| `dormant-accounts` | analyst@example.com | Personal, nothing approved — a cadence set here saves and fires nothing |
+| `warehouse-freshness` | admin@example.com | Global, approved, cadence paused with two missed fires |
+
+Sign in as `analyst@example.com` / `analyst-password` to set, re-time, pause,
+and resume a cadence as the owner rather than as an administrator; the same
+account sees `warehouse-freshness` as a script it may read but not change.
+
 ### MCP gateway dev fixture
 
 `make dev` automatically launches `cmd/dev-mcp-mock` and registers a

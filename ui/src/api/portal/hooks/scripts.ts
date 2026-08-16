@@ -1,10 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Script, ScriptVersion } from "@/api/admin/types";
-import { apiFetch } from "../client";
+import { ApiError, apiFetch } from "../client";
 
 // Portal script hooks (#1290): the read surface for the people who own the
-// automations. Every route here is read-only — approving a version is an
-// administrator's action and lives on the admin API.
+// automations. Approving a version is an administrator's action and lives on
+// the admin API; the one thing an owner changes here is the cadence (#1307),
+// which carries no authority at all.
 
 // ScriptSchedule is a script's cadence as the portal reports it.
 export interface ScriptSchedule {
@@ -13,9 +14,23 @@ export interface ScriptSchedule {
   cron_spec: string;
   timezone: string;
   enabled: boolean;
+  // params are the values every fire binds, with ${fire_date} stored as
+  // written: it expands at the fire, so a run records the date it computed.
+  params?: Record<string, unknown>;
   next_run_at?: string;
   last_fire_at?: string;
   missed_fires?: number;
+  created_by?: string;
+  updated_by?: string;
+}
+
+// ScriptScheduleInput is a cadence as its owner submits it. It carries no
+// roles, connections, or capabilities, and could not usefully: what a scheduled
+// run executes and what it may reach were bound when the version was approved.
+export interface ScriptScheduleInput {
+  cron: string;
+  timezone?: string;
+  params?: Record<string, unknown>;
 }
 
 // ScriptRun is one run as a listing reports it. The log is absent by design:
@@ -164,8 +179,37 @@ export function useMyScripts() {
 export function useScriptContract(scriptID: string | null) {
   return useQuery({
     queryKey: [...scriptsKey, scriptID, "contract"],
-    queryFn: () => apiFetch<{ contract: ScriptContract; owned: boolean }>(`/scripts/${scriptID}`),
+    // source is the live code, served only to the script's owner: it is what
+    // the editor on that page opens (#1307).
+    queryFn: () =>
+      apiFetch<{ contract: ScriptContract; owned: boolean; source?: string }>(
+        `/scripts/${scriptID}`,
+      ),
     enabled: !!scriptID,
+  });
+}
+
+// ScriptSourceOutcome is where an edit landed: on the live script, or in the
+// review queue as a draft. The two are different enough that the page states
+// which one happened rather than saying "saved".
+export interface ScriptSourceOutcome {
+  applied: boolean;
+  pending_version?: number;
+  message: string;
+}
+
+// useSaveScriptSource saves new Starlark for a script. An edit to a script with
+// an approved version becomes a draft awaiting review — the platform's rule,
+// not this hook's — so the caller reports the outcome rather than assuming one.
+export function useSaveScriptSource(scriptID: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (source: string) =>
+      apiFetch<ScriptSourceOutcome>(`/scripts/${scriptID}/source`, {
+        method: "PUT",
+        body: JSON.stringify({ source }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });
 }
 
@@ -191,6 +235,57 @@ export function useScriptRuns(scriptID: string | null, owned: boolean) {
     queryFn: () =>
       apiFetch<ListResponse<ScriptRun>>(`/scripts/${scriptID}/runs?per_page=${RUN_PAGE_SIZE}`),
     enabled: !!scriptID && owned,
+  });
+}
+
+// useScriptSchedule reads an owned script's cadence in full, including the
+// parameters every fire binds — which the contract deliberately does not carry,
+// because it is the document every surface renders and these are the owner's
+// bindings. A script with no schedule is a normal state rather than a failure,
+// so the 404 the route answers with becomes null here.
+export function useScriptSchedule(scriptID: string | null, owned: boolean) {
+  return useQuery({
+    queryKey: [...scriptsKey, scriptID, "schedule"],
+    queryFn: async () => {
+      try {
+        return await apiFetch<ScriptSchedule>(`/scripts/${scriptID}/schedule`);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }
+    },
+    enabled: !!scriptID && owned,
+  });
+}
+
+// useSetScriptSchedule creates or replaces a script's cadence. Every script
+// query is invalidated on success rather than just the schedule: the contract
+// reports the next fire too, and a page showing yesterday's cadence beside
+// today's is worse than one extra read.
+export function useSetScriptSchedule(scriptID: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ScriptScheduleInput) =>
+      apiFetch<ScriptSchedule>(`/scripts/${scriptID}/schedule`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
+  });
+}
+
+// useSetScriptSchedulePaused pauses or resumes a schedule without touching its
+// cadence. It is a separate route from the cadence for a reason worth keeping
+// here: sending the whole schedule back to turn it off would re-base its next
+// fire, and a paused schedule must resume on the fire it was parked on.
+export function useSetScriptSchedulePaused(scriptID: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiFetch<ScriptSchedule>(`/scripts/${scriptID}/schedule/${enabled ? "enable" : "disable"}`, {
+        method: "POST",
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: scriptsKey }),
   });
 }
 
