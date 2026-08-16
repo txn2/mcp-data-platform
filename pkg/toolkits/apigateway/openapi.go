@@ -224,30 +224,56 @@ func buildEmbedText(op OperationSummary, description string) string {
 	return strings.Join(parts, " ")
 }
 
-// specBasePath returns the path component of the first declared
-// servers[].url, with any trailing slash stripped. Vendors that ship
-// each component spec under a distinct version segment (for example
-// a connection whose connection.base_url is the host and whose specs
-// each declare "https://host/foo/v1", "https://host/bar/v2") rely on
-// this so api_list_endpoints reports the full path the model should
-// pass to api_invoke_endpoint, not the spec-relative path that 404s
-// when the segment is missing from the connection's base_url.
+// specBasePaths returns the path component of every declared
+// servers[].url, in declaration order, with any trailing slash
+// stripped. Vendors that ship each component spec under a distinct
+// version segment (for example a connection whose connection.base_url
+// is the host and whose specs each declare "https://host/foo/v1",
+// "https://host/bar/v2") rely on the first entry so api_list_endpoints
+// reports the full path the model should pass to api_invoke_endpoint,
+// not the spec-relative path that 404s when the segment is missing
+// from the connection's base_url.
 //
-// Returns "" when doc has no servers entry, when the first entry's
-// URL fails to parse, or when the parsed path is empty or just "/".
-// In that case operations carry their spec-relative paths and the
-// connection's base_url is the only prefix the toolkit joins.
+// The remaining entries matter when one curated spec is shared across
+// several connections that speak the identical API — the intended
+// pattern for a multi-connection catalog. Each connection's base_url
+// matches a different servers[] entry, and computeEffectiveBasePath
+// consults them all so the connection whose base_url already carries
+// its own documented prefix does not get some other server's prefix
+// glued on top (issue #1298).
 //
-// Only the path component is extracted; the scheme and host on
-// servers[0].url are ignored because the connection's base_url is
-// the operator's authoritative choice of host (one spec author's
-// preferred host should not override an operator who pointed the
-// connection at a sandbox or proxied endpoint).
-func specBasePath(doc *openapi3.T) string {
-	if doc == nil || len(doc.Servers) == 0 {
-		return ""
+// Entries are positional: a server with an empty, unparseable, or
+// root-only path yields "" rather than being dropped, so index 0 is
+// always servers[0] and the prefix a spec contributes stays whatever
+// its first server declares. A spec whose servers are bare hosts
+// therefore contributes no prefix, and operations carry their
+// spec-relative paths with the connection's base_url as the only prefix
+// the toolkit joins.
+//
+// Only the path component is extracted; the scheme and host on each
+// servers[].url are ignored because the connection's base_url is the
+// operator's authoritative choice of host (one spec author's preferred
+// host should not override an operator who pointed the connection at a
+// sandbox or proxied endpoint).
+func specBasePaths(doc *openapi3.T) []string {
+	if doc == nil {
+		return nil
 	}
-	raw := doc.Servers[0].URL
+	paths := make([]string, 0, len(doc.Servers))
+	for _, s := range doc.Servers {
+		if s == nil {
+			paths = append(paths, "")
+			continue
+		}
+		paths = append(paths, serverURLPath(s.URL))
+	}
+	return paths
+}
+
+// serverURLPath extracts the normalized path component of one
+// servers[].url. Returns "" for an empty, unparseable, or root-only
+// URL, which the caller treats as "this server contributes no prefix".
+func serverURLPath(raw string) string {
 	if raw == "" {
 		return ""
 	}
@@ -273,41 +299,52 @@ func specBasePath(doc *openapi3.T) string {
 
 // computeEffectiveBasePath returns the prefix to apply to every
 // operation's spec-relative path so the toolkit's invoke-time URL
-// join produces the upstream URL without doubling segments. The
-// rule: drop the spec's servers[0] path component when the
-// connection's base_url path already contains it as a suffix
-// (which is exactly the case where an operator configured the
-// connection to point at the spec's documented base, then attached
-// the same spec to the connection). In every other case the
-// spec's base path is preserved.
+// join produces the upstream URL without doubling segments.
 //
-// Examples:
+// specBases are the spec's declared server paths in order (see
+// specBasePaths); specBases[0] is the prefix the spec contributes.
+// The rule: drop that prefix when the connection's base_url path
+// already ends with ANY declared server path — that connection is
+// already pointed at a base the spec documents, so prefixing would
+// double it. In every other case specBases[0] is preserved.
 //
-//	conn=https://api.example.com         spec=/v1   -> "/v1"
-//	conn=https://api.example.com/v1      spec=/v1   -> ""
-//	conn=https://api.example.com/api/v2  spec=/api/v2 -> ""
-//	conn=https://api.example.com/legacy  spec=/v1   -> "/v1"
+// Consulting every server, not just the first, is what lets one
+// curated spec back several connections that speak the identical API.
+// Each such connection's base_url matches a different servers[] entry;
+// checking only the first meant every connection but that one had the
+// first server's path glued onto its own, producing an upstream URL
+// that concatenated two different deployments' prefixes (issue #1298).
+//
+// Examples (spec declares servers /v1 and /api/v2):
+//
+//	conn=https://api.example.com         -> "/v1"
+//	conn=https://api.example.com/v1      -> ""
+//	conn=https://api.example.com/api/v2  -> ""
+//	conn=https://api.example.com/legacy  -> "/v1"
 //
 // Empty inputs short-circuit: an empty spec base means there is
 // nothing to prefix, an unparseable connection URL falls back to
 // the spec base verbatim (preserves the pre-existing behavior of
 // every connection that ships before this dedupe landed).
-func computeEffectiveBasePath(connBaseURL, specBase string) string {
-	if specBase == "" {
+func computeEffectiveBasePath(connBaseURL string, specBases []string) string {
+	if len(specBases) == 0 || specBases[0] == "" {
 		return ""
 	}
+	primary := specBases[0]
 	u, err := url.Parse(connBaseURL)
 	if err != nil {
-		return specBase
+		return primary
 	}
 	connPath := strings.TrimSuffix(u.Path, pathSep)
 	if connPath == "" {
-		return specBase
+		return primary
 	}
-	if strings.HasSuffix(connPath, specBase) {
-		return ""
+	for _, base := range specBases {
+		if base != "" && strings.HasSuffix(connPath, base) {
+			return ""
+		}
 	}
-	return specBase
+	return primary
 }
 
 // rankOperations returns the subset of ops whose searchable fields

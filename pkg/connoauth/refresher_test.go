@@ -2,6 +2,9 @@ package connoauth
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -197,5 +200,56 @@ func TestAdvisoryLockKeyStable(t *testing.T) {
 	c := advisoryLockKey(Key{Kind: "api", Name: "alpha"})
 	if a == c {
 		t.Errorf("advisoryLockKey should differ across kinds for same name")
+	}
+}
+
+// blockingListStore holds the refresher loop inside its first tick until
+// the test releases it. Without it, whether Stop's wait sees the loop's
+// done channel already closed is a goroutine-scheduling race, so a test
+// of the context-error arm passes or fails with machine load rather than
+// with the behavior it names.
+type blockingListStore struct {
+	Store
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingListStore) List(ctx context.Context) ([]PersistedToken, error) {
+	s.once.Do(func() { close(s.entered) })
+	<-s.release
+	rows, err := s.Store.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("blockingListStore: %w", err)
+	}
+	return rows, nil
+}
+
+// TestRefresherStopSurfacesContextErrorWhileTickInFlight proves Stop
+// reports the caller's context error rather than hanging when the loop
+// has not drained by the shutdown deadline. The blocking store pins the
+// loop inside tick for the duration, so the done channel provably cannot
+// be closed and only the context arm can win.
+func TestRefresherStopSurfacesContextErrorWhileTickInFlight(t *testing.T) {
+	t.Parallel()
+	store := &blockingListStore{
+		Store:   NewMemoryStore(),
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	r := NewRefresher(store, stubConfigResolver{}, nil, NoopLocker{},
+		RefresherConfig{Interval: time.Hour})
+	r.Start()
+	<-store.entered
+	defer close(store.release)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := r.Stop(ctx)
+	if err == nil {
+		t.Fatal("Stop must surface an error when the loop has not drained")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error %v does not wrap context.Canceled", err)
 	}
 }

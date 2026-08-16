@@ -347,16 +347,21 @@ type embedKey struct {
 // api_get_endpoint_schema walks to assemble per-endpoint detail.
 // Without it, the toolkit would have to re-parse on every call.
 //
-// effectiveBasePath is the per-spec prefix applied to every
-// operation's spec-relative path so api_list_endpoints output, the
-// synthesized operationID in api_get_endpoint_schema, and the
-// stored OperationSummary.Path all agree on a single full path the
-// model passes to api_invoke_endpoint. Resolution order at
-// registration time: SpecEntry.BasePath (operator override) wins,
-// falling back to servers[0].url-derived value, with both sources
-// run through computeEffectiveBasePath so a connection.base_url
-// that already contains the prefix as a suffix gets the prefix
-// dropped and no doubling occurs at invoke time.
+// effectiveBasePath is the prefix applied to every operation's
+// spec-relative path so api_list_endpoints output, the synthesized
+// operationID in api_get_endpoint_schema, and the stored
+// OperationSummary.Path all agree on a single full path the model
+// passes to api_invoke_endpoint. Resolution order at registration
+// time: SpecEntry.BasePath (operator override) wins, falling back to
+// the servers[0].url-derived value, with both sources run through
+// computeEffectiveBasePath so a connection.base_url that already
+// contains a documented prefix as a suffix gets the prefix dropped
+// and no doubling occurs at invoke time.
+//
+// specState is built per connection (buildConnSpecs takes the
+// connection's base_url), so the resolved prefix is a function of the
+// (connection, spec) pair even though the parsed document behind it is
+// the same catalog row for every connection that mounts it.
 //
 // title, description, and operationCount back the api_list_specs tool
 // and the multi-spec gate on api_list_endpoints. title/description
@@ -996,11 +1001,17 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 				"spec_name", e.SpecName, logKeyError, perr)
 			continue
 		}
-		basePathSource := e.BasePath
-		if basePathSource == "" {
-			basePathSource = specBasePath(doc)
+		// An operator override is authoritative and singular: it names
+		// the one prefix this spec contributes, so it is the only
+		// candidate the no-doubling check may match against. Absent an
+		// override, every declared server is a candidate so a spec
+		// shared across connections that speak the same API resolves
+		// per connection rather than against servers[0] alone (#1298).
+		basePathSources := []string{e.BasePath}
+		if e.BasePath == "" {
+			basePathSources = specBasePaths(doc)
 		}
-		effectiveBasePath := computeEffectiveBasePath(connBaseURL, basePathSource)
+		effectiveBasePath := computeEffectiveBasePath(connBaseURL, basePathSources)
 		specOps, _ := buildOperationIndex(doc, e.SpecName, effectiveBasePath)
 		specs[e.SpecName] = &specState{
 			doc:               doc,
@@ -1186,6 +1197,14 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	// the gating happens here at the call site.
 	if !hasExport {
 		out.Hint = ""
+	}
+	// Report the path an operation_id resolved to. The caller supplied an
+	// id, not a path, so this is the only place the catalog's base-path
+	// prefix and the path_params substitution become visible — without it
+	// a prefix that routes to the wrong upstream reads as an unexplained
+	// upstream 4xx (issue #1298).
+	if in.OperationID != "" {
+		out.ResolvedPath = in.Path
 	}
 	return buildInvokeResult(out), out, nil
 }

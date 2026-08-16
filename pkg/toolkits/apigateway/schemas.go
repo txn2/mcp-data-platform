@@ -108,7 +108,7 @@ var apiExportInputSchema = json.RawMessage(`{
     },
     "path_params": {
       "type": "object",
-      "description": "Values for the {placeholder} segments of the resolved operation's path template, e.g. {\"id\": \"123\"} for /v1/users/{id}. Only valid with operation_id. Every template placeholder must have a value; each value is URL-escaped into its segment.",
+      "description": "Values for the {placeholder} holes in the resolved operation's path template, e.g. {\"id\": \"123\"} for /v1/users/{id}. One segment may carry more than one placeholder or mix a placeholder with literal text (/points/{latitude},{longitude}, /files/{name}.json); name each placeholder separately. Only valid with operation_id. Every template placeholder must have a value; each value is URL-escaped in place.",
       "additionalProperties": {"type": "string"}
     },
     "spec": {
@@ -185,7 +185,7 @@ var invokeEndpointSchema = json.RawMessage(`{
     },
     "path_params": {
       "type": "object",
-      "description": "Values for the {placeholder} segments of the resolved operation's path template, e.g. {\"id\": \"123\"} for /v1/users/{id}. Only valid with operation_id. Every template placeholder must have a value; each value is URL-escaped into its segment.",
+      "description": "Values for the {placeholder} holes in the resolved operation's path template, e.g. {\"id\": \"123\"} for /v1/users/{id}. One segment may carry more than one placeholder or mix a placeholder with literal text (/points/{latitude},{longitude}, /files/{name}.json); name each placeholder separately. Only valid with operation_id. Every template placeholder must have a value; each value is URL-escaped in place.",
       "additionalProperties": {"type": "string"}
     },
     "spec": {

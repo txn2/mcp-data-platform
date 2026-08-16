@@ -2,6 +2,8 @@ package platform
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,18 +81,31 @@ func TestStartConnOAuthRefresherMultiReplicaSelectsPostgresLocker(t *testing.T) 
 	}
 }
 
-func TestStopConnOAuthRefresherSurfacesErrorOnCanceledContext(t *testing.T) {
+func TestStopConnOAuthRefresherWithCanceledContext(t *testing.T) {
 	t.Parallel()
-	// A started refresher plus an already-canceled context drives the error
-	// path: StopConnOAuthRefresher delegates to connAuth.Stop, whose wait races
-	// the (already-done) context against the loop's not-yet-closed done channel,
-	// so the wrapped ctx error propagates back through the exported method.
+	// A started refresher plus an already-canceled context. Which arm of
+	// connoauth's stop-wait wins — the loop's done channel or the canceled
+	// context — is a goroutine-scheduling race this level cannot control
+	// (the store the loop ticks against is owned by connauth.Handle), so
+	// the assertion is on the contract both arms satisfy: Stop returns
+	// promptly, and any error it returns carries the platform's wrap over
+	// the context error. connoauth owns the deterministic proof that a
+	// still-running loop takes the context arm
+	// (TestRefresherStopSurfacesContextErrorWhileTickInFlight).
 	p := &Platform{connAuth: newTestConnAuth(t)}
 	p.StartConnOAuthRefresher(stubConfigResolver{}, false)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := p.StopConnOAuthRefresher(ctx); err == nil {
-		t.Error("StopConnOAuthRefresher with a canceled context must surface the error")
+	err := p.StopConnOAuthRefresher(ctx)
+	if err == nil {
+		// The loop drained before the wait began — an equally successful stop.
+		return
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error %v does not wrap context.Canceled", err)
+	}
+	if !strings.Contains(err.Error(), "stop connoauth refresher") {
+		t.Errorf("error %v is missing the platform-level wrap", err)
 	}
 }
 

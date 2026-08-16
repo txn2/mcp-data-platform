@@ -77,13 +77,16 @@ func resolveOperationTarget(c *conn, a operationAddressing) (method, path string
 	return match.method, concrete, nil
 }
 
-// substitutePathParams replaces each {name} placeholder segment in an
-// OpenAPI path template with the matching value from params,
-// URL-path-escaping each value so a substituted id cannot smuggle path
-// structure into the request. Placeholder matching is whole-segment,
-// mirroring the toolkit's other template matchers (isPlaceholderSegment,
-// segmentMatches) so the substitution and the resolver agree on what a
-// placeholder is. A template with no placeholders returns unchanged.
+// substitutePathParams replaces each {name} placeholder in an OpenAPI
+// path template with the matching value from params, URL-path-escaping
+// each value so a substituted id cannot smuggle path structure into the
+// request. Placeholders are matched per occurrence rather than per
+// segment, so a segment carrying two of them ("/points/{lat},{lon}") or
+// mixing one with literal text ("/files/{name}.json") resolves to the
+// parameter names the spec actually declares — the same rule
+// segmentMatches applies when routing, so substitution and resolution
+// agree on what a placeholder is (issue #1297). A template with no
+// placeholders returns unchanged.
 //
 // Errors are returned for a missing required parameter, an empty value
 // (which would collapse to an empty path segment), or a stray parameter
@@ -94,20 +97,12 @@ func substitutePathParams(template string, params map[string]string) (string, er
 	used := make(map[string]bool, len(params))
 	var missing []string
 	for i, seg := range segs {
-		if !isPlaceholderSegment(seg) {
-			continue
+		substituted, absent, err := substituteSegment(seg, params, used)
+		if err != nil {
+			return "", err
 		}
-		name := seg[1 : len(seg)-1]
-		val, ok := params[name]
-		if !ok {
-			missing = append(missing, name)
-			continue
-		}
-		if val == "" {
-			return "", fmt.Errorf("apigateway: path parameter %q is empty; provide a non-empty value", name)
-		}
-		segs[i] = url.PathEscape(val)
-		used[name] = true
+		missing = append(missing, absent...)
+		segs[i] = substituted
 	}
 	if len(missing) > 0 {
 		sort.Strings(missing)
@@ -118,6 +113,54 @@ func substitutePathParams(template string, params map[string]string) (string, er
 	}
 	return strings.Join(segs, pathSep), nil
 }
+
+// substituteSegment rewrites one path-template segment, replacing every
+// placeholder it carries with the escaped value from params, and returns
+// the rewritten segment alongside the names params had no value for.
+// Names are returned rather than reported so the caller can collect the
+// misses across every segment and name them all in one error instead of
+// making the caller discover them one retry at a time. A segment with no
+// placeholder is returned verbatim; an unsubstituted placeholder is left
+// in place, which only ever reaches the caller on the error path.
+func substituteSegment(seg string, params map[string]string, used map[string]bool) (
+	substituted string, missing []string, err error,
+) {
+	matches := placeholderPattern.FindAllStringSubmatchIndex(seg, -1)
+	if len(matches) == 0 {
+		return seg, nil, nil
+	}
+	var (
+		out    strings.Builder
+		copied int
+	)
+	for _, m := range matches {
+		name := seg[m[nameStart]:m[nameEnd]]
+		val, ok := params[name]
+		if !ok {
+			missing = append(missing, name)
+			continue
+		}
+		if val == "" {
+			return "", nil, fmt.Errorf("apigateway: path parameter %q is empty; provide a non-empty value", name)
+		}
+		out.WriteString(seg[copied:m[holeStart]])
+		out.WriteString(url.PathEscape(val))
+		copied = m[holeEnd]
+		used[name] = true
+	}
+	out.WriteString(seg[copied:])
+	return out.String(), missing, nil
+}
+
+// Offsets into one FindAllStringSubmatchIndex match for
+// placeholderPattern: the pair bounding the whole "{name}" hole, then
+// the pair bounding the captured name inside the braces.
+const (
+	holeStart = 0
+	holeEnd   = 1
+	nameStart = 2
+	nameEnd   = 3
+)
 
 // unusedParams returns the sorted names in params that were not consumed
 // by a placeholder. Empty when every supplied parameter matched.

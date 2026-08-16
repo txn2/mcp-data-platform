@@ -20,7 +20,21 @@ OpenAPI specs that describe each upstream are stored separately in **API catalog
   }
   ```
 
+  A path segment may carry more than one placeholder, or mix a placeholder with literal text. Name each placeholder separately and the platform substitutes each in place, escaping the values but leaving the literal text between them alone:
+
+  ```json
+  {
+    "connection": "weather",
+    "operation_id": "resolvePoint",
+    "path_params": { "latitude": "37.41", "longitude": "-94.70" }
+  }
+  ```
+
+  resolves `/points/{latitude},{longitude}` to `/points/37.41,-94.70`. The same applies to `/gridpoints/{office}/{gridX},{gridY}/forecast` and to a literal suffix such as `/files/{name}.json`.
+
   When the same `operation_id` is defined by more than one component spec in the catalog, pass `spec` to disambiguate; the error names the candidate specs.
+
+  The response carries `resolved_path`: the concrete path the call was addressed to, after the catalog's base-path prefix and the `path_params` substitution. It is reported only for `operation_id` addressing, and it is the fastest way to tell a wrong path from a genuinely failing upstream when a call returns an unexpected 4xx.
 
 - **By `method` + `path`**: the raw addressing for uncataloged calls or connections with no spec. You substitute any path parameters yourself:
 
