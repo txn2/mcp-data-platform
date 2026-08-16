@@ -48,6 +48,56 @@ OpenAPI specs that describe each upstream are stored separately in **API catalog
 
 Supply one form or the other, not both. `path_params` is only valid alongside `operation_id`.
 
+## Request bodies
+
+The `body` argument is a JSON value, and the connection's catalog decides how it reaches the upstream. The resolved operation's declared `requestBody` media type drives the encoding, so a caller passes the data and never the framing:
+
+| Declared media type | `body` value | On the wire |
+| --- | --- | --- |
+| `application/json` | object or array | JSON, `Content-Type: application/json` |
+| `application/json` | string that parses as JSON | verbatim, `Content-Type: application/json` |
+| `application/json` | string that does not parse as JSON | verbatim, `Content-Type: text/plain; charset=utf-8` |
+| `multipart/form-data` | object | multipart, `Content-Type: multipart/form-data; boundary=...` |
+| any other single type | string | verbatim, with that type |
+| none matched | object or array | JSON; a string goes out as `text/plain` |
+
+An explicit `Content-Type` in `headers` overrides catalog negotiation and sends the bytes as typed — the exception is multipart, below.
+
+### Multipart form data
+
+An operation declaring `multipart/form-data` takes an **object of form fields**, and the platform assembles the parts:
+
+```json
+{
+  "connection": "census",
+  "operation_id": "geocodeBatch",
+  "body": {
+    "addressFile": {
+      "filename":     "batch.csv",
+      "content_type": "text/csv",
+      "content":      "1,123 Main St,Springfield,IL,62701\n"
+    },
+    "benchmark": "<benchmark name>",
+    "vintage":   "<vintage name>"
+  }
+}
+```
+
+Each key is one field:
+
+- a **scalar** (string, number, boolean) becomes a text field;
+- an **array** becomes one part per element under the same field name, which is how an upstream taking several files under one name expects them;
+- an object carrying `filename`, `content`, `content_base64`, or `content_type` becomes a **part**: `content` is sent as UTF-8 text, `content_base64` is decoded to raw bytes first, and a part naming a `filename` defaults to `application/octet-stream` when it declares no type. A part may set `content_type` without a `filename` — that is the typed metadata field several upstreams require alongside a file. Those four are the only attributes a part may carry; any other key is refused by name, so a misspelling fails loudly instead of travelling as a field that was silently dropped;
+- any **other object** is JSON-encoded into a text field.
+
+The platform generates the multipart boundary. Do not assemble a multipart body by hand and do not set `Content-Type` for one: a boundary that does not match the bytes yields a body the upstream parses as zero parts, which surfaces as a confusing upstream 400 blaming the caller. An object body sent under a caller-supplied `multipart/form-data` header is encoded by the platform, and the platform's boundary replaces the caller's.
+
+A body that is not an object on a multipart operation is refused at the platform, before the request goes out, with a message naming the shape it wants — an honest local failure rather than a malformed request.
+
+Bulk operations are the usual reason an upstream asks for multipart, and they are the ones worth automating: the US Census batch geocoder takes 10,000 addresses in one file part, where the single-address endpoint would take 10,000 calls.
+
+The platform's own catalog-spec upload (`PUT /api/v1/admin/api-catalogs/{id}/specs/{spec}/upload`, a `multipart/form-data` route with a `file` part) is reachable this way through the built-in `platform-admin` connection. Registering spec **text** is still simpler through the sibling inline route, with `{"source_kind": "inline", "content": "..."}`.
+
 ## When to use
 
 Use the API gateway for upstreams that expose a REST API and authenticate with a bearer token, an API key, or OAuth 2.1. Common targets:
@@ -234,6 +284,8 @@ For each outbound request, headers are layered in this order (later wins):
 1. Per-call headers from the tool input (`api_invoke_endpoint.headers`).
 2. `static_headers` (operator-configured).
 3. `auth_mode` contribution (`Authorization`, API-key header, etc.).
+
+`Content-Type` is the one exception, and only for a [multipart body](#multipart-form-data) the platform assembled: its boundary is the only one that matches the bytes, so it replaces any `Content-Type` set at either layer above. Every other encoding yields to a `Content-Type` already present.
 
 ## Example: Google APIs
 

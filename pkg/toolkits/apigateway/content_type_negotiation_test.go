@@ -334,7 +334,7 @@ func TestResolveDeclaredContentTypes_RespectsEffectiveBasePath(t *testing.T) {
 // header, body is a JSON-looking string. The fix must send the bytes
 // verbatim with Content-Type: application/json.
 func TestEncodeBody_CatalogJSON_StringBodyParses(t *testing.T) {
-	body, ct, err := encodeBody("POST", `{"sql":"SELECT 1"}`,
+	body, ct, err := encodeBodyParts("POST", `{"sql":"SELECT 1"}`,
 		[]string{"application/json"}, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
@@ -353,7 +353,7 @@ func TestEncodeBody_CatalogJSON_StringBodyParses(t *testing.T) {
 // user explicitly meant a literal text payload that happens to be
 // a string.
 func TestEncodeBody_CatalogJSON_StringBodyNotJSON(t *testing.T) {
-	body, ct, err := encodeBody("POST", "this is not json",
+	body, ct, err := encodeBodyParts("POST", "this is not json",
 		[]string{"application/json"}, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
@@ -370,7 +370,7 @@ func TestEncodeBody_CatalogJSON_StringBodyNotJSON(t *testing.T) {
 // not change today's path for dict bodies. They still serialize as
 // JSON with Content-Type: application/json.
 func TestEncodeBody_CatalogJSON_DictBodyUnchanged(t *testing.T) {
-	body, ct, err := encodeBody("POST", map[string]any{"sql": "SELECT 1"},
+	body, ct, err := encodeBodyParts("POST", map[string]any{"sql": "SELECT 1"},
 		[]string{"application/json"}, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
@@ -391,7 +391,7 @@ func TestEncodeBody_CatalogJSON_DictBodyUnchanged(t *testing.T) {
 // contract here; the buildRequest override is exercised by the
 // integration test below.
 func TestEncodeBody_CallerHeaderWins(t *testing.T) {
-	body, ct, err := encodeBody("POST", "this is not json",
+	body, ct, err := encodeBodyParts("POST", "this is not json",
 		[]string{"application/json"},
 		map[string]string{"Content-Type": "application/json"})
 	if err != nil {
@@ -410,7 +410,7 @@ func TestEncodeBody_CallerHeaderWins(t *testing.T) {
 // keeps encodeBody on the today's-behavior path (text/plain for
 // strings). buildRequest preserves the caller's header on the wire.
 func TestEncodeBody_CallerHeaderWins_StringJSONBody(t *testing.T) {
-	_, ct, err := encodeBody("POST", `{"a":1}`,
+	_, ct, err := encodeBodyParts("POST", `{"a":1}`,
 		[]string{"application/json"},
 		map[string]string{"content-type": "application/json"})
 	if err != nil {
@@ -425,7 +425,7 @@ func TestEncodeBody_CallerHeaderWins_StringJSONBody(t *testing.T) {
 // non-JSON declared media-type branch: the string body lands on the
 // wire untouched with the declared Content-Type.
 func TestEncodeBody_CatalogNonJSON_StringBodyVerbatim(t *testing.T) {
-	body, ct, err := encodeBody("POST", "<feed/>",
+	body, ct, err := encodeBodyParts("POST", "<feed/>",
 		[]string{"application/xml"}, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
@@ -445,7 +445,7 @@ func TestEncodeBody_CatalogNonJSON_StringBodyVerbatim(t *testing.T) {
 // can pass a string explicitly when it wants the declared media
 // type.
 func TestEncodeBody_CatalogNonJSON_DictFallsBack(t *testing.T) {
-	body, ct, err := encodeBody("POST", map[string]any{"k": "v"},
+	body, ct, err := encodeBodyParts("POST", map[string]any{"k": "v"},
 		[]string{"application/xml"}, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
@@ -462,7 +462,7 @@ func TestEncodeBody_CatalogNonJSON_DictFallsBack(t *testing.T) {
 // multiple media types are declared and JSON is one of them, JSON
 // wins for both dict and JSON-string bodies.
 func TestEncodeBody_MultipleDeclared_PrefersJSON(t *testing.T) {
-	body, ct, err := encodeBody("POST", `{"a":1}`,
+	body, ct, err := encodeBodyParts("POST", `{"a":1}`,
 		[]string{"application/json", "application/xml"}, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
@@ -475,22 +475,37 @@ func TestEncodeBody_MultipleDeclared_PrefersJSON(t *testing.T) {
 	}
 }
 
-func TestCallerSetsContentType_CaseInsensitive(t *testing.T) {
+// encodeBodyParts runs encodeBody and unpacks the encoding into the
+// (bytes, Content-Type) pair the negotiation cases assert on. The
+// third field of the encoding — whether the type overrides a caller
+// header — is exercised separately by the multipart tests, which are
+// the only encodings that set it.
+func encodeBodyParts(method string, body any, declared []string, headers map[string]string) (data []byte, contentType string, err error) {
+	enc, err := encodeBody(method, body, declared, headers)
+	return enc.data, enc.contentType, err
+}
+
+func TestCallerContentType_CaseInsensitive(t *testing.T) {
 	cases := []map[string]string{
 		{"Content-Type": "application/json"},
 		{"content-type": "application/json"},
 		{"CONTENT-TYPE": "application/json"},
 	}
 	for _, h := range cases {
-		if !callerSetsContentType(h) {
-			t.Errorf("callerSetsContentType(%v) = false; want true", h)
+		got, ok := callerContentType(h)
+		if !ok {
+			t.Errorf("callerContentType(%v) reported no Content-Type; want one", h)
+			continue
+		}
+		if got != "application/json" {
+			t.Errorf("callerContentType(%v) = %q; want application/json", h, got)
 		}
 	}
-	if callerSetsContentType(map[string]string{"Accept-Language": "en"}) {
-		t.Error("callerSetsContentType found a non-existent Content-Type")
+	if _, ok := callerContentType(map[string]string{"Accept-Language": "en"}); ok {
+		t.Error("callerContentType found a non-existent Content-Type")
 	}
-	if callerSetsContentType(nil) {
-		t.Error("callerSetsContentType(nil) = true; want false")
+	if _, ok := callerContentType(nil); ok {
+		t.Error("callerContentType(nil) reported a Content-Type; want none")
 	}
 }
 
