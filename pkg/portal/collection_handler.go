@@ -105,6 +105,8 @@ type listCollectionsResponse struct {
 // @Param        search  query  string   false  "Search term"
 // @Param        limit   query  integer  false  "Results per page (default: 20)"
 // @Param        offset  query  integer  false  "Offset for pagination (default: 0)"
+// @Param        sort    query  string   false  "Sort column (default: updated_at)"  Enums(updated_at, created_at, name)
+// @Param        dir     query  string   false  "Sort direction (default: desc)"     Enums(asc, desc)
 // @Success      200  {object}  listCollectionsResponse
 // @Failure      401  {object}  problemDetail
 // @Failure      500  {object}  problemDetail
@@ -119,6 +121,7 @@ func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := CollectionFilter{OwnerID: user.UserID}
+	filter.SortBy, filter.SortDir = sortParams(r)
 	if v := r.URL.Query().Get("search"); v != "" {
 		filter.Search = v
 	}

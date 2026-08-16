@@ -35,6 +35,7 @@ type mockAssetStore struct {
 	updateErr  error
 	deleteErr  error
 	lastUpdate *AssetUpdate // captures the most recent Update payload
+	lastFilter *AssetFilter // captures the most recent List filter
 }
 
 func (m *mockAssetStore) Insert(_ context.Context, _ Asset) error { return m.insertErr }
@@ -58,7 +59,8 @@ func (*mockAssetStore) GetByIdempotencyKey(_ context.Context, _, _ string) (*Ass
 	return nil, fmt.Errorf("asset not found")
 }
 
-func (m *mockAssetStore) List(_ context.Context, _ AssetFilter) ([]Asset, int, error) {
+func (m *mockAssetStore) List(_ context.Context, f AssetFilter) (assets []Asset, total int, err error) {
+	m.lastFilter = &f
 	return m.listRes, m.listTotal, m.listErr
 }
 
@@ -406,6 +408,38 @@ func TestListAssetsSuccess(t *testing.T) {
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
 	assert.Equal(t, 1, resp.Total)
+}
+
+// The list endpoint carries the caller's ordering to the store verbatim; the
+// store, not the handler, is what refuses a column outside its allowlist.
+func TestListAssetsSortParams(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		wantBy  string
+		wantDir string
+	}{
+		{name: "absent leaves the store's default", query: ""},
+		{name: "column and direction", query: "?sort=name&dir=asc", wantBy: "name", wantDir: "ASC"},
+		{name: "direction is upper-cased for the store", query: "?sort=size_bytes&dir=desc", wantBy: "size_bytes", wantDir: "DESC"},
+		{name: "an unknown column still travels, for the store to refuse", query: "?sort=s3_key", wantBy: "s3_key"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assets := &mockAssetStore{listRes: []Asset{}, listTotal: 0}
+			h := newTestHandler(assets, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets"+tc.query, http.NoBody)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+			require.NotNil(t, assets.lastFilter)
+			assert.Equal(t, tc.wantBy, assets.lastFilter.SortBy)
+			assert.Equal(t, tc.wantDir, assets.lastFilter.SortDir)
+		})
+	}
 }
 
 func TestListAssetsNoUser(t *testing.T) {

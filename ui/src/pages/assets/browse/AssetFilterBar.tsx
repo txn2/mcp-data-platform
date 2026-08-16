@@ -2,8 +2,10 @@ import { LayoutGrid, List } from "lucide-react";
 import { FilterSelect } from "@/components/patterns/FilterSelect";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
+import { SortControl } from "@/components/patterns/SortControl";
 import { ScopeFilter, type Scope } from "@/components/ScopeFilter";
 import { Input } from "@/components/ui/input";
+import { ASSET_SORT_OPTIONS, type AssetSortKey, type ListSort } from "@/components/listSort";
 import type { ViewMode } from "@/components/listView";
 
 /** The content types assets are actually saved as, as a filter facet. */
@@ -31,6 +33,9 @@ export function AssetFilterBar({
   onContentTypeChange,
   tag,
   onTagChange,
+  sort,
+  onSortChange,
+  sortDisabled,
   viewMode,
   onViewModeChange,
 }: {
@@ -42,6 +47,10 @@ export function AssetFilterBar({
   onContentTypeChange: (contentType: string) => void;
   tag: string;
   onTagChange: (tag: string) => void;
+  sort: ListSort<AssetSortKey>;
+  onSortChange: (sort: ListSort<AssetSortKey>) => void;
+  /** True while relevance ranking, not a column, decides the order. */
+  sortDisabled: boolean;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
 }) {
@@ -70,6 +79,12 @@ export function AssetFilterBar({
         aria-label="Filter by tag"
         placeholder="Filter by tag..."
         className="w-[10rem]"
+      />
+      <SortControl
+        value={sort}
+        onChange={onSortChange}
+        options={ASSET_SORT_OPTIONS}
+        disabled={sortDisabled}
       />
       <SegmentedControl
         label="List layout"

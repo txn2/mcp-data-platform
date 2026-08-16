@@ -30,10 +30,11 @@ Features:
 
 - **Search** — Full-text search by name or description
 - **Filters** — Content type dropdown (HTML, JSX, SVG, Markdown, CSV) and tag filter
+- **Sort** — Column dropdown (updated, created, name, size) and a direction toggle. The list opens on most recently updated, so an asset revised today sits above one created yesterday and never touched since; the date shown on each card and row is the one the list is ordered by, so the visible dates always run in the order the rows do. Sorting is server-side over the whole library, not just the page already loaded. A relevance search is ranked rather than sorted, and the control reads as inert while one is running.
 - **View toggle** — Switch between grid (card thumbnails) and table view; preference persisted to localStorage
 - **Grid cards** — 4:3 thumbnail previews with content type icon, tags, collection badges, file size, and sharing indicators
 - **Theme-aware thumbnails** — Markdown and CSV previews are captured in both light and dark variants, and the grid shows the one matching your active theme. Self-themed content (HTML, JSX, SVG) carries its own colors, so a single preview is used in both modes. Public shares always use the light variant.
-- **Table rows** — Sortable columns for name, type, tags, collections, size, sharing, and creation date
+- **Table rows** — Columns for name, type, tags, collections, size, sharing, and the ordering date. Name, size, and the date header sort the list; clicking the active column reverses it.
 
 ### Asset Viewer
 
@@ -107,8 +108,9 @@ The collections list shows:
 
 - **Search** — Filter collections by name or description
 - **New Collection** button — Creates a collection and opens the editor
+- **Sort** — The same control as Assets, minus size, which a collection does not have. Collections also open on most recently updated.
 - **View toggle** — Grid or table view
-- **Grid cards** — Thumbnail mosaic of contained assets, collection name, description, tags, sharing indicators, and creation date
+- **Grid cards** — Thumbnail mosaic of contained assets, collection name, description, tags, sharing indicators, and the ordering date
 
 ### Viewing a Collection
 

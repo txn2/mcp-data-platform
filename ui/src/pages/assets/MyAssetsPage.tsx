@@ -3,6 +3,13 @@ import type { Asset } from "@/api/portal/types";
 import { AssetPreviewModal } from "@/components/AssetPreviewModal";
 import { AssetsTabs } from "@/components/AssetsTabs";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
+import {
+  DEFAULT_ASSET_SORT,
+  dateColumnFor,
+  toggleSort,
+  type AssetSortKey,
+  type ListSort,
+} from "@/components/listSort";
 import { getStoredViewMode, storeViewMode, type ViewMode } from "@/components/listView";
 import { getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
@@ -25,10 +32,11 @@ export function MyAssetsPage({ onNavigate }: Props) {
   const [search, setSearch] = useState("");
   const [contentType, setContentType] = useState("");
   const [tag, setTag] = useState("");
+  const [sort, setSort] = useState<ListSort<AssetSortKey>>(DEFAULT_ASSET_SORT);
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
   const [previewing, setPreviewing] = useState<Previewing | null>(null);
 
-  const browse = useAssetBrowse({ scope, search, contentType, tag });
+  const browse = useAssetBrowse({ scope, search, contentType, tag, sort });
 
   function changeViewMode(mode: ViewMode) {
     setViewMode(mode);
@@ -53,6 +61,10 @@ export function MyAssetsPage({ onNavigate }: Props) {
         onContentTypeChange={setContentType}
         tag={tag}
         onTagChange={setTag}
+        sort={sort}
+        onSortChange={setSort}
+        // Relevance ranking, not a column, decides the order of a search.
+        sortDisabled={browse.semanticSearch}
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
       />
@@ -62,6 +74,8 @@ export function MyAssetsPage({ onNavigate }: Props) {
         scope={scope}
         viewMode={viewMode}
         isDark={isDark}
+        sort={sort}
+        onSort={(key) => setSort((s) => toggleSort(s, key))}
         onNavigate={onNavigate}
         onPreview={(asset: Asset) =>
           setPreviewing({
@@ -104,6 +118,8 @@ function Results({
   scope,
   viewMode,
   isDark,
+  sort,
+  onSort,
   onNavigate,
   onPreview,
 }: {
@@ -111,6 +127,8 @@ function Results({
   scope: Scope;
   viewMode: ViewMode;
   isDark: boolean;
+  sort: ListSort<AssetSortKey>;
+  onSort: (key: AssetSortKey) => void;
   onNavigate: (path: string) => void;
   onPreview: (asset: Asset) => void;
 }) {
@@ -141,6 +159,7 @@ function Results({
       shareSummaries={browse.shareSummaries}
       threadCounts={browse.threadCounts}
       isDark={isDark}
+      dateKey={dateColumnFor(sort.key)}
       onNavigate={onNavigate}
     />
   ) : (
@@ -148,6 +167,10 @@ function Results({
       items={browse.displayItems}
       shareSummaries={browse.shareSummaries}
       threadCounts={browse.threadCounts}
+      sort={sort}
+      // A relevance search is ranked, not sorted; its headers would otherwise
+      // claim an ordering the rows do not have.
+      onSort={browse.semanticSearch ? undefined : onSort}
       onNavigate={onNavigate}
       onPreview={onPreview}
     />

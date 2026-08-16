@@ -8065,6 +8065,28 @@ const docTemplate = `{
                         "description": "Offset for pagination (default: 0)",
                         "name": "offset",
                         "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "updated_at",
+                            "created_at",
+                            "name",
+                            "size_bytes"
+                        ],
+                        "type": "string",
+                        "description": "Sort column (default: updated_at)",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "asc",
+                            "desc"
+                        ],
+                        "type": "string",
+                        "description": "Sort direction (default: desc)",
+                        "name": "dir",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -9353,6 +9375,27 @@ const docTemplate = `{
                         "type": "integer",
                         "description": "Offset for pagination (default: 0)",
                         "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "updated_at",
+                            "created_at",
+                            "name"
+                        ],
+                        "type": "string",
+                        "description": "Sort column (default: updated_at)",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "asc",
+                            "desc"
+                        ],
+                        "type": "string",
+                        "description": "Sort direction (default: desc)",
+                        "name": "dir",
                         "in": "query"
                     }
                 ],

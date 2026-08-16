@@ -8,6 +8,7 @@ import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { Badge } from "@/components/ui/badge";
 import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
+import { dateLabelFor, type DateColumn } from "@/components/listSort";
 import type { DisplayAsset } from "./types";
 
 /** The Assets list as a gallery of thumbnails. */
@@ -16,6 +17,7 @@ export function AssetGrid({
   shareSummaries,
   threadCounts,
   isDark,
+  dateKey,
   onNavigate,
 }: {
   items: DisplayAsset[];
@@ -23,6 +25,8 @@ export function AssetGrid({
   threadCounts?: Record<string, number>;
   /** Assets that render a dark variant get it when the portal is dark. */
   isDark: boolean;
+  /** The timestamp the list is ordered by, which is the one each card shows. */
+  dateKey: DateColumn;
   onNavigate: (path: string) => void;
 }) {
   return (
@@ -35,6 +39,7 @@ export function AssetGrid({
           summary={shareSummaries?.[asset.id]}
           threadCount={threadCounts?.[asset.id]}
           isDark={isDark}
+          dateKey={dateKey}
           onNavigate={onNavigate}
         />
       ))}
@@ -48,6 +53,7 @@ function AssetCard({
   summary,
   threadCount,
   isDark,
+  dateKey,
   onNavigate,
 }: {
   asset: DisplayAsset["asset"];
@@ -55,6 +61,7 @@ function AssetCard({
   summary?: ShareSummary;
   threadCount?: number;
   isDark: boolean;
+  dateKey: DateColumn;
   onNavigate: (path: string) => void;
 }) {
   const Icon = contentTypeIcon(asset.content_type);
@@ -111,7 +118,11 @@ function AssetCard({
       )}
       <div className="flex w-full items-center justify-between text-xs text-muted-foreground">
         <span>{formatBytes(asset.size_bytes)}</span>
-        <span>{new Date(share ? share.shared_at : asset.created_at).toLocaleDateString()}</span>
+        {/* The card's date carries no visible label, so the title says which
+            timestamp it is — the same one the list is ordered by. */}
+        <span title={dateLabelFor(dateKey, !!share)}>
+          {new Date(share ? share.shared_at : asset[dateKey]).toLocaleDateString()}
+        </span>
       </div>
     </ThumbCard>
   );

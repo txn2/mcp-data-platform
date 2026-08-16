@@ -235,7 +235,7 @@ func (*postgresCollectionStore) buildListQueries(filter portaldomain.CollectionF
 		"id", "owner_id", "owner_email", "name", "description", "thumbnail_s3_key", "config",
 		"created_at", "updated_at", "deleted_at",
 	).From("portal_collections").Where("deleted_at IS NULL").
-		OrderBy("created_at DESC").Limit(uint64(limit)).Offset(uint64(filter.Offset)) // #nosec G115 -- limit/offset are validated positive ints from EffectiveLimit()
+		OrderBy(filter.Order()...).Limit(uint64(limit)).Offset(uint64(filter.Offset)) // #nosec G115 -- limit/offset are validated positive ints from EffectiveLimit()
 
 	if filter.OwnerID != "" {
 		countQB = countQB.Where(sq.Eq{colOwnerID: filter.OwnerID})

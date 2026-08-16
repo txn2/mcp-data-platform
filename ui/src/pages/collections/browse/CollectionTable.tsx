@@ -1,12 +1,14 @@
 import { FolderOpen } from "lucide-react";
 import type { ShareSummary } from "@/api/portal/types";
 import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
+import { SortableHead } from "@/components/patterns/SortableHead";
 import { ShareIndicators } from "@/components/ShareIndicators";
 import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { markdownToPlainText } from "@/lib/markdownText";
+import { dateColumnFor, type CollectionSortKey, type ListSort } from "@/components/listSort";
 import type { DisplayCollection } from "./types";
 
 /** The Collections list as a dense table. */
@@ -14,22 +16,43 @@ export function CollectionTable({
   items,
   shareSummaries,
   threadCounts,
+  sort,
+  onSort,
   onNavigate,
 }: {
   items: DisplayCollection[];
   shareSummaries?: Record<string, ShareSummary>;
   threadCounts?: Record<string, number>;
+  sort: ListSort<CollectionSortKey>;
+  /** Omitted when the rows are ranked rather than sorted, which makes the
+   *  headers inert rather than letting them claim an ordering. */
+  onSort?: (key: CollectionSortKey) => void;
   onNavigate: (path: string) => void;
 }) {
+  const dateKey = dateColumnFor(sort.key);
   return (
     <Card className="gap-0 overflow-hidden py-0">
       <Table className="table-fixed">
         <TableHeader>
           <TableRow className="bg-muted/50">
-            <TableHead className="w-[35%] text-muted-foreground">Name</TableHead>
+            <SortableHead
+              label="Name"
+              sortKey="name"
+              sortBy={sort.key}
+              sortDir={sort.dir}
+              onSort={onSort}
+              className="w-[35%]"
+            />
             <TableHead className="w-[30%] text-muted-foreground">Tags</TableHead>
             <TableHead className="w-[8%] text-center text-muted-foreground">Shared</TableHead>
-            <TableHead className="w-[12%] text-muted-foreground">Created</TableHead>
+            <SortableHead
+              label={dateKey === "created_at" ? "Created" : "Updated"}
+              sortKey={dateKey}
+              sortBy={sort.key}
+              sortDir={sort.dir}
+              onSort={onSort}
+              className="w-[12%]"
+            />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -83,7 +106,7 @@ export function CollectionTable({
                   )}
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {new Date(share ? share.shared_at : coll.created_at).toLocaleDateString()}
+                  {new Date(share ? share.shared_at : coll[dateKey]).toLocaleDateString()}
                 </TableCell>
               </TableRow>
             );

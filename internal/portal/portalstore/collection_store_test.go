@@ -747,3 +747,49 @@ func TestPostgresCollectionStoreGetItemsBySectionsEmpty(t *testing.T) {
 	assert.Empty(t, result)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// The collection list orders through the same resolver as assets, over its own
+// column set: it has no size to sort by, so that column must fall back rather
+// than reach a query against a table without it.
+func TestPostgresCollectionStoreListOrdering(t *testing.T) {
+	tests := []struct {
+		name      string
+		filter    portaldomain.CollectionFilter
+		wantOrder string
+	}{
+		{
+			name:      "defaults to most recently touched",
+			filter:    portaldomain.CollectionFilter{OwnerID: "user1"},
+			wantOrder: "ORDER BY updated_at DESC, id DESC",
+		},
+		{
+			name:      "created ascending",
+			filter:    portaldomain.CollectionFilter{OwnerID: "user1", SortBy: "created_at", SortDir: portaldomain.SortAsc},
+			wantOrder: "ORDER BY created_at ASC, id ASC",
+		},
+		{
+			name:      "size is not a collection column",
+			filter:    portaldomain.CollectionFilter{OwnerID: "user1", SortBy: "size_bytes"},
+			wantOrder: "ORDER BY updated_at DESC, id DESC",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer db.Close() //nolint:errcheck // test cleanup
+
+			store := NewPostgresCollectionStore(db)
+			mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+			mock.ExpectQuery(tc.wantOrder).WillReturnRows(sqlmock.NewRows([]string{
+				"id", "owner_id", "owner_email", "name", "description", "thumbnail_s3_key", "config",
+				"created_at", "updated_at", "deleted_at",
+			}))
+
+			_, _, err = store.List(context.Background(), tc.filter)
+			require.NoError(t, err)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}

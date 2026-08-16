@@ -55,7 +55,10 @@ export function AdminAssetsPage({ onNavigate }: Props) {
                 <TableHead className="w-[12%] text-muted-foreground">Type</TableHead>
                 <TableHead className="w-[8%] text-right text-muted-foreground">Size</TableHead>
                 <TableHead className="w-[8%] text-center text-muted-foreground">Shared</TableHead>
-                <TableHead className="w-[12%] text-muted-foreground">Created</TableHead>
+                {/* The admin list has no sort control, so it names the one
+                    date it is ordered by: the platform lists every asset most
+                    recently touched first. */}
+                <TableHead className="w-[12%] text-muted-foreground">Updated</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -94,7 +97,7 @@ export function AdminAssetsPage({ onNavigate }: Props) {
                       />
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {new Date(asset.created_at).toLocaleDateString()}
+                      {new Date(asset.updated_at).toLocaleDateString()}
                     </TableCell>
                   </TableRow>
                 );

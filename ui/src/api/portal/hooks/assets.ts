@@ -157,6 +157,8 @@ export const sharedKey = (s: SharedAsset): string => s.asset.id;
 export function useInfiniteAssets(params?: {
   content_type?: string;
   tag?: string;
+  sort?: string;
+  dir?: string;
 }): InfiniteAssetsResult<Asset> {
   const q = useInfiniteQuery({
     queryKey: ["assets", "infinite", params],
@@ -165,6 +167,10 @@ export function useInfiniteAssets(params?: {
       const sp = new URLSearchParams();
       if (params?.content_type) sp.set("content_type", params.content_type);
       if (params?.tag) sp.set("tag", params.tag);
+      // Sent as given; the server resolves both against its own allowlist, so
+      // an unknown column orders by the default rather than failing the page.
+      if (params?.sort) sp.set("sort", params.sort);
+      if (params?.dir) sp.set("dir", params.dir);
       sp.set("limit", String(ASSET_PAGE_SIZE));
       sp.set("offset", String(pageParam));
       return apiFetch<PaginatedResponse<Asset>>(`/assets?${sp.toString()}`);

@@ -31,13 +31,21 @@ const sharedCollectionKey = (s: SharedCollection): string => s.collection.id;
 // useInfiniteCollections is the paginated counterpart of useCollections: it
 // accumulates pages so a caller with more than one page of collections can load
 // them all, exposing a single merged page plus fetchNextPage/hasNextPage.
-export function useInfiniteCollections(): InfiniteResult<Collection> {
+export function useInfiniteCollections(params?: {
+  sort?: string;
+  dir?: string;
+}): InfiniteResult<Collection> {
   return useOffsetInfiniteQuery<Collection>({
-    queryKey: ["collections", "infinite"],
+    queryKey: ["collections", "infinite", params],
     pageSize: COLLECTION_PAGE_SIZE,
     keyOf: collectionKey,
+    // Sent as given; the server resolves both against its own allowlist, so an
+    // unknown column orders by the default rather than failing the page.
     fetchPage: (offset, limit) =>
-      paginatedFetch<Collection>("/collections", offset, limit),
+      paginatedFetch<Collection>("/collections", offset, limit, {
+        sort: params?.sort,
+        dir: params?.dir,
+      }),
   });
 }
 
