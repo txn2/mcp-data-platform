@@ -522,6 +522,14 @@ func TestCatalog_UpsertSpecUploadKindRejected(t *testing.T) {
 	if res.Code == http.StatusOK {
 		t.Fatal("upload source_kind should be rejected on inline route")
 	}
+	// The refusal has to name the way in, not only the way out: a
+	// caller holding spec text needs source_kind=inline, and being sent
+	// to the multipart /upload route without that is a dead end (#1296).
+	for _, want := range []string{"source_kind=inline", "content", "multipart"} {
+		if !strings.Contains(res.Body.String(), want) {
+			t.Errorf("refusal does not mention %q: %s", want, res.Body.String())
+		}
+	}
 }
 
 func TestCatalog_RefreshGetSpecNotFound(t *testing.T) {

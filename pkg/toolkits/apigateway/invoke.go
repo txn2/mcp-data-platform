@@ -232,15 +232,16 @@ func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, c
 		return nil, err
 	}
 	declaredContentTypes := resolveDeclaredContentTypes(cat.specs, cat.webdavRoutes, method, in.Path)
-	body, contentType, err := encodeBody(method, in.Body, declaredContentTypes, in.Headers)
+	enc, err := encodeBody(method, in.Body, declaredContentTypes, in.Headers)
 	if err != nil {
 		return nil, err
 	}
 	req, err := buildRequest(ctx, requestSpec{
 		method:        method,
 		url:           reqURL,
-		body:          body,
-		contentType:   contentType,
+		body:          enc.data,
+		contentType:   enc.contentType,
+		authoritative: enc.authoritative,
 		headers:       in.Headers,
 		staticHeaders: cfg.StaticHeaders,
 	})
@@ -447,22 +448,35 @@ func buildURL(baseURL, path string, query map[string]any) (string, error) {
 func appendQueryValue(q url.Values, key string, val any) {
 	switch v := val.(type) {
 	case nil:
-	case string:
-		q.Add(key, v)
-	case bool:
-		q.Add(key, strconv.FormatBool(v))
-	case int:
-		q.Add(key, strconv.Itoa(v))
-	case int64:
-		q.Add(key, strconv.FormatInt(v, intBase))
-	case float64:
-		q.Add(key, strconv.FormatFloat(v, 'f', -1, floatBitSize))
 	case []any:
 		for _, item := range v {
 			appendQueryValue(q, key, item)
 		}
 	default:
-		q.Add(key, fmt.Sprintf("%v", v))
+		q.Add(key, scalarToString(v))
+	}
+}
+
+// scalarToString renders one JSON scalar as the text a wire format
+// carries it in. Shared by query-string assembly and multipart field
+// encoding so a number reaching the upstream reads the same whichever
+// side of the request it travels on — notably float64, which the JSON
+// decoder produces for every number and which %v would otherwise render
+// in exponent form.
+func scalarToString(val any) string {
+	switch v := val.(type) {
+	case string:
+		return v
+	case bool:
+		return strconv.FormatBool(v)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, intBase)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, floatBitSize)
+	default:
+		return fmt.Sprintf("%v", v)
 	}
 }
 
@@ -481,14 +495,33 @@ const textPlainUTF8 = "text/plain; charset=utf-8"
 // decoder, and the inlineability guard.
 const headerContentType = "Content-Type"
 
+// encodedBody is what encodeBody produces: the request bytes, the
+// Content-Type the gateway proposes for them, and whether that type is
+// authoritative over a caller-supplied Content-Type header.
+//
+// authoritative is true only for a gateway-assembled multipart body.
+// That Content-Type carries the boundary the bytes were written with,
+// so letting a caller's header stand in its place would send a body the
+// upstream parses as zero parts (issue #1296). Every other encoding
+// yields to the caller's header, which is what makes an explicit
+// Content-Type an escape hatch from catalog-driven negotiation.
+type encodedBody struct {
+	data          []byte
+	contentType   string
+	authoritative bool
+}
+
 // encodeBody serializes the body for an outbound HTTP request and
 // returns the Content-Type the gateway proposes to set. Selection
-// rules, in order (issue #453):
+// rules, in order (issues #453, #1296):
 //
 //  1. Method does not allow a body, or body is nil: nothing to send.
 //  2. The caller's headers already contain a Content-Type: emit the
-//     bytes using today's type-driven encoder; buildRequest will keep
-//     the caller's header so the catalog hint is irrelevant.
+//     bytes using today's type-driven encoder and let buildRequest keep
+//     the caller's header — except for an object body under a pinned
+//     multipart/form-data, which is encoded as multipart because
+//     json.Marshal under a multipart header can only produce a body no
+//     upstream can read.
 //  3. The catalog declares application/json on the resolved operation
 //     and the caller did NOT set Content-Type:
 //     - object/array/scalar bodies marshal as JSON (unchanged from
@@ -498,9 +531,12 @@ const headerContentType = "Content-Type"
 //     the case where a tool-call layer pre-serialized the argument),
 //     - string bodies that do NOT parse as JSON fall back to
 //     text/plain (today's behavior preserved).
-//  4. The catalog declares a single non-JSON media type and the body
-//     is a string: send verbatim with that media type.
-//  5. Anything else (no catalog match, no caller header): today's
+//  4. The catalog declares multipart/form-data: the body is assembled
+//     by the multipart encoder, which refuses anything but an object
+//     with a message naming the shape it wants.
+//  5. The catalog declares a single other non-JSON media type and the
+//     body is a string: send verbatim with that media type.
+//  6. Anything else (no catalog match, no caller header): today's
 //     type-driven behavior, i.e. string to text/plain, anything else
 //     to application/json via json.Marshal.
 //
@@ -509,22 +545,38 @@ const headerContentType = "Content-Type"
 // could not be located in the catalog. callerHeaders is the model's
 // per-call headers map; case-insensitive lookup is required because
 // the model can send "content-type" in any casing.
-func encodeBody(method string, body any, declaredContentTypes []string, callerHeaders map[string]string) (data []byte, contentType string, err error) {
+func encodeBody(method string, body any, declaredContentTypes []string, callerHeaders map[string]string) (encodedBody, error) {
 	if body == nil || !methodsAllowingBody[method] {
-		return nil, "", nil
+		return encodedBody{}, nil
 	}
-	if callerSetsContentType(callerHeaders) {
-		return encodeBodyTypeDriven(body)
+	if ct, ok := callerContentType(callerHeaders); ok {
+		return encodeBodyWithCallerType(ct, body)
 	}
 	pick := preferredContentType(declaredContentTypes)
-	if pick == "" {
+	switch {
+	case pick == "":
 		return encodeBodyTypeDriven(body)
-	}
-	if pick == applicationJSON {
+	case pick == applicationJSON:
 		return encodeBodyForJSONOperation(body)
+	case isMultipartFormData(pick):
+		return encodeMultipartBody(body)
 	}
 	if s, ok := body.(string); ok {
-		return []byte(s), pick, nil
+		return encodedBody{data: []byte(s), contentType: pick}, nil
+	}
+	return encodeBodyTypeDriven(body)
+}
+
+// encodeBodyWithCallerType handles the branch where the model pinned
+// Content-Type itself. The pin normally means "send my bytes as I typed
+// them", which is the type-driven encoder. The one exception is an
+// object body under multipart/form-data: there are no caller bytes to
+// respect — hand-assembling multipart through a JSON tool argument is
+// what issue #1296 showed does not survive — so the gateway encodes the
+// object and its own boundary replaces the caller's.
+func encodeBodyWithCallerType(contentType string, body any) (encodedBody, error) {
+	if _, isObject := body.(map[string]any); isObject && isMultipartFormData(contentType) {
+		return encodeMultipartBody(body)
 	}
 	return encodeBodyTypeDriven(body)
 }
@@ -533,15 +585,15 @@ func encodeBody(method string, body any, declaredContentTypes []string, callerHe
 // bodies emit text/plain verbatim, every other type marshals as JSON.
 // Reused on the "no catalog hint" and "caller-supplied Content-Type"
 // branches so the legacy behavior is preserved character-for-character.
-func encodeBodyTypeDriven(body any) (data []byte, contentType string, err error) {
+func encodeBodyTypeDriven(body any) (encodedBody, error) {
 	if s, ok := body.(string); ok {
-		return []byte(s), textPlainUTF8, nil
+		return encodedBody{data: []byte(s), contentType: textPlainUTF8}, nil
 	}
 	encoded, jerr := json.Marshal(body)
 	if jerr != nil {
-		return nil, "", fmt.Errorf("apigateway: encoding body as JSON: %w", jerr)
+		return encodedBody{}, fmt.Errorf("apigateway: encoding body as JSON: %w", jerr)
 	}
-	return encoded, applicationJSON, nil
+	return encodedBody{data: encoded, contentType: applicationJSON}, nil
 }
 
 // encodeBodyForJSONOperation handles the "catalog declares JSON, no
@@ -551,32 +603,33 @@ func encodeBodyTypeDriven(body any) (data []byte, contentType string, err error)
 // hand the bytes through with application/json; a failed parse falls
 // back to text/plain so the existing fixture 3 case (literal text
 // payload that happens to be a string) is unchanged.
-func encodeBodyForJSONOperation(body any) (data []byte, contentType string, err error) {
+func encodeBodyForJSONOperation(body any) (encodedBody, error) {
 	if s, ok := body.(string); ok {
 		var probe any
 		if err := json.Unmarshal([]byte(s), &probe); err == nil {
-			return []byte(s), applicationJSON, nil
+			return encodedBody{data: []byte(s), contentType: applicationJSON}, nil
 		}
-		return []byte(s), textPlainUTF8, nil
+		return encodedBody{data: []byte(s), contentType: textPlainUTF8}, nil
 	}
 	encoded, jerr := json.Marshal(body)
 	if jerr != nil {
-		return nil, "", fmt.Errorf("apigateway: encoding body as JSON: %w", jerr)
+		return encodedBody{}, fmt.Errorf("apigateway: encoding body as JSON: %w", jerr)
 	}
-	return encoded, applicationJSON, nil
+	return encodedBody{data: encoded, contentType: applicationJSON}, nil
 }
 
-// callerSetsContentType reports whether the model's per-call headers
-// already pin Content-Type. Lookup is case-insensitive because the
-// model can write "content-type", "Content-Type", or any other casing
-// and Go's http header set treats them the same.
-func callerSetsContentType(h map[string]string) bool {
-	for name := range h {
+// callerContentType returns the Content-Type the model pinned in its
+// per-call headers, and whether it set one at all. Lookup is
+// case-insensitive because the model can write "content-type",
+// "Content-Type", or any other casing and Go's http header set treats
+// them the same.
+func callerContentType(h map[string]string) (string, bool) {
+	for name, value := range h {
 		if strings.EqualFold(name, headerContentType) {
-			return true
+			return value, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // resolveDeclaredContentTypes returns the sorted requestBody content
@@ -840,10 +893,15 @@ func resolveTimeout(requested int, defaultTimeout time.Duration) time.Duration {
 // signature stays under revive's argument-limit ceiling without
 // losing any of the data the request-building step needs.
 type requestSpec struct {
-	method        string
-	url           string
-	body          []byte
-	contentType   string
+	method      string
+	url         string
+	body        []byte
+	contentType string
+	// authoritative makes contentType override a Content-Type already
+	// present in headers/staticHeaders instead of yielding to it. Set
+	// for a gateway-assembled multipart body, whose boundary parameter
+	// is the only one matching the bytes (issue #1296).
+	authoritative bool
 	headers       map[string]string
 	staticHeaders map[string]string
 }
@@ -868,7 +926,7 @@ func buildRequest(ctx context.Context, spec requestSpec) (*http.Request, error) 
 	for name, value := range spec.staticHeaders {
 		req.Header.Set(name, value)
 	}
-	if spec.contentType != "" && req.Header.Get(headerContentType) == "" {
+	if spec.contentType != "" && (spec.authoritative || req.Header.Get(headerContentType) == "") {
 		req.Header.Set(headerContentType, spec.contentType)
 	}
 	if req.Header.Get("Accept") == "" {

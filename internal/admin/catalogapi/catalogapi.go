@@ -813,7 +813,14 @@ func (*handler) materializeSpec(ctx context.Context, specName string, req upsert
 			LastFetchedAt: res.FetchedAt,
 		}, nil
 	case apicatalog.SourceUpload:
-		return apicatalog.SpecEntry{}, errors.New("source_kind=upload must use the /upload endpoint")
+		// Name the alternative, not just the refusal: the /upload
+		// endpoint takes a multipart file part, so a caller holding the
+		// spec text (an agent, a script) wants source_kind=inline with
+		// content instead of hunting for a way to build a file part
+		// (issue #1296).
+		return apicatalog.SpecEntry{}, errors.New(
+			"source_kind=upload must use the sibling /upload endpoint, which takes the spec as a multipart file part; " +
+				"to register spec text directly, use source_kind=inline and put the document in content")
 	default:
 		return apicatalog.SpecEntry{}, fmt.Errorf("invalid source_kind %q", req.SourceKind)
 	}

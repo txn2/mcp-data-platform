@@ -269,7 +269,7 @@ func TestAppendQueryValue_AllScalarTypes(t *testing.T) {
 }
 
 func TestEncodeBody_SkipsBodyForGET(t *testing.T) {
-	body, ct, err := encodeBody("GET", map[string]any{"hello": "world"}, nil, nil)
+	body, ct, err := encodeBodyParts("GET", map[string]any{"hello": "world"}, nil, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestEncodeBody_SkipsBodyForGET(t *testing.T) {
 }
 
 func TestEncodeBody_StringBody(t *testing.T) {
-	body, ct, err := encodeBody("POST", "raw text", nil, nil)
+	body, ct, err := encodeBodyParts("POST", "raw text", nil, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestEncodeBody_StringBody(t *testing.T) {
 }
 
 func TestEncodeBody_ObjectAsJSON(t *testing.T) {
-	body, ct, err := encodeBody("POST", map[string]any{"key": "value"}, nil, nil)
+	body, ct, err := encodeBodyParts("POST", map[string]any{"key": "value"}, nil, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestEncodeBody_ObjectAsJSON(t *testing.T) {
 }
 
 func TestEncodeBody_RejectsUnencodable(t *testing.T) {
-	_, _, err := encodeBody("POST", make(chan int), nil, nil)
+	_, _, err := encodeBodyParts("POST", make(chan int), nil, nil)
 	if err == nil {
 		t.Error("encodeBody: want error for non-JSON-encodable body")
 	}
@@ -669,7 +669,7 @@ func TestInvoke_EndToEnd_WebDAVMethodsWithoutBody(t *testing.T) {
 }
 
 func TestEncodeBody_SkipsBodyForMKCOL(t *testing.T) {
-	body, ct, err := encodeBody("MKCOL", "should be dropped", nil, nil)
+	body, ct, err := encodeBodyParts("MKCOL", "should be dropped", nil, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}
@@ -680,7 +680,7 @@ func TestEncodeBody_SkipsBodyForMKCOL(t *testing.T) {
 
 func TestEncodeBody_AllowsBodyForMOVE(t *testing.T) {
 	xmlBody := `<?xml version="1.0"?><d:propertybehavior xmlns:d="DAV:"><d:keepalive>*</d:keepalive></d:propertybehavior>`
-	body, _, err := encodeBody("MOVE", xmlBody, nil, nil)
+	body, _, err := encodeBodyParts("MOVE", xmlBody, nil, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}
@@ -691,7 +691,7 @@ func TestEncodeBody_AllowsBodyForMOVE(t *testing.T) {
 
 func TestEncodeBody_AllowsBodyForCOPY(t *testing.T) {
 	xmlBody := `<?xml version="1.0"?><d:propertybehavior xmlns:d="DAV:"><d:keepalive>*</d:keepalive></d:propertybehavior>`
-	body, _, err := encodeBody("COPY", xmlBody, nil, nil)
+	body, _, err := encodeBodyParts("COPY", xmlBody, nil, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}
@@ -702,7 +702,7 @@ func TestEncodeBody_AllowsBodyForCOPY(t *testing.T) {
 
 func TestEncodeBody_AllowsBodyForPROPFIND(t *testing.T) {
 	xmlBody := `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:allprop/></d:propfind>`
-	body, ct, err := encodeBody("PROPFIND", xmlBody, nil, nil)
+	body, ct, err := encodeBodyParts("PROPFIND", xmlBody, nil, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}

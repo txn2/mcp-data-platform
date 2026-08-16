@@ -69,6 +69,37 @@ func TestAdminSelfSpecContent_ParsesToOperations(t *testing.T) {
 	}
 }
 
+// TestAdminSelfSpecContent_DeclaresMultipartUpload pins the fact issue
+// #1296 turns on: the catalog-spec upload route survives the Swagger
+// 2.0 conversion as an operation declaring multipart/form-data. That
+// declaration is the only thing that routes an api_invoke_endpoint call
+// to the gateway's multipart encoder, so the platform's own upload
+// route is reachable from an MCP session exactly while this holds.
+func TestAdminSelfSpecContent_DeclaresMultipartUpload(t *testing.T) {
+	content, err := adminSelfSpecContent()
+	if err != nil {
+		t.Fatalf("adminSelfSpecContent: %v", err)
+	}
+	doc, err := apicatalog.ParseSpec(content)
+	if err != nil {
+		t.Fatalf("ParseSpec on converted spec: %v", err)
+	}
+	item := doc.Paths.Find("/admin/api-catalogs/{id}/specs/{spec}/upload")
+	if item == nil || item.Put == nil {
+		t.Fatal("converted admin spec has no PUT on the spec-upload path")
+	}
+	if item.Put.RequestBody == nil || item.Put.RequestBody.Value == nil {
+		t.Fatal("spec-upload operation carries no requestBody")
+	}
+	if item.Put.RequestBody.Value.Content.Get("multipart/form-data") == nil {
+		declared := make([]string, 0, len(item.Put.RequestBody.Value.Content))
+		for ct := range item.Put.RequestBody.Value.Content {
+			declared = append(declared, ct)
+		}
+		t.Errorf("spec-upload declares %v; want multipart/form-data", declared)
+	}
+}
+
 func TestEnsureAdminSelfCatalog_CreatesAndIdempotent(t *testing.T) {
 	store := apicatalog.NewMemoryStore()
 	ctx := context.Background()
