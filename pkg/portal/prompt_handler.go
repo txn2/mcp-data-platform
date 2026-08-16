@@ -615,7 +615,7 @@ func validatePromptRecipient(sharedWithEmail, ownerEmail string) string {
 		return "a recipient email is required to share a prompt"
 	}
 	if strings.EqualFold(recipient, ownerEmail) {
-		return "you already own this prompt"
+		return "that address already owns this prompt"
 	}
 	return ""
 }
@@ -636,8 +636,11 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 		writePortalError(w, http.StatusNotFound, errMsgPromptNotFound)
 		return
 	}
-	// Only the owner of a personal prompt may share it.
-	if pr.Scope != prompt.ScopePersonal || pr.OwnerEmail != user.Email {
+	// Only the owner of a personal prompt, or an admin, may share it. The scope
+	// test is not an authorization check and admin does not lift it: a shared or
+	// global prompt is already visible to its audience, so there is nothing for
+	// a person-to-person share to grant.
+	if pr.Scope != prompt.ScopePersonal || !h.access.CanManageEmail(pr.OwnerEmail, user) {
 		writePortalError(w, http.StatusForbidden, "only the owner can share this prompt")
 		return
 	}
@@ -654,7 +657,10 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 		writePortalError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if msg := validatePromptRecipient(req.SharedWithEmail, user.Email); msg != "" {
+	// The address to refuse is the prompt's owner, not the caller's: an admin
+	// sharing someone else's prompt must not be allowed to address it to the
+	// person who already owns it.
+	if msg := validatePromptRecipient(req.SharedWithEmail, pr.OwnerEmail); msg != "" {
 		writePortalError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -679,7 +685,7 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 // listPromptShares lists the shares an owner created for a prompt.
 //
 // @Summary      List prompt shares
-// @Description  Returns all shares for a prompt. Only the owner can view them.
+// @Description  Returns all shares for a prompt. The owner or an admin.
 // @Tags         Prompts
 // @Produce      json
 // @Param        id  path  string  true  "Prompt ID"
@@ -706,7 +712,7 @@ func (h *Handler) listPromptShares(w http.ResponseWriter, r *http.Request) {
 		writePortalError(w, http.StatusNotFound, errMsgPromptNotFound)
 		return
 	}
-	if pr.OwnerEmail != user.Email {
+	if !h.access.CanManageEmail(pr.OwnerEmail, user) {
 		writePortalError(w, http.StatusForbidden, "only the owner can view shares")
 		return
 	}

@@ -293,6 +293,8 @@ The table displays name, owner email, content type, file size, sharing status, a
 
 The admin asset detail renders the asset content in a full-screen viewer with Preview/Source toggle, owner display, and management actions (Delete, Download, Share).
 
+Every one of those actions works on an asset the admin does not own, Share included. This matters most for content produced by a non-human principal: an agent session authenticated with an API key owns its assets under an identity like `<key name>@apikey.local`, which nobody can sign in as. Without an admin share, such an asset could be read but never handed to the person who needs it. The same authority covers collections and personal prompts: an admin can share one, read its share list, and revoke a share on it. Shares an admin creates are attributed to the admin, so the audit trail names who actually granted the access.
+
 ## Resources (Admin)
 
 The admin Resources page shows managed resources across all personas and scopes.

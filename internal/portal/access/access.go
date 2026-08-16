@@ -60,6 +60,37 @@ func (c *Checker) IsAdmin(user *User) bool {
 	return HasAnyRole(user.Roles, c.cfg.AdminRoles)
 }
 
+// CanManage reports whether the user holds owner authority over a thing owned
+// by ownerID: the owner, or an admin.
+//
+// It is the single seam behind every "only the owner can ..." gate the portal
+// applies to assets and collections, so admin reach is decided once instead of
+// being re-derived at each route. Admin only ever widens here, and never grants
+// more than the admin already has: an admin reads, edits and deletes any asset
+// through the admin API, so refusing them the weaker rights to share it, list
+// its shares, or revoke one was an artifact of the gate being written as a bare
+// ID comparison rather than a decision (#1293).
+func (c *Checker) CanManage(ownerID string, user *User) bool {
+	if user == nil {
+		return false
+	}
+	return ownerID == user.UserID || c.IsAdmin(user)
+}
+
+// CanManageEmail is CanManage for the entities whose ownership is recorded as
+// an email address rather than a user ID (prompts). The address comparison is
+// case-insensitive, matching OwnsPersonalPrompt and the share-recipient match,
+// because addresses reach the platform from several identity providers.
+func (c *Checker) CanManageEmail(ownerEmail string, user *User) bool {
+	if user == nil {
+		return false
+	}
+	if ownerEmail != "" && strings.EqualFold(ownerEmail, user.Email) {
+		return true
+	}
+	return c.IsAdmin(user)
+}
+
 // HasTool reports whether the user's resolved persona grants the named tool,
 // or the user is an admin. It is the shared capability check behind the
 // apply_knowledge and DataHub write authorizations; the admin arm only widens
@@ -117,6 +148,15 @@ func IsShareActive(s portaldomain.Share) bool {
 		return false
 	}
 	return s.ExpiresAt == nil || !s.ExpiresAt.Before(time.Now())
+}
+
+// GrantsEdit reports whether a resolved share permission carries edit rights.
+// It is the one place the Editor level is compared, so a caller that already
+// holds a resolved permission — getCollection reports one alongside the record
+// it is answering with — applies the same rule CanEditCollection applies,
+// without repeating the comparison or paying for a second lookup.
+func GrantsEdit(perm portaldomain.SharePermission) bool {
+	return perm == portaldomain.PermissionEditor
 }
 
 // permissionRank orders share permissions so the highest grant wins when a user
@@ -222,23 +262,28 @@ func (c *Checker) AssetViewGrant(ctx context.Context, assetID string, asset *por
 	return collPerm != "", nil
 }
 
-// CanEditAssetSilent reports owner-or-editor access to an asset. A missing or
-// soft-deleted asset denies.
+// CanEditAssetSilent reports owner-or-admin-or-editor access to an asset. A
+// missing or soft-deleted asset denies.
 func (c *Checker) CanEditAssetSilent(ctx context.Context, assetID string, user *User) bool {
 	asset, err := c.cfg.Assets.Get(ctx, assetID)
 	if err != nil || asset.DeletedAt != nil {
 		return false
 	}
-	if asset.OwnerID == user.UserID {
+	if c.CanManage(asset.OwnerID, user) {
 		return true
 	}
 	perm, _ := c.AssetSharePermission(ctx, assetID, user)
-	return perm == portaldomain.PermissionEditor
+	return GrantsEdit(perm)
 }
 
 // CollectionSharePermission returns the highest share permission for a user on
-// a collection. A store error yields the empty permission.
+// a collection. A store error, or no share store at all, yields the empty
+// permission: a deployment without shares grants none rather than panicking on
+// the write gates that now consult it.
 func (c *Checker) CollectionSharePermission(ctx context.Context, collectionID string, user *User) portaldomain.SharePermission {
+	if c.cfg.Shares == nil || user == nil {
+		return ""
+	}
 	perm, err := c.cfg.Shares.GetUserCollectionPermission(ctx, collectionID, user.UserID, user.Email)
 	if err != nil {
 		return ""
@@ -255,7 +300,29 @@ func (c *Checker) CanViewCollection(ctx context.Context, coll *portaldomain.Coll
 	return c.CollectionSharePermission(ctx, coll.ID, user) != ""
 }
 
-// CanEditCollectionSilent reports owner-or-editor access to a collection.
+// CanEditCollection reports whether the user may change the collection itself:
+// its name, description, settings, sections and thumbnail. It grants to the
+// owner, an admin, and the holder of an Editor share on the collection.
+//
+// The Editor arm is what makes an Editor share on a collection mean anything
+// about the collection rather than only about the assets inside it (#1294): a
+// person trusted to rewrite the contents of every asset in a collection is not
+// a plausible person to refuse a fix to the collection's own title. Deleting a
+// collection, sharing it, and reading its share list stay on CanManage —
+// destruction and re-granting access are owner rights, not editing rights, so
+// an Editor deliberately holds neither.
+func (c *Checker) CanEditCollection(ctx context.Context, coll *portaldomain.Collection, user *User) bool {
+	if user == nil {
+		return false
+	}
+	if c.CanManage(coll.OwnerID, user) {
+		return true
+	}
+	return GrantsEdit(c.CollectionSharePermission(ctx, coll.ID, user))
+}
+
+// CanEditCollectionSilent is CanEditCollection for callers that hold only an
+// ID. A missing or soft-deleted collection denies.
 func (c *Checker) CanEditCollectionSilent(ctx context.Context, collectionID string, user *User) bool {
 	if c.cfg.Collections == nil {
 		return false
@@ -264,10 +331,7 @@ func (c *Checker) CanEditCollectionSilent(ctx context.Context, collectionID stri
 	if err != nil || coll.DeletedAt != nil {
 		return false
 	}
-	if coll.OwnerID == user.UserID {
-		return true
-	}
-	return c.CollectionSharePermission(ctx, collectionID, user) == portaldomain.PermissionEditor
+	return c.CanEditCollection(ctx, coll, user)
 }
 
 // CanViewPrompt reports whether the user can see the prompt: global prompts

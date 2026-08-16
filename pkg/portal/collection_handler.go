@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
@@ -164,10 +165,23 @@ func (h *Handler) listCollections(w http.ResponseWriter, r *http.Request) {
 
 // --- Get Collection ---
 
+// getCollectionResponse is the response for GET /api/v1/portal/collections/{id}.
+//
+// CanEdit and CanManage are the two authorities the collection routes actually
+// gate on, resolved once by the server and reported to the reader so the page
+// offers exactly the actions that will succeed. IsOwner remains what it says —
+// whose collection this is — and is no longer a stand-in for what may be done
+// with it: an Editor may edit but not manage, and an admin may do both without
+// owning it.
 type getCollectionResponse struct {
 	portaldomain.Collection
 	IsOwner         bool                         `json:"is_owner" example:"true"`
 	SharePermission portaldomain.SharePermission `json:"share_permission,omitempty" example:"viewer"`
+	// CanEdit reports the right to change the collection itself: its name,
+	// description, settings, sections and thumbnail.
+	CanEdit bool `json:"can_edit" example:"true"`
+	// CanManage reports owner authority: delete, share, and read the share list.
+	CanManage bool `json:"can_manage" example:"true"`
 }
 
 // getCollection handles GET /api/v1/portal/collections/{id}.
@@ -224,10 +238,13 @@ func (h *Handler) getCollection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	canManage := h.access.CanManage(coll.OwnerID, user)
 	writeJSON(w, http.StatusOK, getCollectionResponse{
 		Collection:      *coll,
 		IsOwner:         isOwner,
 		SharePermission: perm,
+		CanEdit:         canManage || access.GrantsEdit(perm),
+		CanManage:       canManage,
 	})
 }
 
@@ -252,7 +269,7 @@ type updateCollectionRequest struct {
 // updateCollection handles PUT /api/v1/portal/collections/{id}.
 //
 // @Summary      Update collection
-// @Description  Updates a collection's name and/or description. Only the owner can update.
+// @Description  Updates a collection's name and/or description. The owner, an admin, or a collection Editor.
 // @Tags         Collections
 // @Accept       json
 // @Produce      json
@@ -280,8 +297,8 @@ func (h *Handler) updateCollection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errCollectionNotFound)
 		return
 	}
-	if coll.OwnerID != user.UserID {
-		writeError(w, http.StatusForbidden, "only the owner can update this collection")
+	if !h.access.CanEditCollection(r.Context(), coll, user) {
+		writeError(w, http.StatusForbidden, "only the owner or an editor can update this collection")
 		return
 	}
 
@@ -337,7 +354,7 @@ func resolveCollectionUpdate(coll *Collection, req updateCollectionRequest) (res
 // deleteCollection handles DELETE /api/v1/portal/collections/{id}.
 //
 // @Summary      Delete collection
-// @Description  Soft-deletes a collection. Only the owner can delete.
+// @Description  Soft-deletes a collection. The owner or an admin; an Editor share does not grant deletion.
 // @Tags         Collections
 // @Param        id  path  string  true  "Collection ID"
 // @Success      204
@@ -361,7 +378,9 @@ func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errCollectionNotFound)
 		return
 	}
-	if coll.OwnerID != user.UserID {
+	// Deleting is owner authority, not editing: an Editor share never destroys
+	// the collection it was granted on.
+	if !h.access.CanManage(coll.OwnerID, user) {
 		writeError(w, http.StatusForbidden, "only the owner can delete this collection")
 		return
 	}
@@ -379,7 +398,7 @@ func (h *Handler) deleteCollection(w http.ResponseWriter, r *http.Request) {
 // updateCollectionConfig handles PUT /api/v1/portal/collections/{id}/config.
 //
 // @Summary      Update collection config
-// @Description  Updates the collection's display configuration. Only the owner can update.
+// @Description  Updates the collection's display configuration. The owner, an admin, or a collection Editor.
 // @Tags         Collections
 // @Accept       json
 // @Produce      json
@@ -407,8 +426,8 @@ func (h *Handler) updateCollectionConfig(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, errCollectionNotFound)
 		return
 	}
-	if coll.OwnerID != user.UserID {
-		writeError(w, http.StatusForbidden, "only the owner can update collection settings")
+	if !h.access.CanEditCollection(r.Context(), coll, user) {
+		writeError(w, http.StatusForbidden, "only the owner or an editor can update collection settings")
 		return
 	}
 
@@ -451,7 +470,7 @@ type itemInput struct {
 // setCollectionSections handles PUT /api/v1/portal/collections/{id}/sections.
 //
 // @Summary      Set collection sections
-// @Description  Replaces all sections and items in a collection. Only the owner can modify.
+// @Description  Replaces all sections and items in a collection. The owner, an admin, or a collection Editor.
 // @Tags         Collections
 // @Accept       json
 // @Produce      json
@@ -479,8 +498,8 @@ func (h *Handler) setCollectionSections(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusNotFound, errCollectionNotFound)
 		return
 	}
-	if coll.OwnerID != user.UserID {
-		writeError(w, http.StatusForbidden, "only the owner can modify sections")
+	if !h.access.CanEditCollection(r.Context(), coll, user) {
+		writeError(w, http.StatusForbidden, "only the owner or an editor can modify sections")
 		return
 	}
 
@@ -554,7 +573,7 @@ func convertSectionInputs(inputs []sectionInput) ([]CollectionSection, error) {
 // uploadCollectionThumbnail handles PUT /api/v1/portal/collections/{id}/thumbnail.
 //
 // @Summary      Upload collection thumbnail
-// @Description  Uploads a PNG thumbnail image for the collection. Only the owner can upload.
+// @Description  Uploads a PNG thumbnail image for the collection. The owner, an admin, or a collection Editor.
 // @Tags         Collections
 // @Accept       png
 // @Produce      json
@@ -583,8 +602,8 @@ func (h *Handler) uploadCollectionThumbnail(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusNotFound, errCollectionNotFound)
 		return
 	}
-	if coll.OwnerID != user.UserID {
-		writeError(w, http.StatusForbidden, "only the owner can upload a thumbnail")
+	if !h.access.CanEditCollection(r.Context(), coll, user) {
+		writeError(w, http.StatusForbidden, "only the owner or an editor can upload a thumbnail")
 		return
 	}
 
@@ -675,7 +694,7 @@ func (h *Handler) getCollectionThumbnail(w http.ResponseWriter, r *http.Request)
 // createCollectionShare handles POST /api/v1/portal/collections/{id}/shares.
 //
 // @Summary      Create collection share
-// @Description  Creates a share link or user-targeted share for a collection. Only the owner can share.
+// @Description  Creates a share link or user-targeted share for a collection. The owner or an admin; an Editor share does not grant re-sharing.
 // @Tags         Shares
 // @Accept       json
 // @Produce      json
@@ -703,7 +722,9 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusNotFound, errCollectionNotFound)
 		return
 	}
-	if coll.OwnerID != user.UserID {
+	// Sharing is owner authority, not editing: an Editor share never grants the
+	// right to hand that access on to someone else.
+	if !h.access.CanManage(coll.OwnerID, user) {
 		writeError(w, http.StatusForbidden, "only the owner can share this collection")
 		return
 	}
@@ -742,7 +763,7 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 // listCollectionShares handles GET /api/v1/portal/collections/{id}/shares.
 //
 // @Summary      List collection shares
-// @Description  Returns all shares for a collection. Only the owner can view shares.
+// @Description  Returns all shares for a collection. The owner or an admin.
 // @Tags         Shares
 // @Produce      json
 // @Param        id  path  string  true  "Collection ID"
@@ -767,7 +788,9 @@ func (h *Handler) listCollectionShares(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errCollectionNotFound)
 		return
 	}
-	if coll.OwnerID != user.UserID {
+	// Who else holds access is share management, which stays with the owner and
+	// admins for the same reason creating a share does.
+	if !h.access.CanManage(coll.OwnerID, user) {
 		writeError(w, http.StatusForbidden, "only the owner can view shares for this collection")
 		return
 	}

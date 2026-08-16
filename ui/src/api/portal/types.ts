@@ -183,6 +183,10 @@ export interface CollectionItem {
 export interface CollectionResponse extends Collection {
   is_owner: boolean;
   share_permission?: SharePermission;
+  /** May change the collection itself: name, description, settings, sections, thumbnail. */
+  can_edit: boolean;
+  /** Owner authority: delete, share, and read the share list. */
+  can_manage: boolean;
 }
 
 export interface SharedCollection {

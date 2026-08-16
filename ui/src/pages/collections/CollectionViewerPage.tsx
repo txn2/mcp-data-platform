@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderOpen, Pencil, Share2, Trash2 } from "lucide-react";
+import { FolderOpen } from "lucide-react";
 import {
   useCollection,
   useDeleteCollection,
@@ -7,16 +7,14 @@ import {
 } from "@/api/portal/hooks";
 import { CollectionThumbnailGenerator } from "@/components/CollectionThumbnailQueue";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { PageHeader } from "@/components/patterns/PageHeader";
-import { SegmentedControl } from "@/components/patterns/SegmentedControl";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { ShareDialog } from "@/components/ShareDialog";
-import { Button } from "@/components/ui/button";
 import { CollectionSection } from "./viewer/CollectionSection";
-import { THUMB_SIZE_OPTIONS, type ThumbSize } from "./viewer/thumbSize";
+import { CollectionViewerActions } from "./viewer/CollectionViewerActions";
+import { type ThumbSize } from "./viewer/thumbSize";
 
 interface Props {
   collectionId: string;
@@ -68,44 +66,18 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
         icon={FolderOpen}
         title={coll.name}
         actions={
-          <>
-            <FeedbackButton
-              target={{ type: "collection", id: collectionId }}
-              canModerate={coll.is_owner}
-            />
-            {coll.is_owner && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onNavigate(`/collections/${collectionId}/edit`)}
-                >
-                  <Pencil />
-                  Edit
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
-                  <Share2 />
-                  Share
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setDeleteOpen(true)}
-                  disabled={deleteMutation.isPending}
-                  className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <Trash2 />
-                  Delete
-                </Button>
-                <SegmentedControl
-                  label="Thumbnail size"
-                  value={thumbSize}
-                  onChange={changeThumbSize}
-                  options={THUMB_SIZE_OPTIONS}
-                />
-              </>
-            )}
-          </>
+          <CollectionViewerActions
+            collectionId={collectionId}
+            isOwner={coll.is_owner}
+            canEdit={coll.can_edit}
+            canManage={coll.can_manage}
+            thumbSize={thumbSize}
+            onChangeThumbSize={changeThumbSize}
+            onEdit={() => onNavigate(`/collections/${collectionId}/edit`)}
+            onShare={() => setShareOpen(true)}
+            onDelete={() => setDeleteOpen(true)}
+            deletePending={deleteMutation.isPending}
+          />
         }
       />
 
@@ -131,7 +103,9 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
       {coll.sections.length === 0 && (
         <EmptyState icon={FolderOpen}>
           <p className="font-medium">No sections yet</p>
-          <p className="text-xs">Edit this collection to add sections and assets.</p>
+          {coll.can_edit && (
+            <p className="text-xs">Edit this collection to add sections and assets.</p>
+          )}
         </EmptyState>
       )}
 

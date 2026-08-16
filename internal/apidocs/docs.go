@@ -8329,7 +8329,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Updates the asset's name, description, or tags. Only the owner can update.",
+                "description": "Updates the asset's name, description, or tags. The owner, an admin, or an asset Editor.",
                 "consumes": [
                     "application/json"
                 ],
@@ -8406,7 +8406,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Soft-deletes an asset. Only the owner can delete.",
+                "description": "Soft-deletes an asset. The owner or an admin.",
                 "produces": [
                     "application/json"
                 ],
@@ -8717,7 +8717,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns all shares for an asset. Only the owner can view shares.",
+                "description": "Returns all shares for an asset. The owner or an admin.",
                 "produces": [
                     "application/json"
                 ],
@@ -8779,7 +8779,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a share link or user-targeted share for an asset. Only the owner can share.",
+                "description": "Creates a share link or user-targeted share for an asset. The owner or an admin.",
                 "consumes": [
                     "application/json"
                 ],
@@ -9621,7 +9621,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Updates a collection's name and/or description. Only the owner can update.",
+                "description": "Updates a collection's name and/or description. The owner, an admin, or a collection Editor.",
                 "consumes": [
                     "application/json"
                 ],
@@ -9698,7 +9698,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Soft-deletes a collection. Only the owner can delete.",
+                "description": "Soft-deletes a collection. The owner or an admin; an Editor share does not grant deletion.",
                 "tags": [
                     "Collections"
                 ],
@@ -9753,7 +9753,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Updates the collection's display configuration. Only the owner can update.",
+                "description": "Updates the collection's display configuration. The owner, an admin, or a collection Editor.",
                 "consumes": [
                     "application/json"
                 ],
@@ -9832,7 +9832,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Replaces all sections and items in a collection. Only the owner can modify.",
+                "description": "Replaces all sections and items in a collection. The owner, an admin, or a collection Editor.",
                 "consumes": [
                     "application/json"
                 ],
@@ -9911,7 +9911,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns all shares for a collection. Only the owner can view shares.",
+                "description": "Returns all shares for a collection. The owner or an admin.",
                 "produces": [
                     "application/json"
                 ],
@@ -9973,7 +9973,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a share link or user-targeted share for a collection. Only the owner can share.",
+                "description": "Creates a share link or user-targeted share for a collection. The owner or an admin; an Editor share does not grant re-sharing.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10166,7 +10166,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Uploads a PNG thumbnail image for the collection. Only the owner can upload.",
+                "description": "Uploads a PNG thumbnail image for the collection. The owner, an admin, or a collection Editor.",
                 "consumes": [
                     "image/png"
                 ],
@@ -12827,7 +12827,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns all shares for a prompt. Only the owner can view them.",
+                "description": "Returns all shares for a prompt. The owner or an admin.",
                 "produces": [
                     "application/json"
                 ],
@@ -13905,7 +13905,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Revokes a share by its ID. Only the owner can revoke.",
+                "description": "Revokes a share by its ID. The owner of the shared item, or an admin.",
                 "produces": [
                     "application/json"
                 ],
@@ -20109,6 +20109,16 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "can_edit": {
+                    "description": "CanEdit reports the right to change the collection itself: its name,\ndescription, settings, sections and thumbnail.",
+                    "type": "boolean",
+                    "example": true
+                },
+                "can_manage": {
+                    "description": "CanManage reports owner authority: delete, share, and read the share list.",
+                    "type": "boolean",
+                    "example": true
                 },
                 "config": {
                     "$ref": "#/definitions/portaldomain.CollectionConfig"
