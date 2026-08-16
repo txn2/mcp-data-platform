@@ -83,6 +83,20 @@ function isAssetsSection(route: string): boolean {
 }
 
 /**
+ * The admin Assets item covers the same ground on the admin side: the
+ * cross-owner collection list and the collection it opens are the Collections
+ * face of that one section, not a section of their own (#1292).
+ */
+function isAdminAssetsSection(route: string): boolean {
+  return (
+    route === "/admin/assets" ||
+    route.startsWith("/admin/assets/") ||
+    route === "/admin/collections" ||
+    route.startsWith("/admin/collections/")
+  );
+}
+
+/**
  * isNavActive says whether `itemPath` is the section the reader is in.
  *
  * `currentPath` carries the query string and hash; the bare pathname is what
@@ -98,6 +112,7 @@ export function isNavActive(itemPath: string, currentPath: string): boolean {
   const route = currentPath.split(/[?#]/)[0] ?? "/";
 
   if (itemPath === "/") return isAssetsSection(route);
+  if (itemPath === "/admin/assets") return isAdminAssetsSection(route);
   if (EXACT_MATCH_ONLY.has(itemPath)) return route === itemPath;
   // Knowledge keeps its nav item active across the URL-addressable page routes
   // (/knowledge/pages and /knowledge/pages/:id), so the wiki view stays anchored

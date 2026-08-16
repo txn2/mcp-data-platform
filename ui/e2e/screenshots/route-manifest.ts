@@ -1,6 +1,7 @@
 import { drawerRoutes } from "./route-drawers";
 import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
 import {
+  openCollectionDetailsDialog,
   openFeedbackMentionComposer,
   openKnowledgeGraph,
   openKnowledgeGraphCorpus,
@@ -320,6 +321,26 @@ export const routes: ScreenshotRoute[] = [
     slug: "admin-asset-detail",
     path: "/portal/admin/assets/ast-007",
     category: "admin",
+  },
+  {
+    slug: "admin-collections",
+    path: "/portal/admin/collections",
+    category: "admin",
+  },
+  {
+    // The agent-owned collection: the case the admin surface exists for, since
+    // no owner-scoped list can show it (#1292).
+    slug: "admin-collection-detail",
+    path: "/portal/admin/collections/col-agent-001",
+    category: "admin",
+  },
+  {
+    // The form behind Edit details: the two fields an admin may correct on a
+    // collection they do not own.
+    slug: "admin-collection-edit",
+    path: "/portal/admin/collections/col-agent-001",
+    category: "admin",
+    beforeCapture: openCollectionDetailsDialog,
   },
   // ToolsPage is a master-detail view that keeps selection + active tab in URL
   // *search params* (?selected=&tab=), not the hash. So each detail tab is its

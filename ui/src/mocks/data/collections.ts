@@ -641,6 +641,56 @@ export const mockCollections: Collection[] = [
   },
 ];
 
+// mockAgentOwnedCollections are collections whose owner is a principal nobody
+// can sign in as. They are deliberately absent from mockCollections, which is
+// what the owner-scoped portal list serves: only the admin list, which carries
+// no owner filter, can reach them (#1292).
+export const mockAgentOwnedCollections: Collection[] = [
+  {
+    // Owned by an API-key agent identity nobody can sign in as. It is invisible
+    // on every owner-scoped list and appears only on the admin one (#1292).
+    id: "col-agent-001",
+    owner_id: "apikey:ingest",
+    owner_email: "ingest@apikey.local",
+    name: "Warehouse Onboarding Notes",
+    description:
+      "Reference pages an agent session wrote while mapping the warehouse schema, kept together so the next session starts where this one stopped.",
+    config: { thumbnail_size: "medium" },
+    asset_tags: ["warehouse", "onboarding", "schema"],
+    sections: [
+      {
+        id: "sec-agent-001-a",
+        collection_id: "col-agent-001",
+        title: "Schema Notes",
+        description: "What the agent learned about the warehouse tables it queried.",
+        position: 0,
+        items: [
+          {
+            id: "itm-agent-001-a1",
+            section_id: "sec-agent-001-a",
+            asset_id: "ast-006",
+            position: 0,
+            asset_name: "Data Quality Summary",
+            asset_content_type: "text/markdown",
+            asset_description:
+              "Overview of data quality metrics across key tables.",
+            created_at: daysAgo(1),
+          },
+        ],
+        created_at: daysAgo(1),
+      },
+    ],
+    created_at: daysAgo(1),
+    updated_at: hoursAgo(2),
+  },
+];
+
+// Every collection on the platform, which is what the admin routes answer with.
+export const mockAllCollections: Collection[] = [
+  ...mockCollections,
+  ...mockAgentOwnedCollections,
+];
+
 export const mockSharedCollections: SharedCollection[] = [
   {
     collection: {

@@ -112,13 +112,17 @@ type Deps struct {
 	AssetStore          portal.AssetStore
 	ShareStore          portal.ShareStore
 	VersionStore        portal.VersionStore
-	S3Client            portal.S3Client
-	S3Bucket            string
-	ConnectionStore     ConnectionStore
-	ConnectionSources   *platform.ConnectionSourceMap
-	ToolkitsConfig      map[string]any
-	PersonaStore        personastore.Store
-	APIKeyStore         platform.APIKeyStore
+	// CollectionStore backs the admin asset-collection routes (#1292). nil
+	// leaves them unregistered, as a deployment without a database has no
+	// collections to serve.
+	CollectionStore   portal.CollectionStore
+	S3Client          portal.S3Client
+	S3Bucket          string
+	ConnectionStore   ConnectionStore
+	ConnectionSources *platform.ConnectionSourceMap
+	ToolkitsConfig    map[string]any
+	PersonaStore      personastore.Store
+	APIKeyStore       platform.APIKeyStore
 	// UserStore is the known-users directory (#614). nil disables the
 	// /api/v1/admin/users routes (no database configured).
 	UserStore          user.Store
@@ -358,6 +362,7 @@ func (h *Handler) registerRoutes() {
 	h.registerAuthKeyRoutes()
 	h.registerUserRoutes()
 	h.registerAssetRoutes()
+	h.registerCollectionRoutes()
 	h.registerConnectionRoutes()
 	h.registerCatalogRoutes()
 	h.registerGatewayRoutes()

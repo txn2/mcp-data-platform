@@ -14,6 +14,18 @@ describe("isNavActive", () => {
     }
   });
 
+  it("lights admin Assets across the admin collection routes (#1292)", () => {
+    for (const route of [
+      "/admin/assets",
+      "/admin/assets/ast-1",
+      "/admin/collections",
+      "/admin/collections/col-1",
+    ]) {
+      expect(isNavActive("/admin/assets", route), route).toBe(true);
+    }
+    expect(isNavActive("/admin/assets", "/admin/resources")).toBe(false);
+  });
+
   it("does not light Assets for a section that merely starts with a slash", () => {
     expect(isNavActive("/", "/resources")).toBe(false);
   });

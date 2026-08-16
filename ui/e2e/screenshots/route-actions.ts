@@ -346,3 +346,14 @@ export async function openScriptRunLog(page: Page): Promise<void> {
   await page.getByText(/wrote asset version/).scrollIntoViewIfNeeded({ timeout: 3_000 });
   await page.waitForTimeout(600);
 }
+
+/**
+ * openCollectionDetailsDialog opens the admin collection viewer's Edit details
+ * form, the only state showing the two fields an admin may correct on a
+ * collection owned by someone else (#1292).
+ */
+export async function openCollectionDetailsDialog(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Edit details" }).click({ timeout: 3_000 });
+  await page.getByLabel("Name").waitFor({ state: "visible", timeout: 5_000 });
+  await page.waitForTimeout(400);
+}

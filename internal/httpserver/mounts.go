@@ -586,6 +586,7 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 		AssetStore:         p.PortalAssetStore(),
 		ShareStore:         p.PortalShareStore(),
 		VersionStore:       p.PortalVersionStore(),
+		CollectionStore:    p.PortalCollectionStore(),
 		S3Client:           p.PortalS3Client(),
 		S3Bucket:           p.Config().Portal.S3Bucket,
 		ConnectionStore:    p.ConnectionStore(),
