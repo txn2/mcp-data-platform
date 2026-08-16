@@ -6,11 +6,19 @@ export type AssetsTab = "assets" | "collections";
 interface Props {
   active: AssetsTab;
   onNavigate: (path: string) => void;
+  /** Navigate between the admin-scoped faces (every owner) instead of the reader's own. */
+  admin?: boolean;
 }
 
-const TABS: { id: AssetsTab; label: string; icon: typeof LayoutGrid; path: string }[] = [
-  { id: "assets", label: "Assets", icon: LayoutGrid, path: "/" },
-  { id: "collections", label: "Collections", icon: FolderOpen, path: "/collections" },
+const TABS: { id: AssetsTab; label: string; icon: typeof LayoutGrid; path: string; adminPath: string }[] = [
+  { id: "assets", label: "Assets", icon: LayoutGrid, path: "/", adminPath: "/admin/assets" },
+  {
+    id: "collections",
+    label: "Collections",
+    icon: FolderOpen,
+    path: "/collections",
+    adminPath: "/admin/collections",
+  },
 ];
 
 /**
@@ -21,7 +29,7 @@ const TABS: { id: AssetsTab; label: string; icon: typeof LayoutGrid; path: strin
  * revealing a `TabsContent`; the tablist is still the honest shape for a strip
  * where exactly one of two views of the same area is showing.
  */
-export function AssetsTabs({ active, onNavigate }: Props) {
+export function AssetsTabs({ active, onNavigate, admin = false }: Props) {
   return (
     <Tabs
       value={active}
@@ -31,7 +39,7 @@ export function AssetsTabs({ active, onNavigate }: Props) {
       activationMode="manual"
       onValueChange={(next) => {
         const tab = TABS.find((t) => t.id === next);
-        if (tab) onNavigate(tab.path);
+        if (tab) onNavigate(admin ? tab.adminPath : tab.path);
       }}
     >
       <TabsList

@@ -293,7 +293,27 @@ The table displays name, owner email, content type, file size, sharing status, a
 
 The admin asset detail renders the asset content in a full-screen viewer with Preview/Source toggle, owner display, and management actions (Delete, Download, Share).
 
+Assets and Collections are two faces of one section, so the page opens on a tab strip that moves between them.
+
 Every one of those actions works on an asset the admin does not own, Share included. This matters most for content produced by a non-human principal: an agent session authenticated with an API key owns its assets under an identity like `<key name>@apikey.local`, which nobody can sign in as. Without an admin share, such an asset could be read but never handed to the person who needs it. The same authority covers collections and personal prompts: an admin can share one, read its share list, and revoke a share on it. Shares an admin creates are attributed to the admin, so the audit trail names who actually granted the access.
+
+## Collections (Admin)
+
+The Collections face of the admin Assets page lists every asset collection on the platform, whoever owns it.
+
+![Admin Collections](../images/screenshots/light/admin-admin-collections-light.webp#only-light)![Admin Collections](../images/screenshots/dark/admin-admin-collections-dark.webp#only-dark)
+
+The table displays name, description, owner email, the tags of the assets inside, sharing status, and the date the collection was last touched. Search matches name, description, and owner email. Click any row to open the collection:
+
+![Admin Collection Detail](../images/screenshots/light/admin-admin-collection-detail-light.webp#only-light)![Admin Collection Detail](../images/screenshots/dark/admin-admin-collection-detail-dark.webp#only-dark)
+
+The detail view renders the collection's sections and the assets in each one, with the owner named beside the title. Its items open in the admin asset viewer, so reading a collection never depends on owning what is in it. Share hands the collection to the people who need it; Delete removes the collection and leaves its assets in place. Edit details corrects the two fields the collection carries of its own:
+
+![Admin Collection Details Form](../images/screenshots/light/admin-admin-collection-edit-light.webp#only-light)![Admin Collection Details Form](../images/screenshots/dark/admin-admin-collection-edit-dark.webp#only-dark)
+
+Sections stay with the owner's editor: this page changes the collection's own name and description, not its contents.
+
+This is the collection half of the same authority the asset view carries, and it matters for the same reason. A collection an agent session created belongs to an identity nobody can sign in as, and every owner-scoped list is blind to it — the assets inside it stayed visible one tab over while the thing that grouped them could be seen by nobody at all.
 
 ## Resources (Admin)
 

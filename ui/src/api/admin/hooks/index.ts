@@ -4,6 +4,7 @@
 export * from "./system-audit";
 export * from "./knowledge-tools";
 export * from "./personas-assets";
+export * from "./collections";
 export * from "./connections";
 export * from "./catalogs";
 export * from "./config";

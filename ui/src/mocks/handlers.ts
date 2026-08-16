@@ -60,7 +60,7 @@ import {
 } from "./data/knowledgePages";
 import { mockKnowledgeGraph } from "./data/knowledgeGraph";
 import { mockContent } from "./data/content";
-import { mockCollections, mockSharedCollections } from "./data/collections";
+import { mockAllCollections, mockCollections, mockSharedCollections } from "./data/collections";
 import {
   mockAdminPrompts,
   mockPortalPrompts,
@@ -1781,6 +1781,65 @@ export const handlers = [
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
     portalAssets[idx]!.deleted_at = new Date().toISOString();
+    return HttpResponse.json({ status: "deleted" });
+  }),
+
+  // Admin collections (#1292): no owner filter, so the agent-owned collection
+  // the portal list cannot see is served here.
+  http.get(`${ADMIN_BASE}/collections`, ({ request }) => {
+    const url = new URL(request.url);
+    const search = url.searchParams.get("search")?.toLowerCase();
+    const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
+    const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+
+    let filtered = mockAllCollections.filter((c) => !c.deleted_at);
+    if (search) {
+      filtered = filtered.filter(
+        (c) =>
+          c.name.toLowerCase().includes(search) ||
+          c.description.toLowerCase().includes(search) ||
+          c.owner_email.toLowerCase().includes(search),
+      );
+    }
+
+    return HttpResponse.json({
+      data: filtered.slice(offset, offset + limit),
+      total: filtered.length,
+      limit,
+      offset,
+      share_summaries: { "col-001": { has_user_share: true, has_public_link: false } },
+    });
+  }),
+
+  http.get(`${ADMIN_BASE}/collections/:id`, ({ params }) => {
+    const coll = mockAllCollections.find((c) => c.id === params.id);
+    if (!coll) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    if (coll.deleted_at) {
+      return HttpResponse.json({ detail: "Gone" }, { status: 410 });
+    }
+    return HttpResponse.json(coll);
+  }),
+
+  http.put(`${ADMIN_BASE}/collections/:id`, async ({ params, request }) => {
+    const coll = mockAllCollections.find((c) => c.id === params.id && !c.deleted_at);
+    if (!coll) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    const body = (await request.json()) as Record<string, unknown>;
+    if (body.name !== undefined) coll.name = body.name as string;
+    if (body.description !== undefined) coll.description = body.description as string;
+    coll.updated_at = new Date().toISOString();
+    return HttpResponse.json(coll);
+  }),
+
+  http.delete(`${ADMIN_BASE}/collections/:id`, ({ params }) => {
+    const coll = mockAllCollections.find((c) => c.id === params.id && !c.deleted_at);
+    if (!coll) {
+      return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    }
+    coll.deleted_at = new Date().toISOString();
     return HttpResponse.json({ status: "deleted" });
   }),
 

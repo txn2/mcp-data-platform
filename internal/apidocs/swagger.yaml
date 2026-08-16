@@ -96,6 +96,26 @@ definitions:
         example: 10
         type: integer
     type: object
+  admin.adminCollectionListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/portal.Collection'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      share_summaries:
+        additionalProperties:
+          $ref: '#/definitions/portal.ShareSummary'
+        type: object
+      total:
+        example: 10
+        type: integer
+    type: object
   admin.adminPromptCreateRequest:
     properties:
       arguments:
@@ -201,6 +221,13 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  admin.adminUpdateCollectionRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
     type: object
   admin.adminVersionListResponse:
     properties:
@@ -3004,6 +3031,42 @@ definitions:
       version:
         example: 2
         type: integer
+    type: object
+  portal.Collection:
+    properties:
+      asset_tags:
+        items:
+          type: string
+        type: array
+      config:
+        $ref: '#/definitions/portaldomain.CollectionConfig'
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      description:
+        example: Executive collection with revenue dashboards
+        type: string
+      id:
+        example: col_01HK7R8Z
+        type: string
+      name:
+        example: Q4 Performance Review
+        type: string
+      owner_email:
+        example: alice@example.com
+        type: string
+      owner_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      sections:
+        items:
+          $ref: '#/definitions/portaldomain.CollectionSection'
+        type: array
+      thumbnail_s3_key:
+        type: string
+      updated_at:
+        type: string
     type: object
   portal.SearchCoverage:
     properties:
@@ -7138,6 +7201,158 @@ paths:
       summary: Delete auth key
       tags:
       - Auth Keys
+  /admin/collections:
+    get:
+      description: Returns all asset collections without owner restriction, with active
+        share summaries.
+      parameters:
+      - description: Search term matching name, description, or owner email
+        in: query
+        name: search
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      - description: 'Sort column (default: updated_at)'
+        enum:
+        - updated_at
+        - created_at
+        - name
+        in: query
+        name: sort
+        type: string
+      - description: 'Sort direction (default: desc)'
+        enum:
+        - asc
+        - desc
+        in: query
+        name: dir
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.adminCollectionListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List all collections
+      tags:
+      - Collections
+  /admin/collections/{id}:
+    delete:
+      description: Soft-deletes an asset collection without owner restriction. The
+        assets it holds are not deleted.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete collection
+      tags:
+      - Collections
+    get:
+      description: Returns a single asset collection by ID, with its sections and
+        items, without owner restriction.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portaldomain.Collection'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get collection
+      tags:
+      - Collections
+    put:
+      consumes:
+      - application/json
+      description: Updates an asset collection's name and/or description without owner
+        restriction.
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Collection metadata to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.adminUpdateCollectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portaldomain.Collection'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update collection
+      tags:
+      - Collections
   /admin/config:
     get:
       description: Returns the current configuration as JSON with sensitive values

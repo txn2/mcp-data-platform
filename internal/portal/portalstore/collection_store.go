@@ -243,7 +243,16 @@ func (*postgresCollectionStore) buildListQueries(filter portaldomain.CollectionF
 	}
 	if filter.Search != "" {
 		like := "%" + filter.Search + "%"
-		cond := sq.Or{sq.ILike{colName: like}, sq.ILike{colDescription: like}}
+		// Owner email is searchable for the same reason it is on assets: the
+		// admin list spans every owner, so "whose collections are these" is a
+		// question the search box has to be able to answer (#1292). On the
+		// owner-scoped portal list every row shares one owner, so the extra
+		// arm matches nothing the name and description arms did not.
+		cond := sq.Or{
+			sq.ILike{colName: like},
+			sq.ILike{colDescription: like},
+			sq.ILike{colOwnerEmail: like},
+		}
 		countQB = countQB.Where(cond)
 		selectQB = selectQB.Where(cond)
 	}

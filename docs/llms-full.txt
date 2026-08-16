@@ -2627,7 +2627,10 @@ Catalog changes from approved knowledge. Target URN, change type, applied by, st
 All memory records across users. Filters by lifecycle class (`sink_class`: Preference, Event, Business knowledge, Operational rule, Schema/entity), category, status, source. Table with detail drawer: full markdown content, entity URNs, metadata, stale reason, archive action.
 
 ## Assets (Admin)
-All platform assets across users. Searchable table with name, owner, type, size, sharing, date. Detail view with full asset viewer.
+All platform assets across users. Searchable table with name, owner, type, size, sharing, date. Detail view with full asset viewer. A tab strip moves between the Assets and Collections faces of the section.
+
+## Collections (Admin)
+All asset collections across owners (`/api/v1/admin/collections`), which the owner-scoped portal list cannot show: a collection created by an agent session belongs to an identity nobody can sign in as. Searchable table (name, description, owner email) with tags, sharing, and last-updated date. Detail view renders the collection's sections and items, opens each item in the admin asset viewer, and offers Share, Delete, and an Edit details form for the collection's own name and description. Sections stay with the owner's editor.
 
 ## Resources (Admin)
 All managed resources across scopes. Scope tabs (All, Global, per-persona). Search, category filter, upload. Table with name, scope badge, category, type, tags, size, uploader, date.

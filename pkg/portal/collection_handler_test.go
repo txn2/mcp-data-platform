@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
 
 // --- Mock collection store for collection handler tests ---
@@ -1489,4 +1491,47 @@ func TestRevokeCollectionShare(t *testing.T) {
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
+}
+
+// ResolveCollectionUpdate is the merge both the portal and the admin route
+// apply, so its rules are asserted directly rather than only through one
+// route's handler (#1292).
+func TestResolveCollectionUpdate(t *testing.T) {
+	existing := &Collection{Name: "Original", Description: "Original description"}
+	long := strings.Repeat("x", portaldomain.MaxCollectionDescriptionLength+1)
+	renamed := "Renamed"
+	empty := ""
+	newDesc := "New description"
+
+	tests := []struct {
+		name        string
+		inName      *string
+		inDesc      *string
+		wantName    string
+		wantDesc    string
+		wantErrText string
+	}{
+		{name: "both omitted keeps stored values", wantName: "Original", wantDesc: "Original description"},
+		{name: "name only", inName: &renamed, wantName: "Renamed", wantDesc: "Original description"},
+		{name: "description only", inDesc: &newDesc, wantName: "Original", wantDesc: "New description"},
+		{name: "description cleared", inDesc: &empty, wantName: "Original", wantDesc: ""},
+		{name: "empty name rejected", inName: &empty, wantErrText: "name"},
+		{name: "over-long description rejected", inDesc: &long, wantErrText: "description"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotName, gotDesc, err := ResolveCollectionUpdate(existing, tc.inName, tc.inDesc)
+			if tc.wantErrText != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrText)
+				assert.Empty(t, gotName)
+				assert.Empty(t, gotDesc)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantName, gotName)
+			assert.Equal(t, tc.wantDesc, gotDesc)
+		})
+	}
 }

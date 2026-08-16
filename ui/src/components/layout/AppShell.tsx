@@ -21,6 +21,7 @@ import { UserSettingsPage } from "@/pages/settings/UserSettingsPage";
 // Admin pages (admin only)
 import { AdminAssetsPage } from "@/pages/assets/AdminAssetsPage";
 import { AdminAssetViewerPage } from "@/pages/viewer/AdminAssetViewerPage";
+import { AdminCollectionRoutes } from "@/pages/collections/AdminCollectionRoutes";
 import { ToolsPage } from "@/pages/tools/ToolsPage";
 import { AuditLogPage } from "@/pages/audit/AuditLogPage";
 import { ConfigEditorPage } from "@/pages/settings/ConfigEditorPage";
@@ -48,6 +49,7 @@ const pageTitles: Record<string, string> = {
   "/settings": "Settings",
   "/admin": "Dashboard",
   "/admin/assets": "Assets",
+  "/admin/collections": "Collections",
   "/admin/tools": "Tools",
   "/admin/audit": "Dashboard",
   "/admin/description": "Description",
@@ -69,6 +71,7 @@ const pageTitles: Record<string, string> = {
 // than adding a branch to it.
 function pageTitleFor(route: string): string {
   if (route.startsWith("/scripts/")) return "Script";
+  if (route.startsWith("/admin/collections/")) return "Collection";
   return pageTitles[route] ?? "Assets";
 }
 
@@ -411,6 +414,7 @@ export function AppShell() {
                   onNavigate={navigate}
                 />
               )}
+              <AdminCollectionRoutes route={route} onNavigate={navigate} />
               {route === "/admin/tools" && (
                 <ToolsPage key={currentPath} initialTab={initialTab} />
               )}

@@ -17,6 +17,16 @@ export interface AdminAssetListResponse {
   share_summaries?: Record<string, import("@/api/portal/types").ShareSummary>;
 }
 
+// Asset collections across every owner (#1292). The rows are the same
+// Collection the portal serves; only the scope of the list differs.
+export interface AdminCollectionListResponse {
+  data: import("@/api/portal/types").Collection[];
+  total: number;
+  limit: number;
+  offset: number;
+  share_summaries?: Record<string, import("@/api/portal/types").ShareSummary>;
+}
+
 
 // ---------------------------------------------------------------------------
 // API Keys

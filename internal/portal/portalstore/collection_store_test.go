@@ -793,3 +793,34 @@ func TestPostgresCollectionStoreListOrdering(t *testing.T) {
 		})
 	}
 }
+
+// The admin list spans every owner (#1292), so the same query has to answer
+// two questions the owner-scoped portal list never asked: give me every
+// collection, and find the ones belonging to this person.
+func TestCollectionListQueryUnscopedSearchesOwnerEmail(t *testing.T) {
+	var store *postgresCollectionStore
+
+	countQB, selectQB := store.buildListQueries(portaldomain.CollectionFilter{Search: "alice"}, 20)
+	selectSQL, args, err := selectQB.ToSql()
+	require.NoError(t, err)
+	countSQL, _, err := countQB.ToSql()
+	require.NoError(t, err)
+
+	assert.Contains(t, selectSQL, "owner_email ILIKE")
+	assert.Contains(t, countSQL, "owner_email ILIKE")
+	assert.Contains(t, args, "%alice%")
+	// An empty OwnerID must not narrow the page to one owner.
+	assert.NotContains(t, selectSQL, "owner_id =")
+	assert.NotContains(t, countSQL, "owner_id =")
+}
+
+func TestCollectionListQueryScopedToOwner(t *testing.T) {
+	var store *postgresCollectionStore
+
+	_, selectQB := store.buildListQueries(portaldomain.CollectionFilter{OwnerID: "u-1"}, 20)
+	selectSQL, args, err := selectQB.ToSql()
+	require.NoError(t, err)
+
+	assert.Contains(t, selectSQL, "owner_id =")
+	assert.Contains(t, args, "u-1")
+}

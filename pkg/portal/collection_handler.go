@@ -308,7 +308,7 @@ func (h *Handler) updateCollection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name, description, valErr := resolveCollectionUpdate(coll, req)
+	name, description, valErr := ResolveCollectionUpdate(coll, req.Name, req.Description)
 	if valErr != nil {
 		writeError(w, http.StatusBadRequest, valErr.Error())
 		return
@@ -328,19 +328,26 @@ func (h *Handler) updateCollection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
-// resolveCollectionUpdate merges and validates the update request fields with the existing collection.
-func resolveCollectionUpdate(coll *Collection, req updateCollectionRequest) (resolvedName, resolvedDesc string, err error) {
+// ResolveCollectionUpdate merges a partial name/description update over an
+// existing collection and validates the result, returning the values to store.
+// A nil field leaves the stored value untouched, which the store's full-record
+// Update requires the caller to resolve.
+//
+// It is exported because the admin route updates the same collections under a
+// different authorization rule (#1292): one merge means an admin edit can never
+// write a name or description the owner's own edit would have refused.
+func ResolveCollectionUpdate(coll *Collection, name, description *string) (resolvedName, resolvedDesc string, err error) {
 	resolvedName = coll.Name
-	if req.Name != nil {
-		resolvedName = *req.Name
+	if name != nil {
+		resolvedName = *name
 		if err := ValidateCollectionName(resolvedName); err != nil {
 			return "", "", err
 		}
 	}
 
 	resolvedDesc = coll.Description
-	if req.Description != nil {
-		resolvedDesc = *req.Description
+	if description != nil {
+		resolvedDesc = *description
 		if err := ValidateCollectionDescription(resolvedDesc); err != nil {
 			return "", "", err
 		}

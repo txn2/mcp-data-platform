@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { File } from "lucide-react";
 import { useInfiniteAdminAssets } from "@/api/admin/hooks";
+import { AssetsTabs } from "@/components/AssetsTabs";
 import { contentTypeIcon } from "@/components/ContentTypeBadge";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SearchInput } from "@/components/patterns/SearchInput";
@@ -32,6 +33,8 @@ export function AdminAssetsPage({ onNavigate }: Props) {
 
   return (
     <div className="space-y-4">
+      <AssetsTabs active="assets" admin onNavigate={onNavigate} />
+
       <SearchInput
         className="max-w-md"
         value={search}

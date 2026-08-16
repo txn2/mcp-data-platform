@@ -29,6 +29,17 @@ describe("AssetsTabs", () => {
     expect(onNavigate).toHaveBeenCalledWith("/collections");
   });
 
+  // The admin faces are the same two views over every owner's work, so the
+  // strip moves between the admin routes rather than the reader's own (#1292).
+  it("navigates to the admin routes when admin", () => {
+    const onNavigate = vi.fn();
+    render(<AssetsTabs active="collections" admin onNavigate={onNavigate} />);
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Assets" }));
+
+    expect(onNavigate).toHaveBeenCalledWith("/admin/assets");
+  });
+
   // Radix stamps every trigger with aria-controls naming a TabsContent. These
   // faces lead to routes, so that id would resolve to nothing and both a
   // screen reader and an axe reference check would report a dead relationship.

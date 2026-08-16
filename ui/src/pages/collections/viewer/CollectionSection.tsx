@@ -6,15 +6,25 @@ import { markdownToPlainText } from "@/lib/markdownText";
 import { cn } from "@/lib/utils";
 import { THUMB_SIZES, type ThumbSize } from "./thumbSize";
 
+/**
+ * Where an item's thumbnail is fetched from. The portal route is owner- and
+ * share-gated, so an admin reading someone else's collection has to ask the
+ * admin route for the same bytes (#1292).
+ */
+export const PORTAL_ASSET_BASE = "/api/v1/portal/assets";
+export const ADMIN_ASSET_BASE = "/api/v1/admin/assets";
+
 /** One curated section of a collection: its prose, then the assets it holds. */
 export function CollectionSection({
   section,
   thumbSize,
   onOpenItem,
+  assetBase = PORTAL_ASSET_BASE,
 }: {
   section: Section;
   thumbSize: ThumbSize;
   onOpenItem: (assetId: string) => void;
+  assetBase?: string;
 }) {
   const cfg = THUMB_SIZES[thumbSize];
   return (
@@ -33,6 +43,7 @@ export function CollectionSection({
             key={item.id}
             item={item}
             thumbSize={thumbSize}
+            assetBase={assetBase}
             onOpen={() => onOpenItem(item.asset_id)}
           />
         ))}
@@ -44,10 +55,12 @@ export function CollectionSection({
 function ItemCard({
   item,
   thumbSize,
+  assetBase,
   onOpen,
 }: {
   item: CollectionItem;
   thumbSize: ThumbSize;
+  assetBase: string;
   onOpen: () => void;
 }) {
   const contentType = item.asset_content_type || "";
@@ -58,7 +71,7 @@ function ItemCard({
       onClick={onOpen}
       thumbnailSrc={
         item.asset_thumbnail_s3_key
-          ? `/api/v1/portal/assets/${item.asset_id}/thumbnail`
+          ? `${assetBase}/${item.asset_id}/thumbnail`
           : undefined
       }
       fallbackIcon={Icon}
