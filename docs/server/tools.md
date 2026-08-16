@@ -56,6 +56,27 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 
 ---
 
+## The `purpose` argument
+
+Data-access tools carry one argument the platform adds rather than the toolkit: `purpose`, a single sentence naming the wider task the agent is working on and why this call serves it. It appears on the tool's input schema like any other argument, the platform takes it off the request before the tool handler runs, and it is written to the call's audit row (`docs/server/audit.md`). No toolkit ever sees it, and it never changes what the tool does.
+
+```json
+{
+  "sql": "SELECT region, sum(amount) FROM orders WHERE quarter = 'Q3' GROUP BY region",
+  "purpose": "Checking whether order volume fell in the western region for the board deck."
+}
+```
+
+Write the question behind the call, not a restatement of the arguments: "Running a SQL query" is worthless to the person who later reads the row. Do not repeat argument values in it, and never put personal data, credentials, or secrets in it.
+
+By default the argument appears on `search`, `fetch`, `trino_query`, `trino_execute`, `trino_export`, `trino_describe_table`, `api_invoke_endpoint`, `api_export`, the `datahub_get_*` tools, `s3_get_object`, `s3_list_objects`, and every tool proxied from an upstream MCP server through the [gateway toolkit](gateway.md). Orientation and platform-management tools (`platform_info`, `list_connections`, `platform_find_tools`, `memory_*`, `manage_*`, `save_asset`) do not carry it.
+
+A call on one of these tools that states no purpose is refused with `PURPOSE_REQUIRED` (error category `purpose_required`); retry the same call with a purpose rather than looking for another tool. The refusal reaches only callers that thread a `session_id` handle, so an MCP App, a managed script, and the gateway REST shim are never refused for it. Both the gated set and the refusal are configurable — see [Purpose Configuration](configuration.md#purpose-configuration).
+
+The name is `purpose`, not `intent`, because [`search`](#search) already takes an `intent` argument that is the query text.
+
+---
+
 ## Trino Tools
 
 ### trino_query

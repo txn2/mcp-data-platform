@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
+	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -20,6 +21,7 @@ const (
 	mwPromptVisibility    mwName = "prompt_visibility"
 	mwToolVisibility      mwName = "tool_visibility"
 	mwSessionHandleSchema mwName = "session_handle_schema"
+	mwPurposeSchema       mwName = "purpose_schema"
 	mwMCPApps             mwName = "mcp_apps"
 	mwToolCall            mwName = "tool_call" // auth/authz; writes PlatformContext via context.WithValue
 	mwSessionGate         mwName = "session_gate"
@@ -65,6 +67,15 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		{Name: mwPromptVisibility, Register: p.addPromptVisibilityMiddleware},
 		{Name: mwToolVisibility, Register: p.addToolVisibilityMiddleware},
 		{Name: mwSessionHandleSchema, Register: p.addSessionHandleSchemaMiddleware},
+		// Advertises the purpose argument (#1317) on the gated tools' input
+		// schemas, from the same resolver the tool-call path enforces with, so
+		// the advertised set and the enforced set are one predicate. Owned by
+		// the purposegate seam, so the facade gains no field or method for it.
+		{Name: mwPurposeSchema, Register: func() {
+			if r := toolargs.BuildPurposeResolver(p.config.Purpose, p.toolkitRegistry); r != nil {
+				p.mcpServer.AddReceivingMiddleware(middleware.MCPPurposeSchemaMiddleware(r))
+			}
+		}},
 		{Name: mwMCPApps, Register: p.addMCPAppsMiddleware},
 
 		// Auth/authz writes PlatformContext; it must be outer to every reader below.
@@ -249,7 +260,9 @@ func (p *Platform) addSessionGateMiddleware() {
 // PlatformContext. Must be outer to Audit (and every other PlatformContext
 // reader) so PlatformContext is available in the ctx they receive. The
 // session-handle resolver (#792) runs inside it, adopting the explicit handle
-// onto pc.SessionID before the gates and audit observe it.
+// onto pc.SessionID before the gates and audit observe it, followed by the
+// purpose resolver (#1317), which takes the stated purpose off the request onto
+// pc.Purpose for the same observers.
 func (p *Platform) addToolCallMiddleware() {
 	p.mcpServer.AddReceivingMiddleware(
 		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, middleware.ToolCallConfig{
@@ -257,6 +270,7 @@ func (p *Platform) addToolCallMiddleware() {
 			AdminPersona:    p.config.Admin.Persona,
 			WorkflowTracker: p.workflowTracker,
 			SessionResolver: p.buildSessionResolver(),
+			PurposeResolver: toolargs.BuildPurposeResolver(p.config.Purpose, p.toolkitRegistry),
 		}),
 	)
 }

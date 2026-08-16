@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/portalcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptexec"
+	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
@@ -131,6 +132,7 @@ type Config struct {
 	Notifications        NotificationsConfig `yaml:"notifications"`
 	Scripts              ScriptsConfig       `yaml:"scripts"`
 	SessionGate          SessionGateConfig   `yaml:"session_gate"`
+	Purpose              PurposeConfig       `yaml:"purpose"`
 	RateLimit            RateLimitConfig     `yaml:"rate_limit"`
 	APIGateway           APIGatewayConfig    `yaml:"apigateway"`
 	Observability        ObservabilityConfig `yaml:"observability"`
@@ -1697,55 +1699,17 @@ type SessionsConfig struct {
 	Handles SessionHandlesConfig `yaml:"handles"`
 }
 
-// defaultSessionHandleTTL is the lifetime of an explicit session handle when
-// sessions.handles.ttl is unset.
-const defaultSessionHandleTTL = 8 * time.Hour
-
 // SessionHandlesConfig configures explicit session handles (issue #792): the
-// platform_info-minted session_id that the model passes back on every tool
-// call, replacing reliance on the transport-level Mcp-Session-Id header.
-type SessionHandlesConfig struct {
-	// Enabled activates handle minting, schema advertisement, and validation.
-	// Default on (nil = enabled); set enabled: false for byte-identical legacy
-	// transport-session behavior.
-	Enabled *bool `yaml:"enabled"`
+// platform_info-minted session_id the model passes back on every tool call.
+// Defined in internal/platform/toolargs and aliased here so operator YAML and
+// library callers address it unchanged; see that package for the field contract.
+type SessionHandlesConfig = toolargs.SessionHandles
 
-	// TTL is the handle lifetime, refreshed on use. Defaults to 8h.
-	TTL time.Duration `yaml:"ttl"`
-
-	// Require means a gated caller must have an established session, not that a
-	// handle must be threaded on every call. A call carrying a valid handle uses
-	// it; a call without one adopts the caller's own most-recently-active
-	// session, resolved from their authenticated identity, so an MCP App's
-	// sandboxed calls (which cannot thread the handle) are scoped rather than
-	// refused (issue #1040). Only a caller with no session at all is refused with
-	// SESSION_REQUIRED, which preserves the platform_info-first requirement (#800)
-	// for genuinely fresh agents. Default on (nil = required); set require: false
-	// to disable the requirement entirely, where a handle-less call falls back to
-	// the transport session.
-	Require *bool `yaml:"require"`
-}
-
-// IsEnabled reports whether explicit session handles are enabled, defaulting to
-// true when not explicitly set.
-func (c SessionHandlesConfig) IsEnabled() bool {
-	return !isExplicitlyDisabled(c.Enabled)
-}
-
-// IsRequired reports whether a valid platform_info-minted handle is required on
-// every gated tool call, defaulting to true when not explicitly set.
-func (c SessionHandlesConfig) IsRequired() bool {
-	return !isExplicitlyDisabled(c.Require)
-}
-
-// HandleTTL returns the configured handle lifetime, or the 8h default when
-// unset or non-positive.
-func (c SessionHandlesConfig) HandleTTL() time.Duration {
-	if c.TTL > 0 {
-		return c.TTL
-	}
-	return defaultSessionHandleTTL
-}
+// PurposeConfig configures the purpose argument (issue #1317): the one sentence
+// the agent states about the wider task a data-access call serves. Defined in
+// internal/platform/toolargs and aliased here so operator YAML and library
+// callers address it unchanged; see that package for the field contract.
+type PurposeConfig = toolargs.Purpose
 
 // LoadConfig loads configuration from a file.
 // The path is expected to come from command line arguments, controlled by the administrator.

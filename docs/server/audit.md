@@ -56,6 +56,7 @@ Every successful or failed tool call produces one row in `audit_logs`:
   "toolkit_kind": "trino",
   "toolkit_name": "production",
   "connection": "prod-trino",
+  "purpose": "Checking whether order volume fell in the western region for the board deck.",
   "parameters": {"sql": "SELECT count(*) FROM orders"},
   "success": true,
   "error_message": "",
@@ -79,6 +80,7 @@ Every successful or failed tool call produces one row in `audit_logs`:
 | `toolkit_kind` | VARCHAR(100) | Toolkit type: `trino`, `datahub`, `s3`, or `mcp` (proxied through the [gateway toolkit](gateway.md)). |
 | `toolkit_name` | VARCHAR(100) | Toolkit instance name from configuration (e.g., `production`, `staging`). For gateway proxied tools, the gateway toolkit's own name (typically `primary`). |
 | `connection` | VARCHAR(100) | Connection name. For native toolkits, the connection used to route the call (e.g., `prod-trino`). For gateway proxied tools, the upstream MCP connection name (e.g., `vendor`) — populated via the registry's `ConnectionResolver` interface so per-upstream auditing is accurate without relying on caller-supplied args. |
+| `purpose` | TEXT | The one sentence the caller gave for **why** this call was made: the wider task it serves. Stated by the agent as the `purpose` argument and taken off the request before the tool saw it. `NULL` on rows written before the column existed; empty on a tool the platform does not gate and on a caller that cannot thread arguments (an MCP App, a script run, the REST shim). It is not an argument value, so [Parameter Sanitization](#parameter-sanitization) does not apply to it. See [Why a call happened](#why-a-call-happened). |
 | `parameters` | JSONB | Tool call arguments with sensitive values redacted. See [Parameter Sanitization](#parameter-sanitization). |
 | `success` | BOOLEAN | `true` if the tool handler returned without error and `IsError` was not set. |
 | `error_message` | TEXT | Error description if `success` is `false`. |
@@ -95,6 +97,19 @@ Every successful or failed tool call produces one row in `audit_logs`:
 | `enrichment_mode` | VARCHAR(20) | Enrichment mode used: `full`, `summary`, `reference`, `none`, or empty (not enriched). |
 | `event_kind` | VARCHAR(64) | High-level event category: `apigateway_invoke` for HTTP API calls through the apigateway toolkit, `mcp_tool_call` for every other toolkit. Lets the Activity view split gateway traffic from MCP tool calls. See [Event kind](#event-kind-mcp-vs-api-gateway). |
 | `created_date` | DATE | Partition key derived from `timestamp`. Used for retention cleanup. |
+
+## Why a call happened
+
+Every other field on an audit row records what a call did. The `purpose` field records why. Data-access tools advertise a `purpose` argument on their input schema, and the agent states, in one sentence, the wider task it is working on and why the call serves it — the question behind the query, not a restatement of the arguments. The platform takes the argument off the request before the tool handler (or a gateway-proxied upstream server) sees it and writes it to the row's `purpose` column.
+
+This is what turns a row like `trino_query` / `SELECT ... FROM orders` into something a data owner can act on. "Checking whether order volume fell in the western region for the board deck" tells them which decision the data fed; the SQL alone does not.
+
+Two things follow from purpose living in its own column rather than in `parameters`:
+
+- **Redaction does not apply to it.** It is not an argument value, so `audit.redact_keys` and `log_parameters` leave it alone. The schema description tells the agent not to repeat argument values in it and never to put personal data or secrets in it.
+- **Search covers it.** The admin events search (`?search=`) matches `purpose` alongside user, tool, toolkit, connection, persona, and error message, so an operator can find every call made for a given task.
+
+`purpose` is empty on a tool the platform does not gate, and on a caller that cannot thread arguments at all — an MCP App's sandboxed call, a managed script run, the gateway REST shim, the admin tool runner. It is `NULL` on rows written before the column existed. Which tools carry it, and whether a call that omits it is refused, are set by the [`purpose` config block](configuration.md#purpose-configuration).
 
 ## Caller class via source
 
@@ -203,6 +218,7 @@ CREATE TABLE audit_logs (
     toolkit_kind    VARCHAR(100),
     toolkit_name    VARCHAR(100),
     connection      VARCHAR(100),
+    purpose         TEXT,
     parameters      JSONB,
     success         BOOLEAN NOT NULL,
     error_message   TEXT,

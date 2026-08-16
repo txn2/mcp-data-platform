@@ -18,6 +18,13 @@ export interface AuditEvent {
   toolkit_kind?: string;
   toolkit_name?: string;
   connection?: string;
+  /**
+   * The one sentence the caller gave for why this call was made (#1317).
+   * Absent on tools the platform does not gate, on callers that cannot thread
+   * arguments (MCP Apps, script runs, the REST shim), and on rows written
+   * before the column existed.
+   */
+  purpose?: string;
   parameters?: Record<string, unknown>;
   success: boolean;
   error_message?: string;

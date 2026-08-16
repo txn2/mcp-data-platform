@@ -14,11 +14,12 @@ const CSV_HEADERS = [
   "duration_ms",
   "success",
   "enrichment_applied",
+  "purpose",
   "error_message",
 ] as const;
 
-// toCSV renders the events as RFC 4180-ish CSV: only the free-text error is
-// quoted, since it is the one field that can carry a comma or a quote.
+// toCSV renders the events as RFC 4180-ish CSV: the free-text fields are
+// quoted, since they are the ones that can carry a comma or a quote.
 export function toCSV(events: AuditEvent[]): string {
   const rows = events.map((e) =>
     [
@@ -31,6 +32,7 @@ export function toCSV(events: AuditEvent[]): string {
       e.duration_ms,
       e.success,
       e.enrichment_applied,
+      `"${(e.purpose ?? "").replace(/"/g, '""')}"`,
       `"${(e.error_message ?? "").replace(/"/g, '""')}"`,
     ].join(","),
   );

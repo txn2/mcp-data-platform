@@ -3,6 +3,8 @@ package platform
 import (
 	"testing"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/toolargs"
 )
 
 func TestSessionHandlesConfig_Defaults(t *testing.T) {
@@ -14,8 +16,8 @@ func TestSessionHandlesConfig_Defaults(t *testing.T) {
 	if !c.IsRequired() {
 		t.Error("IsRequired() = false, want true by default")
 	}
-	if got := c.HandleTTL(); got != defaultSessionHandleTTL {
-		t.Errorf("HandleTTL() = %v, want %v", got, defaultSessionHandleTTL)
+	if got := c.HandleTTL(); got != toolargs.DefaultSessionHandleTTL {
+		t.Errorf("HandleTTL() = %v, want %v", got, toolargs.DefaultSessionHandleTTL)
 	}
 }
 
@@ -39,7 +41,7 @@ func TestSessionHandlesConfig_Overrides(t *testing.T) {
 
 func TestSessionHandlesConfig_NonPositiveTTLFallsBack(t *testing.T) {
 	c := SessionHandlesConfig{TTL: -1 * time.Second}
-	if got := c.HandleTTL(); got != defaultSessionHandleTTL {
-		t.Errorf("HandleTTL() = %v, want default %v for non-positive TTL", got, defaultSessionHandleTTL)
+	if got := c.HandleTTL(); got != toolargs.DefaultSessionHandleTTL {
+		t.Errorf("HandleTTL() = %v, want default %v for non-positive TTL", got, toolargs.DefaultSessionHandleTTL)
 	}
 }

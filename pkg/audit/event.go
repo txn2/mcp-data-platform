@@ -110,6 +110,14 @@ func (e *Event) WithConnection(connection string) *Event {
 	return e
 }
 
+// WithPurpose records the one-sentence reason the caller gave for the call
+// (issue #1317). It is stored in its own column, never in Parameters: it is not
+// an argument value and so is outside the parameter redaction policy.
+func (e *Event) WithPurpose(purpose string) *Event {
+	e.Purpose = purpose
+	return e
+}
+
 // WithParameters adds parameters to the event.
 func (e *Event) WithParameters(params map[string]any) *Event {
 	e.Parameters = params

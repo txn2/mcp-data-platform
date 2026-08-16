@@ -21,7 +21,17 @@ export const drawerRoutes: ScreenshotRoute[] = [
       // (light/dark share one page and same-hash nav doesn't reload): the
       // drawer's overlay covers the rows. That's fine — the open drawer is
       // exactly what we want to capture, so swallow the click failure.
-      const row = page.locator("table tbody tr").first();
+      // Pick a row that STATED a purpose (#1317), not simply the first one:
+      // most tools are outside the gated set, so the first row is usually a
+      // call with no purpose and the drawer would capture without the section
+      // the feature exists to show. The purpose cell carries the full text as
+      // its title, so a non-empty title is exactly "this call stated one".
+      const withPurpose = page
+        .locator('table tbody tr:has(td:nth-child(4)[title]:not([title=""]))')
+        .first();
+      const row = (await withPurpose.count())
+        ? withPurpose
+        : page.locator("table tbody tr").first();
       await row.click({ timeout: 2_000 }).catch(() => {});
       await page.waitForTimeout(600);
     },

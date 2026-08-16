@@ -30,6 +30,7 @@ func TestReceivingMiddlewareChain_CanonicalOrder(t *testing.T) {
 		mwPromptVisibility,
 		mwToolVisibility,
 		mwSessionHandleSchema,
+		mwPurposeSchema,
 		mwMCPApps,
 		mwToolCall,
 		mwSessionGate,

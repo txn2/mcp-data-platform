@@ -127,6 +127,10 @@ func TestBuildFeatures_GatesKnowledgeByPersonaTools(t *testing.T) {
 	})
 }
 
+// TestHandleInfo covers the configured values info_tool passes through. Its
+// fixtures disable the purpose argument, which is on by default and would
+// otherwise append its runtime note to every expected instruction string;
+// TestHandleInfo_AppendsPurposeNote covers that note on its own.
 func TestHandleInfo(t *testing.T) {
 	tests := []struct {
 		name                  string
@@ -193,6 +197,7 @@ func TestHandleInfo(t *testing.T) {
 	for i := range tests {
 		tt := &tests[i]
 		t.Run(tt.name, func(t *testing.T) {
+			tt.config.Purpose.Enabled = new(false)
 			p := &Platform{
 				config:          &tt.config,
 				personaRegistry: persona.NewRegistry(),
@@ -228,6 +233,42 @@ func regWithTools(t *testing.T, tools ...string) *registry.Registry {
 	reg := registry.NewRegistry()
 	require.NoError(t, reg.Register(&mockToolkit{kind: "search", name: "default", tools: tools}))
 	return reg
+}
+
+// TestHandleInfo_AppendsPurposeNote proves the purpose guidance (#1317) reaches
+// the agent through platform_info: on by default, absent when purpose is
+// disabled, and dropping the refusal sentence when purpose is record-only.
+func TestHandleInfo_AppendsPurposeNote(t *testing.T) {
+	instructionsFor := func(t *testing.T, purpose PurposeConfig) string {
+		t.Helper()
+		config := Config{
+			Server:  ServerConfig{Name: "purpose-test", Version: testInfoVersion},
+			Purpose: purpose,
+		}
+		p := &Platform{
+			config:          &config,
+			personaRegistry: persona.NewRegistry(),
+			toolkitRegistry: regWithTools(t, "search"),
+		}
+		result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+		require.NoError(t, err)
+		return requireInfoFromResult(t, result).AgentInstructions
+	}
+
+	byDefault := instructionsFor(t, PurposeConfig{})
+	assert.Contains(t, byDefault, "Stating why you are calling:",
+		"purpose is on by default, so its guidance ships by default")
+	assert.Contains(t, byDefault, "PURPOSE_REQUIRED",
+		"required by default, so the agent is told what omitting it costs")
+
+	recordOnly := instructionsFor(t, PurposeConfig{Require: new(false)})
+	assert.Contains(t, recordOnly, "Stating why you are calling:")
+	assert.NotContains(t, recordOnly, "PURPOSE_REQUIRED",
+		"a record-only deployment must not threaten a refusal that never comes")
+
+	off := instructionsFor(t, PurposeConfig{Enabled: new(false)})
+	assert.NotContains(t, off, "Stating why you are calling:",
+		"a disabled feature is never described to the agent")
 }
 
 // TestHandleInfo_ComposesBaselineBeneathAdmin proves the platform baseline (#646)

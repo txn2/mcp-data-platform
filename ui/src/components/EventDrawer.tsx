@@ -155,6 +155,15 @@ export function EventDrawer({
         </div>
       )}
 
+      {event.purpose && (
+        <div>
+          <p className="mb-1 text-xs text-muted-foreground">Purpose</p>
+          <p className="whitespace-pre-wrap break-words rounded bg-muted p-3 text-sm">
+            {event.purpose}
+          </p>
+        </div>
+      )}
+
       {event.parameters && Object.keys(event.parameters).length > 0 && (
         <div>
           <p className="mb-1 text-xs text-muted-foreground">Parameters</p>

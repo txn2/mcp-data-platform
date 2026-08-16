@@ -20,18 +20,26 @@ type Logger interface {
 
 // Event represents an auditable event.
 type Event struct {
-	ID                    string         `json:"id" example:"evt_a1b2c3d4e5f6"`
-	Timestamp             time.Time      `json:"timestamp" example:"2026-04-15T10:41:18Z"`
-	DurationMS            int64          `json:"duration_ms" example:"143"`
-	RequestID             string         `json:"request_id" example:"req_x9y8z7"`
-	SessionID             string         `json:"session_id" example:"sess_abc123"`
-	UserID                string         `json:"user_id" example:"550e8400-e29b-41d4-a716-446655440000"`
-	UserEmail             string         `json:"user_email,omitempty" example:"marcus.johnson@example.com"`
-	Persona               string         `json:"persona,omitempty" example:"data-engineer"`
-	ToolName              string         `json:"tool_name" example:"datahub_get_schema"`
-	ToolkitKind           string         `json:"toolkit_kind,omitempty" example:"datahub"`
-	ToolkitName           string         `json:"toolkit_name,omitempty" example:"acme-catalog"`
-	Connection            string         `json:"connection,omitempty" example:"acme-catalog"`
+	ID          string    `json:"id" example:"evt_a1b2c3d4e5f6"`
+	Timestamp   time.Time `json:"timestamp" example:"2026-04-15T10:41:18Z"`
+	DurationMS  int64     `json:"duration_ms" example:"143"`
+	RequestID   string    `json:"request_id" example:"req_x9y8z7"`
+	SessionID   string    `json:"session_id" example:"sess_abc123"`
+	UserID      string    `json:"user_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	UserEmail   string    `json:"user_email,omitempty" example:"marcus.johnson@example.com"`
+	Persona     string    `json:"persona,omitempty" example:"data-engineer"`
+	ToolName    string    `json:"tool_name" example:"datahub_get_schema"`
+	ToolkitKind string    `json:"toolkit_kind,omitempty" example:"datahub"`
+	ToolkitName string    `json:"toolkit_name,omitempty" example:"acme-catalog"`
+	Connection  string    `json:"connection,omitempty" example:"acme-catalog"`
+	// Purpose is the one sentence the caller gave for WHY this call was made:
+	// the wider task it serves, stated by the agent as the `purpose` argument
+	// and taken off the request before the tool saw it (issue #1317). Empty on a
+	// call the platform does not gate, on a caller that cannot thread arguments
+	// (an MCP App, a script run, the REST shim), and on every row written before
+	// the feature existed. It is not an argument value, so the parameter
+	// redaction policy does not apply to it.
+	Purpose               string         `json:"purpose,omitempty" example:"Sizing Q3 revenue by region for the board deck."`
 	Parameters            map[string]any `json:"parameters,omitempty"`
 	Success               bool           `json:"success" example:"true"`
 	ErrorMessage          string         `json:"error_message,omitempty"`

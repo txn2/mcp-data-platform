@@ -1269,6 +1269,7 @@ export const handlers = [
           (e.connection ?? "").toLowerCase().includes(search) ||
           (e.persona ?? "").toLowerCase().includes(search) ||
           (e.error_message ?? "").toLowerCase().includes(search) ||
+          (e.purpose ?? "").toLowerCase().includes(search) ||
           e.id.toLowerCase().includes(search),
       );
     }

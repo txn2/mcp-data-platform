@@ -29,6 +29,7 @@ func TestEvent_Builders(t *testing.T) {
 		WithPersona("analyst").
 		WithToolkit("trino", "production").
 		WithConnection("prod-cluster").
+		WithPurpose("Sizing Q3 revenue by region for the board deck.").
 		WithParameters(map[string]any{"query": "SELECT 1"}).
 		WithResult(true, "", eventTestDurationMS).
 		WithRequestID("req-123").
@@ -44,6 +45,9 @@ func TestEvent_Builders(t *testing.T) {
 
 	assertEventCoreFields(t, event)
 	assertEventNewFields(t, event)
+	if event.Purpose != "Sizing Q3 revenue by region for the board deck." {
+		t.Errorf("Purpose = %q, want the stated purpose", event.Purpose)
+	}
 	if event.EventKind != EventTypeMCPToolCall {
 		t.Errorf("EventKind = %q, want %q", event.EventKind, EventTypeMCPToolCall)
 	}

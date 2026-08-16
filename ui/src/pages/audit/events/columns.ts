@@ -19,13 +19,21 @@ export function sourceLabel(source?: string): string {
 }
 
 export const COLUMNS: readonly {
-  key: AuditSortColumn;
+  /** Column id, and the API sort key unless `sortable` is false. */
+  key: AuditSortColumn | "purpose";
   label: string;
   className: string;
+  /**
+   * Purpose is free prose the agent wrote (#1317): alphabetical order over it
+   * means nothing, so its header does not sort. Search does cover it, which is
+   * how an operator actually finds a purpose.
+   */
+  sortable?: boolean;
 }[] = [
   { key: "timestamp", label: "Timestamp", className: "" },
   { key: "user_id", label: "User", className: "" },
   { key: "tool_name", label: "Tool", className: "" },
+  { key: "purpose", label: "Purpose", className: "", sortable: false },
   { key: "toolkit_kind", label: "Toolkit", className: "" },
   { key: "source", label: "Source", className: "" },
   { key: "connection", label: "Connection", className: "" },

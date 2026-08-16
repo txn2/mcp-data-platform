@@ -51,6 +51,7 @@ const (
 	colSuccess      = "success"
 	colSource       = "source"
 	colEventKind    = "event_kind"
+	colPurpose      = "purpose"
 )
 
 // psq is the PostgreSQL statement builder with dollar placeholders.
@@ -60,7 +61,7 @@ var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 var auditColumns = []string{
 	"id", colTimestamp, colDurationMS, "request_id", colSessionID,
 	colUserID, colUserEmail, colPersona, colToolName, colToolkitKind,
-	"toolkit_name", colConnection, "parameters", colSuccess, colErrorMessage,
+	"toolkit_name", colConnection, colPurpose, "parameters", colSuccess, colErrorMessage,
 	"response_chars", "request_chars", "content_blocks",
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
@@ -101,8 +102,8 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 
 	query := `
 		INSERT INTO audit_logs
-		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, parameters, success, error_message, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, enrichment_mode, enrichment_match_kind, authorized, event_kind)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, purpose, parameters, success, error_message, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, enrichment_mode, enrichment_match_kind, authorized, event_kind)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
 	`
 
 	_, err = s.db.ExecContext(ctx, query,
@@ -118,6 +119,7 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 		event.ToolkitKind,
 		event.ToolkitName,
 		event.Connection,
+		event.Purpose,
 		params,
 		event.Success,
 		event.ErrorMessage,
@@ -175,6 +177,7 @@ func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBu
 			sq.ILike{colConnection: like},
 			sq.ILike{colPersona: like},
 			sq.ILike{colErrorMessage: like},
+			sq.ILike{colPurpose: like},
 		})
 	}
 	return qb
@@ -345,6 +348,8 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 	var event audit.Event
 	var params []byte
 	var eventKind sql.NullString
+	// Nullable on rows written before the purpose column existed (issue #1317).
+	var purpose sql.NullString
 
 	err := rows.Scan(
 		&event.ID,
@@ -359,6 +364,7 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 		&event.ToolkitKind,
 		&event.ToolkitName,
 		&event.Connection,
+		&purpose,
 		&params,
 		&event.Success,
 		&event.ErrorMessage,
@@ -390,6 +396,9 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 	}
 	if eventKind.Valid {
 		event.EventKind = audit.EventType(eventKind.String)
+	}
+	if purpose.Valid {
+		event.Purpose = purpose.String
 	}
 
 	return event, nil

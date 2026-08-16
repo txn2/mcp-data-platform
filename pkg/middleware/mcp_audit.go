@@ -262,6 +262,7 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo, policy auditPar
 		ToolkitKind:           pc.ToolkitKind,
 		ToolkitName:           pc.ToolkitName,
 		Connection:            pc.Connection,
+		Purpose:               pc.Purpose,
 		Parameters:            params,
 		Success:               success,
 		ErrorMessage:          errorMsg,
