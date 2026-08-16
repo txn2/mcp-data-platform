@@ -324,6 +324,13 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if p.AuditStore() != nil {
 		deps.AuditMetrics = p.AuditStore()
 	}
+	// A session is rolled up out of the audit log and joined to what it
+	// produced, so the read model needs the database rather than the audit
+	// store. buildAdminHandler builds the same store over the same handle for
+	// the operator surface; the two differ only in the scope each read carries.
+	if db := p.DB(); db != nil {
+		deps.SessionViewer = sessionview.NewPostgresStore(db)
+	}
 	if p.KnowledgeInsightStore() != nil {
 		deps.InsightStore = p.KnowledgeInsightStore()
 	}

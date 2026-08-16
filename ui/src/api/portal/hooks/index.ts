@@ -8,3 +8,4 @@ export * from "./mentions";
 export * from "./knowledge-pages";
 export * from "./notifications";
 export * from "./scripts";
+export * from "./sessions";

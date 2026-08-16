@@ -4,7 +4,7 @@ import { Header } from "./Header";
 import { useAuthStore } from "@/stores/auth";
 
 // Portal pages (everyone)
-import { ActivityPage } from "@/pages/activity/ActivityPage";
+import { ActivityRoutes } from "@/pages/activity/ActivityRoutes";
 import { MyAssetsPage } from "@/pages/assets/MyAssetsPage";
 import { KnowledgeHub } from "@/pages/knowledge/KnowledgeHub";
 import { MyPromptsPage } from "@/pages/prompts/MyPromptsPage";
@@ -40,6 +40,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const pageTitles: Record<string, string> = {
   "/activity": "Activity",
+  "/activity/sessions": "Activity",
   "/": "Assets",
   "/collections": "Collections",
   "/resources": "Resources",
@@ -75,6 +76,7 @@ function pageTitleFor(route: string): string {
   if (route.startsWith("/scripts/")) return "Script";
   if (route.startsWith("/admin/collections/")) return "Collection";
   if (route.startsWith("/admin/sessions/")) return "Session";
+  if (route.startsWith("/activity/sessions/")) return "Session";
   return pageTitles[route] ?? "Assets";
 }
 
@@ -335,7 +337,7 @@ export function AppShell() {
             the fills (tab tracks, code blocks) that also derive from muted. */}
         <main className="flex-1 overflow-auto bg-background p-3 sm:p-6">
           {/* Portal routes — everyone */}
-          {!isAdminRoute && route === "/activity" && <ActivityPage />}
+          {!isAdminRoute && <ActivityRoutes route={route} onNavigate={navigate} />}
           {!isAdminRoute && route === "/" && (
             <MyAssetsPage onNavigate={navigate} />
           )}

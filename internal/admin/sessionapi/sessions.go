@@ -3,19 +3,9 @@ package sessionapi
 import (
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/txn2/mcp-data-platform/internal/httpjson"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
-)
-
-const (
-	// defaultPerPage is the page size when the caller states none.
-	defaultPerPage = 25
-	// maxPerPage caps a caller-stated page size. A session list row is an
-	// aggregate over an unbounded number of audit rows, so an uncapped
-	// page is an uncapped query.
-	maxPerPage = 200
 )
 
 // sessionListResponse wraps a paginated list of session summaries.
@@ -26,40 +16,14 @@ type sessionListResponse struct {
 	PerPage int                   `json:"per_page" example:"25"`
 }
 
-// parseFilter reads the query string into a session filter. An unparseable
-// value is treated as absent rather than as an error: the failure mode of a
-// bad filter is an unfiltered or empty page, never a 400 the UI has to model.
+// parseFilter reads the query string into a session filter. The shared
+// vocabulary is parsed by the read model; the caller facet is read here,
+// because who an operator's listing is scoped to is this surface's own
+// decision and the portal's answer to it is a different one.
 func parseFilter(r *http.Request) sessionview.Filter {
-	q := r.URL.Query()
-	filter := sessionview.Filter{
-		UserID:      q.Get("user_id"),
-		Kind:        sessionview.Kind(q.Get("kind")),
-		StartTime:   httpjson.ParseTimeParam(q, "start_time"),
-		EndTime:     httpjson.ParseTimeParam(q, "end_time"),
-		HasAssets:   parseBool(q.Get("has_assets")),
-		HasFailures: parseBool(q.Get("has_failures")),
-	}
-	filter.Limit = clampPerPage(httpjson.ParseLimit(q))
-	filter.Offset = httpjson.ParsePageOffset(q, filter.Limit)
+	filter := sessionview.FilterFromQuery(r.URL.Query())
+	filter.UserID = r.URL.Query().Get("user_id")
 	return filter
-}
-
-// parseBool reads a boolean flag, treating anything unparseable as unset.
-func parseBool(v string) bool {
-	b, err := strconv.ParseBool(v)
-	return err == nil && b
-}
-
-// clampPerPage bounds a requested page size into [1, maxPerPage].
-func clampPerPage(limit int) int {
-	switch {
-	case limit <= 0:
-		return defaultPerPage
-	case limit > maxPerPage:
-		return maxPerPage
-	default:
-		return limit
-	}
 }
 
 // listSessions handles GET /api/v1/admin/sessions.
@@ -120,10 +84,17 @@ func (h *handler) listSessions(w http.ResponseWriter, r *http.Request) {
 // @Router       /admin/sessions/{id} [get]
 func (h *handler) getSession(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	limit := clampPerPage(httpjson.ParseLimit(q))
+	limit := sessionview.ClampPerPage(httpjson.ParseLimit(q))
 	offset := httpjson.ParsePageOffset(q, limit)
 
-	detail, err := sessionview.Load(r.Context(), h.cfg.Sessions, r.PathValue("id"), limit, offset)
+	// No UserID on the scope: the admin surface is unrestricted by design,
+	// and an operator reading a session they did not run is the whole point
+	// of it.
+	detail, err := sessionview.Load(r.Context(), h.cfg.Sessions, sessionview.Scope{
+		SessionID: r.PathValue("id"),
+		Limit:     limit,
+		Offset:    offset,
+	})
 	if errors.Is(err, sessionview.ErrNotFound) {
 		httpjson.WriteError(w, http.StatusNotFound, "session not found")
 		return

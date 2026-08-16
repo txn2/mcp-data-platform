@@ -156,12 +156,17 @@ type Deps struct {
 	PromptRegistrar    PromptRegistrar
 	PromptInfoProvider PromptInfoProvider
 	AuditMetrics       AuditMetrics
-	InsightStore       InsightReader
-	ChangesetReader    ChangesetReader
-	MemoryStore        MemoryReader
-	MemoryWriter       MemoryWriter
-	EmbeddingProvider  embedding.Provider
-	PersonaResolver    PersonaResolver
+	// SessionViewer reads sessions off the audit log. The portal serves it
+	// scoped to the caller: the same read model the operator surface uses,
+	// narrowed to the sessions the reader ran themselves. nil (no database)
+	// leaves the routes unregistered.
+	SessionViewer     SessionViewer
+	InsightStore      InsightReader
+	ChangesetReader   ChangesetReader
+	MemoryStore       MemoryReader
+	MemoryWriter      MemoryWriter
+	EmbeddingProvider embedding.Provider
+	PersonaResolver   PersonaResolver
 	// SearchRouter backs GET /api/v1/portal/search, the REST surface over the
 	// unified knowledge federation. nil disables the endpoint (no searchable
 	// source configured).
@@ -374,6 +379,10 @@ func (h *Handler) registerRoutes() {
 	feedback := feedbackapi.New(h.feedbackConfig())
 	feedback.Register(h.mux)
 	feedback.RegisterInsightCapture(h.mux)
+
+	// The caller's own sessions: the individual runs behind the activity
+	// dashboard's aggregates, each openable.
+	h.registerSessionRoutes()
 
 	// Activity routes (user-scoped audit metrics)
 	if h.deps.AuditMetrics != nil {

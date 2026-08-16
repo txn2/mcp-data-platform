@@ -171,6 +171,23 @@ type Filter struct {
 	Offset      int
 }
 
+// Scope names one session and, optionally, the only caller allowed to read it.
+//
+// A user-facing surface sets UserID; the operator surface leaves it empty and
+// is unrestricted. The restriction is a predicate on the audit rows themselves
+// rather than a comparison the handler makes after reading, so a session that
+// belongs to someone else groups to no rows at all and is indistinguishable
+// from one that never existed.
+type Scope struct {
+	SessionID string
+	// UserID restricts the read to the calls that caller made. Empty is
+	// unrestricted.
+	UserID string
+	// Limit and Offset page the timeline. They do not affect Get.
+	Limit  int
+	Offset int
+}
+
 // Store reads sessions. Implemented over PostgreSQL by PostgresStore; a
 // deployment with no database has no audit history and so registers no
 // session surface at all.
@@ -182,13 +199,17 @@ type Store interface {
 	// limit and offset.
 	Count(ctx context.Context, filter Filter) (int, error)
 	// Get returns one session, or ErrNotFound when the audit log holds no
-	// call for that id.
-	Get(ctx context.Context, sessionID string) (*Summary, error)
+	// call the scope admits — an unknown id and another caller's id are the
+	// same answer.
+	Get(ctx context.Context, scope Scope) (*Summary, error)
 	// Timeline returns the session's calls in the order they were made,
-	// with the session's total call count.
-	Timeline(ctx context.Context, sessionID string, limit, offset int) ([]TimelineEntry, int, error)
-	// Assets returns the assets the session saved, oldest first.
+	// with the session's total call count, both narrowed by the scope.
+	Timeline(ctx context.Context, scope Scope) ([]TimelineEntry, int, error)
+	// Assets returns the assets the session saved, oldest first. It takes
+	// no scope: it is reached only through Load, after the scoped Get has
+	// established that the caller may read this session.
 	Assets(ctx context.Context, sessionID string) ([]AssetRef, error)
 	// Insights returns the insights the session captured, oldest first.
+	// Scoped the same way Assets is.
 	Insights(ctx context.Context, sessionID string) ([]InsightRef, error)
 }

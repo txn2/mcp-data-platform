@@ -132,14 +132,22 @@ describe("what a session produced", () => {
 
   it("opens an asset where an admin already reads assets", () => {
     const onNavigate = vi.fn();
-    render(<SessionAssets assets={[asset]} onNavigate={onNavigate} />);
+    render(
+      <SessionAssets
+        assets={[asset]}
+        onNavigate={onNavigate}
+        assetPath={(id) => `/admin/assets/${id}`}
+      />,
+    );
 
     fireEvent.click(screen.getByText("Q3 revenue by region"));
     expect(onNavigate).toHaveBeenCalledWith("/admin/assets/ast-1");
   });
 
   it("states plainly that a session saved no assets", () => {
-    render(<SessionAssets assets={[]} onNavigate={vi.fn()} />);
+    render(
+      <SessionAssets assets={[]} onNavigate={vi.fn()} assetPath={(id) => id} />,
+    );
     expect(screen.getByText("This session saved no assets.")).toBeTruthy();
     expect(screen.getByText("Assets (0)")).toBeTruthy();
   });

@@ -7,6 +7,7 @@ import {
   Terminal,
   Copy,
   Check,
+  History,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -24,6 +25,13 @@ import { formatToolName } from "@/lib/formatToolName";
 
 interface Props {
   provenance: Provenance;
+  /**
+   * Opens the session these calls belong to. The panel shows the calls the
+   * asset captured at the moment it was saved; the session holds every call
+   * that session made, before and after. Omitted where the reader cannot open
+   * it — a session refuses anyone but its own caller and an admin (#1319).
+   */
+  onOpenSession?: () => void;
 }
 
 /** Map tool name prefixes to icons for provenance display. */
@@ -244,17 +252,13 @@ function DetailModal({
   );
 }
 
-export function ProvenancePanel({ provenance }: Props) {
+export function ProvenancePanel({ provenance, onOpenSession }: Props) {
   const calls = provenance.tool_calls ?? [];
   const [selected, setSelected] = useState<ProvenanceToolCall | null>(null);
   const [showAll, setShowAll] = useState(false);
 
   if (calls.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No provenance data available.
-      </p>
-    );
+    return <NoProvenance onOpenSession={onOpenSession} />;
   }
 
   const trinoCalls = calls.filter((c) => c.tool_name.startsWith("trino_"));
@@ -295,6 +299,8 @@ export function ProvenancePanel({ provenance }: Props) {
         </Button>
       )}
 
+      {onOpenSession && <OpenSessionButton onClick={onOpenSession} />}
+
       <DetailModal
         call={selected}
         open={selected !== null}
@@ -303,5 +309,37 @@ export function ProvenancePanel({ provenance }: Props) {
         }}
       />
     </div>
+  );
+}
+
+/**
+ * An asset that captured no calls. It still came from a session, and that
+ * session is where the calls this asset does not carry are recorded — so this
+ * is exactly where the walk to it matters most.
+ */
+function NoProvenance({ onOpenSession }: { onOpenSession?: () => void }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        No provenance data available.
+      </p>
+      {onOpenSession && <OpenSessionButton onClick={onOpenSession} />}
+    </div>
+  );
+}
+
+/** Walks from what the asset captured to the whole session that made it. */
+function OpenSessionButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="xs"
+      onClick={onClick}
+      className="w-full text-muted-foreground"
+    >
+      <History />
+      Open session
+    </Button>
   );
 }

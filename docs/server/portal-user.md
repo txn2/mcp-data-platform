@@ -10,15 +10,46 @@ The sidebar is divided into **User** pages (described here) and **Admin** pages 
 
 ## Activity
 
-The Activity page shows your personal tool usage analytics across configurable time ranges (1h, 6h, 24h, 7d).
+Activity has two tabs: **Overview**, the aggregates, and **My Sessions**, the individual sessions those aggregates are made of.
+
+### Overview
+
+The Overview tab shows your personal tool usage analytics across configurable time ranges (1h, 6h, 24h, 7d).
 
 ![Activity](../images/screenshots/light/user-activity-light.webp#only-light)![Activity](../images/screenshots/dark/user-activity-dark.webp#only-dark)
 
-The page includes:
+The tab includes:
 
 - **Summary cards** — Total calls, average duration, and tools used in the selected window
 - **My Activity chart** — Timeseries of your tool call volume (green) with errors highlighted (red)
 - **Top Tools** — Horizontal bar chart of your most-used tools
+
+### My Sessions
+
+The My Sessions tab lists the sessions you ran, most recently active first. A session is every tool call sharing one session id, so it can be read back long after it ended — as far back as this deployment keeps audit history, and after the platform's own session record has expired.
+
+![My Sessions](../images/screenshots/light/user-my-sessions-light.webp#only-light)![My Sessions](../images/screenshots/dark/user-my-sessions-dark.webp#only-dark)
+
+Each row carries the session's kind, the persona you ran it as, how many calls it made, how many of them failed, and what it left behind. The facets narrow the list:
+
+- **Time window** — How far back the list reads (24 hours, 7 days, 30 days, or all time; 7 days by default). The list rolls up every event in range, so a wider window is a heavier query — which is why the window is a visible control rather than a hidden default.
+- **Session kind** — Where the id came from: an **Agent** handle threaded across calls, one **Portal run**, one **Script run**, or a **Transport** session
+- **Outcome** — Only sessions with at least one failed call
+- **Output** — Only sessions that saved at least one asset
+
+There is no user facet, and no user column: this list is always your own. A session id belonging to someone else is answered as not found, the same answer an id that was never used gets. Administrators read every session from [Admin > Sessions](admin-portal.md) instead.
+
+Click a row to open the session.
+
+![My Session](../images/screenshots/light/user-my-session-detail-light.webp#only-light)![My Session](../images/screenshots/dark/user-my-session-detail-dark.webp#only-dark)
+
+The detail shows:
+
+- **The session at a glance** — Calls, failures, wall-clock duration, and the assets and insights it produced
+- **What it produced** — The assets it saved, each opening in the asset viewer, and the insights it captured with the review status each is sitting at
+- **Timeline** — Its calls in the order they were made, each with the purpose the agent stated for it, the connection it went to, whether it succeeded, and how long it took
+
+The session detail is addressable, so you can bookmark it or hand it to a colleague — though a colleague who is not an administrator will get a not-found, since a session opens only for the person who ran it.
 
 ## Assets
 
@@ -47,6 +78,9 @@ The viewer provides:
 - **Preview / Source toggle** — Switch between rendered output and raw source code
 - **Actions** — Delete, Download, and Share buttons
 - **Owner display** — Shows the asset owner's email address
+- **Metadata sidebar** — Type, size, created and updated timestamps, tags, version history, and the calls the agent made on the way to saving this asset
+
+The sidebar's **Session** row and the **Open session** action beneath the captured calls both open [the session that made this asset](#my-sessions): the panel shows only the calls captured at the moment the asset was saved, while the session holds every call that session made, before and after. Both appear only on your own assets — a session opens for the person who ran it, so on an asset shared with you there is nothing to link to. Administrators get the same walk on the admin asset viewer, into the admin sessions surface.
 
 The Share action opens a dialog to mint a link or a user-scoped share, with a copy-once token and a per-link access count. A link share takes an optional expiration; a share addressed to a person does not, because it grants that person access until the owner revokes it rather than for a span of time. Every share carries an **access mode** that decides who the link opens for:
 

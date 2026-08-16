@@ -66,8 +66,11 @@ export const adminNavItems: NavItem[] = [
 /**
  * Sections with no routes beneath them: a deeper path is a different section,
  * so these match the route exactly rather than by prefix.
+ *
+ * Activity is not among them: it gained My Sessions and the session detail
+ * beneath it (#1319), and those are the same section rather than a new one.
  */
-const EXACT_MATCH_ONLY = new Set(["/admin", "/activity", "/prompts"]);
+const EXACT_MATCH_ONLY = new Set(["/admin", "/prompts"]);
 
 /**
  * The Assets item covers more than its own path: Collections lives under

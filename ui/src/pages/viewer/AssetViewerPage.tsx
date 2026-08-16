@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAsset, useAssetContent, useUpdateAsset, useDeleteAsset, useUpdateAssetContent, useCopyAsset, useAssetVersions, useRevertVersion, useVersionContent } from "@/api/portal/hooks";
 import { AssetViewer } from "@/components/AssetViewer";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
+import { mySessionPath } from "@/pages/activity/routes";
 
 interface Props {
   assetId: string;
@@ -43,6 +44,10 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
       copyMutation={!isOwner ? copyMutation : undefined}
       isOwner={isOwner}
       sharePermission={sharePermission}
+      // Only the owner is offered the session: a session refuses everyone but
+      // its own caller, so on a shared asset this link would lead to a
+      // not-found (#1319).
+      sessionPath={isOwner ? mySessionPath : undefined}
       versions={versionsData?.data}
       versionsLoading={versionsLoading}
       revertMutation={revertMutation}

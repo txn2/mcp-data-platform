@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { formatBytes } from "@/lib/format";
+import { shortSessionId } from "@/pages/sessions/kind";
 import { AssetMetadataForm } from "./AssetMetadataForm";
 import type { MutationLike } from "./types";
 
@@ -27,6 +28,9 @@ interface AssetMetadataSidebarProps {
   isOwner: boolean;
   isSharedEditor: boolean;
   detailRows?: { label: string; value: ReactNode }[];
+  /** Where the session that produced this asset opens, when the reader can. */
+  sessionPath?: (sessionId: string) => string;
+  onNavigate?: (path: string) => void;
   versions?: AssetVersion[];
   versionsLoading?: boolean;
 }
@@ -48,9 +52,12 @@ export function AssetMetadataSidebar({
   isOwner,
   isSharedEditor,
   detailRows,
+  sessionPath,
+  onNavigate,
   versions,
   versionsLoading,
 }: AssetMetadataSidebarProps) {
+  const openSession = sessionOpener(asset, sessionPath, onNavigate);
   return (
     <Card className="w-80 shrink-0 gap-4 overflow-auto p-4">
       {editing ? (
@@ -93,6 +100,7 @@ export function AssetMetadataSidebar({
               <DetailRow label="Size">{formatBytes(asset.size_bytes)}</DetailRow>
               <DetailRow label="Created">{new Date(asset.created_at).toLocaleString()}</DetailRow>
               <DetailRow label="Updated">{new Date(asset.updated_at).toLocaleString()}</DetailRow>
+              <SessionRow sessionId={asset.session_id} onOpen={openSession} />
             </dl>
           </div>
 
@@ -110,7 +118,10 @@ export function AssetMetadataSidebar({
           )}
 
           <div className="border-t pt-4">
-            <ProvenancePanel provenance={asset.provenance} />
+            <ProvenancePanel
+              provenance={asset.provenance}
+              onOpenSession={openSession}
+            />
           </div>
 
           {versions && versions.length > 0 && (
@@ -125,6 +136,45 @@ export function AssetMetadataSidebar({
         </>
       )}
     </Card>
+  );
+}
+
+/**
+ * sessionOpener returns the click handler that walks from this asset to the
+ * session that made it, or undefined when the walk is not on offer. It needs
+ * all three: an id to walk to, a route for this reader, and a way to navigate.
+ * Missing any one of them, the id is not shown at all rather than shown as a
+ * control that goes nowhere.
+ */
+function sessionOpener(
+  asset: Asset,
+  sessionPath?: (sessionId: string) => string,
+  onNavigate?: (path: string) => void,
+): (() => void) | undefined {
+  if (!asset.session_id || !sessionPath || !onNavigate) return undefined;
+  return () => onNavigate(sessionPath(asset.session_id));
+}
+
+/** The session that produced this asset, as a link to it. */
+function SessionRow({
+  sessionId,
+  onOpen,
+}: {
+  sessionId: string;
+  onOpen?: () => void;
+}) {
+  if (!onOpen) return null;
+  return (
+    <DetailRow label="Session">
+      <button
+        type="button"
+        onClick={onOpen}
+        title={sessionId}
+        className="max-w-[160px] truncate font-mono text-xs text-primary hover:underline"
+      >
+        {shortSessionId(sessionId)}
+      </button>
+    </DetailRow>
   );
 }
 

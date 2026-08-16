@@ -15,11 +15,18 @@ import { kindDescription, kindLabel, shortSessionId } from "./kind";
 // row click like every other portal list. The columns answer the questions an
 // operator brings to the list — whose session, of what kind, how long, how
 // much, did anything fail, did it leave anything behind.
+//
+// The caller's own list drops the User column: every row would carry the
+// reader's own name, which is a column that answers a question nobody reading
+// their own sessions is asking. Persona stays on both, because a user does
+// change which persona they work as.
+
+const USER_COLUMN = "User";
 
 const COLUMNS = [
   "Last active",
   "Session",
-  "User",
+  USER_COLUMN,
   "Persona",
   "Calls",
   "Failed",
@@ -30,17 +37,24 @@ export function SessionsTable({
   sessions,
   isLoading,
   onOpen,
+  showUser = true,
 }: {
   sessions?: SessionSummary[];
   isLoading: boolean;
   onOpen: (sessionId: string) => void;
+  /** Whether to carry the caller column. False on a reader's own sessions. */
+  showUser?: boolean;
 }) {
+  const columns = showUser
+    ? COLUMNS
+    : COLUMNS.filter((label) => label !== USER_COLUMN);
+
   return (
     <div className="rounded-lg border bg-card">
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/50 hover:bg-muted/50">
-            {COLUMNS.map((label) => (
+            {columns.map((label) => (
               <TableHead key={label} className="px-3">
                 {label}
               </TableHead>
@@ -51,7 +65,7 @@ export function SessionsTable({
           {isLoading && (
             <TableRow className="hover:bg-transparent">
               <TableCell
-                colSpan={COLUMNS.length}
+                colSpan={columns.length}
                 className="py-8 text-center text-muted-foreground"
               >
                 Loading...
@@ -81,12 +95,14 @@ export function SessionsTable({
                   {kindLabel(session.kind)}
                 </span>
               </TableCell>
-              <TableCell
-                className="max-w-[12rem] truncate px-3"
-                title={session.user_id}
-              >
-                {formatUser(session.user_id, session.user_email)}
-              </TableCell>
+              {showUser && (
+                <TableCell
+                  className="max-w-[12rem] truncate px-3"
+                  title={session.user_id}
+                >
+                  {formatUser(session.user_id, session.user_email)}
+                </TableCell>
+              )}
               <TableCell className="px-3 text-xs">
                 {session.persona || "-"}
               </TableCell>
@@ -110,7 +126,7 @@ export function SessionsTable({
           {sessions?.length === 0 && (
             <TableRow className="hover:bg-transparent">
               <TableCell
-                colSpan={COLUMNS.length}
+                colSpan={columns.length}
                 className="py-8 text-center text-muted-foreground"
               >
                 No sessions found

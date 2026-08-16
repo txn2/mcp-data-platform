@@ -14,6 +14,11 @@ import { formatToolName } from "@/lib/formatToolName";
 // SessionTimeline is the session read in order: what the agent said it was
 // doing, what it called, where, and how that turned out. Purpose leads the
 // tool name because the reason is the thing the event list could never show.
+//
+// A row opens the full audit event where the reader can read one — the admin
+// event drawer. On the user's own session there is no such surface, so onSelect
+// is omitted and the rows are plain: a row that looks clickable and does
+// nothing is worse than one that never invited the click.
 
 const COLUMNS = ["Time", "Tool", "Purpose", "Connection", "Outcome", "Duration"];
 
@@ -25,7 +30,7 @@ export function SessionTimeline({
 }: {
   entries?: SessionTimelineEntry[];
   isLoading: boolean;
-  onSelect: (eventId: string) => void;
+  onSelect?: (eventId: string) => void;
   titleMap: Record<string, string>;
 }) {
   return (
@@ -54,8 +59,8 @@ export function SessionTimeline({
           {entries?.map((entry) => (
             <TableRow
               key={entry.event_id}
-              onClick={() => onSelect(entry.event_id)}
-              className="cursor-pointer"
+              onClick={onSelect ? () => onSelect(entry.event_id) : undefined}
+              className={onSelect ? "cursor-pointer" : "hover:bg-transparent"}
             >
               {/* The full date, not just the clock: a session can span days,
                   and a bare time reads as out of order when it does. */}

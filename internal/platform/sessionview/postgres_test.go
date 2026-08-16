@@ -221,7 +221,7 @@ func TestGet_NotFoundWhenNoCalls(t *testing.T) {
 	store, mock := newMock(t)
 	mock.ExpectQuery("FROM audit_logs").WillReturnRows(sqlmock.NewRows(summaryColumns))
 
-	got, err := store.Get(context.Background(), testSessionID)
+	got, err := store.Get(context.Background(), Scope{SessionID: testSessionID})
 	assert.ErrorIs(t, err, ErrNotFound, "an id with no calls is not a session")
 	assert.Nil(t, got)
 }
@@ -232,7 +232,7 @@ func TestGet_ReturnsSummary(t *testing.T) {
 	// always carries; the id follows it.
 	mock.ExpectQuery("FROM audit_logs").WithArgs("", testSessionID).WillReturnRows(summaryRow())
 
-	got, err := store.Get(context.Background(), testSessionID)
+	got, err := store.Get(context.Background(), Scope{SessionID: testSessionID})
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, testSessionID, got.SessionID)
@@ -251,7 +251,7 @@ func TestTimeline_OrdersOldestFirstWithTotal(t *testing.T) {
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM audit_logs").WithArgs(testSessionID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(testCallCount))
 
-	entries, total, err := store.Timeline(context.Background(), testSessionID, 0, 0)
+	entries, total, err := store.Timeline(context.Background(), Scope{SessionID: testSessionID})
 	require.NoError(t, err)
 	require.Len(t, entries, 2)
 	assert.Equal(t, testCallCount, total, "total is the session's full call count, not the page")
@@ -265,7 +265,7 @@ func TestTimeline_Errors(t *testing.T) {
 	t.Run("page query fails", func(t *testing.T) {
 		store, mock := newMock(t)
 		mock.ExpectQuery("FROM audit_logs").WillReturnError(errors.New("boom"))
-		_, _, err := store.Timeline(context.Background(), testSessionID, 10, 0)
+		_, _, err := store.Timeline(context.Background(), Scope{SessionID: testSessionID, Limit: 10})
 		require.Error(t, err)
 	})
 
@@ -276,9 +276,33 @@ func TestTimeline_Errors(t *testing.T) {
 			"connection", "success", "error_message", "duration_ms",
 		}))
 		mock.ExpectQuery("SELECT COUNT").WillReturnError(errors.New("boom"))
-		_, _, err := store.Timeline(context.Background(), testSessionID, 10, 0)
+		_, _, err := store.Timeline(context.Background(), Scope{SessionID: testSessionID, Limit: 10})
 		require.Error(t, err)
 	})
+}
+
+// A scoped timeline narrows both the page and the total it is paged against.
+// Narrowing only one of them would page a caller's own calls against someone
+// else's count, which reads as a session with pages that are not there.
+func TestTimeline_ScopedToTheCallerNarrowsPageAndTotal(t *testing.T) {
+	store, mock := newMock(t)
+	timelineCols := []string{
+		"id", "timestamp", "tool_name", "purpose", "toolkit_kind",
+		"connection", "success", "error_message", "duration_ms",
+	}
+	mock.ExpectQuery("ORDER BY timestamp ASC").WithArgs(testSessionID, "user-1").
+		WillReturnRows(sqlmock.NewRows(timelineCols).
+			AddRow("evt-1", testTime(), "search", nil, "", "", true, "", 12))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM audit_logs").WithArgs(testSessionID, "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	entries, total, err := store.Timeline(context.Background(), Scope{
+		SessionID: testSessionID,
+		UserID:    "user-1",
+	})
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, 1, total)
 }
 
 func TestTimeline_OffsetPages(t *testing.T) {
@@ -289,7 +313,7 @@ func TestTimeline_OffsetPages(t *testing.T) {
 	}))
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(testCallCount))
 
-	_, total, err := store.Timeline(context.Background(), testSessionID, 2, 2)
+	_, total, err := store.Timeline(context.Background(), Scope{SessionID: testSessionID, Limit: 2, Offset: 2})
 	require.NoError(t, err)
 	assert.Equal(t, testCallCount, total)
 }

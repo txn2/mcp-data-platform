@@ -301,6 +301,12 @@ func TestWirePortalOptionalDeps(t *testing.T) {
 	if deps.DataHubRegistrar == nil {
 		t.Error("expected a datahub registrar to be wired from the datahub toolkit")
 	}
+	// A session is rolled up out of audit_logs, so the read model needs a
+	// database. This platform has none, and the portal's session routes stay
+	// unregistered rather than being wired over nothing (#1319).
+	if deps.SessionViewer != nil {
+		t.Error("expected no session viewer without a database")
+	}
 }
 
 // TestMountPortalUI_AssetsAvailable covers the mount happy path when the config
