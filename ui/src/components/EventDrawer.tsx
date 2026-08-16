@@ -125,7 +125,24 @@ export function EventDrawer({
         </div>
         <div>
           <p className="text-xs text-muted-foreground">Session</p>
-          <p className="font-mono text-xs">{event.session_id}</p>
+          {/* The session is the call's context, so it is a way there and not
+              just an identifier to copy (#1318). Without a navigator the id
+              still reads as plain text. */}
+          {onNavigate && event.session_id ? (
+            <button
+              type="button"
+              onClick={() =>
+                onNavigate(
+                  `/admin/sessions/${encodeURIComponent(event.session_id)}`,
+                )
+              }
+              className="break-all text-left font-mono text-xs text-primary hover:underline"
+            >
+              {event.session_id}
+            </button>
+          ) : (
+            <p className="font-mono text-xs">{event.session_id}</p>
+          )}
         </div>
       </div>
 

@@ -25,6 +25,8 @@ internal/admin/insightobs -> pkg/toolkits/knowledge
 internal/admin/notifyapi -> internal/httpjson
 internal/admin/notifyapi -> internal/notification/notifyrender
 internal/admin/notifyapi -> pkg/notification
+internal/admin/sessionapi -> internal/httpjson
+internal/admin/sessionapi -> internal/platform/sessionview
 internal/admin/settingsapi -> internal/platform/reviewalert
 internal/admin/settingsapi -> pkg/notification
 internal/admin/settingsapi -> pkg/notification/smtp
@@ -47,6 +49,7 @@ internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/platform/resourceaudit
 internal/httpserver -> internal/platform/reviewalert
 internal/httpserver -> internal/platform/scriptstore
+internal/httpserver -> internal/platform/sessionview
 internal/httpserver -> internal/ui
 internal/httpserver -> pkg/admin
 internal/httpserver -> pkg/audit
@@ -282,6 +285,9 @@ internal/platform/searchfed -> pkg/toolkits/search
 internal/platform/sessionsync -> pkg/middleware
 internal/platform/sessionsync -> pkg/session
 internal/platform/sessionsync -> pkg/session/postgres
+internal/platform/sessionview -> pkg/memory
+internal/platform/sessionview -> pkg/session
+internal/platform/sessionview -> pkg/toolkits/knowledge
 internal/platform/toolargs -> pkg/middleware
 internal/platform/toolkitcfg -> internal/platform/cfgmap
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt
@@ -324,6 +330,7 @@ pkg/admin -> internal/admin/catalogapi
 pkg/admin -> internal/admin/connoauthapi
 pkg/admin -> internal/admin/insightobs
 pkg/admin -> internal/admin/notifyapi
+pkg/admin -> internal/admin/sessionapi
 pkg/admin -> internal/admin/settingsapi
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/logsan

@@ -295,6 +295,40 @@ function toolDuration(tool: ToolDef): number {
 }
 
 // ---------------------------------------------------------------------------
+// Session ids
+// ---------------------------------------------------------------------------
+
+// Sessions are minted from small pools so a session holds many calls, which is
+// what the sessions list reads back. The prefixes are the platform's own: dps_
+// for an agent's handle, dpp_ for a portal run, dpx_ for a script run, and bare
+// hex for a transport session. Every kind is represented so the dev UI and the
+// screenshots show all four.
+function hexPool(prefix: string, count: number): string[] {
+  // Both halves vary with the index: the list shortens an id to its head and
+  // tail, and a shared tail would make every row look like the same session.
+  return Array.from({ length: count }, (_, i) => {
+    const head = (0x9f2c1a4b + i * 0x1d3f7).toString(16).padStart(8, "0");
+    const tail = (0xc5a4b3e2 - i * 0x517d3).toString(16).padStart(8, "0");
+    return `${prefix}${head}d1c0f9e8${tail}`;
+  });
+}
+
+export const agentSessions = hexPool("dps_", 8);
+const portalSessions = hexPool("dpp_", 3);
+const scriptSessions = hexPool("dpx_", 2);
+const transportSessions = hexPool("", 2);
+
+function sessionIDFor(source: string): string {
+  if (source === "admin") return seededItem(portalSessions);
+  if (source === "rest") {
+    return rand() > 0.5
+      ? seededItem(scriptSessions)
+      : seededItem(transportSessions);
+  }
+  return seededItem(agentSessions);
+}
+
+// ---------------------------------------------------------------------------
 // Generate audit events spread across the last 7 days
 // ---------------------------------------------------------------------------
 
@@ -321,7 +355,7 @@ function generateEvents(count: number): AuditEvent[] {
       timestamp: timestamp.toISOString(),
       duration_ms: duration,
       request_id: `req-${String(seededInt(10000000, 99999999))}`,
-      session_id: `sess-${String(seededInt(100, 999))}`,
+      session_id: sessionIDFor(source),
       user_id: user.email,
       user_email: user.email,
       persona: user.persona,

@@ -10,6 +10,10 @@ import { formatUser } from "@/lib/formatUser";
 
 export interface EventFilterState {
   search: string;
+  // sessionId narrows the table to one session's calls. It is free text
+  // rather than a facet because the distinct session ids are unbounded; the
+  // value arrives from the sessions list or the drawer's session link.
+  sessionId: string;
   userId: string;
   toolName: string;
   toolkitKind: string;
@@ -81,6 +85,15 @@ export function EventFilters({
           { value: "", label: "All Sources" },
           ...(filters?.sources ?? []).map((s) => ({ value: s, label: s })),
         ]}
+      />
+      <Input
+        type="text"
+        value={value.sessionId}
+        onChange={(e) => onChange({ sessionId: e.target.value })}
+        placeholder="Session ID"
+        aria-label="Filter by session ID"
+        title="Show only the calls one session made. Open the session itself from the Sessions page."
+        className="h-8 w-48 font-mono text-xs"
       />
       <FilterSelect
         label="Filter by status"

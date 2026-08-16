@@ -24,6 +24,7 @@ import { AdminAssetViewerPage } from "@/pages/viewer/AdminAssetViewerPage";
 import { AdminCollectionRoutes } from "@/pages/collections/AdminCollectionRoutes";
 import { ToolsPage } from "@/pages/tools/ToolsPage";
 import { AuditLogPage } from "@/pages/audit/AuditLogPage";
+import { SessionRoutes } from "@/pages/sessions/SessionRoutes";
 import { ConfigEditorPage } from "@/pages/settings/ConfigEditorPage";
 import { CatalogsPanel } from "@/pages/settings/CatalogsPanel";
 import { ConnectionsPanel } from "@/pages/settings/ConnectionsPanel";
@@ -60,6 +61,7 @@ const pageTitles: Record<string, string> = {
   "/admin/prompts": "Prompts",
   "/admin/resources": "Resources",
   "/admin/scripts": "Scripts",
+  "/admin/sessions": "Sessions",
   "/admin/keys": "Keys",
   "/admin/users": "Users",
   "/admin/changelog": "Change Log",
@@ -72,6 +74,7 @@ const pageTitles: Record<string, string> = {
 function pageTitleFor(route: string): string {
   if (route.startsWith("/scripts/")) return "Script";
   if (route.startsWith("/admin/collections/")) return "Collection";
+  if (route.startsWith("/admin/sessions/")) return "Session";
   return pageTitles[route] ?? "Assets";
 }
 
@@ -405,9 +408,7 @@ export function AppShell() {
                   onNavigate={navigate}
                 />
               )}
-              {route === "/admin/assets" && (
-                <AdminAssetsPage onNavigate={navigate} />
-              )}
+              {route === "/admin/assets" && <AdminAssetsPage onNavigate={navigate} />}
               {adminAssetMatch && (
                 <AdminAssetViewerPage
                   assetId={adminAssetMatch[1]!}
@@ -434,6 +435,7 @@ export function AppShell() {
                 <ResourcesPage admin onNavigate={navigate} />
               )}
               {route === "/admin/scripts" && <AdminScriptsPage />}
+              <SessionRoutes route={route} onNavigate={navigate} />
               {route === "/admin/keys" && <KeysPage />}
               {route === "/admin/users" && <UsersPanel />}
               {route === "/admin/changelog" && <ChangelogPage />}

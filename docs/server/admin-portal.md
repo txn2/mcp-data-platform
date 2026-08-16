@@ -226,12 +226,12 @@ The Events tab provides a searchable, filterable log of every tool call.
 
 Features:
 
-- **Filters** — User, tool, status (success/failure), and time range dropdowns
+- **Filters** — User, tool, status (success/failure), and time range dropdowns, plus a **Session ID** box that narrows the table to one session's calls
 - **Sortable columns** — Timestamp, user, tool, toolkit, connection, duration, status, and enrichment
 - **Purpose** — The one sentence the agent stated about why the call was made, truncated to fit and shown in full on hover and in the drawer. A dash means none was stated: the tool is outside the [gated set](configuration.md#purpose-configuration), or the caller (an MCP App, a managed script, the REST shim, a portal run) cannot thread arguments at all. The column does not sort — alphabetical order over free prose means nothing — but the search box matches it, so an operator can find every call made for a given task.
 - **Export** — Export CSV and Export JSON buttons
 - **Event detail drawer** — Click any row to open the full detail:
-    - **Identity** — User email, persona, session ID
+    - **Identity** — User email, persona, session ID (a link to the [session](#sessions))
     - **Execution** — Tool name, toolkit, connection, duration
     - **Status** — Success/failure, enrichment status
     - **Transport** — HTTP or stdio, request/response sizes, content block count
@@ -251,6 +251,26 @@ Counts by status sit above the list — Failed, Pending, Sending, Sent — as an
 Filters narrow by recipient, status, and category. The tab is admin-only and shows every recipient's rows; each user sees their own activity in **Settings > Recent notifications** in the user portal.
 
 It shows recent history rather than an archive: the send worker purges resolved rows on a retention schedule (30 days by default, undelivered rows after 7), and the effective window is stated above the list so an empty view is not mistaken for a quiet week. See [Email Notifications](notifications.md) for the delivery semantics behind the statuses.
+
+## Sessions
+
+The Sessions page is the platform's work, grouped by who was doing it. The Events tab answers "what happened on the platform"; this answers "what was this person working on".
+
+![Sessions](../images/screenshots/light/admin-admin-sessions-light.webp#only-light)![Sessions](../images/screenshots/dark/admin-admin-sessions-dark.webp#only-dark)
+
+A session is read back from the audit log rather than stored, so the list outlives the session record itself and reaches as far back as audit retention. Each row carries when the session was last active, its id and kind (**Agent**, **Portal run**, **Script run**, **Transport** — see [the kinds](audit.md#sessions-read-back-from-the-log)), the caller and the persona they worked as, how many calls it made, how many failed, and what it produced. Filters narrow by user, kind, sessions with failures, and sessions that saved assets.
+
+The first facet is the time window, and it is a control rather than a hidden default: the list rolls up every event in range, so it opens on the last 7 days and offers 24 hours, 30 days, and all time. Widening it is the reader's choice, and nothing is withheld without saying so.
+
+Clicking a row opens the session.
+
+![Session detail](../images/screenshots/light/admin-admin-session-detail-light.webp#only-light)![Session detail](../images/screenshots/dark/admin-admin-session-detail-dark.webp#only-dark)
+
+The detail opens on the identity line — who ran it, as what, and when it started — then five figures: calls, failures, the wall-clock span from first call to last, and the assets and insights it produced. Below them:
+
+- **Assets** — What the session saved, opening in the admin asset viewer.
+- **Insights** — What it captured, each with the review status it is sitting at.
+- **Timeline** — Every call in the order it was made, showing the [purpose](audit.md#why-a-call-happened) the agent stated, the tool, the connection, the outcome, and the duration. Clicking a row opens the same event drawer the Events tab opens, so a call reached from a session reads exactly as it does from the log.
 
 ## Knowledge & Memory (review and promotion)
 

@@ -16,6 +16,7 @@ import {
   BookOpen,
   Contact,
   Settings,
+  History,
   type LucideIcon,
 } from "lucide-react";
 
@@ -56,6 +57,7 @@ export const adminNavItems: NavItem[] = [
   { path: "/admin/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/admin/resources", label: "Resources", icon: FileUp },
   { path: "/admin/scripts", label: "Scripts", icon: FileCode2 },
+  { path: "/admin/sessions", label: "Sessions", icon: History },
   { path: "/admin/settings", label: "Settings", icon: Settings },
   { path: "/admin/tools", label: "Tools", icon: Wrench },
   { path: "/admin/users", label: "Users", icon: Contact },

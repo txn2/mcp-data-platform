@@ -5,6 +5,7 @@ import type {
   SystemInfo,
   ToolListResponse,
   ConnectionListResponse,
+  AuditEvent,
   AuditEventResponse,
   AuditFiltersResponse,
   AuditSortColumn,
@@ -61,6 +62,7 @@ interface AuditEventsParams {
   toolName?: string;
   toolkitKind?: string;
   source?: string;
+  sessionId?: string;
   search?: string;
   sortBy?: AuditSortColumn;
   sortOrder?: SortOrder;
@@ -78,6 +80,7 @@ export function useAuditEvents(params: AuditEventsParams = {}) {
   if (params.toolName) searchParams.set("tool_name", params.toolName);
   if (params.toolkitKind) searchParams.set("toolkit_kind", params.toolkitKind);
   if (params.source) searchParams.set("source", params.source);
+  if (params.sessionId) searchParams.set("session_id", params.sessionId);
   if (params.eventKind) searchParams.set("event_kind", params.eventKind);
   if (params.search) searchParams.set("search", params.search);
   if (params.sortBy) searchParams.set("sort_by", params.sortBy);
@@ -94,6 +97,20 @@ export function useAuditEvents(params: AuditEventsParams = {}) {
       apiFetch<AuditEventResponse>(`/audit/events${qs ? `?${qs}` : ""}`),
     refetchInterval: REFETCH_INTERVAL,
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Reads one audit event by id. The session timeline carries only what a row
+ * shows; opening its drawer needs the whole event, and the event list the
+ * drawer is normally fed from is not loaded on that page.
+ */
+export function useAuditEvent(eventId: string | null) {
+  return useQuery({
+    queryKey: ["audit", "event", eventId],
+    queryFn: () =>
+      apiFetch<AuditEvent>(`/audit/events/${encodeURIComponent(eventId ?? "")}`),
+    enabled: Boolean(eventId),
   });
 }
 

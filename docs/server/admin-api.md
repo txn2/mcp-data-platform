@@ -1207,6 +1207,121 @@ Returns session-level discovery patterns: how often users explore the catalog (D
 | `query_without_discovery` | int | Sessions that queried Trino without using DataHub first |
 | `top_discovery_tools` | array | Most-used discovery tools, sorted by count |
 
+## Session Endpoints
+
+Session endpoints read sessions back from the audit log. A session is not a stored row: it is every audit event sharing one `session_id`, so these endpoints reach as far back as audit retention and keep working after the live session record has expired. They are read-only and require a database; without one the routes are not registered. See [Audit Logging](audit.md#sessions-read-back-from-the-log) for the model.
+
+### List Sessions
+
+```
+GET /api/v1/admin/sessions
+```
+
+Returns sessions ordered by most recent activity.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `user_id` | string | Filter by user ID |
+| `kind` | string | Filter by session id origin: `agent` (`dps_`), `portal` (`dpp_`), `script` (`dpx_`), `transport` (everything else) |
+| `start_time` | RFC 3339 | Sessions with activity after this time |
+| `end_time` | RFC 3339 | Sessions with activity before this time |
+| `has_assets` | boolean | Only sessions that saved at least one asset |
+| `has_failures` | boolean | Only sessions with at least one failed call |
+| `page` | integer | Page number, 1-based (default: 1) |
+| `per_page` | integer | Results per page (default: 25, max: 200) |
+
+A time range bounds the session's events, so a session is listed when any of its calls falls inside the window, and its counts describe the calls inside it.
+
+**Response:**
+
+```json
+{
+  "data": [
+    {
+      "session_id": "dps_9f2c1a4b8e7d6c5a4b3e2d1c0f9e8a7b",
+      "kind": "agent",
+      "user_id": "user-uuid-1234",
+      "user_email": "marcus.johnson@example.com",
+      "persona": "data-engineer",
+      "started_at": "2026-04-15T10:38:02Z",
+      "last_active_at": "2026-04-15T10:52:47Z",
+      "call_count": 5,
+      "failure_count": 1,
+      "tools": ["save_asset", "search", "trino_query"],
+      "connections": ["acme-warehouse"],
+      "asset_count": 1,
+      "insight_count": 0
+    }
+  ],
+  "total": 42,
+  "page": 1,
+  "per_page": 25
+}
+```
+
+`persona` is the persona the handle was minted under while the live session record still exists, and the persona of the session's first event once it has expired.
+
+### Get Session
+
+```
+GET /api/v1/admin/sessions/{id}
+```
+
+Returns one session: the summary above, plus what it produced and a page of its call timeline. Returns `404` when the audit log holds no call for that id — a session with no calls is not a session.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `page` | integer | Timeline page number, 1-based (default: 1) |
+| `per_page` | integer | Timeline entries per page (default: 25, max: 200) |
+
+**Response:**
+
+```json
+{
+  "session_id": "dps_9f2c1a4b8e7d6c5a4b3e2d1c0f9e8a7b",
+  "kind": "agent",
+  "user_id": "user-uuid-1234",
+  "user_email": "marcus.johnson@example.com",
+  "persona": "data-engineer",
+  "started_at": "2026-04-15T10:38:02Z",
+  "last_active_at": "2026-04-15T10:52:47Z",
+  "call_count": 5,
+  "failure_count": 1,
+  "tools": ["save_asset", "search", "trino_query"],
+  "connections": ["acme-warehouse"],
+  "asset_count": 1,
+  "insight_count": 0,
+  "assets": [
+    {
+      "id": "ast_7c1e",
+      "name": "Q3 revenue by region",
+      "content_type": "text/csv",
+      "created_at": "2026-04-15T10:52:47Z"
+    }
+  ],
+  "insights": [],
+  "timeline": [
+    {
+      "event_id": "evt_a1b2c3d4e5f6",
+      "timestamp": "2026-04-15T10:38:02Z",
+      "tool_name": "trino_query",
+      "purpose": "Summing Q3 revenue by region for the board deck.",
+      "toolkit_kind": "trino",
+      "connection": "acme-warehouse",
+      "success": true,
+      "duration_ms": 143
+    }
+  ],
+  "timeline_total": 5
+}
+```
+
+`timeline` is ordered oldest first and `timeline_total` is the session's full call count, so a caller pages without a second request for the total. `event_id` addresses the same row [Get Audit Event](#get-audit-event) returns.
+
 ## Notification Endpoints
 
 Notification endpoints expose the email-delivery history the notification queue leaves behind, so an admin can answer whether notification emails are reaching people and what happened to the ones that did not. They are read-only and require a database; without one the routes are not registered.

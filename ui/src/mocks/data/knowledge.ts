@@ -1,4 +1,5 @@
 import type { Insight, Changeset, ObservedEntity } from "@/api/admin/types";
+import { agentSessions } from "./audit";
 
 // ---------------------------------------------------------------------------
 // Seeded PRNG (mulberry32) — deterministic mock data across page loads
@@ -266,7 +267,12 @@ function generateInsights(count: number): Insight[] {
     insights.push({
       id: `ins-${String(i + 1).padStart(3, "0")}`,
       created_at: ts.toISOString(),
-      session_id: `sess-${String(seededInt(100, 999))}`,
+      // Every fourth insight is attributed to a session the audit mock
+      // recorded, so a session detail shows insights it captured.
+      session_id:
+        i % 4 === 0
+          ? agentSessions[i % agentSessions.length]!
+          : `sess-${String(seededInt(100, 999))}`,
       captured_by: user.email,
       persona: user.persona,
       category,
