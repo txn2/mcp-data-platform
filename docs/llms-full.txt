@@ -3314,7 +3314,7 @@ OpenAPI specs are stored separately in **API catalogs** (see the next section), 
 
 ## Addressing an operation
 
-`api_invoke_endpoint` and `api_export` address an operation either by `operation_id` (the stable id `api_list_endpoints` / `api_get_endpoint_schema` return) or by raw `method` + `path`; supply one form, not both. With `operation_id` the platform resolves the method and path template from the catalog, and `path_params` (valid only with `operation_id`) fills the `{placeholder}` segments, URL-escaped for you, so a cataloged call never hand-substitutes `/v1/users/{id}`. Pass `spec` alongside `operation_id` to disambiguate when the id is defined by more than one component spec.
+`api_invoke_endpoint` and `api_export` address an operation either by `operation_id` (the stable id `api_list_endpoints` / `api_get_endpoint_schema` return) or by raw `method` + `path`; supply one form, not both. With `operation_id` the platform resolves the method and path template from the catalog, and `path_params` (valid only with `operation_id`) fills the `{placeholder}` holes, URL-escaped for you, so a cataloged call never hand-substitutes `/v1/users/{id}`. Placeholders are matched per occurrence, not per segment: one segment may carry several (`/points/{latitude},{longitude}`, `/gridpoints/{office}/{gridX},{gridY}/forecast`) or mix one with literal text (`/files/{name}.json`), and each is named and substituted separately while the literal text between them is left alone. Pass `spec` alongside `operation_id` to disambiguate when the id is defined by more than one component spec. The `operation_id` form reports `resolved_path` on the result: the concrete path the call was addressed to, after the catalog base-path prefix and the substitution, which is what distinguishes a mis-prefixed path from a genuinely failing upstream.
 
 ## When to use
 
@@ -3492,6 +3492,12 @@ OpenAPI validation runs structurally: the document must be valid 3.x JSON/YAML, 
 ## Live reload
 
 Any catalog or spec mutation calls `Toolkit.ReloadConnectionsByCatalog(catalogID)` on every live api-gateway toolkit. The toolkit iterates its registered connections, finds those whose `cfg.CatalogID == catalogID`, and atomically rebuilds each one: re-parses the catalog's specs, retains the new `*openapi3.T` per spec on the conn, and lets the embedding cache invalidate naturally (a new conn instance starts with empty embeddings). The model sees the new spec content on the next `api_list_endpoints` / `api_get_endpoint_schema` call without a process restart.
+
+## Base paths and shared specs
+
+An operation's full path is the spec's base path plus its spec-relative path, joined onto the connection's `base_url` at call time. The base path resolves per connection at registration: the spec row's `base_path` override wins, otherwise the path component of `servers[0].url` (host and scheme ignored — the connection's `base_url` is the authoritative host). The resolved prefix is then dropped when the connection's own `base_url` path already ends with a path the spec declares, so a `base_url` pointed at the documented base does not get that base doubled.
+
+Every declared `servers[]` entry is a candidate for that drop rule, not just the first, which is what lets one curated spec back several connections that speak the identical API (a Kansas and a Missouri deployment of the same ArcGIS feature server; a sandbox and a production tenant). Declare each deployment under `servers` and every connection resolves against the entry that is its own. Declaring only the first leaves the others with that first deployment's path prefixed onto their own `base_url`, producing a path that concatenates two deployments and an upstream 400 that says nothing about the cause. Omitting `servers` from the shared spec, or setting `base_path` per spec, avoids the prefix entirely; `base_path` is authoritative and singular, so when it is set the spec's `servers` entries are not consulted. `api_list_specs` reports the resolved prefix as `base_path` and `api_invoke_endpoint` reports the concrete path as `resolved_path`.
 
 ## Operation index
 

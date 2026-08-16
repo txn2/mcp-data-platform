@@ -282,14 +282,15 @@ func moreSpecific(a webdavRoute, aID string, b webdavRoute, bID string) bool {
 	return aID < bID
 }
 
-// countLiteralSegments returns the number of non-placeholder (fixed)
+// countLiteralSegments returns the number of fixed (placeholder-free)
 // segments in a split template. Computed once at build time and cached on
 // webdavRoute.literals because moreSpecific compares it for every matching
-// route on every request.
+// route on every request. A partially-templated segment ("{name}.json")
+// is not fixed, so it does not count (issue #1297).
 func countLiteralSegments(segments []string) int {
 	n := 0
 	for _, s := range segments {
-		if !isPlaceholderSegment(s) {
+		if !segmentIsTemplated(s) {
 			n++
 		}
 	}
@@ -302,8 +303,10 @@ func countLiteralSegments(segments []string) int {
 // The trailing placeholder is a catch-all consuming the remaining
 // segments, which may be zero (a PROPFIND on a user's collection root,
 // e.g. /remote.php/dav/files/alice, supplies no subpath yet is a real
-// WebDAV resource) or many (a nested resource path). A trailing literal
-// still requires an exact single-segment match.
+// WebDAV resource) or many (a nested resource path). Only a whole-segment
+// placeholder is a catch-all; a trailing segment that mixes literal text
+// with placeholders is matched as a single segment by segmentMatches, the
+// same rule the interior segments use.
 func (r webdavRoute) matches(concrete []string) bool {
 	t := r.segments
 	if len(t) == 0 {
@@ -330,7 +333,8 @@ func (r webdavRoute) matches(concrete []string) bool {
 		// nested) subpath. Any remaining segments, or none, match.
 		return true
 	}
-	// Trailing literal: exact single-segment match. len(concrete) == len(t)
-	// is guaranteed above, so concrete[last] is in bounds.
-	return concrete[last] == t[last]
+	// Trailing non-catch-all: single-segment match under the same rule as
+	// the interior segments. len(concrete) == len(t) is guaranteed above,
+	// so concrete[last] is in bounds.
+	return segmentMatches(concrete[last], t[last])
 }

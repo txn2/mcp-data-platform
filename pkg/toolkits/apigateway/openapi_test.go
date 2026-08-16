@@ -397,11 +397,11 @@ func TestRankOperations_ZeroMatchReturnsEmptySlice(t *testing.T) {
 	}
 }
 
-// TestSpecBasePath covers finding #5: the path component of the
+// TestSpecBasePaths covers finding #5: the path component of the
 // first declared servers[].url is extracted (with a trailing slash
 // stripped) and the scheme + host are ignored so the operator's
 // connection.base_url remains the authoritative host.
-func TestSpecBasePath(t *testing.T) {
+func TestSpecBasePaths(t *testing.T) {
 	cases := []struct {
 		name      string
 		serverURL string
@@ -431,8 +431,12 @@ func TestSpecBasePath(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseOpenAPISpec: %v", err)
 			}
-			if got := specBasePath(doc); got != tc.want {
-				t.Errorf("specBasePath(%q) = %q; want %q", tc.serverURL, got, tc.want)
+			got := ""
+			if bases := specBasePaths(doc); len(bases) > 0 {
+				got = bases[0]
+			}
+			if got != tc.want {
+				t.Errorf("specBasePaths(%q)[0] = %q; want %q", tc.serverURL, got, tc.want)
 			}
 		})
 	}
@@ -487,31 +491,61 @@ paths:
 }
 
 // TestComputeEffectiveBasePath covers finding #1: when an operator's
-// connection.base_url already contains the spec's servers[0] path
+// connection.base_url already contains a declared servers[] path
 // segment as a suffix, the toolkit must NOT prepend the segment to
 // the operation paths or the invoke-time URL join will double it.
 // Drives the dedupe rule from a tabulated set of operator inputs.
+//
+// The multi-server rows are issue #1298: one curated spec shared by
+// several connections that speak the identical API. Every connection
+// must resolve against the server entry that is its own, not against
+// servers[0] alone.
 func TestComputeEffectiveBasePath(t *testing.T) {
 	cases := []struct {
-		name     string
-		connURL  string
-		specBase string
-		want     string
+		name      string
+		connURL   string
+		specBases []string
+		want      string
 	}{
-		{"empty spec base", "https://api.example.com/v1", "", ""},
-		{"host-only conn", "https://api.example.com", "/v1", "/v1"},
-		{"trailing slash on conn", "https://api.example.com/", "/v1", "/v1"},
-		{"conn already includes spec base", "https://api.example.com/v1", "/v1", ""},
-		{"conn includes deeper spec base", "https://api.example.com/api/v2", "/api/v2", ""},
-		{"conn includes spec base as suffix", "https://api.example.com/foo/api/v2", "/api/v2", ""},
-		{"conn path is unrelated to spec base", "https://api.example.com/legacy", "/v1", "/v1"},
-		{"unparseable conn falls back to spec base", "://not-a-url", "/v1", "/v1"},
+		{"no spec servers", "https://api.example.com/v1", nil, ""},
+		{"empty spec base", "https://api.example.com/v1", []string{""}, ""},
+		{"host-only conn", "https://api.example.com", []string{"/v1"}, "/v1"},
+		{"trailing slash on conn", "https://api.example.com/", []string{"/v1"}, "/v1"},
+		{"conn already includes spec base", "https://api.example.com/v1", []string{"/v1"}, ""},
+		{"conn includes deeper spec base", "https://api.example.com/api/v2", []string{"/api/v2"}, ""},
+		{"conn includes spec base as suffix", "https://api.example.com/foo/api/v2", []string{"/api/v2"}, ""},
+		{"conn path is unrelated to spec base", "https://api.example.com/legacy", []string{"/v1"}, "/v1"},
+		{"unparseable conn falls back to spec base", "://not-a-url", []string{"/v1"}, "/v1"},
+		{
+			name:      "conn matches first of several servers",
+			connURL:   "https://ks.example.gov/adaptor/rest/FeatureServer",
+			specBases: []string{"/adaptor/rest/FeatureServer", "/server/rest/Hosted/FeatureServer"},
+			want:      "",
+		},
+		{
+			name:      "conn matches a later server",
+			connURL:   "https://mo.example.gov/server/rest/Hosted/FeatureServer",
+			specBases: []string{"/adaptor/rest/FeatureServer", "/server/rest/Hosted/FeatureServer"},
+			want:      "",
+		},
+		{
+			name:      "conn matches no declared server keeps the first",
+			connURL:   "https://other.example.gov/mount",
+			specBases: []string{"/adaptor/rest/FeatureServer", "/server/rest/Hosted/FeatureServer"},
+			want:      "/adaptor/rest/FeatureServer",
+		},
+		{
+			name:      "bare-host first server contributes no prefix",
+			connURL:   "https://api.example.com/legacy",
+			specBases: []string{"", "/v1"},
+			want:      "",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := computeEffectiveBasePath(tc.connURL, tc.specBase); got != tc.want {
-				t.Errorf("computeEffectiveBasePath(%q, %q) = %q; want %q",
-					tc.connURL, tc.specBase, got, tc.want)
+			if got := computeEffectiveBasePath(tc.connURL, tc.specBases); got != tc.want {
+				t.Errorf("computeEffectiveBasePath(%q, %v) = %q; want %q",
+					tc.connURL, tc.specBases, got, tc.want)
 			}
 		})
 	}

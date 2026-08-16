@@ -18,10 +18,31 @@ A catalog has:
   - **content**: raw YAML or JSON OpenAPI 3.x document.
   - **source_kind**: `inline`, `upload`, `url`, or `embedded`. `embedded` is reserved for the built-in `platform-admin` catalog, whose content comes from the OpenAPI document embedded in the binary (see [Self-Configuration](self-configuration.md)); operators cannot create `embedded` specs through the admin API.
   - **source_url / etag / last_fetched_at**: populated when `source_kind` is `url`.
-  - **base_path**: optional operator override for the URL path segment prepended to every operation in the spec. Empty derives the prefix from the spec's `servers[0].url`.
+  - **base_path**: optional operator override for the URL path segment prepended to every operation in the spec. Empty derives the prefix from the spec's `servers[0].url`. See [Base paths and shared specs](#base-paths-and-shared-specs) for how the prefix interacts with each connection's `base_url`.
   - **title / description**: optional operator overrides for the per-spec summary shown by `api_list_specs` and the multi-spec gate. Empty derives them from the spec's `info.title` / `info.description`. Validated on write: trimmed, no embedded CR/LF/NUL, capped at 200 / 2000 characters.
 
 Multiple connections can reference the same catalog. Editing a spec inside a catalog fans out to every referencing connection: the toolkit rebuilds each connection's parsed-doc state in place so `api_list_endpoints` and `api_get_endpoint_schema` reflect the new content without a process restart.
+
+## Base paths and shared specs
+
+Every operation's full path is the spec's **base path** plus the operation's spec-relative path, and that full path is joined onto the connection's `base_url` at call time. The base path is resolved per connection, at registration:
+
+1. The spec's `base_path` override, when the operator set one.
+2. Otherwise, the path component of the spec's `servers[0].url` — host and scheme are ignored, because the connection's `base_url` is the operator's authoritative choice of host.
+
+The resolved prefix is then dropped when the connection's own `base_url` path already ends with a path the spec declares, so a `base_url` pointed straight at the documented base does not get that base glued on twice.
+
+When one curated spec backs several connections that speak the identical API — a Kansas and a Missouri deployment of the same ArcGIS feature server, a sandbox and a production tenant — declare **each** deployment under `servers`:
+
+```yaml
+servers:
+  - url: https://kanplan.example.gov/adaptor/rest/services/AADT/FeatureServer
+  - url: https://geo.example.gov/server/rest/services/Hosted/HPMS_MO/FeatureServer
+```
+
+Every entry is a candidate for the drop rule, so each connection resolves against the server that is its own. Declaring only the first deployment leaves the others with that first deployment's path prefixed onto their own `base_url`, which produces a path concatenating two deployments and an upstream 400 that says nothing about the cause. Two other shapes avoid the prefix entirely: omit `servers` from the shared spec, or set `base_path` per spec. `base_path` is authoritative and singular — when it is set, the spec's `servers` entries are not consulted.
+
+`api_list_specs` reports the resolved prefix for each spec as `base_path`, and `api_invoke_endpoint` reports the path an `operation_id` call resolved to as `resolved_path`. Between them the effective routing for a connection is readable without inspecting the spec.
 
 ## Use cases
 

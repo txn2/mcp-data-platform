@@ -11,6 +11,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -113,7 +114,20 @@ type InvokeInput struct {
 //     has IsError=true, and the REST shim maps this to wire 502
 //     (transport) or 504 (timeout).
 type InvokeOutput struct {
-	Status        int                 `json:"status"`
+	Status int `json:"status"`
+	// ResolvedPath is the concrete request path an operation_id call
+	// resolved to, after the catalog's base-path prefix and any
+	// path_params substitution. Populated only for operation_id
+	// addressing: in the method+path form the caller wrote the path
+	// itself and echoing it back says nothing.
+	//
+	// It is here because the resolved path is the one input to the
+	// upstream request the caller never sees, so a misconfigured
+	// catalog prefix surfaces only as a generic upstream 400 whose
+	// cause is invisible from the response (issue #1298). api_export
+	// already reports it in its result message; this is the same
+	// signal for the buffered path.
+	ResolvedPath  string              `json:"resolved_path,omitempty"`
 	Headers       map[string][]string `json:"headers,omitempty"`
 	Body          any                 `json:"body,omitempty"`
 	BodyTruncated bool                `json:"body_truncated,omitempty"`
@@ -719,39 +733,97 @@ func splitPathTemplate(p string) []string {
 	return strings.Split(strings.TrimSuffix(p, pathSep), pathSep)
 }
 
+// placeholderPattern matches one OpenAPI path-template placeholder.
+// The name class excludes braces so a segment carrying two placeholders
+// ("{latitude},{longitude}") yields two matches rather than one spanning
+// both, which is what made such a segment resolve to a parameter named
+// "latitude},{longitude" that no caller could supply (issue #1297).
+//
+//nolint:gochecknoglobals // compiled once; matched on every path resolve
+var placeholderPattern = regexp.MustCompile(`\{([^{}]+)\}`)
+
 // segmentMatches reports whether one concrete path segment satisfies one
-// template segment: a placeholder ("{id}") matches any non-empty segment,
-// a literal must match exactly. The single per-segment rule shared by the
-// exact-length matcher (pathMatchesTemplate) and the catch-all-tail
-// matcher (webdavRoute.matches) so their placeholder/literal semantics
-// cannot drift (issue #876).
+// template segment. Three cases, cheapest first: a literal ("users") must
+// match exactly; a whole-segment placeholder ("{id}") matches any
+// non-empty segment; a partially-templated segment ("{lat},{lon}",
+// "{name}.json") matches when the literal text around its placeholders
+// lines up. The single per-segment rule shared by the exact-length
+// matcher (pathMatchesTemplate) and the catch-all-tail matcher
+// (webdavRoute.matches) so their placeholder/literal semantics cannot
+// drift (issues #876, #1297).
 func segmentMatches(concrete, template string) bool {
+	if !strings.Contains(template, "{") {
+		return concrete == template
+	}
 	if isPlaceholderSegment(template) {
 		return concrete != ""
 	}
-	return concrete == template
+	return templatedSegmentMatches(concrete, template)
 }
 
-// isPlaceholderSegment reports whether a path-template segment is an
-// OpenAPI parameter placeholder (e.g. "{datasetId}"). A two-character
-// minimum length guards against the degenerate "{}" segment, which
-// no spec generator emits but a hand-edited spec might contain.
-func isPlaceholderSegment(seg string) bool {
-	return len(seg) >= 2 && seg[0] == '{' && seg[len(seg)-1] == '}'
-}
-
-// countTemplatePlaceholders returns the number of placeholder segments
-// in an OpenAPI path template; used by findMostSpecificPathMatch to
-// prefer literal paths over templated ones when both match the same
-// concrete path.
-func countTemplatePlaceholders(template string) int {
-	count := 0
-	for seg := range strings.SplitSeq(template, pathSep) {
-		if isPlaceholderSegment(seg) {
-			count++
-		}
+// templatedSegmentMatches matches a segment that carries at least one
+// placeholder alongside literal text. Splitting the template on its
+// placeholders yields the literal runs between them — "{lat},{lon}"
+// yields ["", ",", ""] — and the concrete segment must start with the
+// first run, end with the last, and contain the interior runs in order,
+// with every placeholder consuming at least one character. Each
+// placeholder takes the shortest run that still lets the next literal
+// match, mirroring leftmost router matching. A template whose braces
+// form no well-formed placeholder ("{", "{}") is compared literally.
+func templatedSegmentMatches(concrete, template string) bool {
+	lits := placeholderPattern.Split(template, -1)
+	if len(lits) < 2 {
+		return concrete == template
 	}
-	return count
+	if !strings.HasPrefix(concrete, lits[0]) {
+		return false
+	}
+	rest := concrete[len(lits[0]):]
+	for _, lit := range lits[1 : len(lits)-1] {
+		if rest == "" {
+			return false
+		}
+		// rest[1:] skips the one character the preceding placeholder is
+		// required to consume, so an empty capture cannot satisfy it.
+		idx := strings.Index(rest[1:], lit)
+		if idx < 0 {
+			return false
+		}
+		rest = rest[1+idx+len(lit):]
+	}
+	tail := lits[len(lits)-1]
+	return len(rest) > len(tail) && strings.HasSuffix(rest, tail)
+}
+
+// isPlaceholderSegment reports whether a path-template segment is
+// entirely one OpenAPI parameter placeholder (e.g. "{datasetId}"). A
+// segment that merely contains a placeholder ("{name}.json") is not one:
+// it has literal text that must still match, so it routes through
+// templatedSegmentMatches instead. The interior brace check and the
+// three-character minimum reject the degenerate "{a}{b}" and "{}"
+// segments, which no spec generator emits but a hand-edited spec might.
+func isPlaceholderSegment(seg string) bool {
+	return len(seg) > 2 && seg[0] == '{' && seg[len(seg)-1] == '}' &&
+		!strings.ContainsAny(seg[1:len(seg)-1], "{}")
+}
+
+// segmentIsTemplated reports whether a path-template segment carries at
+// least one placeholder, whether or not it also carries literal text.
+// Distinct from isPlaceholderSegment: this is the "not a fixed segment"
+// test specificity ranking needs, where "{lat},{lon}" must count as
+// templated even though it is not a whole-segment placeholder.
+func segmentIsTemplated(seg string) bool {
+	return placeholderPattern.MatchString(seg)
+}
+
+// countTemplatePlaceholders returns the number of placeholders in an
+// OpenAPI path template; used by findMostSpecificPathMatch to prefer
+// literal paths over templated ones when both match the same concrete
+// path. Occurrences are counted rather than segments, so a template with
+// a two-placeholder segment ranks as less specific than one that spends
+// a whole segment per placeholder (issue #1297).
+func countTemplatePlaceholders(template string) int {
+	return len(placeholderPattern.FindAllStringIndex(template, -1))
 }
 
 func resolveTimeout(requested int, defaultTimeout time.Duration) time.Duration {
