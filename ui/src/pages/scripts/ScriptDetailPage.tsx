@@ -15,11 +15,15 @@ import {
 } from "@/components/ui/table";
 import { executionState, formatWhen } from "./runFormat";
 import { ScriptRunHistory } from "./ScriptRunHistory";
+import { ScriptScheduleEditor } from "./ScriptScheduleEditor";
+import { ScriptSourceEditor } from "./ScriptSourceEditor";
 import { ScriptVersionHistory } from "./ScriptVersionHistory";
 
 // ScriptDetailPage is one script in full: what it is and what it takes, what
-// will execute it, on what cadence, and — for its owner — the code behind the
-// gate and everything it has run (#1290).
+// will execute it, on what cadence, and — for its owner — everything it has run
+// (#1290), plus the two things the owner changes here (#1307): the code, which
+// an edit sends back through review, and the cadence, which carries no
+// authority at all.
 //
 // The top of the page is the contract document, the same one a reference to
 // this script resolves to for an agent. There is deliberately not a second
@@ -52,7 +56,7 @@ export function ScriptDetailPage({ scriptId, onBack, onNavigate }: Props) {
     );
   }
 
-  const { contract, owned } = data;
+  const { contract, owned, source } = data;
   const state = executionState(contract);
 
   return (
@@ -81,15 +85,46 @@ export function ScriptDetailPage({ scriptId, onBack, onNavigate }: Props) {
         <ParameterTable contract={contract} />
       </SectionCard>
 
-      {owned && <ScriptVersionHistory scriptId={scriptId} contract={contract} />}
-      {owned && <ScriptRunHistory scriptId={scriptId} onNavigate={onNavigate} />}
-      {!owned && (
+      {owned ? (
+        <OwnerSections
+          scriptId={scriptId}
+          contract={contract}
+          source={source ?? ""}
+          onNavigate={onNavigate}
+        />
+      ) : (
         <p className="text-xs text-muted-foreground">
-          This script belongs to {contract.owner_email || "someone else"}. Its source, its
-          capability grant, and its run history are theirs and the administrators' to read.
+          This script belongs to {contract.owner_email || "someone else"}. Its cadence, its
+          source, its capability grant, and its run history are theirs and the administrators'
+          to read.
         </p>
       )}
     </div>
+  );
+}
+
+// OwnerSections is everything the contract does not say out loud: the cadence
+// the owner sets, the code behind the execution gate, and what the automation
+// has actually been doing. All three are the owner's and the administrators',
+// and they appear or are absent together.
+function OwnerSections({
+  scriptId,
+  contract,
+  source,
+  onNavigate,
+}: {
+  scriptId: string;
+  contract: ScriptContract;
+  source: string;
+  onNavigate: (path: string) => void;
+}) {
+  return (
+    <>
+      <ScriptSourceEditor scriptId={scriptId} contract={contract} source={source} />
+      <ScriptScheduleEditor scriptId={scriptId} contract={contract} />
+      <ScriptVersionHistory scriptId={scriptId} contract={contract} />
+      <ScriptRunHistory scriptId={scriptId} onNavigate={onNavigate} />
+    </>
   );
 }
 

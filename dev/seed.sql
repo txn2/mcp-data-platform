@@ -14,6 +14,9 @@
 --   6 curated portal assets (with versions and shares) + 120 generated demo
 --     assets so the library exercises pagination (126 total under "Mine")
 --   3 portal collections with sections, items, and a public share
+--   3 managed scripts: a running automation and an unapproved one owned by
+--     analyst@example.com, plus a paused one owned by the admin, with their
+--     versions, cadences, and run history
 
 -- ============================================================================
 -- Audit Events (~5,000 over 7 days)
@@ -1790,3 +1793,243 @@ SELECT
   NOW() - (n || ' hours')::interval, NOW() - (n || ' hours')::interval
 FROM generate_series(1, 60) AS n
 ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================================
+-- Managed scripts (#1282 chain, cadence controls #1307)
+--
+-- The dev stack had no scripts at all, so the Scripts pages were empty and the
+-- owner's cadence controls could not be exercised against a real backend.
+-- Three scripts cover the states those pages have to show, and — because the
+-- rule the cadence controls answer to is OWNERSHIP rather than admin — two of
+-- them are owned by analyst@example.com, who is not an administrator:
+--
+--   daily-sales-report   global, owned by the analyst, approved, running on a
+--                        cadence with a ${fire_date} binding. This is the
+--                        #1307 case: a shared report its owner may re-time and
+--                        pause without an administrator.
+--   dormant-accounts     personal to the analyst, nothing approved. A cadence
+--                        set here saves and fires nothing, which is what the
+--                        page has to say.
+--   warehouse-freshness  global, owned by the ADMIN, approved, schedule paused
+--                        with missed fires. For the analyst it is the
+--                        visible-but-not-owned case: contract only, no source,
+--                        no runs, no cadence controls.
+--
+-- Fixed ids keep the rows re-seedable and let the versions, schedules, and runs
+-- reference them. A re-run resets them to this state, as the rest of this file
+-- does with its demo data.
+--
+-- The sources are the real Starlark the engine runs, and each approved grant
+-- covers exactly what its source reaches for, so the review screen's capability
+-- diff reads as it would for a script an agent actually wrote.
+-- ============================================================================
+
+DELETE FROM script_runs      WHERE id LIKE 'dpx_seed_%';
+DELETE FROM script_schedules WHERE script_id IN (
+  'e1e1e1e1-0000-4000-8000-000000000001',
+  'e1e1e1e1-0000-4000-8000-000000000002',
+  'e1e1e1e1-0000-4000-8000-000000000003');
+UPDATE scripts SET approved_version_id = NULL WHERE id IN (
+  'e1e1e1e1-0000-4000-8000-000000000001',
+  'e1e1e1e1-0000-4000-8000-000000000002',
+  'e1e1e1e1-0000-4000-8000-000000000003');
+DELETE FROM script_versions WHERE script_id IN (
+  'e1e1e1e1-0000-4000-8000-000000000001',
+  'e1e1e1e1-0000-4000-8000-000000000002',
+  'e1e1e1e1-0000-4000-8000-000000000003');
+
+INSERT INTO scripts (
+  id, name, display_name, description, source_code, params,
+  scope, personas, owner_email, tags, enabled, status, version, created_at, updated_at
+) VALUES
+(
+  'e1e1e1e1-0000-4000-8000-000000000001',
+  'daily-sales-report', 'Daily Sales Report',
+  'Yesterday''s sales by region, exported for the morning review.',
+  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT region, sum(amount) AS revenue FROM warehouse.public.sales WHERE sale_date = :d GROUP BY region",\n    params={"d": run.params["report_date"]},\n)["rows"]\n\nplatform.export(name="daily-sales", rows=rows, format="csv")\nprint("wrote %d regions for %s" % (len(rows), run.params["report_date"]))\n',
+  '[{"name":"report_date","type":"date","description":"The business date to report on; the schedule pins it to the fire time.","required":true}]'::jsonb,
+  'global', '{}', 'analyst@example.com', '{sales,reporting}', true, 'active', 2,
+  NOW() - interval '40 days', NOW() - interval '30 days'
+),
+(
+  'e1e1e1e1-0000-4000-8000-000000000002',
+  'dormant-accounts', 'Dormant Accounts',
+  'Accounts with no orders since a cutoff date, for the retention review.',
+  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT account_id, last_order_at FROM warehouse.public.accounts WHERE last_order_at < :cutoff",\n    params={"cutoff": run.params["cutoff"]},\n)["rows"]\n\nplatform.export(name="dormant-accounts", rows=rows, format="csv")\n',
+  '[{"name":"cutoff","type":"date","description":"Accounts idle since this date.","required":true}]'::jsonb,
+  'personal', '{}', 'analyst@example.com', '{retention}', true, 'draft', 1,
+  NOW() - interval '3 days', NOW() - interval '3 days'
+),
+(
+  'e1e1e1e1-0000-4000-8000-000000000003',
+  'warehouse-freshness', 'Warehouse Freshness Check',
+  'Row counts and max load timestamps per warehouse table.',
+  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT table_name, row_count, max_loaded_at FROM warehouse.public.table_stats",\n)["rows"]\n\nplatform.export(name="freshness", rows=rows, format="csv")\n',
+  '[]'::jsonb,
+  'global', '{}', 'admin@example.com', '{operations}', true, 'active', 5,
+  NOW() - interval '60 days', NOW() - interval '21 days'
+)
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name, display_name = EXCLUDED.display_name,
+  description = EXCLUDED.description, source_code = EXCLUDED.source_code,
+  params = EXCLUDED.params, scope = EXCLUDED.scope, personas = EXCLUDED.personas,
+  owner_email = EXCLUDED.owner_email, tags = EXCLUDED.tags,
+  enabled = EXCLUDED.enabled, status = EXCLUDED.status, version = EXCLUDED.version,
+  updated_at = EXCLUDED.updated_at;
+
+-- Version history. The analyst authored their own scripts, so their versions
+-- carry the analyst's roles — which is the ceiling on what approving one can
+-- ever grant, and why the grants below name the analyst's role rather than an
+-- administrator's.
+INSERT INTO script_versions (
+  id, script_id, version, display_name, description, source_code, params, tags,
+  author, author_roles, status, approved_by, approved_at, grants, created_at
+) VALUES
+(
+  'e2e2e2e2-0000-4000-8000-000000000011',
+  'e1e1e1e1-0000-4000-8000-000000000001', 1,
+  'Daily Sales Report', 'First cut: totals with no regional split.',
+  E'rows = platform.query(connection="acme", sql="SELECT sum(amount) AS revenue FROM warehouse.public.sales")["rows"]\nplatform.export(name="daily-sales", rows=rows, format="csv")\n',
+  '[]'::jsonb, '{sales}', 'analyst@example.com', '{dp_analyst}',
+  'superseded', 'admin@example.com', NOW() - interval '38 days',
+  '{"roles":["dp_analyst"],"connections":["acme"],"capabilities":["platform.query","platform.export"],"destinations":[{"name":"portal","kind":"portal"}]}'::jsonb,
+  NOW() - interval '40 days'
+),
+(
+  'e2e2e2e2-0000-4000-8000-000000000012',
+  'e1e1e1e1-0000-4000-8000-000000000001', 2,
+  'Daily Sales Report', 'Yesterday''s sales by region, exported for the morning review.',
+  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT region, sum(amount) AS revenue FROM warehouse.public.sales WHERE sale_date = :d GROUP BY region",\n    params={"d": run.params["report_date"]},\n)["rows"]\n\nplatform.export(name="daily-sales", rows=rows, format="csv")\nprint("wrote %d regions for %s" % (len(rows), run.params["report_date"]))\n',
+  '[{"name":"report_date","type":"date","description":"The business date to report on; the schedule pins it to the fire time.","required":true}]'::jsonb,
+  '{sales,reporting}', 'analyst@example.com', '{dp_analyst}',
+  'applied', 'admin@example.com', NOW() - interval '30 days',
+  '{"roles":["dp_analyst"],"connections":["acme"],"capabilities":["platform.query","platform.export"],"destinations":[{"name":"portal","kind":"portal"}]}'::jsonb,
+  NOW() - interval '31 days'
+),
+-- Never approved: this is what the review queue holds and what the schedule
+-- editor reports as inert.
+(
+  'e2e2e2e2-0000-4000-8000-000000000021',
+  'e1e1e1e1-0000-4000-8000-000000000002', 1,
+  'Dormant Accounts', 'Accounts with no orders since a cutoff date, for the retention review.',
+  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT account_id, last_order_at FROM warehouse.public.accounts WHERE last_order_at < :cutoff",\n    params={"cutoff": run.params["cutoff"]},\n)["rows"]\n\nplatform.export(name="dormant-accounts", rows=rows, format="csv")\n',
+  '[{"name":"cutoff","type":"date","description":"Accounts idle since this date.","required":true}]'::jsonb,
+  '{retention}', 'analyst@example.com', '{dp_analyst}',
+  'applied', '', NULL, '{}'::jsonb,
+  NOW() - interval '3 days'
+),
+(
+  'e2e2e2e2-0000-4000-8000-000000000035',
+  'e1e1e1e1-0000-4000-8000-000000000003', 5,
+  'Warehouse Freshness Check', 'Row counts and max load timestamps per warehouse table.',
+  E'rows = platform.query(\n    connection="acme",\n    sql="SELECT table_name, row_count, max_loaded_at FROM warehouse.public.table_stats",\n)["rows"]\n\nplatform.export(name="freshness", rows=rows, format="csv")\n',
+  '[]'::jsonb, '{operations}', 'admin@example.com', '{dp_admin}',
+  'applied', 'admin@example.com', NOW() - interval '21 days',
+  '{"roles":["dp_admin"],"connections":["acme"],"capabilities":["platform.query","platform.export"],"destinations":[{"name":"portal","kind":"portal"}]}'::jsonb,
+  NOW() - interval '22 days'
+);
+
+-- The execution gate, set after the versions exist: this pointer is the one
+-- thing that decides what the platform may execute unattended.
+UPDATE scripts SET approved_version_id = 'e2e2e2e2-0000-4000-8000-000000000012'
+  WHERE id = 'e1e1e1e1-0000-4000-8000-000000000001';
+UPDATE scripts SET approved_version_id = 'e2e2e2e2-0000-4000-8000-000000000035'
+  WHERE id = 'e1e1e1e1-0000-4000-8000-000000000003';
+
+-- Cadences. The bound value keeps its token: ${fire_date} expands at the fire,
+-- so the run records the date it computed for.
+INSERT INTO script_schedules (
+  id, script_id, cron_spec, timezone, params, enabled,
+  next_run_at, last_fire_at, missed_fires, created_by, updated_by, created_at, updated_at
+) VALUES
+(
+  'e3e3e3e3-0000-4000-8000-000000000001',
+  'e1e1e1e1-0000-4000-8000-000000000001',
+  '0 7 * * 1-5', 'America/Los_Angeles',
+  '{"report_date":"${fire_date}"}'::jsonb, true,
+  NOW() + interval '14 hours', NOW() - interval '10 hours', 0,
+  'analyst@example.com', 'analyst@example.com',
+  NOW() - interval '30 days', NOW() - interval '30 days'
+),
+(
+  'e3e3e3e3-0000-4000-8000-000000000003',
+  'e1e1e1e1-0000-4000-8000-000000000003',
+  '*/30 * * * *', 'UTC',
+  '{}'::jsonb, false,
+  NULL, NOW() - interval '6 days', 2,
+  'admin@example.com', 'admin@example.com',
+  NOW() - interval '21 days', NOW() - interval '6 days'
+);
+
+-- Run history: a success this morning, the failure that woke somebody
+-- yesterday, and a fire skipped because the previous run was still going.
+-- Between them they are every terminal state the history has to show.
+INSERT INTO script_runs (
+  id, script_id, script_version_id, schedule_id, version, trigger_kind, status,
+  params, fire_time, requested_by, scheduled_for, started_at, finished_at,
+  attempt, error, log_text, metrics, outputs, created_at, updated_at
+) VALUES
+(
+  'dpx_seed_run_0001',
+  'e1e1e1e1-0000-4000-8000-000000000001', 'e2e2e2e2-0000-4000-8000-000000000012',
+  'e3e3e3e3-0000-4000-8000-000000000001', 2, 'schedule', 'succeeded',
+  ('{"report_date":"' || to_char(NOW() - interval '1 day', 'YYYY-MM-DD') || '"}')::jsonb,
+  NOW() - interval '10 hours', '', NOW() - interval '10 hours',
+  NOW() - interval '10 hours', NOW() - interval '10 hours' + interval '8 seconds',
+  1, '',
+  E'querying acme\nwrote 6 regions for yesterday\n',
+  '{"steps":1284,"duration_ms":8420,"queries":1,"exports":1}'::jsonb,
+  '[{"name":"daily-sales","destination":"portal","asset_id":"asset-daily-sales","asset_version":42,"format":"csv","row_count":1420,"bytes":98304}]'::jsonb,
+  NOW() - interval '10 hours', NOW() - interval '10 hours'
+),
+(
+  'dpx_seed_run_0002',
+  'e1e1e1e1-0000-4000-8000-000000000001', 'e2e2e2e2-0000-4000-8000-000000000012',
+  'e3e3e3e3-0000-4000-8000-000000000001', 2, 'schedule', 'failed',
+  '{"report_date":"2026-08-13"}'::jsonb,
+  NOW() - interval '34 hours', '', NOW() - interval '34 hours',
+  NOW() - interval '34 hours', NOW() - interval '34 hours' + interval '3 seconds',
+  1, 'platform.query: relation "warehouse.public.sales" does not exist',
+  E'querying acme\n',
+  '{"steps":112,"duration_ms":3110,"queries":1,"exports":0}'::jsonb,
+  '[]'::jsonb,
+  NOW() - interval '34 hours', NOW() - interval '34 hours'
+),
+(
+  'dpx_seed_run_0003',
+  'e1e1e1e1-0000-4000-8000-000000000001', 'e2e2e2e2-0000-4000-8000-000000000012',
+  'e3e3e3e3-0000-4000-8000-000000000001', 2, 'schedule', 'skipped_overlap',
+  '{"report_date":"2026-08-12"}'::jsonb,
+  NOW() - interval '58 hours', '', NOW() - interval '58 hours',
+  NULL, NOW() - interval '58 hours',
+  0, 'the previous run of this schedule was still going',
+  '', '{}'::jsonb, '[]'::jsonb,
+  NOW() - interval '58 hours', NOW() - interval '58 hours'
+),
+-- One run somebody asked for by hand, so the history shows both producers.
+(
+  'dpx_seed_run_0004',
+  'e1e1e1e1-0000-4000-8000-000000000001', 'e2e2e2e2-0000-4000-8000-000000000012',
+  NULL, 2, 'tool', 'succeeded',
+  '{"report_date":"2026-08-10"}'::jsonb,
+  NOW() - interval '5 days', 'analyst@example.com', NOW() - interval '5 days',
+  NOW() - interval '5 days', NOW() - interval '5 days' + interval '9 seconds',
+  1, '',
+  E'querying acme\nwrote 6 regions for 2026-08-10\n',
+  '{"steps":1290,"duration_ms":9010,"queries":1,"exports":1}'::jsonb,
+  '[{"name":"daily-sales","destination":"portal","asset_id":"asset-daily-sales","asset_version":38,"format":"csv","row_count":1394,"bytes":96108}]'::jsonb,
+  NOW() - interval '5 days', NOW() - interval '5 days'
+),
+(
+  'dpx_seed_run_0005',
+  'e1e1e1e1-0000-4000-8000-000000000003', 'e2e2e2e2-0000-4000-8000-000000000035',
+  'e3e3e3e3-0000-4000-8000-000000000003', 5, 'schedule', 'succeeded',
+  '{}'::jsonb,
+  NOW() - interval '6 days', '', NOW() - interval '6 days',
+  NOW() - interval '6 days', NOW() - interval '6 days' + interval '2 seconds',
+  1, '',
+  E'querying acme\nwrote 38 tables\n',
+  '{"steps":402,"duration_ms":2140,"queries":1,"exports":1}'::jsonb,
+  '[{"name":"freshness","destination":"portal","asset_id":"asset-freshness","asset_version":12,"format":"csv","row_count":38,"bytes":4096}]'::jsonb,
+  NOW() - interval '6 days', NOW() - interval '6 days'
+);

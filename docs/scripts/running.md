@@ -148,6 +148,58 @@ turn it off would re-base the fire it resumes on.
 There is deliberately no way to delete a schedule. Disabling one stops it and
 leaves the row that explains the runs it produced.
 
+### Editing from the portal
+
+The owner of a script edits its source on the script's page, in the portal's own
+editor, and the edit crosses the same gate a `manage_script update` crosses
+(`script.ApplyEdit`): a script with an approved version keeps executing that
+version and the edit becomes a draft in the review queue, while a script with
+nothing approved applies directly. The route is `PUT
+/api/v1/portal/scripts/{id}/source`, restricted to the script's owner and to
+administrators, and it edits the SOURCE only — scope, personas, status, and the
+parameter contract are structured decisions the tool owns, and the domain
+refuses to mix a reviewable change with them anyway.
+
+The source is parsed before anything is stored, so code that cannot run is
+refused at the keyboard rather than at the next fire.
+
+### Who sets a cadence
+
+The owner of a script sets its cadence, at every scope, and so does an
+administrator. That is a different rule from the one that governs editing: what
+a script DOES is confined to a personal script unless an administrator changes
+it, and a change goes back through review. When it runs carries no authority to
+confine — the execution gate and the capability grant are re-read at every fire
+— so the owner of a shared report re-times or pauses it without asking anyone.
+
+The portal asks for a cadence in the terms a person has it in — hourly, daily,
+weekdays, chosen days, a day of the month, a time, a zone — and derives the cron
+expression from that, showing it rather than asking for it. An expression the
+builder cannot express is still settable, through its Custom field, and an
+expression an agent wrote through `manage_script` opens there as itself rather
+than being rewritten into something near it.
+
+The same three actions are on the portal, on the pages the owner already reads
+their script on: `GET` and `PUT /api/v1/portal/scripts/{id}/schedule`, and `POST
+/api/v1/portal/scripts/{id}/schedule/enable` and `.../disable`, restricted to
+the script's owner and to administrators and answering "not yours" exactly as
+they answer "no such script". They are the only routes on that surface that
+change anything; approving a version stays on the admin API. See
+[Scripts in the portal](../server/portal-user.md#the-cadence).
+
+A cadence can be set before anything is approved. It saves, it binds against the
+live record's parameter contract because that is the only contract there is yet,
+and it fires nothing until a version is approved — which both the tool and the
+page say plainly rather than leaving an owner waiting on an automation that was
+never going to run.
+
+Every run the platform executes is also measured: `script_runs_total`,
+`script_run_duration_seconds`, `script_runs_running`, and
+`script_missed_fires_total`, labeled by script and trigger. They are what the
+admin portal's Runs tab draws, and they answer what the run table cannot — a
+missed fire is a run that does not exist. See
+[Observability](../server/observability.md).
+
 ### `${fire_date}`, and why the date is not computed in the script
 
 A schedule's bound values may contain one token, `${fire_date}`, which expands
@@ -357,6 +409,29 @@ scripts:
   # or running is never swept, however old it is.
   run_retention_days: 365
 ```
+
+The sweep deletes only terminal rows (`succeeded`, `failed`, `skipped_overlap`)
+whose `finished_at` is older than the window, and it runs at most hourly, on the
+replicas that run a worker (`internal/platform/scriptstore/runs.go`,
+`PurgeRuns`).
+
+**What is kept is not what a page shows.** The store caps any run listing at 50
+rows (`defaultRunListLimit`), and each surface asks for what it can display and
+states the cap when the answer fills it:
+
+| Surface | Shows |
+|---|---|
+| A script's run history in the portal | The 25 most recent runs of that script |
+| The admin Runs tab | The 50 most recent runs across every script |
+| `manage_script runs` | The limit the call names, 20 when it names none, clamped to 50 |
+| A script's contract (`fetch`, a prompt reference, the detail page) | One run: the last SUCCESSFUL one |
+| The script listing | One run per script: the most recent, whatever its state |
+
+Older history is still in the table until retention sweeps it, reachable by
+narrowing the listing (by status, or one script at a time). The metric series
+are the other way to read the same period — they are aggregates rather than
+rows, so they answer rates and percentiles over the whole window and cannot
+name a particular run.
 
 ## What a deployment needs
 

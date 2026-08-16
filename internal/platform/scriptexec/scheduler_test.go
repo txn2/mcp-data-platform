@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
@@ -469,4 +470,41 @@ func TestScheduler_AFireThatCannotBeNamedIsRefused(t *testing.T) {
 	cronSpec, err := script.ParseCron(sched.CronSpec, sched.Timezone)
 	require.NoError(t, err)
 	assert.NotNil(t, s.buildRun(context.Background(), sched, fire, cronSpec))
+}
+
+// TestScheduler_RecordsMissedFiresUnderTheScriptName pins the label the misfire
+// counter carries. The worker records runs under the script's NAME, so this
+// must too: the same label carrying an id here and a name there would split one
+// script's series in two on every chart that groups by it.
+func TestScheduler_RecordsMissedFiresUnderTheScriptName(t *testing.T) {
+	m, err := observability.New(observability.Config{Enabled: true, ListenAddr: ":0"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
+
+	fire := time.Date(2026, 8, 14, 7, 0, 0, 0, time.UTC)
+	s, _, _ := schedulerOver(t, fire, fire.Add(5*time.Hour+30*time.Minute), nil)
+	s.cfg.metrics = m
+
+	s.pass(context.Background())
+
+	body := scrapeWorkerMetrics(t, m)
+	assert.Contains(t, body, "script_missed_fires_total")
+	assert.Contains(t, body, `script="daily"`)
+	assert.NotContains(t, body, `script="script_1"`, "the id is not the label")
+}
+
+// A pass that steps over nothing records nothing: a series on every schedule
+// keeping its cadence perfectly is noise.
+func TestScheduler_RecordsNothingWhenNoFireIsMissed(t *testing.T) {
+	m, err := observability.New(observability.Config{Enabled: true, ListenAddr: ":0"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
+
+	fire := time.Date(2026, 8, 14, 7, 0, 0, 0, time.UTC)
+	s, _, _ := schedulerOver(t, fire, fire.Add(time.Minute), nil)
+	s.cfg.metrics = m
+
+	s.pass(context.Background())
+
+	assert.NotContains(t, scrapeWorkerMetrics(t, m), "script_missed_fires_total")
 }

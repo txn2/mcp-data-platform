@@ -489,9 +489,15 @@ you have, what is scheduled, and how it has been going.
 
 ![Scripts](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts](../images/screenshots/dark/user-scripts-dark.webp#only-dark)
 
+Above the table, four numbers say how the automations are doing: how many you can see,
+how many have an approved version and so can run at all, how many are firing on a
+cadence, and how many last ended in a failure. The last one is the number most people
+open this page for.
+
 Each row states the four things worth knowing at a glance: what the script is executing
 (the approved version, or plainly that nothing is approved and so nothing will run),
-its cadence and next fire, and how its most recent run ended. A script with no schedule
+its cadence and next fire, and how its most recent run ended. Opening a row opens the
+script, the way every other list in the portal opens a record. A script with no schedule
 runs on demand; a paused schedule says so rather than showing a next fire that will not
 happen.
 
@@ -513,6 +519,62 @@ When a run would be refused — nothing approved, the script disabled or depreca
 page carries the platform's own reason for the refusal rather than leaving you to work it
 out from the status.
 
+### The code
+
+On a script you own, the source is editable in place, with Starlark highlighted as the
+Python dialect it is. Saving does not mean the same thing for every script, and the
+editor says which it means before you save:
+
+- **Nothing approved yet**: the edit applies directly. The script still executes nothing
+  unattended until an administrator approves a version.
+- **A version is approved**: that version keeps running, and your edit is saved as a
+  draft in the review queue. Editing is not an approval, and no control on these pages
+  can approve anything.
+
+![Script source](../images/screenshots/light/user-script-source-light.webp#only-light)![Script source](../images/screenshots/dark/user-script-source-dark.webp#only-dark)
+
+The source that does not parse is refused when you save it, naming what to fix, rather
+than failing at the next run with nobody watching.
+
+### The cadence
+
+Below that, on a script you own, is when it runs. Pick how often — hourly, daily,
+weekdays, chosen days of the week, or a day of the month — set the time and the timezone
+it is read in, bind the value every fire passes, and pause or resume the whole thing.
+
+You do not have to know cron. The page states what it will save in words ("Every weekday
+at 7:00 AM, America/Los_Angeles") and shows the expression it produces underneath, and
+there is a **Custom** choice for a cadence the builder cannot express. A schedule an
+agent wrote through `manage_script` that the builder cannot express opens there, as
+itself, rather than being rewritten into something near it.
+
+The time is read in the zone beside it, so a report keeps its wall clock across a
+daylight-saving change, and the floor is one fire a minute. A monthly cadence past the
+28th says plainly that the months without that day are skipped rather than moved.
+
+A date parameter usually wants `${fire_date}`, which expands to the day the schedule
+fires rather than to the day you typed it — that is what makes a scheduled run
+reproducible, because the run records the date it was computing for.
+
+Changing the cadence changes nothing else. The version that executes and the
+capabilities it holds were both decided when an administrator approved it, and re-timing
+a script does not send it back for review — so a report you own is yours to move, slow
+down, or pause, whether it is your own or shared with everyone.
+
+Pausing is its own control rather than a cadence you have to clear and retype. A paused
+schedule resumes on the fire it was parked on, and there is no way to delete one: the
+schedule is part of the explanation of the runs it produced. Fires that came due while
+the platform was not running them are counted and stated rather than caught up on, so a
+gap in an automation is visible instead of turning into a burst of stale reports.
+
+![Paused schedule](../images/screenshots/light/user-script-schedule-paused-light.webp#only-light)![Paused schedule](../images/screenshots/dark/user-script-schedule-paused-dark.webp#only-dark)
+
+You can give a schedule to a script that has not been approved yet. It saves, and it
+fires nothing until a version is approved, which the page says plainly rather than
+leaving you waiting on an automation that was never going to run.
+
+![Schedule on an unapproved script](../images/screenshots/light/user-script-schedule-unapproved-light.webp#only-light)![Schedule on an unapproved script](../images/screenshots/dark/user-script-schedule-unapproved-dark.webp#only-dark)
+
 ### Version history
 
 Below the contract is every version of the script, each with its author, its approval
@@ -524,7 +586,8 @@ the usual question.
 ![Version history](../images/screenshots/light/user-script-versions-light.webp#only-light)![Version history](../images/screenshots/dark/user-script-versions-dark.webp#only-dark)
 
 Approving a version is an administrator's decision and is made in the
-[review queue](admin-portal.md); this page is read-only.
+[review queue](admin-portal.md); the version history is read-only, and so is everything
+on this page except the cadence.
 
 ### Run history
 
@@ -533,6 +596,10 @@ version it executed, how long it took, how many outputs it produced, and how it 
 failure states its reason in the list. A fire that arrived while the previous run was
 still going is recorded as skipped rather than silently dropped, because a report that
 stopped producing is exactly what this history has to show.
+
+The section header carries what the history adds up to — the share that succeeded, how
+many failed or were skipped, and the median duration — over the runs actually loaded,
+which the sentence names rather than implying it covers all time.
 
 ![Run history](../images/screenshots/light/user-script-runs-light.webp#only-light)![Run history](../images/screenshots/dark/user-script-runs-dark.webp#only-dark)
 
@@ -547,8 +614,9 @@ asset's version history is the history of what the dashboard has been showing. A
 delivered to a bucket names where it was written and is not a link: those bytes left the
 platform, and nothing here will serve them back.
 
-The source, the capability grant, and the run history of a script belong to its owner and
-to administrators. A script you can see but do not own shows its contract and says so.
+The cadence controls, the source, the capability grant, and the run history of a script
+belong to its owner and to administrators. A script you can see but do not own shows its
+contract and says so.
 
 ### Asking for the pages
 

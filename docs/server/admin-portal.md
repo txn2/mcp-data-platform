@@ -356,9 +356,35 @@ superseded — is not in the queue: approving it would change nothing. Re-enabli
 it brings its decision back.
 
 **All scripts** lists every script with what it is executing: an approved
-version, or **Nothing approved**. **History** expands a script's versions, and
+version, or **Nothing approved**. A row expands to that script's versions, and
 any version can be opened for review — approving an earlier one is a rollback,
 which points the execution gate back at it.
+
+### Runs
+
+The other question an operator has is not what needs a decision but what has
+been running. The **Runs** tab answers it across every script.
+
+![Script runs](../images/screenshots/light/admin-admin-script-runs-light.webp#only-light)![Script runs](../images/screenshots/dark/admin-admin-script-runs-dark.webp#only-dark)
+
+The panels read the metrics the run worker and the scheduler emit
+(`script_runs_total`, `script_run_duration_seconds`, `script_runs_running`, and
+`script_missed_fires_total` — see [Observability](observability.md)): how many
+runs finished in the window and how many failed, the slowest five percent, how
+many are executing right now across every replica, the succeeded-against-
+everything-else split over time, the busiest scripts, and the automations that
+are missing fires. A missed fire is the one thing the run table cannot show,
+because it is precisely a run that does not exist.
+
+The table beneath them is the exact recent history from the platform's own
+records: which script, what triggered the run, how it ended and why when it
+failed, how long it took, and what it produced. It shows the 50 most recent
+runs — the store's own ceiling — and says so when it fills, because older runs
+are kept for as long as the retention window allows and the charts above cover
+that whole window whatever the table holds. The two sources are deliberate —
+the metrics survive run retention and aggregate across replicas, and the rows
+carry the reason a particular run failed. A deployment with no metrics backend
+configured says so and still shows the history.
 
 ### Reviewing a version
 

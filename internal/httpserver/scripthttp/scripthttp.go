@@ -87,6 +87,11 @@ func (h *Handler) RegisterAdmin(mux *http.ServeMux, prefix string, wrap func(htt
 	// A literal segment outranks the {id} wildcard in the same position, so the
 	// queue route cannot be shadowed by a script whose id is "reviews".
 	mux.Handle("GET "+prefix+"/scripts/reviews", wrap(http.HandlerFunc(h.listPendingReviews)))
+	// A literal segment outranks the {id} wildcard, so a script whose id is
+	// "runs" cannot shadow the operator's cross-script run listing (#1307).
+	if h.deps.Runs != nil {
+		mux.Handle("GET "+prefix+"/scripts/runs", wrap(http.HandlerFunc(h.listRuns)))
+	}
 	mux.Handle("GET "+prefix+"/scripts/{id}/versions", wrap(http.HandlerFunc(h.listVersions)))
 	mux.Handle("GET "+prefix+"/scripts/{id}/versions/{version}", wrap(http.HandlerFunc(h.getVersion)))
 	mux.Handle("POST "+prefix+"/scripts/{id}/versions/{version}/approve", wrap(http.HandlerFunc(h.approveVersion)))

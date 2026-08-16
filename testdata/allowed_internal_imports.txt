@@ -250,6 +250,7 @@ internal/platform/scriptexec -> pkg/audit
 internal/platform/scriptexec -> pkg/contenttype
 internal/platform/scriptexec -> pkg/middleware
 internal/platform/scriptexec -> pkg/notification
+internal/platform/scriptexec -> pkg/observability
 internal/platform/scriptexec -> pkg/portal
 internal/platform/scriptexec -> pkg/script
 internal/platform/scriptexec -> pkg/session

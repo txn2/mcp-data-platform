@@ -4,6 +4,7 @@ import type {
   ScriptApproveInput,
   ScriptVersion,
 } from "@/api/admin/types";
+import type { ScriptSchedule } from "@/api/portal/hooks/scripts";
 import {
   mockScriptContracts,
   mockScriptReviewAlert,
@@ -28,6 +29,12 @@ const versions = JSON.parse(JSON.stringify(mockScriptVersions)) as Record<
   ScriptVersion[]
 >;
 const alert = JSON.parse(JSON.stringify(mockScriptReviewAlert));
+// Schedules are mutable for the same reason: a cadence set on this surface has
+// to be the cadence the page reads back.
+const schedules = JSON.parse(JSON.stringify(mockScriptSchedules)) as Record<
+  string,
+  ScriptSchedule
+>;
 
 // resolveDecision removes the decided version from the queue, which is what the
 // server's queue predicate does once a version is no longer pending.
@@ -42,6 +49,17 @@ function resolveDecision(scriptID: string, version: number) {
 function emptyDemoRequested(surface: string): boolean {
   if (typeof window === "undefined") return false;
   return new URLSearchParams(window.location.search).get("empty") === surface;
+}
+
+// setScheduleEnabled is the pause path both routes share. A script with no
+// schedule has nothing to pause, which is a 404 on the server too.
+function setScheduleEnabled(scriptID: string, enabled: boolean) {
+  const schedule = schedules[scriptID];
+  if (!schedule) {
+    return HttpResponse.json({ detail: "this script has no schedule" }, { status: 404 });
+  }
+  schedule.enabled = enabled;
+  return HttpResponse.json(schedule);
 }
 
 // alertWarnings mirrors the server's check for a configuration that saves
@@ -72,6 +90,17 @@ export const scriptHandlers = [
   http.get(`${ADMIN_BASE}/scripts`, () =>
     HttpResponse.json({ data: scripts, total: scripts.length }),
   ),
+
+  // The operator's cross-script run listing (#1307).
+  http.get(`${ADMIN_BASE}/scripts/runs`, () => {
+    const all = Object.entries(mockScriptRuns).flatMap(([scriptID, runs]) =>
+      runs.map((run) => ({ ...run, script_id: scriptID })),
+    );
+    all.sort((a, b) => (a.fire_time < b.fire_time ? 1 : -1));
+    // The server answers with the cap it read under, which is what lets the
+    // page say there is older history behind a full page.
+    return HttpResponse.json({ data: all, total: all.length, limit: 50 });
+  }),
 
   http.get(`${ADMIN_BASE}/scripts/:id/versions`, ({ params }) => {
     const list = versions[String(params.id)] ?? [];
@@ -171,17 +200,130 @@ export const scriptHandlers = [
   }),
 
   http.get(`${PORTAL_BASE}/scripts/:id`, ({ params }) => {
-    const contract = mockScriptContracts[String(params.id)];
+    const id = String(params.id);
+    const contract = mockScriptContracts[id];
     if (!contract) {
       return HttpResponse.json({ detail: "script not found" }, { status: 404 });
     }
-    return HttpResponse.json({ contract, owned: true });
+    // The live source travels with the contract for the owner, which is what
+    // the editor opens.
+    const live = (versions[id] ?? []).find((v) => v.status === "applied");
+    return HttpResponse.json({ contract, owned: true, source: live?.source ?? "" });
+  }),
+
+  // Editing the code (#1307). An approved script's edit becomes a draft the
+  // review queue then holds, which is the server's rule and the reason the
+  // page reports an outcome rather than saying "saved".
+  http.put(`${PORTAL_BASE}/scripts/:id/source`, async ({ params, request }) => {
+    const id = String(params.id);
+    const body = (await request.json()) as { source?: string };
+    if (!body.source?.trim()) {
+      return HttpResponse.json(
+        { detail: "the source does not parse, so it was not saved" },
+        { status: 400 },
+      );
+    }
+    const list = versions[id] ?? [];
+    const script = scripts.find((s) => s.id === id);
+    const next = Math.max(0, ...list.map((v) => v.version)) + 1;
+    if (script?.approved_version_id) {
+      list.unshift({
+        ...list[0]!,
+        id: `${id}-v${next}`,
+        version: next,
+        source: body.source,
+        status: "draft",
+        approved_by: "",
+        approved_at: undefined,
+        created_at: new Date().toISOString(),
+      });
+      versions[id] = list;
+      reviews.unshift({
+        script_id: id,
+        script_name: script.name,
+        display_name: script.display_name,
+        description: script.description,
+        version: next,
+        author: "sarah.chen@example.com",
+        author_roles: script.version ? ["analyst"] : [],
+        created_at: new Date().toISOString(),
+        first_approval: false,
+      } as PendingReview);
+      return HttpResponse.json({
+        applied: false,
+        pending_version: next,
+        message:
+          "This script has an approved version, so the change was saved as a draft awaiting review. " +
+          "The approved version keeps running until the draft is approved.",
+      });
+    }
+    if (list[0]) list[0].source = body.source;
+    return HttpResponse.json({
+      applied: true,
+      message: "Saved. Nothing is approved for this script yet, so nothing executes it unattended.",
+    });
   }),
 
   http.get(`${PORTAL_BASE}/scripts/:id/versions`, ({ params }) => {
     const list = versions[String(params.id)] ?? [];
     return HttpResponse.json({ data: list, total: list.length });
   }),
+
+  // The owner's cadence controls (#1307). They mutate the fixture in place, so
+  // saving a cadence and then pausing it behaves as it does against the server
+  // within one mock-server session.
+  http.get(`${PORTAL_BASE}/scripts/:id/schedule`, ({ params }) => {
+    const schedule = schedules[String(params.id)];
+    if (!schedule) {
+      return HttpResponse.json({ detail: "this script has no schedule" }, { status: 404 });
+    }
+    return HttpResponse.json(schedule);
+  }),
+
+  http.put(`${PORTAL_BASE}/scripts/:id/schedule`, async ({ params, request }) => {
+    const id = String(params.id);
+    const body = (await request.json()) as {
+      cron?: string;
+      timezone?: string;
+      params?: Record<string, unknown>;
+    };
+    // The server refuses a cadence it cannot parse before anything is stored,
+    // and naming what to fix is the whole of that answer.
+    if (!body.cron?.trim()) {
+      return HttpResponse.json(
+        { detail: 'a schedule needs a cron expression, for example "0 7 * * 1-5" for 07:00 on weekdays' },
+        { status: 400 },
+      );
+    }
+    const previous = schedules[id];
+    schedules[id] = {
+      id: previous?.id ?? `sched-${id}`,
+      script_id: id,
+      cron_spec: body.cron.trim(),
+      timezone: body.timezone?.trim() || "UTC",
+      params: body.params,
+      // Replacing a cadence keeps the paused state: editing a parked
+      // automation must not quietly restart it.
+      enabled: previous?.enabled ?? true,
+      // The next fire is recomputed from now whether or not the schedule is
+      // enabled, as the server does: the old cadence's next fire is not a fire
+      // this schedule has any more. A paused schedule simply does not show it.
+      next_run_at: new Date(Date.now() + 22 * 3_600_000).toISOString(),
+      last_fire_at: previous?.last_fire_at,
+      missed_fires: previous?.missed_fires ?? 0,
+    };
+    return HttpResponse.json(schedules[id]);
+  }),
+
+  // Pausing and resuming are two routes rather than one with the state in the
+  // path, exactly as the server registers them.
+  http.post(`${PORTAL_BASE}/scripts/:id/schedule/enable`, ({ params }) =>
+    setScheduleEnabled(String(params.id), true),
+  ),
+
+  http.post(`${PORTAL_BASE}/scripts/:id/schedule/disable`, ({ params }) =>
+    setScheduleEnabled(String(params.id), false),
+  ),
 
   http.get(`${PORTAL_BASE}/scripts/:id/runs`, ({ params }) => {
     const list = mockScriptRuns[String(params.id)] ?? [];

@@ -5,8 +5,8 @@ import type { PendingReview, Script, ScriptVersion } from "@/api/admin/types";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { ScriptReviewDrawer } from "./ScriptReviewDrawer";
 import { ScriptReviewQueue } from "./ScriptReviewQueue";
+import { ScriptRunsTab } from "./ScriptRunsTab";
 
 // AdminScriptsPage is the managed-script review surface (#1287): the queue of
 // versions waiting for a decision, every script and what it is executing, and
@@ -50,7 +51,33 @@ export function AdminScriptsPage() {
     });
 
   return (
-    <div className="space-y-4">
+    <Tabs defaultValue="review" className="gap-4">
+      {/* Two questions, two tabs: what needs a decision, and what has been
+          running. The queue is first because it is the one with somebody
+          waiting on it. */}
+      <TabsList
+        variant="line"
+        className="group-data-[orientation=horizontal]/tabs:h-auto w-full justify-start gap-1 border-b p-0"
+      >
+        <TabsTrigger
+          value="review"
+          className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
+        >
+          Review
+        </TabsTrigger>
+        <TabsTrigger
+          value="runs"
+          className="flex-none px-4 py-2 group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
+        >
+          Runs
+        </TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="runs">
+        <ScriptRunsTab scripts={allScripts} />
+      </TabsContent>
+
+      <TabsContent value="review" className="space-y-4">
       {reviews.error && (
         <Alert variant="destructive">
           <AlertDescription>
@@ -92,7 +119,8 @@ export function AdminScriptsPage() {
           onClose={() => setOpen(null)}
         />
       )}
-    </div>
+      </TabsContent>
+    </Tabs>
   );
 }
 
@@ -159,7 +187,6 @@ function ScriptTable({
           <TableHead>Script</TableHead>
           <TableHead>Owner</TableHead>
           <TableHead>Executing</TableHead>
-          <TableHead className="text-right">Versions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -190,7 +217,9 @@ function ScriptRows({
 }) {
   return (
     <>
-      <TableRow>
+      {/* The row expands the version history, as every other expandable row in
+          the portal does. */}
+      <TableRow className="cursor-pointer" onClick={() => onExpand(expanded ? null : script)}>
         <TableCell>
           <div className="font-medium">{script.display_name || script.name}</div>
           <div className="font-mono text-xs text-muted-foreground">{script.name}</div>
@@ -199,19 +228,10 @@ function ScriptRows({
         <TableCell>
           <ExecutionState script={script} />
         </TableCell>
-        <TableCell className="text-right">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onExpand(expanded ? null : script)}
-          >
-            {expanded ? "Hide history" : "History"}
-          </Button>
-        </TableCell>
       </TableRow>
       {expanded && (
         <TableRow>
-          <TableCell colSpan={4} className="bg-muted/30">
+          <TableCell colSpan={3} className="bg-muted/30">
             <VersionHistory script={script} onOpenVersion={onOpenVersion} />
           </TableCell>
         </TableRow>
@@ -264,11 +284,24 @@ function VersionHistory({
   return (
     <ul className="space-y-1.5">
       {versions.map((v) => (
-        <li key={v.id} className="flex items-center justify-between gap-3">
+        <li
+          key={v.id}
+          role="button"
+          aria-label={`${v.id === script.approved_version_id ? "View" : "Review"} version ${v.version}`}
+          tabIndex={0}
+          onClick={() => onOpenVersion(script, v.version)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onOpenVersion(script, v.version);
+            }
+          }}
+          className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1 select-none hover:bg-muted/50"
+        >
           <VersionLine version={v} executing={v.id === script.approved_version_id} />
-          <Button size="sm" variant="outline" onClick={() => onOpenVersion(script, v.version)}>
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
             {v.id === script.approved_version_id ? "View" : "Review"}
-          </Button>
+          </span>
         </li>
       ))}
     </ul>

@@ -97,3 +97,44 @@ export function executionState(contract: Pick<ScriptContract, "approval">): {
   }
   return { label: `Approved v${contract.approval.version ?? "?"}`, variant: "success" };
 }
+
+// RunSummary is what a stretch of run history adds up to. It is computed from
+// the runs a page actually loaded, and carries the count it was computed over,
+// because "92% succeeded" means nothing without it (#1307).
+export interface RunSummary {
+  total: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  /** medianMs is the median duration of the runs that recorded one. */
+  medianMs: number;
+  /** lastFailure is the most recent failed run, if the window holds one. */
+  lastFailure?: ScriptRun;
+}
+
+/** summarize folds a run history into what it adds up to. */
+export function summarize(runs: ScriptRun[]): RunSummary {
+  const out: RunSummary = { total: runs.length, succeeded: 0, failed: 0, skipped: 0, medianMs: 0 };
+  const durations: number[] = [];
+  for (const run of runs) {
+    if (run.status === "succeeded") out.succeeded++;
+    else if (run.status === "failed") out.failed++;
+    else if (run.status === "skipped_overlap") out.skipped++;
+    if (run.duration_ms > 0) durations.push(run.duration_ms);
+    if (run.status === "failed" && !out.lastFailure) out.lastFailure = run;
+  }
+  durations.sort((a, b) => a - b);
+  if (durations.length > 0) {
+    const mid = Math.floor(durations.length / 2);
+    out.medianMs =
+      durations.length % 2 === 0 ? Math.round((durations[mid - 1]! + durations[mid]!) / 2) : durations[mid]!;
+  }
+  return out;
+}
+
+/** successRate is the share of runs that succeeded, or undefined when the
+ * window holds none — no runs is not a 0% success rate. */
+export function successRate(summary: RunSummary): number | undefined {
+  if (summary.total === 0) return undefined;
+  return Math.round((summary.succeeded / summary.total) * 100);
+}

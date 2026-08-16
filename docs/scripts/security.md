@@ -145,7 +145,7 @@ behaviors described below; it grants nothing (`pkg/middleware/mcp.go`).
 | Script author (any authenticated caller) | Creates and edits their own personal scripts; runs drafts as themselves |
 | Admin persona | The above at every scope, plus scope and lifecycle changes |
 | Reviewer (admin portal or API) | Approves a version, binding the connections and capabilities it may use and the addresses its output may be written to, and rejects a pending draft; cannot widen its authority beyond the version author's roles |
-| Schedule owner (owner or admin) | Sets the cadence, timezone, and bound parameters of a script's schedule, and turns it on or off; grants nothing |
+| Schedule owner (the script's owner at any scope, or an admin) | Sets the cadence, timezone, and bound parameters of a script's schedule, and turns it on or off, from `manage_script` or from the portal; grants nothing |
 | Script principal (`script:<name>`) | Exists only inside an approved run; holds the grant bound at approval and nothing else |
 | The script itself | Only the host functions listed below, only through the running identity |
 
@@ -296,11 +296,20 @@ script pages existed (`ui/src/pages/scripts/MyScriptsPage.tsx` and
 `ScriptDetailPage.tsx`, over `internal/httpserver/scripthttp`'s portal routes)
 they could read their own scripts only by asking an agent to call a tool.
 
-The surface is read-only. There is no mutation on it: approving a version, and
-the grant that approval binds, stay on the admin API behind admin
-authentication, and no portal route writes anything. Widening who can READ a
-script is still a security-relevant change, for the reason stated above under
-definer rights, so the rules are stated exactly.
+The surface writes two things, and neither is an authority. A script's cadence,
+by the person who owns it (`internal/httpserver/scripthttp/portalschedule.go`),
+which carries nothing: the gate and the grant are re-read at every fire. And a
+script's SOURCE (`portalsource.go`), which crosses `script.ApplyEdit` — the one
+gate every mutation surface crosses — so an edit to a script with an approved
+version becomes a draft awaiting review and the approved version keeps running
+until somebody approves the change. The version records the roles its editor
+held, which is the ceiling on what approving it can ever grant.
+
+Approving a version and the grant that approval binds stay on the admin API
+behind admin authentication, and no portal route can approve, reject, or widen
+anything. Widening
+who can READ a script is still a security-relevant change, for the reason stated
+above under definer rights, so the rules are stated exactly.
 
 **Who a caller is, before who may read.** Every rule below compares an owner
 with a caller, so the identity being compared has to be specific to one person.
@@ -317,8 +326,9 @@ owner cannot be established matches nobody but an administrator.
 | What | Who | Why |
 |---|---|---|
 | That a script exists, and its contract: name, owner, typed parameters, approval state, cadence, and the outputs of its last successful run | Anyone the scope rules admit (`Script.VisibleTo`) | This is what makes a script discoverable and usable, and it is what `search`, `fetch`, and a prompt reference already serve |
-| Its source, the capability grant bound to each version, and its run history | The script's owner, and administrators | The source and the grant are the material a review is made of; a run's log is free text the script printed while holding ITS grant and may echo rows the reader has no access to of their own |
+| Its source, the capability grant bound to each version, its run history, and the values its schedule BINDS | The script's owner, and administrators | The source and the grant are the material a review is made of; a run's log is free text the script printed while holding ITS grant and may echo rows the reader has no access to of their own; a schedule's bindings are what the owner configured this automation to ask about, which the cadence itself does not reveal |
 | One run in particular | The above, plus whoever requested that run | The result was handed to them when they asked for it, so a run id they hold stays followable |
+| Setting, re-timing, pausing, and resuming its cadence | The script's owner, and administrators | A cadence is not an authority: the gate and the grant are re-read at every fire, so re-timing reaches nothing new (`Schedules`, below) |
 
 The listing applies the first rule as a store predicate rather than as a filter
 over the answer, exactly as `search` does; a script the caller may not see never
@@ -326,6 +336,13 @@ reaches the response. The second and third rules answer "not yours" and "no such
 script" identically, so the difference cannot be used to learn that something
 exists. An administrator is unrestricted here, which is the same authority the
 admin API already gives them.
+
+A row the caller does not own is projected to what that caller is entitled to
+(`reportableScript`, `reportableSchedule`): the source is dropped, because
+reading the code is what the version history is for and that is the owner's;
+and the cadence keeps its expression, zone, and next fire but not the values
+every fire binds, because the cadence is in the contract document every surface
+serves and the bindings are the owner's.
 
 **The listing asks about nothing it may not report.** Each script's most recent
 run is fetched for the OWNED rows only, in one query, so the row a caller is not
@@ -355,10 +372,21 @@ A schedule confers no authority. It names when an already-approved version runs
 and with which parameters, and every other property of that run — which code
 executes, which roles it presents, which connections and host functions it may
 reach — comes from the approval, which a schedule cannot touch. Setting one is
-therefore an owner-or-admin action rather than a reviewer's
-(`internal/platform/scriptlayer/schedules.go`, `handleScheduleSet`, which
-resolves the script through the same `editable` gate every other mutation
-crosses).
+therefore an owner-or-admin action rather than a reviewer's, at every scope
+(`internal/platform/scriptlayer/schedules.go`, `schedulable`, and
+`internal/httpserver/scripthttp/portalschedule.go` for the portal's copy of the
+same rule).
+
+**That rule is deliberately weaker than the edit rule, and only in one
+direction.** Changing what a script DOES crosses `editable`, which confines a
+non-admin to their personal scripts and sends the result back through review.
+Changing WHEN it runs crosses ownership alone, because the execution gate and
+the capability grant are re-read at every fire: re-timing a global or persona
+script cannot make it reach anything it could not already reach, and requiring
+an administrator for it would mean the owner of a shared report cannot pause
+their own report. A caller who may SEE a script but does not own it is refused;
+on the portal that refusal is the same answer as "no such script", because there
+the difference is a status code a caller could probe with.
 
 The consequences are worth stating explicitly, because "scheduled" sounds like a
 privilege:
@@ -387,10 +415,11 @@ would otherwise retire every non-UTC schedule at once, with nothing to re-enable
 them (`internal/platform/scriptexec/scheduler.go`, `refuseCadence`).
 
 Schedule mutations are recorded twice: the row carries `created_by` and
-`updated_by`, and the `manage_script` call that made the change is an audited
-tool call like any other. Deleting a schedule is not possible — disabling is the
-retirement path — so the record of what produced a run is not removable
-independently of the script itself.
+`updated_by`, stamped with whoever made the change on whichever surface they
+made it, and a change made through `manage_script` is an audited tool call like
+any other. Deleting a schedule is not possible — disabling is the retirement
+path — so the record of what produced a run is not removable independently of
+the script itself.
 
 **What a schedule does add is unattended repetition**, and that is a real
 property: a script that queries a large table costs that query every day rather

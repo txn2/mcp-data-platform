@@ -153,14 +153,16 @@ func mountScriptAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string
 	scripthttp.New(deps).RegisterAdmin(mux, prefix, buildAdminAuth(p))
 }
 
-// mountScriptPortalAPI registers the portal script read routes: the scripts a
-// caller may see, one script's contract, and — for the scripts they own — its
-// versions and its run history. Called from mountPortalAPI with the portal's
-// assembled auth middleware and admin roles.
+// mountScriptPortalAPI registers the portal script routes: the scripts a caller
+// may see, one script's contract, and — for the scripts they own — its
+// versions, its run history, and its cadence. Called from mountPortalAPI with
+// the portal's assembled auth middleware and admin roles.
 //
 // The portal surface exists because a script's owner is frequently not an
-// administrator, and every other script route is admin-only. It adds no
-// mutation: approval stays on the admin surface.
+// administrator, and every other script route is admin-only. What it mutates is
+// the cadence and the source (#1307), and neither grants anything: a cadence
+// carries no authority, and an edit to an approved script becomes a draft for
+// review. Approval stays on the admin surface.
 func mountScriptPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, adminRoles []string) {
 	deps, ok := scriptDeps(p)
 	if !ok {
@@ -210,7 +212,10 @@ func scriptPortalIdentity(adminRoles []string, resolver portal.PersonaResolver) 
 		if user == nil {
 			return nil
 		}
-		id := &scripthttp.PortalIdentity{UserID: user.UserID, Email: user.Email, IsAdmin: rolesIntersect(user.Roles, adminRoles)}
+		id := &scripthttp.PortalIdentity{
+			UserID: user.UserID, Email: user.Email, Roles: user.Roles,
+			IsAdmin: rolesIntersect(user.Roles, adminRoles),
+		}
 		if resolver != nil {
 			if pi := resolver(user.Roles); pi != nil {
 				id.Persona = pi.Name

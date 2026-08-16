@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
@@ -42,6 +43,10 @@ type schedulerConfig struct {
 	// wake nudges the local run worker after a run is materialized, so a fire
 	// starts executing now rather than on the worker's next poll.
 	wake func()
+	// metrics counts the fires the misfire policy steps over, so a schedule
+	// that is quietly not keeping its cadence is visible without reading the
+	// table (#1307). Nil is a no-op.
+	metrics *observability.Metrics
 	// interval overrides defaultMaterializeEvery, and now overrides the clock.
 	// Both are testing hooks.
 	interval time.Duration
@@ -294,10 +299,30 @@ func (s *scheduler) insert(ctx context.Context, sched *script.Schedule, run *scr
 
 // advance moves the schedule forward, tolerating the loss of the race to do so.
 func (s *scheduler) advance(ctx context.Context, sched *script.Schedule, adv script.ScheduleAdvance) {
+	// Counted on the way past, whether or not the row moves: a missed fire is a
+	// fire that did not happen either way, and the write below is bookkeeping.
+	//
+	// Labeled with the script's NAME, matching what the worker records — the
+	// same label carrying an id here and a name there would split one script's
+	// series in two on every chart that groups by it.
+	if adv.Missed > 0 {
+		s.cfg.metrics.RecordScriptMissedFires(ctx, s.scriptLabel(ctx, sched.ScriptID), adv.Missed)
+	}
 	if _, err := s.cfg.schedules.AdvanceSchedule(ctx, adv); err != nil && ctx.Err() == nil {
 		slog.Warn("scripts: advancing a schedule failed",
 			logKeyScheduleID, logsan.SanitizeForLog(sched.ID), logKeyError, err)
 	}
+}
+
+// scriptLabel resolves a script's name for a metric label, falling back to its
+// id when the read fails: a missed fire is worth counting under a less readable
+// label rather than not counting it.
+func (s *scheduler) scriptLabel(ctx context.Context, scriptID string) string {
+	sc, err := s.cfg.scripts.GetByID(ctx, scriptID)
+	if err != nil || sc == nil {
+		return scriptID
+	}
+	return sc.Name
 }
 
 // refuse logs a fire that produced no run.

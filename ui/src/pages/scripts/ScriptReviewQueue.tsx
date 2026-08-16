@@ -3,7 +3,7 @@ import type { PendingReview } from "@/api/admin/types";
 import { EmptyState } from "@/components/patterns/EmptyState";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 // ScriptReviewQueue lists the versions waiting for a decision. It is the point
 // of this page: everything else here is context for one of these rows.
@@ -69,7 +69,26 @@ function QueueRow({
   onOpen: () => void;
 }) {
   return (
-    <li className="flex items-start justify-between gap-4 py-2">
+    // The queue item opens the review, like every other row in the portal that
+    // leads somewhere. Approving and rejecting stay buttons, inside the drawer:
+    // those are decisions, not navigation.
+    <li
+      role="button"
+      tabIndex={0}
+      aria-label={`Review ${row.display_name || row.script_name} v${row.version}`}
+      aria-current={selected}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className={cn(
+        "flex cursor-pointer items-start justify-between gap-4 rounded-md px-2 py-2 select-none",
+        selected ? "bg-muted" : "hover:bg-muted/50",
+      )}
+    >
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium break-words">
@@ -103,9 +122,7 @@ function QueueRow({
           </div>
         )}
       </div>
-      <Button size="sm" variant={selected ? "secondary" : "default"} onClick={onOpen}>
-        Review
-      </Button>
+      <span className="text-xs whitespace-nowrap text-muted-foreground">Review</span>
     </li>
   );
 }

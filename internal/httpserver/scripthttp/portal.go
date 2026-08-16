@@ -16,9 +16,11 @@ import (
 // administrator: without these routes the humans the feature is for can read
 // their own automations only by asking an agent to call a tool.
 //
-// It grants nothing. There is no mutation here, and approval stays where it
-// was — on the admin surface, behind admin authentication — so a wider audience
-// can read what already exists and still cannot change what executes.
+// It grants nothing. The one thing it mutates is a script's cadence (#1307,
+// portalschedule.go), which carries no authority at all, and approval stays
+// where it was — on the admin surface, behind admin authentication — so a wider
+// audience can read what already exists, re-time their own automations, and
+// still cannot change what executes.
 //
 // Two visibility rules apply, and they are different rules:
 //
@@ -44,6 +46,11 @@ type PortalIdentity struct {
 	Email   string
 	Persona string
 	IsAdmin bool
+	// Roles is the authority this caller holds. It is recorded on any version
+	// they author (#1307): approving a version binds exactly the roles its
+	// author held, which is what keeps approval from being a way to hand a
+	// script more access than the person who wrote it.
+	Roles []string
 }
 
 // owner is the identity a script's owner is compared against: the caller's
@@ -81,9 +88,10 @@ type LatestRunReader interface {
 // authentication middleware. Every handler goes through portalHandler, which
 // resolves the caller and answers 401 once for all of them.
 //
-// The run routes are mounted only where the deployment keeps runs, and the
-// detail route only where a contract can be composed; a deployment missing
-// either serves the rest rather than failing per request.
+// The run routes are mounted only where the deployment keeps runs, the detail
+// route only where a contract can be composed, and the schedule routes only
+// where the deployment keeps schedules; a deployment missing any of them serves
+// the rest rather than failing per request.
 func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) http.Handler) {
 	if h.deps.PortalUser == nil {
 		return
@@ -93,6 +101,12 @@ func (h *Handler) RegisterPortal(mux *http.ServeMux, wrap func(http.Handler) htt
 		mux.Handle("GET /api/v1/portal/scripts/{id}", wrap(h.portalHandler(h.portalGetScript)))
 	}
 	mux.Handle("GET /api/v1/portal/scripts/{id}/versions", wrap(h.portalHandler(h.portalListVersions)))
+	// Editing the code is the owner's, and it crosses the same review gate the
+	// tool crosses: an approved script's edit becomes a draft (#1307).
+	mux.Handle("PUT /api/v1/portal/scripts/{id}/source", wrap(h.portalHandler(h.portalSetSource)))
+	if h.deps.Schedules != nil {
+		h.registerPortalSchedules(mux, wrap)
+	}
 	if h.deps.Runs == nil {
 		return
 	}
@@ -160,7 +174,8 @@ func summarizeRun(r *script.Run) portalRun {
 // it fires on, and the state of its most recent run.
 type portalScriptRow struct {
 	Script script.Script `json:"script"`
-	// Schedule is the script's cadence, absent when it has none.
+	// Schedule is the script's cadence, absent when it has none. On a row this
+	// caller does not own it carries the cadence alone (see reportableSchedule).
 	Schedule *script.Schedule `json:"schedule,omitempty"`
 	// LastRun is the most recent run of this script, absent when it has never
 	// run and when the caller does not own it — a run is owner-and-admin
@@ -198,11 +213,26 @@ func (h *Handler) portalListScripts(w http.ResponseWriter, r *http.Request, user
 	}
 	rows := make([]portalScriptRow, 0, len(scripts))
 	for i := range scripts {
-		rows = append(rows, portalScriptRow{Script: scripts[i], Owned: ownsScript(&scripts[i], user)})
+		owned := ownsScript(&scripts[i], user)
+		rows = append(rows, portalScriptRow{Script: reportableScript(scripts[i], owned), Owned: owned})
 	}
 	h.attachSchedules(r.Context(), rows)
 	h.attachLastRuns(r.Context(), rows)
 	httpjson.WriteJSON(w, http.StatusOK, portalScriptListResponse{Data: rows, Total: len(rows)})
+}
+
+// reportableScript is a script row as its reader may have it. Everything that
+// makes a script discoverable — what it is, what it takes, whether anything
+// will execute it — is readable by anyone the scope rules admit; its SOURCE is
+// not. Reading the code is what the version history is for, and that is the
+// owner's and the administrator's, so the listing does not hand the source to
+// every caller who may merely see the script. The tool listing projects its
+// fields and never carried it.
+func reportableScript(sc script.Script, owned bool) script.Script {
+	if !owned {
+		sc.Source = ""
+	}
+	return sc
 }
 
 // portalListFilter applies the caller's visibility as a query predicate. An
@@ -237,8 +267,25 @@ func (h *Handler) attachSchedules(ctx context.Context, rows []portalScriptRow) {
 	}
 	for i := range rows {
 		if s, ok := byScript[rows[i].Script.ID]; ok {
-			rows[i].Schedule = &s
+			rows[i].Schedule = reportableSchedule(s, rows[i].Owned)
 		}
+	}
+}
+
+// reportableSchedule is a cadence as the row's reader may have it. The cadence
+// itself is contract-level — it is in the contract document every surface
+// serves — but the values every fire BINDS are not: they are what the owner
+// configured this automation to ask about, and a caller entitled only to know
+// that the script exists is not entitled to them. They are dropped for a row
+// this caller does not own, along with the stamps of who changed the cadence.
+func reportableSchedule(s script.Schedule, owned bool) *script.Schedule {
+	if owned {
+		return &s
+	}
+	return &script.Schedule{
+		ID: s.ID, ScriptID: s.ScriptID,
+		CronSpec: s.CronSpec, Timezone: s.Timezone,
+		Enabled: s.Enabled, NextRunAt: s.NextRunAt,
 	}
 }
 
@@ -284,6 +331,11 @@ func rowIDs(rows []portalScriptRow, ownedOnly bool) []string {
 type portalScriptResponse struct {
 	Contract script.Contract `json:"contract"`
 	Owned    bool            `json:"owned" example:"true"`
+	// Source is the live script's code, present only for the owner and an
+	// administrator: it is what the editor on that page opens (#1307), and the
+	// contract document deliberately does not carry it, because that document
+	// is served to everyone the scope rules admit.
+	Source string `json:"source,omitempty"`
 }
 
 // portalGetScript returns one script's contract.
@@ -312,10 +364,26 @@ func (h *Handler) portalGetScript(w http.ResponseWriter, r *http.Request, user *
 		httpjson.WriteError(w, http.StatusNotFound, errScriptNot)
 		return
 	}
+	owned := user.IsAdmin || ownsEmail(contract.OwnerEmail, user.owner())
 	httpjson.WriteJSON(w, http.StatusOK, portalScriptResponse{
 		Contract: *contract,
-		Owned:    user.IsAdmin || ownsEmail(contract.OwnerEmail, user.owner()),
+		Owned:    owned,
+		Source:   h.liveSource(r, contract.ID, owned),
 	})
+}
+
+// liveSource is the code the script would run if it were approved today, read
+// for the owner alone. A read that fails leaves the editor closed rather than
+// failing the whole page: the contract above it is still worth showing.
+func (h *Handler) liveSource(r *http.Request, id string, owned bool) string {
+	if !owned {
+		return ""
+	}
+	sc, err := h.deps.Scripts.GetByID(r.Context(), id)
+	if err != nil || sc == nil {
+		return ""
+	}
+	return sc.Source
 }
 
 // portalListVersions returns an owned script's version history.

@@ -10,6 +10,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
 
+// maxScheduleBodyBytes bounds a set-schedule request. A cadence, a zone, and a
+// binding per declared parameter fit inside it many times over.
+const maxScheduleBodyBytes = 64 << 10
+
 // scheduleListResponse is the schedule listing payload.
 type scheduleListResponse struct {
 	Data  []script.Schedule `json:"data"`
@@ -106,8 +110,22 @@ func (h *Handler) setSchedule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	h.writeSchedule(w, r, sc, h.deps.AdminEmail(r))
+}
+
+// writeSchedule applies a set request to sc, recording actor as the change's
+// author. It is the whole of the operation, and both surfaces call it: the
+// admin route resolves its script by id alone, the portal route resolves it
+// through ownership, and from there setting a cadence is one behavior rather
+// than two implementations to keep in step.
+func (h *Handler) writeSchedule(w http.ResponseWriter, r *http.Request, sc *script.Script, actor string) {
 	var req scheduleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// The bindings are scalars against a declared parameter contract, so the
+	// bound is generous for anything a schedule legitimately carries. It is
+	// applied here rather than at the caller because the portal route (#1307)
+	// is reachable by every authenticated user, not only by administrators,
+	// and the decoder would otherwise materialize whatever it was sent.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxScheduleBodyBytes)).Decode(&req); err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -121,7 +139,7 @@ func (h *Handler) setSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	sched, err := script.BuildSchedule(sc, approved, prev, script.ScheduleRequest{
 		CronSpec: req.Cron, Timezone: req.Timezone, Params: req.Params,
-		Enabled: req.Enabled, Actor: h.deps.AdminEmail(r),
+		Enabled: req.Enabled, Actor: actor,
 	}, time.Now())
 	if err != nil {
 		// Every failure here is the request's: an unparseable expression, an
@@ -176,7 +194,14 @@ func (h *Handler) setScheduleEnabled(w http.ResponseWriter, r *http.Request, ena
 	if !ok {
 		return
 	}
-	err := h.deps.Schedules.SetScheduleEnabled(r.Context(), sc.ID, enabled, h.deps.AdminEmail(r))
+	h.writeScheduleEnabled(w, r, sc, h.deps.AdminEmail(r), enabled)
+}
+
+// writeScheduleEnabled pauses or resumes sc's schedule, recording actor. Like
+// writeSchedule it is surface-independent: only how the script was resolved
+// differs between the admin and the portal route.
+func (h *Handler) writeScheduleEnabled(w http.ResponseWriter, r *http.Request, sc *script.Script, actor string, enabled bool) {
+	err := h.deps.Schedules.SetScheduleEnabled(r.Context(), sc.ID, enabled, actor)
 	if errors.Is(err, script.ErrScheduleNotFound) {
 		httpjson.WriteError(w, http.StatusNotFound, errScheduleNot)
 		return

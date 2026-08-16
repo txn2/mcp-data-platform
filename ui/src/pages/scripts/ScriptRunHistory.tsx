@@ -3,7 +3,6 @@ import { RUN_PAGE_SIZE, useScriptRun, useScriptRuns } from "@/api/portal/hooks/s
 import type { ScriptRun, ScriptRunDetail } from "@/api/portal/hooks/scripts";
 import { SectionCard } from "@/components/patterns/SectionCard";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -13,7 +12,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDuration } from "@/lib/formatDuration";
-import { formatWhen, outputLink, runStatusLabel, runStatusVariant, runWhen } from "./runFormat";
+import {
+  formatWhen,
+  outputLink,
+  runStatusLabel,
+  runStatusVariant,
+  runWhen,
+  successRate,
+  summarize,
+} from "./runFormat";
 
 // ScriptRunHistory is the refresh history of an automation: every run, what
 // triggered it, how it ended, and what it produced. A recurring script writes
@@ -33,7 +40,10 @@ export function ScriptRunHistory({
   const runs = data?.data ?? [];
 
   return (
-    <SectionCard title="Run history">
+    <SectionCard
+      title="Run history"
+      action={<RunSummaryLine runs={runs} />}
+    >
       {isLoading && <p className="text-sm text-muted-foreground">Loading runs...</p>}
       {error && (
         <p className="text-sm text-muted-foreground">This script's runs could not be loaded.</p>
@@ -54,7 +64,6 @@ export function ScriptRunHistory({
               <TableHead>When</TableHead>
               <TableHead>Duration</TableHead>
               <TableHead>Outputs</TableHead>
-              <TableHead className="text-right">Log</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -96,7 +105,10 @@ function RunRows({
 }) {
   return (
     <>
-      <TableRow>
+      {/* The row opens the run, as every other expandable row in the portal
+          does. A run's log is the reason anyone comes here, so it should not
+          be behind a second target. */}
+      <TableRow className="cursor-pointer" onClick={onToggle}>
         <TableCell>
           <Badge variant={runStatusVariant(run.status)}>{runStatusLabel(run.status)}</Badge>
         </TableCell>
@@ -107,27 +119,47 @@ function RunRows({
           {run.duration_ms > 0 ? formatDuration(run.duration_ms) : "—"}
         </TableCell>
         <TableCell className="text-xs">{run.output_count}</TableCell>
-        <TableCell className="text-right">
-          <Button size="sm" variant="outline" onClick={onToggle}>
-            {open ? "Hide" : "Open"}
-          </Button>
-        </TableCell>
       </TableRow>
       {run.error && !open && (
         <TableRow>
-          <TableCell colSpan={7} className="pt-0 text-xs text-red-700 dark:text-red-300">
+          <TableCell colSpan={6} className="pt-0 text-xs text-red-700 dark:text-red-300">
             {run.error}
           </TableCell>
         </TableRow>
       )}
       {open && (
         <TableRow>
-          <TableCell colSpan={7} className="bg-muted/30">
+          <TableCell colSpan={6} className="bg-muted/30">
             <RunDetail scriptId={scriptId} runId={run.id} onNavigate={onNavigate} />
           </TableCell>
         </TableRow>
       )}
     </>
+  );
+}
+
+// RunSummaryLine is what this stretch of history adds up to: how the automation
+// has actually been going, rather than leaving a reader to count badges. It
+// states the window it was computed over, because a success rate without one is
+// not a number anybody can act on.
+function RunSummaryLine({ runs }: { runs: ScriptRun[] }) {
+  if (runs.length === 0) return null;
+  const summary = summarize(runs);
+  const rate = successRate(summary);
+  return (
+    <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      <span>
+        <span className="text-foreground tabular-nums">{rate}%</span> succeeded over the last{" "}
+        {summary.total} {summary.total === 1 ? "run" : "runs"}
+      </span>
+      {summary.failed > 0 && (
+        <span className="text-red-700 dark:text-red-300">
+          {summary.failed} failed
+        </span>
+      )}
+      {summary.skipped > 0 && <span>{summary.skipped} skipped</span>}
+      {summary.medianMs > 0 && <span>median {formatDuration(summary.medianMs)}</span>}
+    </span>
   );
 }
 
