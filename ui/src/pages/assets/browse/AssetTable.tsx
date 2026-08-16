@@ -2,6 +2,7 @@ import { Eye, FolderOpen } from "lucide-react";
 import type { Asset, ShareSummary } from "@/api/portal/types";
 import { contentTypeIcon, ContentTypeBadge } from "@/components/ContentTypeBadge";
 import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
+import { SortableHead } from "@/components/patterns/SortableHead";
 import { ShareIndicators } from "@/components/ShareIndicators";
 import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatBytes } from "@/lib/format";
 import { markdownToPlainText } from "@/lib/markdownText";
+import { dateColumnFor, type AssetSortKey, type ListSort } from "@/components/listSort";
 import type { DisplayAsset } from "./types";
 
 /** The Assets list as a dense table. */
@@ -17,27 +19,55 @@ export function AssetTable({
   items,
   shareSummaries,
   threadCounts,
+  sort,
+  onSort,
   onNavigate,
   onPreview,
 }: {
   items: DisplayAsset[];
   shareSummaries?: Record<string, ShareSummary>;
   threadCounts?: Record<string, number>;
+  sort: ListSort<AssetSortKey>;
+  /** Omitted when the rows are ranked rather than sorted, which makes the
+   *  headers inert rather than letting them claim an ordering. */
+  onSort?: (key: AssetSortKey) => void;
   onNavigate: (path: string) => void;
   onPreview: (asset: Asset) => void;
 }) {
+  const dateKey = dateColumnFor(sort.key);
   return (
     <Card className="gap-0 overflow-hidden py-0">
       <Table className="table-fixed">
         <TableHeader>
           <TableRow className="bg-muted/50">
-            <TableHead className="w-[28%] text-muted-foreground">Name</TableHead>
+            <SortableHead
+              label="Name"
+              sortKey="name"
+              sortBy={sort.key}
+              sortDir={sort.dir}
+              onSort={onSort}
+              className="w-[28%]"
+            />
             <TableHead className="w-[10%] text-muted-foreground">Type</TableHead>
             <TableHead className="w-[15%] text-muted-foreground">Tags</TableHead>
             <TableHead className="w-[15%] text-muted-foreground">Collections</TableHead>
-            <TableHead className="w-[8%] text-right text-muted-foreground">Size</TableHead>
+            <SortableHead
+              label="Size"
+              sortKey="size_bytes"
+              sortBy={sort.key}
+              sortDir={sort.dir}
+              onSort={onSort}
+              className="w-[8%] text-right"
+            />
             <TableHead className="w-[8%] text-center text-muted-foreground">Shared</TableHead>
-            <TableHead className="w-[10%] text-muted-foreground">Created</TableHead>
+            <SortableHead
+              label={dateKey === "created_at" ? "Created" : "Updated"}
+              sortKey={dateKey}
+              sortBy={sort.key}
+              sortDir={sort.dir}
+              onSort={onSort}
+              className="w-[10%]"
+            />
             <TableHead className="w-[6%]" />
           </TableRow>
         </TableHeader>
@@ -67,7 +97,7 @@ export function AssetTable({
                 )}
               </TableCell>
               <TableCell className="text-muted-foreground">
-                {new Date(share ? share.shared_at : asset.created_at).toLocaleDateString()}
+                {new Date(share ? share.shared_at : asset[dateKey]).toLocaleDateString()}
               </TableCell>
               <TableCell>
                 <Button

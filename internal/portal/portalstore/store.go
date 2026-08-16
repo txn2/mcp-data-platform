@@ -266,7 +266,7 @@ func (s *postgresAssetStore) queryAssets(ctx context.Context, filter portaldomai
 		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')",
 	).From("portal_assets"), filter).
 		Where("deleted_at IS NULL").
-		OrderBy("created_at DESC")
+		OrderBy(filter.Order()...)
 
 	if limit > 0 {
 		selectQB = selectQB.Limit(uint64(limit)) //nolint:gosec // validated positive

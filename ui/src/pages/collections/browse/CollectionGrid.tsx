@@ -6,6 +6,7 @@ import { ShareIndicators } from "@/components/ShareIndicators";
 import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { Badge } from "@/components/ui/badge";
 import { markdownToPlainText } from "@/lib/markdownText";
+import { dateLabelFor, type DateColumn } from "@/components/listSort";
 import type { DisplayCollection } from "./types";
 
 /** The Collections list as a gallery of thumbnails. */
@@ -13,11 +14,14 @@ export function CollectionGrid({
   items,
   shareSummaries,
   threadCounts,
+  dateKey,
   onNavigate,
 }: {
   items: DisplayCollection[];
   shareSummaries?: Record<string, ShareSummary>;
   threadCounts?: Record<string, number>;
+  /** The timestamp the list is ordered by, which is the one each card shows. */
+  dateKey: DateColumn;
   onNavigate: (path: string) => void;
 }) {
   return (
@@ -29,6 +33,7 @@ export function CollectionGrid({
           share={share}
           summary={shareSummaries?.[collection.id]}
           threadCount={threadCounts?.[collection.id]}
+          dateKey={dateKey}
           onNavigate={onNavigate}
         />
       ))}
@@ -41,12 +46,14 @@ function CollectionCard({
   share,
   summary,
   threadCount,
+  dateKey,
   onNavigate,
 }: {
   collection: DisplayCollection["collection"];
   share?: DisplayCollection["share"];
   summary?: ShareSummary;
   threadCount?: number;
+  dateKey: DateColumn;
   onNavigate: (path: string) => void;
 }) {
   const tags = coll.asset_tags ?? [];
@@ -95,7 +102,11 @@ function CollectionCard({
         </div>
       )}
       <div className="flex w-full items-center justify-between text-xs text-muted-foreground">
-        <span>{new Date(share ? share.shared_at : coll.created_at).toLocaleDateString()}</span>
+        {/* The card's date carries no visible label, so the title says which
+            timestamp it is — the same one the list is ordered by. */}
+        <span title={dateLabelFor(dateKey, !!share)}>
+          {new Date(share ? share.shared_at : coll[dateKey]).toLocaleDateString()}
+        </span>
       </div>
     </ThumbCard>
   );

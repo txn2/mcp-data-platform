@@ -47,6 +47,8 @@ const (
 	pathKeyID         = "id"
 	paramLimit        = "limit"
 	paramOffset       = "offset"
+	paramSort         = "sort"
+	paramDir          = "dir"
 	paramQuery        = "q"
 	headerContentType = "Content-Type"
 )
@@ -504,6 +506,8 @@ type paginatedResponse struct {
 // @Param        tag           query  string   false  "Filter by tag"
 // @Param        limit         query  integer  false  "Results per page (default: 20)"
 // @Param        offset        query  integer  false  "Offset for pagination (default: 0)"
+// @Param        sort          query  string   false  "Sort column (default: updated_at)"  Enums(updated_at, created_at, name, size_bytes)
+// @Param        dir           query  string   false  "Sort direction (default: desc)"     Enums(asc, desc)
 // @Success      200  {object}  paginatedResponse
 // @Failure      401  {object}  problemDetail
 // @Failure      500  {object}  problemDetail
@@ -517,12 +521,15 @@ func (h *Handler) listAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sortBy, sortDir := sortParams(r)
 	filter := AssetFilter{
 		OwnerID:     user.UserID,
 		ContentType: r.URL.Query().Get("content_type"),
 		Tag:         r.URL.Query().Get("tag"),
 		Limit:       intParam(r, paramLimit, defaultLimit),
 		Offset:      intParam(r, paramOffset, 0),
+		SortBy:      sortBy,
+		SortDir:     sortDir,
 	}
 
 	assets, total, err := h.deps.AssetStore.List(r.Context(), filter)
@@ -2292,6 +2299,16 @@ func intParam(r *http.Request, name string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+// sortParams reads the shared `sort` and `dir` listing parameters. The
+// direction is upper-cased here so the wire vocabulary can stay lowercase
+// (`dir=asc`) while the store compares against SortAsc/SortDesc; neither value
+// is trusted past this point, because the store resolves both against its own
+// allowlist before either reaches an ORDER BY clause.
+func sortParams(r *http.Request) (sortBy, sortDir string) {
+	q := r.URL.Query()
+	return q.Get(paramSort), strings.ToUpper(q.Get(paramDir))
 }
 
 // changeSummaryFromHeader reads the X-Change-Summary header from the request.

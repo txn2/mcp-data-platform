@@ -1318,3 +1318,56 @@ func TestPostgresShareStoreListSharedPromptsWithUser(t *testing.T) {
 	assert.Equal(t, portaldomain.SharePermission("viewer"), refs[0].Permission)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// The asset list's ordering is the caller's choice, resolved against the
+// allowlist before it is spliced into SQL. These assert the clause that
+// actually reaches Postgres, since that splice is the only place an unchecked
+// column could land.
+func TestPostgresAssetStoreListOrdering(t *testing.T) {
+	tests := []struct {
+		name      string
+		filter    portaldomain.AssetFilter
+		wantOrder string
+	}{
+		{
+			name:      "defaults to most recently touched",
+			filter:    portaldomain.AssetFilter{OwnerID: "user1"},
+			wantOrder: "ORDER BY updated_at DESC, id DESC",
+		},
+		{
+			name:      "name ascending",
+			filter:    portaldomain.AssetFilter{OwnerID: "user1", SortBy: "name", SortDir: portaldomain.SortAsc},
+			wantOrder: "ORDER BY name ASC, id ASC",
+		},
+		{
+			name:      "size descending",
+			filter:    portaldomain.AssetFilter{OwnerID: "user1", SortBy: "size_bytes", SortDir: portaldomain.SortDesc},
+			wantOrder: "ORDER BY size_bytes DESC, id DESC",
+		},
+		{
+			name:      "an unlisted column orders by the default instead",
+			filter:    portaldomain.AssetFilter{OwnerID: "user1", SortBy: "s3_key"},
+			wantOrder: "ORDER BY updated_at DESC, id DESC",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer db.Close() //nolint:errcheck // test cleanup
+
+			store := NewPostgresAssetStore(db)
+			mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+			mock.ExpectQuery(tc.wantOrder).WillReturnRows(sqlmock.NewRows([]string{
+				"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
+				"thumbnail_s3_key", "thumbnail_dark_s3_key", "size_bytes", "tags", "provenance", "session_id",
+				"current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
+			}))
+
+			_, _, err = store.List(context.Background(), tc.filter)
+			require.NoError(t, err)
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}

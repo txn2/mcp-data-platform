@@ -3,6 +3,13 @@ import { useCreateCollection } from "@/api/portal/hooks";
 import { AssetsTabs } from "@/components/AssetsTabs";
 import { CollectionThumbnailQueue } from "@/components/CollectionThumbnailQueue";
 import { InfiniteFooter } from "@/components/InfiniteFooter";
+import {
+  DEFAULT_COLLECTION_SORT,
+  dateColumnFor,
+  toggleSort,
+  type CollectionSortKey,
+  type ListSort,
+} from "@/components/listSort";
 import { getStoredViewMode, storeViewMode, type ViewMode } from "@/components/listView";
 import { getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
 import { CollectionFilterBar } from "./browse/CollectionFilterBar";
@@ -18,10 +25,11 @@ interface Props {
 export function CollectionsPage({ onNavigate }: Props) {
   const [scope, setScope] = useState<Scope>(getStoredScope);
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<ListSort<CollectionSortKey>>(DEFAULT_COLLECTION_SORT);
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
   const createMutation = useCreateCollection();
 
-  const browse = useCollectionBrowse({ scope, search });
+  const browse = useCollectionBrowse({ scope, search, sort });
 
   function changeViewMode(mode: ViewMode) {
     setViewMode(mode);
@@ -50,13 +58,24 @@ export function CollectionsPage({ onNavigate }: Props) {
         onScopeChange={changeScope}
         search={search}
         onSearchChange={setSearch}
+        sort={sort}
+        onSortChange={setSort}
+        // Relevance ranking, not a column, decides the order of a search.
+        sortDisabled={browse.semanticSearch}
         viewMode={viewMode}
         onViewModeChange={changeViewMode}
         onCreate={() => void handleCreate()}
         creating={createMutation.isPending}
       />
 
-      <Results browse={browse} scope={scope} viewMode={viewMode} onNavigate={onNavigate} />
+      <Results
+        browse={browse}
+        scope={scope}
+        viewMode={viewMode}
+        sort={sort}
+        onSort={(key) => setSort((s) => toggleSort(s, key))}
+        onNavigate={onNavigate}
+      />
 
       <InfiniteFooter
         hasMore={browse.canLoadMore}
@@ -76,11 +95,15 @@ function Results({
   browse,
   scope,
   viewMode,
+  sort,
+  onSort,
   onNavigate,
 }: {
   browse: CollectionBrowse;
   scope: Scope;
   viewMode: ViewMode;
+  sort: ListSort<CollectionSortKey>;
+  onSort: (key: CollectionSortKey) => void;
   onNavigate: (path: string) => void;
 }) {
   if (browse.isLoadingList) {
@@ -109,6 +132,7 @@ function Results({
       items={browse.displayItems}
       shareSummaries={browse.shareSummaries}
       threadCounts={browse.threadCounts}
+      dateKey={dateColumnFor(sort.key)}
       onNavigate={onNavigate}
     />
   ) : (
@@ -116,6 +140,10 @@ function Results({
       items={browse.displayItems}
       shareSummaries={browse.shareSummaries}
       threadCounts={browse.threadCounts}
+      sort={sort}
+      // A relevance search is ranked, not sorted; its headers would otherwise
+      // claim an ordering the rows do not have.
+      onSort={browse.semanticSearch ? undefined : onSort}
       onNavigate={onNavigate}
     />
   );

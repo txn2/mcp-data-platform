@@ -5,6 +5,12 @@ import {
   useThreadCounts,
 } from "@/api/portal/hooks";
 import type { Collection, ShareSummary } from "@/api/portal/types";
+import {
+  sortRowsBy,
+  timeValue,
+  type CollectionSortKey,
+  type ListSort,
+} from "@/components/listSort";
 import { activeSources, loadMoreState, scopeIsLoading } from "@/components/listView";
 import type { Scope } from "@/components/ScopeFilter";
 import { useDebounced } from "@/lib/useDebounced";
@@ -38,17 +44,23 @@ export interface CollectionBrowse {
 export function useCollectionBrowse({
   scope,
   search,
+  sort,
 }: {
   scope: Scope;
   /** The raw search box value; the hook owns its debounce. */
   search: string;
+  sort: ListSort<CollectionSortKey>;
 }): CollectionBrowse {
   const debouncedSearch = useDebounced(search, 300);
   const query = debouncedSearch.trim();
   const searching = query.length > 0;
   const semanticSearch = searching && scope === "mine";
 
-  const mineQuery = useInfiniteCollections();
+  // The Shared scope discards this query's rows entirely, so it sends no
+  // ordering and its query key stays put; Mine and All both page through it.
+  const mineQuery = useInfiniteCollections(
+    scope === "shared" ? {} : { sort: sort.key, dir: sort.dir },
+  );
   const { data, isLoading } = mineQuery;
   const searchResults = useSearchCollections(semanticSearch ? debouncedSearch : "");
   const sharedQuery = useInfiniteSharedCollections();
@@ -59,8 +71,12 @@ export function useCollectionBrowse({
     semanticSearch ? ranked(searchResults.data) : browsed(data),
     sharedCollections(sharedData),
   );
+  // The mine scope is ordered server-side; the merged scopes are two paginated
+  // queries stitched together here, so they order the rows loaded so far.
   const displayItems =
-    scope === "mine" ? items : items.filter((it) => matchesQuery(it.collection, query));
+    scope === "mine"
+      ? items
+      : sortCollections(items.filter((it) => matchesQuery(it.collection, query)), sort);
 
   const collections = displayItems.map((it) => it.collection);
   const { data: threadCounts } = useThreadCounts(
@@ -120,6 +136,30 @@ function mergeScope(
     ...mine.map((collection) => ({ collection })),
     ...shared.filter((s) => !mineIds.has(s.collection.id)),
   ];
+}
+
+/** The merged scopes' own ordering, over the rows loaded so far. */
+function sortCollections(
+  items: DisplayCollection[],
+  sort: ListSort<CollectionSortKey>,
+): DisplayCollection[] {
+  return sortRowsBy(
+    items,
+    sort.dir,
+    (it) => collectionSortValue(it.collection, sort.key),
+    (it) => it.collection.id,
+  );
+}
+
+function collectionSortValue(c: Collection, key: CollectionSortKey): string | number {
+  switch (key) {
+    case "name":
+      return (c.name ?? "").toLowerCase();
+    case "created_at":
+      return timeValue(c.created_at);
+    default:
+      return timeValue(c.updated_at);
+  }
 }
 
 function matchesQuery(c: Collection, query: string): boolean {

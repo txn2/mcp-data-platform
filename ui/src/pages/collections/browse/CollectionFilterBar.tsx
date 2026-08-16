@@ -1,7 +1,13 @@
 import { LayoutGrid, List, Plus } from "lucide-react";
+import {
+  COLLECTION_SORT_OPTIONS,
+  type CollectionSortKey,
+  type ListSort,
+} from "@/components/listSort";
 import type { ViewMode } from "@/components/listView";
 import { SearchInput } from "@/components/patterns/SearchInput";
 import { SegmentedControl } from "@/components/patterns/SegmentedControl";
+import { SortControl } from "@/components/patterns/SortControl";
 import { ScopeFilter, type Scope } from "@/components/ScopeFilter";
 import { Button } from "@/components/ui/button";
 
@@ -16,6 +22,9 @@ export function CollectionFilterBar({
   onScopeChange,
   search,
   onSearchChange,
+  sort,
+  onSortChange,
+  sortDisabled,
   viewMode,
   onViewModeChange,
   onCreate,
@@ -25,6 +34,10 @@ export function CollectionFilterBar({
   onScopeChange: (scope: Scope) => void;
   search: string;
   onSearchChange: (search: string) => void;
+  sort: ListSort<CollectionSortKey>;
+  onSortChange: (sort: ListSort<CollectionSortKey>) => void;
+  /** True while relevance ranking, not a column, decides the order. */
+  sortDisabled: boolean;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   onCreate: () => void;
@@ -49,6 +62,12 @@ export function CollectionFilterBar({
           {creating ? "Creating..." : "New Collection"}
         </Button>
       )}
+      <SortControl
+        value={sort}
+        onChange={onSortChange}
+        options={COLLECTION_SORT_OPTIONS}
+        disabled={sortDisabled}
+      />
       <SegmentedControl
         label="List layout"
         value={viewMode}

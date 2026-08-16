@@ -348,3 +348,90 @@ describe("MyAssetsPage: load more pagination", () => {
     ).toBeInTheDocument();
   });
 });
+
+// chooseOption drives one of the Radix listbox facets: open the trigger by its
+// accessible name, then click the named option. jsdom has no PointerEvent, so
+// the trigger's pointerdown handler never fires and the listbox is opened with
+// the keyboard instead (see ui/README.md).
+function chooseOption(name: string, option: string): void {
+  fireEvent.keyDown(screen.getByRole("combobox", { name }), { key: "Enter" });
+  fireEvent.click(screen.getByRole("option", { name: option }));
+}
+
+/** The `params` the page last asked the browse query for. */
+function lastRequestedParams(): Record<string, string> | undefined {
+  const calls = mockUseAssets.mock.calls;
+  return calls[calls.length - 1]?.[0] as Record<string, string> | undefined;
+}
+
+describe("MyAssetsPage: ordering (#1295)", () => {
+  beforeEach(() => {
+    mockUseAssets.mockReturnValue({
+      data: {
+        data: [
+          makeAsset({ created_at: "2025-01-01T00:00:00Z", updated_at: "2025-06-01T00:00:00Z" }),
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+        share_summaries: {},
+      },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
+  });
+
+  it("opens on most recently updated, and says so to the server", () => {
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+
+    expect(lastRequestedParams()).toMatchObject({ sort: "updated_at", dir: "desc" });
+  });
+
+  it("re-asks the server when the column changes, at that column's direction", () => {
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+
+    chooseOption("Sort by", "Name");
+
+    // Ordering is server-side: the library is paginated, so re-sorting the
+    // page already loaded would only reorder the first fifty rows.
+    expect(lastRequestedParams()).toMatchObject({ sort: "name", dir: "asc" });
+  });
+
+  it("reverses without changing the column", () => {
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+
+    fireEvent.click(screen.getByRole("button", { name: /sort ascending/i }));
+
+    expect(lastRequestedParams()).toMatchObject({ sort: "updated_at", dir: "asc" });
+  });
+
+  it("shows the timestamp the list is ordered by, not a different one", () => {
+    // The complaint that opened #1295: a list ordered by one date while
+    // displaying another reads as broken, because the visible dates are not in
+    // the order the rows are.
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Table view" }));
+
+    expect(screen.getByRole("columnheader", { name: /Updated/ })).toBeInTheDocument();
+    expect(
+      screen.getByText(new Date("2025-06-01T00:00:00Z").toLocaleDateString()),
+    ).toBeInTheDocument();
+
+    chooseOption("Sort by", "Created");
+
+    expect(screen.getByRole("columnheader", { name: /Created/ })).toBeInTheDocument();
+    expect(
+      screen.getByText(new Date("2025-01-01T00:00:00Z").toLocaleDateString()),
+    ).toBeInTheDocument();
+  });
+
+  it("sorts from a table header, and reverses on a second click", () => {
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Table view" }));
+
+    fireEvent.click(screen.getByRole("columnheader", { name: /Name/ }));
+    expect(lastRequestedParams()).toMatchObject({ sort: "name", dir: "asc" });
+
+    fireEvent.click(screen.getByRole("columnheader", { name: /Name/ }));
+    expect(lastRequestedParams()).toMatchObject({ sort: "name", dir: "desc" });
+  });
+});

@@ -210,6 +210,17 @@ type AssetFilter struct {
 	Search      string `json:"search,omitempty"`
 	Limit       int    `json:"limit,omitempty"`
 	Offset      int    `json:"offset,omitempty"`
+	// SortBy names the ordering column. It must be a key of
+	// AssetSortColumns; anything else falls back to SortUpdatedAt.
+	SortBy string `json:"sort_by,omitempty"`
+	// SortDir is SortAsc or SortDesc. Anything else falls back to SortDesc.
+	SortDir string `json:"sort_dir,omitempty"`
+}
+
+// Order returns the ORDER BY clauses for this filter, with unknown columns and
+// directions resolved to the defaults.
+func (f *AssetFilter) Order() []string {
+	return ResolveOrder(f.SortBy, f.SortDir, AssetSortColumns, SortUpdatedAt)
 }
 
 // DefaultLimit is the default page size for asset and collection listing.
@@ -438,6 +449,17 @@ type CollectionFilter struct {
 	Search  string `json:"search,omitempty"`
 	Limit   int    `json:"limit,omitempty"`
 	Offset  int    `json:"offset,omitempty"`
+	// SortBy names the ordering column. It must be a key of
+	// CollectionSortColumns; anything else falls back to SortUpdatedAt.
+	SortBy string `json:"sort_by,omitempty"`
+	// SortDir is SortAsc or SortDesc. Anything else falls back to SortDesc.
+	SortDir string `json:"sort_dir,omitempty"`
+}
+
+// Order returns the ORDER BY clauses for this filter, with unknown columns and
+// directions resolved to the defaults.
+func (f *CollectionFilter) Order() []string {
+	return ResolveOrder(f.SortBy, f.SortDir, CollectionSortColumns, SortUpdatedAt)
 }
 
 // EffectiveLimit returns the limit with defaults applied.

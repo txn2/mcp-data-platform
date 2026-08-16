@@ -10668,6 +10668,22 @@ paths:
         in: query
         name: offset
         type: integer
+      - description: 'Sort column (default: updated_at)'
+        enum:
+        - updated_at
+        - created_at
+        - name
+        - size_bytes
+        in: query
+        name: sort
+        type: string
+      - description: 'Sort direction (default: desc)'
+        enum:
+        - asc
+        - desc
+        in: query
+        name: dir
+        type: string
       produces:
       - application/json
       responses:
@@ -11497,6 +11513,21 @@ paths:
         in: query
         name: offset
         type: integer
+      - description: 'Sort column (default: updated_at)'
+        enum:
+        - updated_at
+        - created_at
+        - name
+        in: query
+        name: sort
+        type: string
+      - description: 'Sort direction (default: desc)'
+        enum:
+        - asc
+        - desc
+        in: query
+        name: dir
+        type: string
       produces:
       - application/json
       responses:

@@ -28,6 +28,7 @@ type collHandlerMockCollStore struct {
 	updateThumbErr  error
 	softDeleteErr   error
 	setSectionsErr  error
+	lastFilter      *CollectionFilter // captures the most recent List filter
 }
 
 func (m *collHandlerMockCollStore) Insert(_ context.Context, _ Collection) error { return m.insertErr }
@@ -35,7 +36,8 @@ func (m *collHandlerMockCollStore) Get(_ context.Context, _ string) (*Collection
 	return m.getColl, m.getErr
 }
 
-func (m *collHandlerMockCollStore) List(_ context.Context, _ CollectionFilter) ([]Collection, int, error) {
+func (m *collHandlerMockCollStore) List(_ context.Context, f CollectionFilter) (collections []Collection, total int, err error) {
+	m.lastFilter = &f
 	return m.listRes, m.listTotal, m.listErr
 }
 
@@ -282,6 +284,38 @@ func TestListCollections(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 		assert.Equal(t, 10, resp.Limit)
 		assert.Equal(t, 5, resp.Offset)
+	})
+
+	t.Run("sort_params_reach_the_store", func(t *testing.T) {
+		// The two lists share one wire vocabulary, so a reader who set an
+		// ordering on Assets finds the same words work on Collections.
+		cs := &collHandlerMockCollStore{listRes: []Collection{}, listTotal: 0}
+		shares := &mockCollectionShareStore{}
+		h := newTestHandlerWithCollections(&mockAssetStore{}, shares, cs, &mockS3Client{}, testUser)
+
+		r := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/collections?sort=name&dir=asc", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, cs.lastFilter)
+		assert.Equal(t, "name", cs.lastFilter.SortBy)
+		assert.Equal(t, "ASC", cs.lastFilter.SortDir)
+	})
+
+	t.Run("no_sort_params_leave_the_store_default", func(t *testing.T) {
+		cs := &collHandlerMockCollStore{listRes: []Collection{}, listTotal: 0}
+		shares := &mockCollectionShareStore{}
+		h := newTestHandlerWithCollections(&mockAssetStore{}, shares, cs, &mockS3Client{}, testUser)
+
+		r := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/collections", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		require.NotNil(t, cs.lastFilter)
+		assert.Empty(t, cs.lastFilter.SortBy)
+		assert.Empty(t, cs.lastFilter.SortDir)
 	})
 
 	t.Run("missing_auth", func(t *testing.T) {

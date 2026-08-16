@@ -22,9 +22,16 @@ export function SortableHead<K extends string>({
   // column as sorted.
   sortBy: K | null;
   sortDir: "asc" | "desc";
-  onSort: (key: K) => void;
+  // Omitted when this list cannot be reordered right now — a relevance search
+  // ranks its rows, so a header that still offered to sort them would be
+  // claiming an ordering the rows do not have. The column then reads as a
+  // plain header rather than a dead affordance.
+  onSort?: (key: K) => void;
   className?: string;
 }) {
+  if (!onSort) {
+    return <TableHead className={cn("text-muted-foreground", className)}>{label}</TableHead>;
+  }
   const active = sortBy === sortKey;
   const Chevron = active ? (sortDir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
   return (
