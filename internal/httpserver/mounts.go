@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
+	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -605,6 +606,14 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	if p.AuditStore() != nil {
 		deps.AuditQuerier = p.AuditStore()
 		deps.AuditMetricsQuerier = p.AuditStore()
+	}
+
+	// Sessions are read off the audit log, so they need the database rather
+	// than the audit store: the read model aggregates audit_logs and joins
+	// what a session produced (assets, insights) and the live session row's
+	// persona. No database, no history to derive a session from, no routes.
+	if db := p.DB(); db != nil {
+		deps.SessionViewer = sessionview.NewPostgresStore(db)
 	}
 
 	// Note: WireGatewayTokenStore and WireGatewayBroadcaster run earlier

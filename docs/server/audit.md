@@ -111,6 +111,42 @@ Two things follow from purpose living in its own column rather than in `paramete
 
 `purpose` is empty on a tool the platform does not gate, and on a caller that cannot thread arguments at all — an MCP App's sandboxed call, a managed script run, the gateway REST shim, the admin tool runner. It is `NULL` on rows written before the column existed. Which tools carry it, and whether a call that omits it is refused, are set by the [`purpose` config block](configuration.md#purpose-configuration).
 
+## Sessions read back from the log
+
+Every audit row carries the `session_id` of the call that wrote it. Grouped by that id, the log is a record of sessions: who was working, over what window, which tools and connections they reached, what failed, and what they left behind.
+
+The platform's own session records cannot serve that purpose. They are working state with a TTL — the store deletes them on expiry (`pkg/session/postgres`) — so an hour after an agent stops, the row that represented its session is gone. The audit rows are still there, for as long as audit retention holds them. So a session here is **derived, not stored**: no new table, no second write path, and nothing to backfill.
+
+A session id says where it came from, and the prefix is the only classification the platform has, since the ids of isolated runs are never persisted:
+
+| Kind | Prefix | What it is |
+|------|--------|-----------|
+| `agent` | `dps_` | A handle minted by `platform_info` and threaded by the agent across calls |
+| `portal` | `dpp_` | One portal-driven tool run, isolated to a single request |
+| `script` | `dpx_` | One managed-script run |
+| `transport` | none | A transport-derived session, or a call recorded before explicit handles existed |
+
+A session summary carries the caller and persona of its first event, its first and last call, its call and failure counts, the distinct tools and connections it touched, and how much it produced. Persona has one exception: while the live session record still exists, the persona the handle was minted under outranks the per-call persona, because that is what the session was authorized as.
+
+What a session produced is read from the two places the platform records it:
+
+- **Assets** — `portal_assets` rows whose `session_id` matches, excluding deleted ones.
+- **Insights** — knowledge-dimension `memory_records` whose metadata carries the capturing session. (Migration 000031 folded the old `knowledge_insights` table into `memory_records`; an insight has been a memory record since.)
+
+Opened, a session reads as its summary, those outputs, and the ordered record of its calls — each with the [purpose](#why-a-call-happened) the agent stated for it, the connection it reached, how it ended, and how long it took. That ordering is what the events list cannot give: the same rows sorted by time across every session tell you what happened on the platform, not what one person was doing.
+
+Read it through the admin API:
+
+```
+GET /api/v1/admin/sessions?kind=agent&has_failures=true
+GET /api/v1/admin/sessions/dps_9f2c1a4b8e7d6c5a4b3e2d1c0f9e8a7b
+GET /api/v1/admin/audit/events?session_id=dps_9f2c1a4b8e7d6c5a4b3e2d1c0f9e8a7b
+```
+
+or in the portal under **Admin > Sessions**. See [Session Endpoints](admin-api.md#session-endpoints) for the full parameter and response reference and [Sessions](admin-portal.md#sessions) for the UI.
+
+Two indexes support the joins (migration 000106): `idx_portal_assets_session_id` on live assets and `idx_memory_records_session_id` on the metadata expression. `audit_logs` was already indexed on `session_id`.
+
 ## Caller class via source
 
 Tools on this platform are reachable through three entry points, all of which fire the same MCP audit middleware. The `source` field on each audit row records which path was used so operators can separate the populations without having to know which user IDs belong to which class of caller.

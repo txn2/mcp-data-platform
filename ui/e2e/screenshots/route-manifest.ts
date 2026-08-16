@@ -386,6 +386,11 @@ export const routes: ScreenshotRoute[] = [
     tabs: ["mcp", "apigateway", "health", "indexing", "events", "notifications"],
   },
   {
+    slug: "admin-sessions",
+    path: "/portal/admin/sessions",
+    category: "admin",
+  },
+  {
     slug: "admin-api-catalogs",
     path: "/portal/admin/api-catalogs",
     category: "admin",

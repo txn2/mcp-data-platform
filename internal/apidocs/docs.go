@@ -7250,6 +7250,151 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/sessions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns sessions derived from the audit log, most recently active first. A session is not a stored row: it is every audit event sharing one session id, so the list reaches as far back as audit retention.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "List sessions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by user ID",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by session id origin (agent, portal, script, transport)",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sessions with activity after this time (RFC 3339)",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sessions with activity before this time (RFC 3339)",
+                        "name": "end_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only sessions that saved at least one asset",
+                        "name": "has_assets",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only sessions with at least one failed call",
+                        "name": "has_failures",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 25, max: 200)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sessionapi.sessionListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/sessions/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one session: its summary, the assets and insights it produced, and a page of its call timeline with the purpose stated for each call.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Get session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Timeline page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Timeline entries per page (default: 25, max: 200)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sessionview.Detail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/settings/review-queue-alert": {
             "get": {
                 "security": [
@@ -23027,6 +23172,286 @@ const docTemplate = `{
                 }
             }
         },
+        "sessionapi.sessionListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sessionview.Summary"
+                    }
+                },
+                "page": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "per_page": {
+                    "type": "integer",
+                    "example": 25
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 42
+                }
+            }
+        },
+        "sessionview.AssetRef": {
+            "type": "object",
+            "properties": {
+                "content_type": {
+                    "type": "string",
+                    "example": "text/csv"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "ast_7c1e"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q3 revenue by region"
+                }
+            }
+        },
+        "sessionview.Detail": {
+            "type": "object",
+            "properties": {
+                "asset_count": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "assets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sessionview.AssetRef"
+                    }
+                },
+                "call_count": {
+                    "type": "integer",
+                    "example": 5
+                },
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "failure_count": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "insight_count": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "insights": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sessionview.InsightRef"
+                    }
+                },
+                "kind": {
+                    "description": "Kind is the id's origin (agent handle, portal run, script run,\ntransport). Derived from the id, so it is never absent.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/sessionview.Kind"
+                        }
+                    ],
+                    "example": "agent"
+                },
+                "last_active_at": {
+                    "type": "string"
+                },
+                "persona": {
+                    "description": "Persona is the live session row's minted persona when the row still\nexists, and the first event's persona once it has expired.",
+                    "type": "string",
+                    "example": "data-engineer"
+                },
+                "session_id": {
+                    "type": "string",
+                    "example": "dps_9f2c1a4b8e7d6c5a4b3e2d1c0f9e8a7b"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "timeline": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sessionview.TimelineEntry"
+                    }
+                },
+                "timeline_total": {
+                    "description": "TimelineTotal is the session's full call count, which exceeds\nlen(Timeline) when the timeline is paged.",
+                    "type": "integer",
+                    "example": 5
+                },
+                "tools": {
+                    "description": "Tools and Connections are the distinct names the session touched,\nsorted. Empty slices, never null, so the UI need not model both.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "user_email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "user_id": {
+                    "description": "UserID and UserEmail come from the session's first event. A session\nbelongs to one caller; the audit rows repeat that caller per row.",
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "sessionview.InsightRef": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "example": "data_quality"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "ins_3a9f"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                },
+                "text": {
+                    "type": "string",
+                    "example": "orders.amount is null for canceled rows."
+                }
+            }
+        },
+        "sessionview.Kind": {
+            "type": "string",
+            "enum": [
+                "agent",
+                "portal",
+                "script",
+                "transport"
+            ],
+            "x-enum-varnames": [
+                "KindAgent",
+                "KindPortal",
+                "KindScript",
+                "KindTransport"
+            ]
+        },
+        "sessionview.Summary": {
+            "type": "object",
+            "properties": {
+                "asset_count": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "call_count": {
+                    "type": "integer",
+                    "example": 5
+                },
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "failure_count": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "insight_count": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "kind": {
+                    "description": "Kind is the id's origin (agent handle, portal run, script run,\ntransport). Derived from the id, so it is never absent.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/sessionview.Kind"
+                        }
+                    ],
+                    "example": "agent"
+                },
+                "last_active_at": {
+                    "type": "string"
+                },
+                "persona": {
+                    "description": "Persona is the live session row's minted persona when the row still\nexists, and the first event's persona once it has expired.",
+                    "type": "string",
+                    "example": "data-engineer"
+                },
+                "session_id": {
+                    "type": "string",
+                    "example": "dps_9f2c1a4b8e7d6c5a4b3e2d1c0f9e8a7b"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "tools": {
+                    "description": "Tools and Connections are the distinct names the session touched,\nsorted. Empty slices, never null, so the UI need not model both.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "user_email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "user_id": {
+                    "description": "UserID and UserEmail come from the session's first event. A session\nbelongs to one caller; the audit rows repeat that caller per row.",
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "sessionview.TimelineEntry": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "type": "string",
+                    "example": "acme-warehouse"
+                },
+                "duration_ms": {
+                    "type": "integer",
+                    "example": 143
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "description": "EventID is the audit event's id, which the admin events surface\naddresses a single row by.",
+                    "type": "string",
+                    "example": "evt_a1b2c3d4e5f6"
+                },
+                "purpose": {
+                    "description": "Purpose is the reason the agent stated for this call (#1317). Empty\non a call the platform does not gate and on rows older than it.",
+                    "type": "string",
+                    "example": "Sizing Q3 revenue by region for the board deck."
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "tool_name": {
+                    "type": "string",
+                    "example": "trino_query"
+                },
+                "toolkit_kind": {
+                    "type": "string",
+                    "example": "trino"
+                }
+            }
+        },
         "settingsapi.problemDetail": {
             "type": "object",
             "properties": {
@@ -23329,7 +23754,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "Assets", "Collections", "Knowledge", "Memory", "Prompts", "Resources", "Shares"]}, {"name": "Admin API", "tags": ["Audit", "Auth Keys", "Config", "Connections", "Personas", "Scripts", "System", "Tools"]}]}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "Assets", "Collections", "Knowledge", "Memory", "Prompts", "Resources", "Shares"]}, {"name": "Admin API", "tags": ["Audit", "Auth Keys", "Config", "Connections", "Personas", "Scripts", "Sessions", "System", "Tools"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

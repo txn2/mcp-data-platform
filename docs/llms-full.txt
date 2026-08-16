@@ -1168,6 +1168,10 @@ Every tool call produces one row in `audit_logs` with these fields:
 | `event_kind` | VARCHAR(64) | High-level category: `apigateway_invoke` for apigateway HTTP calls, `mcp_tool_call` for all other toolkits. See [Event kind](#event-kind-mcp-vs-api-gateway). |
 | `created_date` | DATE | Partition key derived from `timestamp`. |
 
+## Sessions read back from the log
+
+Every audit row carries the `session_id` of the call that wrote it, so grouped by that id the log is a record of sessions. Sessions are DERIVED, never stored: the platform's own session rows are working state with a TTL that the store deletes on expiry, while audit rows persist for the retention window, so there is no new table, no second write path, and nothing to backfill. A session's kind comes from its id prefix, the only classification available since isolated runs' ids are never persisted: `dps_` agent handle, `dpp_` portal run, `dpx_` managed-script run, and bare hex for a transport session or a call recorded before handles existed. A summary carries the caller and persona of the session's first event, its first and last call, call and failure counts, the distinct tools and connections it touched, and what it produced — with one exception: while the live session record still exists, the persona the handle was MINTED under outranks the per-call persona, because that is what the session was authorized as. Output is read from the two places the platform records it: `portal_assets` rows whose `session_id` matches (deleted ones excluded), and knowledge-dimension `memory_records` whose metadata carries the capturing session (migration 000031 folded `knowledge_insights` into `memory_records`). Opened, a session reads as its summary, those outputs, and the ordered record of its calls, each with the purpose the agent stated, the connection it reached, its outcome, and its duration — the reading order the flat event list cannot give. Served by `GET /api/v1/admin/sessions` (filters: user, kind, time range, has_assets, has_failures) and `GET /api/v1/admin/sessions/{id}` (summary, assets, insights, paged timeline), with `session_id` accepted on `GET /api/v1/admin/audit/events`; in the portal under Admin > Sessions. Migration 000106 adds the two supporting indexes (`idx_portal_assets_session_id` on live assets, `idx_memory_records_session_id` on the metadata expression); `audit_logs` was already indexed on `session_id`.
+
 ## Parameter Sanitization
 
 A built-in baseline replaces the values of these well-known keys with `[REDACTED]`: `password`, `secret`, `token`, `api_key`, `authorization`, `credentials` (case-sensitive, exact match). This is a safety net, not a substitute for configuring your own sensitive argument names.
@@ -2632,11 +2636,15 @@ Platform-wide analytics with summary cards, activity timeline, top tools/users c
 
 ### Events Tab
 Searchable, filterable event log with export (CSV/JSON). Detail drawer showing:
-- Identity: user email, persona, session ID
+- Identity: user email, persona, session ID (linking to the session)
 - Execution: tool name, toolkit, connection, duration
 - Status: success/failure, enrichment status
 - Transport: HTTP/stdio, request/response sizes
 - Parameters: full request parameters as JSON
+
+## Sessions
+
+The platform's work grouped by who was doing it, where the Events tab answers what happened on the platform. Read back from the audit log rather than stored, so the list outlives the session record and reaches as far back as audit retention. Rows: last active, session id and kind (Agent / Portal run / Script run / Transport), caller, persona, call count, failure count, and what it produced; filters by time window, user, kind, sessions with failures, sessions that saved assets. The window is a visible control rather than a hidden default (opens on 7 days, offers 24h/30d/all time) because the list rolls up every event in range. Row click opens the session: the identity line, five figures (calls, failures, wall-clock span, assets, insights), the assets it saved (opening in the admin asset viewer), the insights it captured with their review status, and the timeline of every call in order — stated purpose, tool, connection, outcome, duration — each row opening the same event drawer the Events tab opens. The Events tab additionally filters by session id, and the drawer's session id links here.
 
 ## Knowledge & Memory (admin review)
 
@@ -3105,6 +3113,13 @@ Audit events include enrichment instrumentation:
 - `enrichment_mode` (string) — `full`, `summary`, `reference`, `none`, or empty
 - `enrichment_tokens_full` (int) — estimated tokens for full enrichment content
 - `enrichment_tokens_dedup` (int) — estimated tokens for dedup content (0 when full sent)
+
+## Session Endpoints
+
+Read-only; requires a database. Sessions are derived from audit history rather than stored, so they reach as far back as audit retention.
+
+- `GET /sessions` — Sessions ordered by most recent activity (filters: user_id, kind [agent|portal|script|transport], start_time, end_time, has_assets, has_failures; page, per_page default 25, max 200). A time range bounds the session's events, so a session matches when any of its calls falls inside the window.
+- `GET /sessions/{id}` — One session: summary, the assets and insights it produced, and a page of its call timeline (oldest first, each entry carrying the stated purpose and the `event_id` that addresses the same row `GET /audit/events/{id}` returns). 404 when the audit log holds no call for that id.
 
 ## Knowledge Endpoints
 

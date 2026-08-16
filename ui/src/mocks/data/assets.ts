@@ -1,4 +1,9 @@
 import type { Asset, Share, SharedAsset } from "@/api/portal/types";
+import { agentSessions } from "./audit";
+
+// The first assets are attributed to sessions the audit mock actually
+// recorded, so a session opened in the admin UI shows the asset it saved
+// instead of an empty output section.
 
 const now = new Date();
 function daysAgo(n: number): string {
@@ -26,7 +31,7 @@ export const mockAssets: Asset[] = [
     size_bytes: 4_250,
     tags: ["dashboard", "revenue", "q4-2025"],
     provenance: {
-      session_id: "sess-aaa",
+      session_id: agentSessions[0]!,
       user_id: "user-alice",
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(3), parameters: { sql: "SELECT region, SUM(revenue) FROM sales.quarterly GROUP BY region" } },
@@ -34,7 +39,7 @@ export const mockAssets: Asset[] = [
         { tool_name: "save_asset", timestamp: daysAgo(3), parameters: { name: "Q4 Revenue Dashboard" } },
       ],
     },
-    session_id: "sess-aaa",
+    session_id: agentSessions[0]!,
     current_version: 5,
     created_at: daysAgo(3),
     updated_at: daysAgo(1),
@@ -52,14 +57,14 @@ export const mockAssets: Asset[] = [
     size_bytes: 6_800,
     tags: ["chart", "sales", "pipeline"],
     provenance: {
-      session_id: "sess-bbb",
+      session_id: agentSessions[1]!,
       user_id: "user-alice",
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(5), parameters: { sql: "SELECT stage, COUNT(*) FROM sales.pipeline GROUP BY stage" } },
         { tool_name: "save_asset", timestamp: daysAgo(5), parameters: { name: "Sales Pipeline Chart" } },
       ],
     },
-    session_id: "sess-bbb",
+    session_id: agentSessions[1]!,
     current_version: 3,
     created_at: daysAgo(5),
     updated_at: daysAgo(5),
@@ -77,14 +82,14 @@ export const mockAssets: Asset[] = [
     size_bytes: 2_100,
     tags: ["report", "inventory", "weekly"],
     provenance: {
-      session_id: "sess-ccc",
+      session_id: agentSessions[2]!,
       user_id: "user-alice",
       tool_calls: [
         { tool_name: "trino_query", timestamp: daysAgo(2), parameters: { sql: "SELECT warehouse, SUM(qty) FROM inventory.levels GROUP BY warehouse" } },
         { tool_name: "save_asset", timestamp: daysAgo(2), parameters: { name: "Weekly Inventory Report" } },
       ],
     },
-    session_id: "sess-ccc",
+    session_id: agentSessions[2]!,
     current_version: 1,
     created_at: daysAgo(2),
     updated_at: daysAgo(2),

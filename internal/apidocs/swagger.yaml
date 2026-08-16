@@ -5397,6 +5397,227 @@ definitions:
         example: error
         type: string
     type: object
+  sessionapi.sessionListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/sessionview.Summary'
+        type: array
+      page:
+        example: 1
+        type: integer
+      per_page:
+        example: 25
+        type: integer
+      total:
+        example: 42
+        type: integer
+    type: object
+  sessionview.AssetRef:
+    properties:
+      content_type:
+        example: text/csv
+        type: string
+      created_at:
+        type: string
+      id:
+        example: ast_7c1e
+        type: string
+      name:
+        example: Q3 revenue by region
+        type: string
+    type: object
+  sessionview.Detail:
+    properties:
+      asset_count:
+        example: 1
+        type: integer
+      assets:
+        items:
+          $ref: '#/definitions/sessionview.AssetRef'
+        type: array
+      call_count:
+        example: 5
+        type: integer
+      connections:
+        items:
+          type: string
+        type: array
+      failure_count:
+        example: 1
+        type: integer
+      insight_count:
+        example: 0
+        type: integer
+      insights:
+        items:
+          $ref: '#/definitions/sessionview.InsightRef'
+        type: array
+      kind:
+        allOf:
+        - $ref: '#/definitions/sessionview.Kind'
+        description: |-
+          Kind is the id's origin (agent handle, portal run, script run,
+          transport). Derived from the id, so it is never absent.
+        example: agent
+      last_active_at:
+        type: string
+      persona:
+        description: |-
+          Persona is the live session row's minted persona when the row still
+          exists, and the first event's persona once it has expired.
+        example: data-engineer
+        type: string
+      session_id:
+        example: dps_9f2c1a4b8e7d6c5a4b3e2d1c0f9e8a7b
+        type: string
+      started_at:
+        type: string
+      timeline:
+        items:
+          $ref: '#/definitions/sessionview.TimelineEntry'
+        type: array
+      timeline_total:
+        description: |-
+          TimelineTotal is the session's full call count, which exceeds
+          len(Timeline) when the timeline is paged.
+        example: 5
+        type: integer
+      tools:
+        description: |-
+          Tools and Connections are the distinct names the session touched,
+          sorted. Empty slices, never null, so the UI need not model both.
+        items:
+          type: string
+        type: array
+      user_email:
+        example: marcus.johnson@example.com
+        type: string
+      user_id:
+        description: |-
+          UserID and UserEmail come from the session's first event. A session
+          belongs to one caller; the audit rows repeat that caller per row.
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    type: object
+  sessionview.InsightRef:
+    properties:
+      category:
+        example: data_quality
+        type: string
+      created_at:
+        type: string
+      id:
+        example: ins_3a9f
+        type: string
+      status:
+        example: pending
+        type: string
+      text:
+        example: orders.amount is null for canceled rows.
+        type: string
+    type: object
+  sessionview.Kind:
+    enum:
+    - agent
+    - portal
+    - script
+    - transport
+    type: string
+    x-enum-varnames:
+    - KindAgent
+    - KindPortal
+    - KindScript
+    - KindTransport
+  sessionview.Summary:
+    properties:
+      asset_count:
+        example: 1
+        type: integer
+      call_count:
+        example: 5
+        type: integer
+      connections:
+        items:
+          type: string
+        type: array
+      failure_count:
+        example: 1
+        type: integer
+      insight_count:
+        example: 0
+        type: integer
+      kind:
+        allOf:
+        - $ref: '#/definitions/sessionview.Kind'
+        description: |-
+          Kind is the id's origin (agent handle, portal run, script run,
+          transport). Derived from the id, so it is never absent.
+        example: agent
+      last_active_at:
+        type: string
+      persona:
+        description: |-
+          Persona is the live session row's minted persona when the row still
+          exists, and the first event's persona once it has expired.
+        example: data-engineer
+        type: string
+      session_id:
+        example: dps_9f2c1a4b8e7d6c5a4b3e2d1c0f9e8a7b
+        type: string
+      started_at:
+        type: string
+      tools:
+        description: |-
+          Tools and Connections are the distinct names the session touched,
+          sorted. Empty slices, never null, so the UI need not model both.
+        items:
+          type: string
+        type: array
+      user_email:
+        example: marcus.johnson@example.com
+        type: string
+      user_id:
+        description: |-
+          UserID and UserEmail come from the session's first event. A session
+          belongs to one caller; the audit rows repeat that caller per row.
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    type: object
+  sessionview.TimelineEntry:
+    properties:
+      connection:
+        example: acme-warehouse
+        type: string
+      duration_ms:
+        example: 143
+        type: integer
+      error_message:
+        type: string
+      event_id:
+        description: |-
+          EventID is the audit event's id, which the admin events surface
+          addresses a single row by.
+        example: evt_a1b2c3d4e5f6
+        type: string
+      purpose:
+        description: |-
+          Purpose is the reason the agent stated for this call (#1317). Empty
+          on a call the platform does not gate and on rows older than it.
+        example: Sizing Q3 revenue by region for the board deck.
+        type: string
+      success:
+        example: true
+        type: boolean
+      timestamp:
+        type: string
+      tool_name:
+        example: trino_query
+        type: string
+      toolkit_kind:
+        example: trino
+        type: string
+    type: object
   settingsapi.problemDetail:
     properties:
       detail:
@@ -10246,6 +10467,100 @@ paths:
       summary: List script schedules
       tags:
       - Scripts
+  /admin/sessions:
+    get:
+      description: 'Returns sessions derived from the audit log, most recently active
+        first. A session is not a stored row: it is every audit event sharing one
+        session id, so the list reaches as far back as audit retention.'
+      parameters:
+      - description: Filter by user ID
+        in: query
+        name: user_id
+        type: string
+      - description: Filter by session id origin (agent, portal, script, transport)
+        in: query
+        name: kind
+        type: string
+      - description: Sessions with activity after this time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: Sessions with activity before this time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      - description: Only sessions that saved at least one asset
+        in: query
+        name: has_assets
+        type: boolean
+      - description: Only sessions with at least one failed call
+        in: query
+        name: has_failures
+        type: boolean
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 25, max: 200)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sessionapi.sessionListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List sessions
+      tags:
+      - Sessions
+  /admin/sessions/{id}:
+    get:
+      description: 'Returns one session: its summary, the assets and insights it produced,
+        and a page of its call timeline with the purpose stated for each call.'
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Timeline page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Timeline entries per page (default: 25, max: 200)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sessionview.Detail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get session
+      tags:
+      - Sessions
   /admin/settings/review-queue-alert:
     get:
       description: Returns the knowledge review-queue staleness alert configuration.
@@ -15874,6 +16189,8 @@ tags:
     description: "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."
   - name: "Personas"
     description: "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."
+  - name: "Sessions"
+    description: "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."
   - name: "Scripts"
     description: "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version — which binds the capability grant it executes under and is the only thing that makes a script executable."
   - name: "System"
@@ -15901,5 +16218,6 @@ x-tagGroups:
       - "Connections"
       - "Personas"
       - "Scripts"
+      - "Sessions"
       - "System"
       - "Tools"

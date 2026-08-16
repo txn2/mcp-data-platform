@@ -104,14 +104,18 @@ type Deps struct {
 	MCPServer           *mcp.Server
 	AuditQuerier        AuditQuerier
 	AuditMetricsQuerier AuditMetricsQuerier
-	Knowledge           *KnowledgeHandler
-	APIKeyManager       APIKeyManager
-	BrowserAuth         *browsersession.Authenticator
-	DatabaseAvailable   bool
-	PlatformTools       []platform.ToolInfo
-	AssetStore          portal.AssetStore
-	ShareStore          portal.ShareStore
-	VersionStore        portal.VersionStore
+	// SessionViewer reads sessions off the audit log: the same history
+	// AuditQuerier serves, grouped by the session id every event already
+	// carries. nil leaves the /api/v1/admin/sessions routes unregistered.
+	SessionViewer     SessionViewer
+	Knowledge         *KnowledgeHandler
+	APIKeyManager     APIKeyManager
+	BrowserAuth       *browsersession.Authenticator
+	DatabaseAvailable bool
+	PlatformTools     []platform.ToolInfo
+	AssetStore        portal.AssetStore
+	ShareStore        portal.ShareStore
+	VersionStore      portal.VersionStore
 	// CollectionStore backs the admin asset-collection routes (#1292). nil
 	// leaves them unregistered, as a deployment without a database has no
 	// collections to serve.
@@ -357,6 +361,7 @@ func (h *Handler) registerRoutes() {
 	h.registerKnowledgeRoutes()
 	h.registerSystemRoutes()
 	h.registerAuditRoutes()
+	h.registerSessionRoutes()
 	h.registerConfigRoutes()
 	h.registerPersonaRoutes()
 	h.registerAuthKeyRoutes()

@@ -69,6 +69,12 @@ TAG_DESCRIPTIONS = {
         "a user can access. Each persona defines allow/deny patterns, context overrides, "
         "and priority-based role mapping."
     ),
+    "Sessions": (
+        "Sessions read back from the audit log. A session is not a stored row: it is "
+        "every tool call sharing one session id, so the list reaches as far back as "
+        "audit retention. One session opens onto the assets and insights it produced "
+        "and the ordered record of its calls, each with the purpose the agent stated."
+    ),
     "Scripts": (
         "Managed-script review and approval. Browse scripts and their version history, "
         "read a version alongside the capabilities and connections its source reaches "
@@ -109,6 +115,7 @@ TAG_GROUPS = [
             "Connections",
             "Personas",
             "Scripts",
+            "Sessions",
             "System",
             "Tools",
         ],

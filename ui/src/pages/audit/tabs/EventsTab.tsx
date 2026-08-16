@@ -11,6 +11,7 @@ const PER_PAGE = 20;
 
 const NO_FILTERS: EventFilterState = {
   search: "",
+  sessionId: "",
   userId: "",
   toolName: "",
   toolkitKind: "",
@@ -56,6 +57,7 @@ export function EventsTab({ onNavigate }: { onNavigate?: (path: string) => void 
       toolName: filterState.toolName || undefined,
       toolkitKind: filterState.toolkitKind || undefined,
       source: filterState.source || undefined,
+      sessionId: filterState.sessionId || undefined,
       search: filterState.search || undefined,
       sortBy,
       sortOrder,

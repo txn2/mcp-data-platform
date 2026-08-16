@@ -625,6 +625,15 @@ linters:
         linters:
           - revive
         text: "max-public-structs"
+      # The session read model is one concept described by the values a session
+      # needs: the summary a list row is, the detail an opened session is, one
+      # call on its timeline, the asset and the insight it produced, and the
+      # filter a listing takes. Splitting them to satisfy a count would scatter
+      # one contract, not decompose it (#1318).
+      - path: internal/platform/sessionview/
+        linters:
+          - revive
+        text: "max-public-structs"
       - path: pkg/registry/
         linters:
           - revive

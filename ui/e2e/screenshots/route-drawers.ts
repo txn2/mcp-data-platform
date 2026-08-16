@@ -37,6 +37,26 @@ export const drawerRoutes: ScreenshotRoute[] = [
     },
   },
   {
+    // A session opened: the summary, what it produced, and the ordered
+    // timeline. The detail lives behind an id, so it is reached by clicking
+    // the first row rather than by a static URL.
+    slug: "admin-session-detail",
+    path: "/portal/admin/sessions",
+    category: "admin",
+    beforeCapture: async (page) => {
+      // Prefer a session that saved something, so the capture shows the
+      // outputs section populated rather than its empty state.
+      const withOutput = page
+        .locator("table tbody tr:not(:has(td:nth-child(7):text-is('-')))")
+        .first();
+      const row = (await withOutput.count())
+        ? withOutput
+        : page.locator("table tbody tr").first();
+      await row.click({ timeout: 2_000 }).catch(() => {});
+      await page.waitForTimeout(600);
+    },
+  },
+  {
     slug: "knowledge-insight-detail",
     path: "/portal/knowledge#insights",
     category: "admin",
