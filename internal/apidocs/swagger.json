@@ -7316,7 +7316,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/sessionapi.sessionListResponse"
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_internal_admin_sessionapi.sessionListResponse"
                         }
                     },
                     "500": {
@@ -14125,6 +14125,157 @@
                 }
             }
         },
+        "/portal/sessions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the calling user's own sessions, most recently active first. A session is not a stored row: it is every audit event sharing one session id, so this list reaches as far back as audit retention. There is no user parameter \u2014 the listing is always the caller's own.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "List my sessions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by session id origin (agent, portal, script, transport)",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sessions with activity after this time (RFC 3339)",
+                        "name": "start_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sessions with activity before this time (RFC 3339)",
+                        "name": "end_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only sessions that saved at least one asset",
+                        "name": "has_assets",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only sessions with at least one failed call",
+                        "name": "has_failures",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 25, max: 200)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_internal_portal_sessionapi.sessionListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/sessions/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one of the caller's own sessions: its summary, the assets and insights it produced, and a page of its call timeline with the purpose stated for each call. A session id belonging to another user is not found, the same answer an id that was never used gets.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sessions"
+                ],
+                "summary": "Get one of my sessions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Timeline page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Timeline entries per page (default: 25, max: 200)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sessionview.Detail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/shared-collections": {
             "get": {
                 "security": [
@@ -19143,6 +19294,52 @@
                 }
             }
         },
+        "github_com_txn2_mcp-data-platform_internal_admin_sessionapi.sessionListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sessionview.Summary"
+                    }
+                },
+                "page": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "per_page": {
+                    "type": "integer",
+                    "example": 25
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 42
+                }
+            }
+        },
+        "github_com_txn2_mcp-data-platform_internal_portal_sessionapi.sessionListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sessionview.Summary"
+                    }
+                },
+                "page": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "per_page": {
+                    "type": "integer",
+                    "example": 25
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 7
+                }
+            }
+        },
         "github_com_txn2_mcp-data-platform_pkg_portal.itemInput": {
             "type": "object",
             "properties": {
@@ -23163,29 +23360,6 @@
                 "severity": {
                     "type": "string",
                     "example": "error"
-                }
-            }
-        },
-        "sessionapi.sessionListResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/sessionview.Summary"
-                    }
-                },
-                "page": {
-                    "type": "integer",
-                    "example": 1
-                },
-                "per_page": {
-                    "type": "integer",
-                    "example": 25
-                },
-                "total": {
-                    "type": "integer",
-                    "example": 42
                 }
             }
         },

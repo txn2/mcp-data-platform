@@ -285,6 +285,7 @@ internal/platform/searchfed -> pkg/toolkits/search
 internal/platform/sessionsync -> pkg/middleware
 internal/platform/sessionsync -> pkg/session
 internal/platform/sessionsync -> pkg/session/postgres
+internal/platform/sessionview -> internal/httpjson
 internal/platform/sessionview -> pkg/memory
 internal/platform/sessionview -> pkg/session
 internal/platform/sessionview -> pkg/toolkits/knowledge
@@ -320,6 +321,9 @@ internal/portal/portalstore -> internal/portal/portaldomain
 internal/portal/portalstore -> pkg/indexjobs
 internal/portal/portalstore -> pkg/portal/shareaccess
 internal/portal/portalversions -> internal/portal/portaldomain
+internal/portal/sessionapi -> internal/httpjson
+internal/portal/sessionapi -> internal/platform/sessionview
+internal/portal/sessionapi -> internal/portal/access
 internal/portal/sharecache -> pkg/blobserve
 internal/portal/sharecache -> pkg/portal/shareaccess
 internal/portal/viewerlimit -> pkg/ratelimit
@@ -532,6 +536,7 @@ pkg/portal -> internal/portal/portalnoop
 pkg/portal -> internal/portal/portalstore
 pkg/portal -> internal/portal/portalversions
 pkg/portal -> internal/portal/publicviewer
+pkg/portal -> internal/portal/sessionapi
 pkg/portal -> internal/portal/sharecache
 pkg/portal -> internal/portal/viewerlimit
 pkg/portal -> pkg/audit

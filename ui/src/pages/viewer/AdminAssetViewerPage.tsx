@@ -46,6 +46,11 @@ export function AdminAssetViewerPage({ assetId, onNavigate }: Props) {
       detailRows={
         asset ? [{ label: "Owner", value: formatOwner(asset) }] : undefined
       }
+      // An operator reads any session, including one they did not run, on the
+      // admin sessions surface.
+      sessionPath={(sessionId) =>
+        `/admin/sessions/${encodeURIComponent(sessionId)}`
+      }
       versions={versionsData?.data}
       versionsLoading={versionsLoading}
       revertMutation={revertMutation}

@@ -2330,6 +2330,38 @@ definitions:
       name:
         type: string
     type: object
+  github_com_txn2_mcp-data-platform_internal_admin_sessionapi.sessionListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/sessionview.Summary'
+        type: array
+      page:
+        example: 1
+        type: integer
+      per_page:
+        example: 25
+        type: integer
+      total:
+        example: 42
+        type: integer
+    type: object
+  github_com_txn2_mcp-data-platform_internal_portal_sessionapi.sessionListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/sessionview.Summary'
+        type: array
+      page:
+        example: 1
+        type: integer
+      per_page:
+        example: 25
+        type: integer
+      total:
+        example: 7
+        type: integer
+    type: object
   github_com_txn2_mcp-data-platform_pkg_portal.itemInput:
     properties:
       asset_id:
@@ -5396,22 +5428,6 @@ definitions:
       severity:
         example: error
         type: string
-    type: object
-  sessionapi.sessionListResponse:
-    properties:
-      data:
-        items:
-          $ref: '#/definitions/sessionview.Summary'
-        type: array
-      page:
-        example: 1
-        type: integer
-      per_page:
-        example: 25
-        type: integer
-      total:
-        example: 42
-        type: integer
     type: object
   sessionview.AssetRef:
     properties:
@@ -10511,7 +10527,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/sessionapi.sessionListResponse'
+            $ref: '#/definitions/github_com_txn2_mcp-data-platform_internal_admin_sessionapi.sessionListResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -14918,6 +14934,107 @@ paths:
       summary: Unified knowledge search
       tags:
       - Knowledge
+  /portal/sessions:
+    get:
+      description: 'Returns the calling user''s own sessions, most recently active
+        first. A session is not a stored row: it is every audit event sharing one
+        session id, so this list reaches as far back as audit retention. There is
+        no user parameter — the listing is always the caller''s own.'
+      parameters:
+      - description: Filter by session id origin (agent, portal, script, transport)
+        in: query
+        name: kind
+        type: string
+      - description: Sessions with activity after this time (RFC 3339)
+        in: query
+        name: start_time
+        type: string
+      - description: Sessions with activity before this time (RFC 3339)
+        in: query
+        name: end_time
+        type: string
+      - description: Only sessions that saved at least one asset
+        in: query
+        name: has_assets
+        type: boolean
+      - description: Only sessions with at least one failed call
+        in: query
+        name: has_failures
+        type: boolean
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 25, max: 200)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_txn2_mcp-data-platform_internal_portal_sessionapi.sessionListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my sessions
+      tags:
+      - Sessions
+  /portal/sessions/{id}:
+    get:
+      description: 'Returns one of the caller''s own sessions: its summary, the assets
+        and insights it produced, and a page of its call timeline with the purpose
+        stated for each call. A session id belonging to another user is not found,
+        the same answer an id that was never used gets.'
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Timeline page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Timeline entries per page (default: 25, max: 200)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sessionview.Detail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get one of my sessions
+      tags:
+      - Sessions
   /portal/shared-collections:
     get:
       description: Returns paginated collections that other users have shared with

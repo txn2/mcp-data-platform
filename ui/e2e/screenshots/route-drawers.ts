@@ -57,6 +57,27 @@ export const drawerRoutes: ScreenshotRoute[] = [
     },
   },
   {
+    // The reader's own session opened, reached the way the reader reaches it:
+    // by clicking a row in My Sessions. The detail hangs off an id, so there
+    // is no static URL to capture it at.
+    slug: "my-session-detail",
+    path: "/portal/activity/sessions",
+    category: "user",
+    beforeCapture: async (page) => {
+      // Prefer a session that left something behind, so the capture shows the
+      // outputs populated rather than their empty state. Produced is the last
+      // column, one earlier than the admin table's since this one drops User.
+      const withOutput = page
+        .locator("table tbody tr:not(:has(td:nth-child(6):text-is('-')))")
+        .first();
+      const row = (await withOutput.count())
+        ? withOutput
+        : page.locator("table tbody tr").first();
+      await row.click({ timeout: 2_000 }).catch(() => {});
+      await page.waitForTimeout(600);
+    },
+  },
+  {
     slug: "knowledge-insight-detail",
     path: "/portal/knowledge#insights",
     category: "admin",

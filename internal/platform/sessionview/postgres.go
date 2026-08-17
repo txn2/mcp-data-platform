@@ -262,11 +262,16 @@ func (s *PostgresStore) Count(ctx context.Context, filter Filter) (int, error) {
 	return count, nil
 }
 
-// Get returns one session, or ErrNotFound when the audit log holds no call for
-// that id. A session with no calls does not exist: the calls are what make it
-// one.
-func (s *PostgresStore) Get(ctx context.Context, sessionID string) (*Summary, error) {
-	found, err := s.List(ctx, Filter{SessionID: sessionID, Limit: 1})
+// Get returns one session, or ErrNotFound when the audit log holds no call the
+// scope admits. A session with no calls does not exist: the calls are what make
+// it one, and a scope that admits none of them makes another caller's session
+// answer exactly as an id that was never used.
+func (s *PostgresStore) Get(ctx context.Context, scope Scope) (*Summary, error) {
+	found, err := s.List(ctx, Filter{
+		SessionID: scope.SessionID,
+		UserID:    scope.UserID,
+		Limit:     1,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -276,9 +281,20 @@ func (s *PostgresStore) Get(ctx context.Context, sessionID string) (*Summary, er
 	return &found[0], nil
 }
 
+// timelineScope is the predicate every timeline read is bounded by: the
+// session, and the caller when the scope names one. Written once so the page
+// and the total it is paged against can never be narrowed differently.
+func timelineScope(scope Scope) sq.Sqlizer {
+	if scope.UserID == "" {
+		return sq.Eq{colSessionID: scope.SessionID}
+	}
+	return sq.Eq{colSessionID: scope.SessionID, colUserID: scope.UserID}
+}
+
 // Timeline returns the session's calls oldest first, with the session's total
 // call count so a caller can page without a second query for the total.
-func (s *PostgresStore) Timeline(ctx context.Context, sessionID string, limit, offset int) ([]TimelineEntry, int, error) {
+func (s *PostgresStore) Timeline(ctx context.Context, scope Scope) ([]TimelineEntry, int, error) {
+	limit := scope.Limit
 	if limit <= 0 {
 		limit = defaultTimelineLimit
 	}
@@ -286,11 +302,11 @@ func (s *PostgresStore) Timeline(ctx context.Context, sessionID string, limit, o
 		"id", colTimestamp, "tool_name", "purpose", colToolkitKind,
 		"connection", "success", "error_message", "duration_ms",
 	).From(tableAudit).
-		Where(sq.Eq{colSessionID: sessionID}).
+		Where(timelineScope(scope)).
 		OrderBy(colTimestamp+" ASC", "id ASC").
 		Limit(uint64(limit))
-	if offset > 0 {
-		qb = qb.Offset(uint64(offset))
+	if scope.Offset > 0 {
+		qb = qb.Offset(uint64(scope.Offset))
 	}
 
 	query, args, err := qb.ToSql()
@@ -303,7 +319,7 @@ func (s *PostgresStore) Timeline(ctx context.Context, sessionID string, limit, o
 		return nil, 0, err
 	}
 
-	total, err := s.countEvents(ctx, sessionID)
+	total, err := s.countEvents(ctx, scope)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -339,10 +355,10 @@ func (s *PostgresStore) queryTimeline(ctx context.Context, query string, args []
 	return entries, nil
 }
 
-// countEvents returns how many calls the session made.
-func (s *PostgresStore) countEvents(ctx context.Context, sessionID string) (int, error) {
+// countEvents returns how many calls the session made inside the scope.
+func (s *PostgresStore) countEvents(ctx context.Context, scope Scope) (int, error) {
 	query, args, err := psq.Select("COUNT(*)").From(tableAudit).
-		Where(sq.Eq{colSessionID: sessionID}).ToSql()
+		Where(timelineScope(scope)).ToSql()
 	if err != nil {
 		return 0, fmt.Errorf("building session event count query: %w", err)
 	}
@@ -451,21 +467,25 @@ var ErrNotFound = errors.New("session not found")
 // Load assembles one session in full: its summary, what it produced, and a
 // page of its timeline. It is the single call the detail surface makes, so
 // the four reads stay together rather than being re-sequenced per caller.
-func Load(ctx context.Context, store Store, sessionID string, limit, offset int) (*Detail, error) {
-	summary, err := store.Get(ctx, sessionID)
+//
+// The scoped Get runs first and its ErrNotFound ends the load, which is what
+// makes the three unscoped reads below safe: nothing about a session the scope
+// does not admit is ever read, let alone returned.
+func Load(ctx context.Context, store Store, scope Scope) (*Detail, error) {
+	summary, err := store.Get(ctx, scope)
 	if err != nil {
 		return nil, fmt.Errorf("reading session: %w", err)
 	}
 
-	timeline, total, err := store.Timeline(ctx, sessionID, limit, offset)
+	timeline, total, err := store.Timeline(ctx, scope)
 	if err != nil {
 		return nil, fmt.Errorf("reading session timeline: %w", err)
 	}
-	assets, err := store.Assets(ctx, sessionID)
+	assets, err := store.Assets(ctx, scope.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("reading session assets: %w", err)
 	}
-	insights, err := store.Insights(ctx, sessionID)
+	insights, err := store.Insights(ctx, scope.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("reading session insights: %w", err)
 	}

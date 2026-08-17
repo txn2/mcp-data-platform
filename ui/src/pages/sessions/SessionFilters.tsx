@@ -12,6 +12,10 @@ import {
 // audit index's distinct users, which is where a session's caller comes from
 // in the first place; the other three are the session-level questions the
 // event list cannot answer.
+//
+// The caller's own list omits the user facet. The server scopes those reads to
+// the authenticated caller and would ignore any other value, so offering the
+// control would be offering one that cannot do anything.
 
 export interface SessionFilterState {
   // window bounds the events the rollup reads. It is a filter like the
@@ -36,11 +40,14 @@ export function SessionFilters({
   filters,
   value,
   onChange,
+  showUserFacet = true,
 }: {
   // The distinct users the audit index holds, for the caller facet.
   filters?: AuditFiltersResponse;
   value: SessionFilterState;
   onChange: (patch: Partial<SessionFilterState>) => void;
+  /** Whether to offer the caller facet. False on a reader's own sessions. */
+  showUserFacet?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -51,18 +58,20 @@ export function SessionFilters({
         onChange={(w) => onChange({ window: w as SessionWindow })}
         options={SESSION_WINDOW_OPTIONS}
       />
-      <FilterSelect
-        label="Filter by user"
-        value={value.userId}
-        onChange={(userId) => onChange({ userId })}
-        options={[
-          { value: "", label: "All Users" },
-          ...(filters?.users ?? []).map((u) => ({
-            value: u,
-            label: filters?.user_labels?.[u] || formatUser(u),
-          })),
-        ]}
-      />
+      {showUserFacet && (
+        <FilterSelect
+          label="Filter by user"
+          value={value.userId}
+          onChange={(userId) => onChange({ userId })}
+          options={[
+            { value: "", label: "All Users" },
+            ...(filters?.users ?? []).map((u) => ({
+              value: u,
+              label: filters?.user_labels?.[u] || formatUser(u),
+            })),
+          ]}
+        />
+      )}
       <FilterSelect
         label="Filter by session kind"
         title="Where the session id came from: an agent's handle, a portal run, a script run, or a transport session."

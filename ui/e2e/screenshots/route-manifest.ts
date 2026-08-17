@@ -27,6 +27,12 @@ export const routes: ScreenshotRoute[] = [
     category: "user",
   },
   {
+    // The reader's own sessions, the second face of the Activity section.
+    slug: "my-sessions",
+    path: "/portal/activity/sessions",
+    category: "user",
+  },
+  {
     slug: "my-assets",
     path: "/portal/",
     category: "user",

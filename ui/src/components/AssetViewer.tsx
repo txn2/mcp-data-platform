@@ -31,6 +31,7 @@ export function AssetViewer({
   sharePermission,
   toolbarExtra,
   detailRows,
+  sessionPath,
   versions,
   versionsLoading,
   revertMutation,
@@ -258,6 +259,8 @@ export function AssetViewer({
           isOwner={isOwner}
           isSharedEditor={isSharedEditor}
           detailRows={detailRows}
+          sessionPath={sessionPath}
+          onNavigate={onNavigate}
           versions={versions}
           versionsLoading={versionsLoading}
         />

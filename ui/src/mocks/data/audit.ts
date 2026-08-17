@@ -328,6 +328,42 @@ function sessionIDFor(source: string): string {
   return seededItem(agentSessions);
 }
 
+// A session belongs to ONE caller: the platform mints a handle for a user and
+// every call recorded under it is theirs. The pools above are drawn per event,
+// so without this a session would hold calls from several people — which the
+// user-scoped session surface (#1319) would then have nothing true to scope,
+// and which the server can never produce.
+//
+// The first event to reach a session claims it for its user; every later call
+// under that id is attributed to the claimant. No random draw happens here, so
+// the seeded sequence is unchanged.
+const sessionOwners = new Map<string, AcmeUser>();
+
+// The signed-in mock user (GET /api/v1/portal/me) owns a few sessions outright,
+// rather than whatever the draw happens to hand them. Every user-facing surface
+// in the portal shows the caller their own work, so a dev dataset where the
+// caller ran little shows a thin list of it; these four span three kinds so the
+// list's kind facet has something to narrow. The first agent session is the one
+// the mock assets are attributed to, which is what makes the walk from an asset
+// to the session that made it reachable in dev and in the screenshots.
+export const MOCK_CALLER_EMAIL = "sarah.chen@example.com";
+
+for (const id of [
+  agentSessions[0]!,
+  agentSessions[4]!,
+  portalSessions[1]!,
+  transportSessions[0]!,
+]) {
+  sessionOwners.set(id, acmeUsers.find((u) => u.email === MOCK_CALLER_EMAIL)!);
+}
+
+function claimSession(sessionID: string, drawn: AcmeUser): AcmeUser {
+  const owner = sessionOwners.get(sessionID);
+  if (owner) return owner;
+  sessionOwners.set(sessionID, drawn);
+  return drawn;
+}
+
 // ---------------------------------------------------------------------------
 // Generate audit events spread across the last 7 days
 // ---------------------------------------------------------------------------
@@ -337,7 +373,7 @@ function generateEvents(count: number): AuditEvent[] {
   const now = new Date();
 
   for (let i = 0; i < count; i++) {
-    const user = weightedUser();
+    const drawn = weightedUser();
     const tool = weightedTool();
     // 3.7% error rate → 96.3% success rate
     const success = rand() > 0.037;
@@ -349,13 +385,15 @@ function generateEvents(count: number): AuditEvent[] {
     const baseDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo);
     const timestamp = businessHourTimestamp(baseDate);
     const source = pickSource(tool.kind);
+    const sessionID = sessionIDFor(source);
+    const user = claimSession(sessionID, drawn);
 
     events.push({
       id: `evt-${String(i).padStart(4, "0")}`,
       timestamp: timestamp.toISOString(),
       duration_ms: duration,
       request_id: `req-${String(seededInt(10000000, 99999999))}`,
-      session_id: sessionIDFor(source),
+      session_id: sessionID,
       user_id: user.email,
       user_email: user.email,
       persona: user.persona,

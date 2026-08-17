@@ -159,7 +159,7 @@ func TestSessionView_RealDB_ListsOneSessionWithWhatItProduced(t *testing.T) {
 func TestSessionView_RealDB_LoadReturnsOrderedTimeline(t *testing.T) {
 	store, ctx := realDBFixture(t)
 
-	detail, err := Load(ctx, store, realDBSession, 25, 0)
+	detail, err := Load(ctx, store, Scope{SessionID: realDBSession, Limit: 25})
 	require.NoError(t, err)
 	require.Len(t, detail.Timeline, realDBCallCount)
 	assert.Equal(t, realDBCallCount, detail.TimelineTotal)
@@ -177,8 +177,33 @@ func TestSessionView_RealDB_LoadReturnsOrderedTimeline(t *testing.T) {
 	require.Len(t, detail.Insights, 1)
 	assert.Equal(t, "correction", detail.Insights[0].Category)
 
-	_, err = Load(ctx, store, "dps_never_ran", 25, 0)
+	_, err = Load(ctx, store, Scope{SessionID: "dps_never_ran", Limit: 25})
 	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+// TestSessionView_RealDB_ScopedGetRefusesAnotherCaller proves the scope is a
+// predicate the rollup applies rather than a comparison a caller could skip:
+// the same id answers with a session for the caller who ran it and with
+// ErrNotFound for anyone else, which is what the portal surface (#1319) relies
+// on to fail closed.
+func TestSessionView_RealDB_ScopedGetRefusesAnotherCaller(t *testing.T) {
+	store, ctx := realDBFixture(t)
+
+	mine, err := store.Get(ctx, Scope{SessionID: realDBSession, UserID: realDBUser})
+	require.NoError(t, err)
+	assert.Equal(t, realDBCallCount, mine.CallCount)
+
+	_, err = store.Get(ctx, Scope{SessionID: realDBSession, UserID: "someone-else"})
+	assert.ErrorIs(t, err, ErrNotFound, "another caller's session does not exist to them")
+
+	_, err = Load(ctx, store, Scope{SessionID: realDBSession, UserID: "someone-else", Limit: 25})
+	assert.ErrorIs(t, err, ErrNotFound, "and Load stops at that Get, reading nothing further")
+
+	// An unscoped read of the same id still succeeds, so the refusal above is
+	// the scope and not the session having gone missing.
+	unscoped, err := store.Get(ctx, Scope{SessionID: realDBSession})
+	require.NoError(t, err)
+	assert.Equal(t, realDBSession, unscoped.SessionID)
 }
 
 // TestSessionView_RealDB_ToleratesNullColumns covers a row from before the
@@ -209,7 +234,7 @@ func TestSessionView_RealDB_ToleratesNullColumns(t *testing.T) {
 func TestSessionView_RealDB_TimelinePages(t *testing.T) {
 	store, ctx := realDBFixture(t)
 
-	page, total, err := store.Timeline(ctx, realDBSession, 2, 2)
+	page, total, err := store.Timeline(ctx, Scope{SessionID: realDBSession, Limit: 2, Offset: 2})
 	require.NoError(t, err)
 	assert.Equal(t, realDBCallCount, total)
 	require.Len(t, page, 2)

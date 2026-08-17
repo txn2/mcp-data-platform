@@ -23,6 +23,13 @@ export interface AssetViewerProps {
   sharePermission?: SharePermission;
   toolbarExtra?: ReactNode;
   detailRows?: { label: string; value: ReactNode }[];
+  /**
+   * Where the session that produced this asset opens, if the reader can open
+   * it at all. An operator reads it on the admin sessions surface, an owner on
+   * their own; a reader who is neither is given no link, because the session
+   * would answer them not-found (#1319).
+   */
+  sessionPath?: (sessionId: string) => string;
   versions?: AssetVersion[];
   versionsLoading?: boolean;
   revertMutation?: MutationLike<{ assetId: string; version: number }>;

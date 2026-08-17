@@ -52,8 +52,10 @@ type fakeStore struct {
 	assetsErr   error
 	insightsErr error
 
-	gotLimit  int
-	gotOffset int
+	gotGetScope      Scope
+	gotTimelineScope Scope
+	gotAssetsID      string
+	gotInsightsID    string
 }
 
 func (*fakeStore) List(context.Context, Filter) ([]Summary, error) { return nil, nil }
@@ -61,7 +63,8 @@ func (*fakeStore) Count(context.Context, Filter) (int, error)      { return 0, n
 
 // Get models the real store's not-found contract: no summary means
 // ErrNotFound, never a nil summary with a nil error.
-func (f *fakeStore) Get(context.Context, string) (*Summary, error) {
+func (f *fakeStore) Get(_ context.Context, scope Scope) (*Summary, error) {
+	f.gotGetScope = scope
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -71,16 +74,18 @@ func (f *fakeStore) Get(context.Context, string) (*Summary, error) {
 	return f.summary, nil
 }
 
-func (f *fakeStore) Timeline(_ context.Context, _ string, limit, offset int) ([]TimelineEntry, int, error) {
-	f.gotLimit, f.gotOffset = limit, offset
+func (f *fakeStore) Timeline(_ context.Context, scope Scope) ([]TimelineEntry, int, error) {
+	f.gotTimelineScope = scope
 	return f.timeline, f.total, f.timelineErr
 }
 
-func (f *fakeStore) Assets(context.Context, string) ([]AssetRef, error) {
+func (f *fakeStore) Assets(_ context.Context, sessionID string) ([]AssetRef, error) {
+	f.gotAssetsID = sessionID
 	return f.assets, f.assetsErr
 }
 
-func (f *fakeStore) Insights(context.Context, string) ([]InsightRef, error) {
+func (f *fakeStore) Insights(_ context.Context, sessionID string) ([]InsightRef, error) {
+	f.gotInsightsID = sessionID
 	return f.insights, f.insightsErr
 }
 
@@ -93,19 +98,33 @@ func TestLoad_AssemblesDetail(t *testing.T) {
 		insights: []InsightRef{{ID: "ins_1"}},
 	}
 
-	detail, err := Load(context.Background(), store, "dps_abc", 25, 50)
+	scope := Scope{SessionID: "dps_abc", UserID: "user-a", Limit: 25, Offset: 50}
+	detail, err := Load(context.Background(), store, scope)
 	require.NoError(t, err)
 	assert.Equal(t, "dps_abc", detail.SessionID)
 	assert.Equal(t, 5, detail.TimelineTotal)
 	require.Len(t, detail.Timeline, 1)
 	require.Len(t, detail.Assets, 1)
 	require.Len(t, detail.Insights, 1)
-	assert.Equal(t, 25, store.gotLimit, "the timeline page reaches the store")
-	assert.Equal(t, 50, store.gotOffset)
+	assert.Equal(t, scope, store.gotTimelineScope, "the timeline page reaches the store")
+	assert.Equal(t, "dps_abc", store.gotAssetsID)
+	assert.Equal(t, "dps_abc", store.gotInsightsID)
+}
+
+// The caller restriction must reach the store that can enforce it. A Load that
+// dropped Scope.UserID on the way to Get would read another user's session and
+// return it, with nothing downstream left to catch it.
+func TestLoad_CarriesTheCallerToTheScopedRead(t *testing.T) {
+	store := &fakeStore{summary: &Summary{SessionID: "dps_abc"}}
+
+	_, err := Load(context.Background(), store, Scope{SessionID: "dps_abc", UserID: "user-a"})
+	require.NoError(t, err)
+	assert.Equal(t, "user-a", store.gotGetScope.UserID)
+	assert.Equal(t, "dps_abc", store.gotGetScope.SessionID)
 }
 
 func TestLoad_NotFound(t *testing.T) {
-	_, err := Load(context.Background(), &fakeStore{}, "dps_missing", 25, 0)
+	_, err := Load(context.Background(), &fakeStore{}, Scope{SessionID: "dps_missing", Limit: 25})
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -124,7 +143,7 @@ func TestLoad_PropagatesEveryReadError(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := Load(context.Background(), tt.store, "dps_abc", 25, 0)
+			_, err := Load(context.Background(), tt.store, Scope{SessionID: "dps_abc", Limit: 25})
 			assert.ErrorIs(t, err, boom)
 		})
 	}

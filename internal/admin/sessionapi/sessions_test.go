@@ -31,8 +31,7 @@ type fakeStore struct {
 	readErr  error
 
 	gotFilter sessionview.Filter
-	gotLimit  int
-	gotOffset int
+	gotScope  sessionview.Scope
 }
 
 func (f *fakeStore) List(_ context.Context, filter sessionview.Filter) ([]sessionview.Summary, error) {
@@ -46,7 +45,8 @@ func (f *fakeStore) Count(context.Context, sessionview.Filter) (int, error) {
 
 // Get models the read model's not-found contract: an id with no recorded
 // calls is ErrNotFound, never a nil summary with a nil error.
-func (f *fakeStore) Get(context.Context, string) (*sessionview.Summary, error) {
+func (f *fakeStore) Get(_ context.Context, scope sessionview.Scope) (*sessionview.Summary, error) {
+	f.gotScope = scope
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -56,8 +56,8 @@ func (f *fakeStore) Get(context.Context, string) (*sessionview.Summary, error) {
 	return &sessionview.Summary{SessionID: "dps_abc", CallCount: 5, FailureCount: 1}, nil
 }
 
-func (f *fakeStore) Timeline(_ context.Context, _ string, limit, offset int) ([]sessionview.TimelineEntry, int, error) {
-	f.gotLimit, f.gotOffset = limit, offset
+func (f *fakeStore) Timeline(_ context.Context, scope sessionview.Scope) ([]sessionview.TimelineEntry, int, error) {
+	f.gotScope = scope
 	return f.timeline, len(f.timeline), f.readErr
 }
 
@@ -104,7 +104,7 @@ func TestListSessions_ReturnsPage(t *testing.T) {
 	assert.Equal(t, "dps_abc", got.Data[0].SessionID)
 	assert.Equal(t, 1, got.Total)
 	assert.Equal(t, 1, got.Page)
-	assert.Equal(t, defaultPerPage, got.PerPage)
+	assert.Equal(t, sessionview.DefaultPerPage, got.PerPage)
 }
 
 func TestListSessions_ParsesEveryFilter(t *testing.T) {
@@ -140,10 +140,10 @@ func TestListSessions_ClampsPerPage(t *testing.T) {
 		query string
 		want  int
 	}{
-		{"", defaultPerPage},
-		{"?per_page=0", defaultPerPage},
-		{"?per_page=-5", defaultPerPage},
-		{"?per_page=5000", maxPerPage},
+		{"", sessionview.DefaultPerPage},
+		{"?per_page=0", sessionview.DefaultPerPage},
+		{"?per_page=-5", sessionview.DefaultPerPage},
+		{"?per_page=5000", sessionview.MaxPerPage},
 		{"?per_page=10", 10},
 	}
 	for _, tt := range tests {
@@ -194,8 +194,10 @@ func TestGetSession_ReturnsDetail(t *testing.T) {
 	assert.Equal(t, "Sizing Q3 revenue by region.", got.Timeline[0].Purpose)
 	require.Len(t, got.Assets, 1)
 	require.Len(t, got.Insights, 1)
-	assert.Equal(t, 10, store.gotLimit)
-	assert.Equal(t, 10, store.gotOffset, "the timeline pages on the same vocabulary as the list")
+	assert.Equal(t, 10, store.gotScope.Limit)
+	assert.Equal(t, 10, store.gotScope.Offset, "the timeline pages on the same vocabulary as the list")
+	assert.Empty(t, store.gotScope.UserID,
+		"the operator surface is unrestricted: it reads sessions it did not run")
 }
 
 func TestGetSession_NotFound(t *testing.T) {
