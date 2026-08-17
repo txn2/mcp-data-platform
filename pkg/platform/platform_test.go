@@ -28,6 +28,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
+	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -4885,4 +4886,46 @@ func TestWireAPIGatewayRoutePolicy_NoAuthorizer_NoOp(t *testing.T) {
 
 	p.authorizer = nil // simulate "no authorizer"
 	p.WireAPIGatewayRoutePolicy()
+}
+
+// The async writer is what a provenance capture waits on before reading the
+// audit log; the sync writer has already stored what the capture is about to
+// read, so it offers nothing to wait for (#1320).
+func TestAsFlusher(t *testing.T) {
+	store := &syncProbeLogger{}
+
+	if f := asFlusher(newAuditLogger(store, AuditDeliveryAsync, nil)); f == nil {
+		t.Error("async delivery must expose a flusher")
+	} else if err := f.Flush(context.Background()); err != nil {
+		t.Errorf("Flush: %v", err)
+	}
+
+	if f := asFlusher(newAuditLogger(store, AuditDeliverySync, nil)); f != nil {
+		if err := f.Flush(context.Background()); err != nil {
+			t.Errorf("a sync writer's flush must be a no-op, got %v", err)
+		}
+	}
+
+	if f := asFlusher(&middleware.NoopAuditLogger{}); f != nil {
+		t.Error("a logger that cannot flush must not be offered as a flusher")
+	}
+}
+
+// Every asset write path calls captureProvenance, including on a platform with
+// no audit store to read: it must answer rather than panic.
+func TestCaptureProvenanceWithoutAnAuditStore(t *testing.T) {
+	p := &Platform{}
+	capture := p.captureProvenance(context.Background(), portal.ProvenanceRequest{
+		Tool: "save_asset", SessionID: "dps_abc", UserID: "u1",
+	})
+
+	if len(capture.Calls) != 0 {
+		t.Errorf("expected no calls captured, got %d", len(capture.Calls))
+	}
+	if capture.Tool != "save_asset" {
+		t.Errorf("Tool = %q, want save_asset", capture.Tool)
+	}
+	if capture.CapturedAt.IsZero() {
+		t.Error("a capture must carry the moment it was taken")
+	}
 }

@@ -18,11 +18,10 @@ import (
 // portalHarness bundles the assembled server plus the stores/loggers a portal
 // isolation test asserts against (issue #859).
 type portalHarness struct {
-	server     *mcp.Server
-	audit      *recordingAuditLogger
-	sgStore    searchgate.Store
-	provenance *middleware.ProvenanceTracker
-	adminID    string
+	server  *mcp.Server
+	audit   *recordingAuditLogger
+	sgStore searchgate.Store
+	adminID string
 }
 
 // portalServer wires the real assembled middleware chain the way the platform
@@ -40,7 +39,6 @@ func portalServer(t *testing.T) portalHarness {
 	tracker := middleware.NewSessionWorkflowTracker(
 		[]string{"search"}, []string{"trino_query"}, sgStore, time.Hour)
 	auditLog := &recordingAuditLogger{}
-	provenance := middleware.NewProvenanceTracker()
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "portal-session-test", Version: "v0"}, nil)
 
@@ -51,7 +49,6 @@ func portalServer(t *testing.T) portalHarness {
 	mcp.AddTool(server, &mcp.Tool{Name: "trino_query", Description: "query"}, okHandler)
 
 	// Chain, innermost added first (last-added runs first).
-	server.AddReceivingMiddleware(middleware.MCPProvenanceMiddleware(provenance))
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditLog))
 	server.AddReceivingMiddleware(middleware.MCPWorkflowGateMiddleware(tracker))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(
@@ -70,7 +67,7 @@ func portalServer(t *testing.T) portalHarness {
 			}),
 		},
 	))
-	return portalHarness{server: server, audit: auditLog, sgStore: sgStore, provenance: provenance, adminID: adminID}
+	return portalHarness{server: server, audit: auditLog, sgStore: sgStore, adminID: adminID}
 }
 
 // connectPortal connects to the assembled server with a connection context that
@@ -111,13 +108,6 @@ func TestIntegration_PortalRun_QueryExecutesWithoutSearchAndIsAttributed(t *test
 	assert.NotEmpty(t, ev.SessionID, "portal run must record a non-empty session id")
 	assert.True(t, strings.HasPrefix(ev.SessionID, pkgsession.PortalSessionPrefix),
 		"portal run's audit session id must carry the portal prefix, got %q", ev.SessionID)
-
-	// The per-request portal id must NOT accumulate in the provenance tracker:
-	// it is never harvested, and the tracker's only pruner is Harvest, so
-	// recording it would leak one map entry per portal run. Harvest returns
-	// empty because the portal run was skipped at record time (issue #859).
-	assert.Empty(t, h.provenance.Harvest(ev.SessionID),
-		"portal run must not record provenance (unbounded-growth leak guard)")
 }
 
 // TestIntegration_PortalRun_DoesNotAdvanceOperatorGateState proves the isolation

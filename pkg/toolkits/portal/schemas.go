@@ -60,6 +60,12 @@ var saveAssetSchema = json.RawMessage(`{
       "description": "Optional tags for categorization (max 20 tags, each max 100 chars)",
       "items": {"type": "string", "maxLength": 100},
       "maxItems": 20
+    },
+    "sources": {
+      "type": "array",
+      "description": "The calls this asset was built from, as the call_id (or mcp:call:<id> reference) each query and API invocation returns. Give these when you know exactly which calls produced the content; they replace the default, which is every data call you made since your last save or export in this session. Only your own calls can be cited.",
+      "items": {"type": "string"},
+      "maxItems": 100
     }
   }
 }`)
@@ -108,6 +114,12 @@ var manageAssetSchemaBase = json.RawMessage(`{
     "change_summary": {
       "type": "string",
       "description": "Human-readable summary of the change, recorded as the new version's change summary (update and patch actions). Defaults to a generated summary for a patch."
+    },
+    "sources": {
+      "type": "array",
+      "description": "The calls behind this edit, as the call_id (or mcp:call:<id> reference) each query and API invocation returns. Recorded as a new provenance capture alongside the ones earlier versions carry (update and patch actions). Omit to capture every data call you made since your last save or export in this session. Only your own calls can be cited.",
+      "items": {"type": "string"},
+      "maxItems": 100
     },
     "limit": {
       "type": "integer",

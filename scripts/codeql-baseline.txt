@@ -17,10 +17,12 @@
 # concern.
 
 # Line moved 195 -> 198 by #1317, which added the purpose column to the
-# SELECT list and its ILIKE to the search filter above this line. The flagged
-# statement itself is unchanged: the ORDER BY column is taken from the
-# audit.ValidSortColumns allowlist, never from caller input.
-go/sql-injection pkg/audit/postgres/store.go:198
+# SELECT list and its ILIKE to the search filter above this line, then
+# 198 -> 201 by #1320, which added the id-set filter provenance capture
+# resolves cited sources with. The flagged statement itself is unchanged: the
+# ORDER BY column is taken from the audit.ValidSortColumns allowlist, never
+# from caller input.
+go/sql-injection pkg/audit/postgres/store.go:201
 
 # request-forgery on the MCP gateway admin OAuth handler's
 # authorization_code token exchange. The request POSTs to the

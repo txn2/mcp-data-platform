@@ -211,7 +211,11 @@ func (*memAssets) List(context.Context, portal.AssetFilter) (assets []portal.Ass
 	return nil, 0, nil
 }
 func (*memAssets) Update(context.Context, string, portal.AssetUpdate) error { return nil }
-func (*memAssets) SoftDelete(context.Context, string) error                 { return nil }
+func (*memAssets) AppendProvenanceCapture(context.Context, string, portal.ProvenanceCapture) error {
+	return nil
+}
+
+func (*memAssets) SoftDelete(context.Context, string) error { return nil }
 
 type memVersions struct {
 	mu      sync.Mutex

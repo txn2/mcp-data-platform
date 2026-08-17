@@ -34,7 +34,7 @@ const (
 	mwErrorContract       mwName = "error_contract"
 	mwClientLogging       mwName = "client_logging"
 	mwManagedResource     mwName = "managed_resource"
-	mwProvenance          mwName = "provenance"
+	mwCallReference       mwName = "call_reference"
 	mwEnrichment          mwName = "enrichment"
 	mwUnwrapJSON          mwName = "unwrap_json"
 )
@@ -136,9 +136,10 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		{Name: mwClientLogging, Register: p.addClientLoggingMiddleware},
 		{Name: mwManagedResource, Register: p.addManagedResourceMiddleware},
 
-		// Provenance reads PlatformContext (pc.SessionID) to accumulate per-session
-		// tool calls, so it requires the auth/authz middleware that writes it.
-		{Name: mwProvenance, Requires: []mwName{mwToolCall}, Register: p.addProvenanceMiddleware},
+		// The call reference stamps a data call's own audit event id onto its
+		// result. It reads PlatformContext (pc.EventID, pc.ToolkitKind), so it
+		// requires the auth/authz middleware that writes them.
+		{Name: mwCallReference, Requires: []mwName{mwToolCall}, Register: p.addCallReferenceMiddleware},
 
 		// Enrichment reads PlatformContext (session dedup) and sets
 		// EnrichmentApplied on the way out. The observers that record it —

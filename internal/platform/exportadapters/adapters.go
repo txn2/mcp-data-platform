@@ -23,6 +23,7 @@ package exportadapters
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -50,13 +51,15 @@ type TrinoExporter struct {
 	versionStore portal.VersionStore
 	shareStore   portal.ShareStore
 	baseURL      string
+	capture      portal.ProvenanceCapturer
 }
 
 // NewTrinoExporter builds a TrinoExporter over the given portal stores. An
 // empty baseURL disables share-URL computation (the share row is still
-// inserted).
-func NewTrinoExporter(assets portal.AssetStore, versions portal.VersionStore, shares portal.ShareStore, baseURL string) *TrinoExporter {
-	return &TrinoExporter{assetStore: assets, versionStore: versions, shareStore: shares, baseURL: baseURL}
+// inserted). The capturer resolves the calls the exported asset was built
+// from; nil records only the export's own statement.
+func NewTrinoExporter(assets portal.AssetStore, versions portal.VersionStore, shares portal.ShareStore, baseURL string, capture portal.ProvenanceCapturer) *TrinoExporter {
+	return &TrinoExporter{assetStore: assets, versionStore: versions, shareStore: shares, baseURL: baseURL, capture: capture}
 }
 
 func (e *TrinoExporter) InsertExportAsset(ctx context.Context, asset trinokit.ExportAsset) error { //nolint:revive // implements trino.ExportAssetStore
@@ -71,11 +74,12 @@ func (e *TrinoExporter) InsertExportAsset(ctx context.Context, asset trinokit.Ex
 		S3Key:       asset.S3Key,
 		SizeBytes:   asset.SizeBytes,
 		Tags:        asset.Tags,
-		Provenance: portal.Provenance{
-			UserID:    asset.Provenance.UserID,
-			SessionID: asset.Provenance.SessionID,
-			ToolCalls: convertTrinoProvenanceCalls(asset.Provenance.ToolCalls),
-		},
+		Provenance: capturedProvenance(ctx, e.capture, provenanceInput{
+			userID:    asset.Provenance.UserID,
+			sessionID: asset.Provenance.SessionID,
+			tool:      trinoExportTool,
+			own:       trinoOwnCall(asset.Provenance.ToolCalls),
+		}),
 		SessionID:      asset.SessionID,
 		IdempotencyKey: asset.IdempotencyKey,
 	}); err != nil {
@@ -113,12 +117,23 @@ func (e *TrinoExporter) CreatePublicShare(ctx context.Context, assetID, createdB
 	return createExportShare(ctx, e.shareStore, e.baseURL, assetID, createdBy)
 }
 
-func convertTrinoProvenanceCalls(calls []trinokit.ExportProvenanceCall) []portal.ProvenanceToolCall {
-	result := make([]portal.ProvenanceToolCall, len(calls))
-	for i, c := range calls {
-		result[i] = portal.ProvenanceToolCall{ToolName: c.ToolName, Timestamp: c.Timestamp, Parameters: c.Parameters}
+// trinoOwnCall renders the export's record of itself as a captured call: the
+// statement it ran and the connection it ran against. The export's own audit
+// row is written after the tool returns, so this is the only account of it
+// available at insert time.
+func trinoOwnCall(calls []trinokit.ExportProvenanceCall) *portal.ProvenanceCall {
+	if len(calls) == 0 {
+		return nil
 	}
-	return result
+	c := calls[len(calls)-1]
+	return &portal.ProvenanceCall{
+		Kind:       portal.ProvenanceKindSQL,
+		Tool:       c.ToolName,
+		Connection: stringParam(c.Parameters, "connection"),
+		Statement:  stringParam(c.Parameters, "export_query"),
+		Outcome:    portal.ProvenanceOutcomeSuccess,
+		Timestamp:  parseTimestamp(c.Timestamp),
+	}
 }
 
 // APIExporter adapts the portal stores to the api-gateway toolkit's export
@@ -130,12 +145,15 @@ type APIExporter struct {
 	versionStore portal.VersionStore
 	shareStore   portal.ShareStore
 	baseURL      string
+	capture      portal.ProvenanceCapturer
 }
 
 // NewAPIExporter builds an APIExporter over the given portal stores. An empty
 // baseURL disables share-URL computation (the share row is still inserted).
-func NewAPIExporter(assets portal.AssetStore, versions portal.VersionStore, shares portal.ShareStore, baseURL string) *APIExporter {
-	return &APIExporter{assetStore: assets, versionStore: versions, shareStore: shares, baseURL: baseURL}
+// The capturer resolves the calls the exported asset was built from; nil
+// records only the export's own request.
+func NewAPIExporter(assets portal.AssetStore, versions portal.VersionStore, shares portal.ShareStore, baseURL string, capture portal.ProvenanceCapturer) *APIExporter {
+	return &APIExporter{assetStore: assets, versionStore: versions, shareStore: shares, baseURL: baseURL, capture: capture}
 }
 
 func (e *APIExporter) InsertExportAsset(ctx context.Context, asset apigatewaykit.ExportAsset) error { //nolint:dupl,revive // implements apigateway.ExportAssetStore; mirrors TrinoExporter over a distinct field-identical DTO (see package doc)
@@ -150,12 +168,13 @@ func (e *APIExporter) InsertExportAsset(ctx context.Context, asset apigatewaykit
 		S3Key:       asset.S3Key,
 		SizeBytes:   asset.SizeBytes,
 		Tags:        asset.Tags,
-		Provenance: portal.Provenance{
-			UserID:              asset.Provenance.UserID,
-			SessionID:           asset.Provenance.SessionID,
-			ToolCalls:           convertAPIProvenanceCalls(asset.Provenance.ToolCalls),
-			DeclaredContentType: asset.Provenance.DeclaredContentType,
-		},
+		Provenance: capturedProvenance(ctx, e.capture, provenanceInput{
+			userID:              asset.Provenance.UserID,
+			sessionID:           asset.Provenance.SessionID,
+			tool:                apiExportTool,
+			own:                 apiOwnCall(asset.Provenance.ToolCalls),
+			declaredContentType: asset.Provenance.DeclaredContentType,
+		}),
 		SessionID:      asset.SessionID,
 		IdempotencyKey: asset.IdempotencyKey,
 	}); err != nil {
@@ -193,12 +212,29 @@ func (e *APIExporter) CreatePublicShare(ctx context.Context, assetID, createdBy 
 	return createExportShare(ctx, e.shareStore, e.baseURL, assetID, createdBy)
 }
 
-func convertAPIProvenanceCalls(calls []apigatewaykit.ExportProvenanceCall) []portal.ProvenanceToolCall {
-	result := make([]portal.ProvenanceToolCall, len(calls))
-	for i, c := range calls {
-		result[i] = portal.ProvenanceToolCall{ToolName: c.ToolName, Timestamp: c.Timestamp, Parameters: c.Parameters}
+// apiOwnCall renders the export's record of itself as a captured call: the
+// request it issued and how the upstream answered. An upstream error status is
+// recorded as a failed call — the export still produced an asset, and what it
+// holds is that response.
+func apiOwnCall(calls []apigatewaykit.ExportProvenanceCall) *portal.ProvenanceCall {
+	if len(calls) == 0 {
+		return nil
 	}
-	return result
+	c := calls[len(calls)-1]
+	call := &portal.ProvenanceCall{
+		Kind:       portal.ProvenanceKindAPI,
+		Tool:       c.ToolName,
+		Connection: stringParam(c.Parameters, "connection"),
+		Method:     stringParam(c.Parameters, "method"),
+		Path:       stringParam(c.Parameters, "path"),
+		Outcome:    portal.ProvenanceOutcomeSuccess,
+		Timestamp:  parseTimestamp(c.Timestamp),
+	}
+	if status, ok := c.Parameters["upstream_status"].(int); ok && status >= httpErrorStatus {
+		call.Outcome = portal.ProvenanceOutcomeError
+		call.Error = fmt.Sprintf("upstream returned %d", status)
+	}
+	return call
 }
 
 // createExportShare inserts a share row for an exported asset and returns its
@@ -236,4 +272,77 @@ func createExportShare(ctx context.Context, shareStore portal.ShareStore, baseUR
 		return fmt.Sprintf("%s/portal/view/%s", baseURL, token), nil
 	}
 	return "", nil
+}
+
+// Tool names of the two export paths, as they appear in provenance and in the
+// audit log.
+const (
+	trinoExportTool = "trino_export"
+	apiExportTool   = "api_export"
+
+	// httpErrorStatus is the first HTTP status an upstream returns that makes
+	// the export's own call a failed one.
+	httpErrorStatus = 400
+)
+
+// provenanceInput is what an exporter knows about the write it is performing:
+// who ran it, in which session, under which tool, and the export call's own
+// account of itself.
+type provenanceInput struct {
+	userID              string
+	sessionID           string
+	tool                string
+	own                 *portal.ProvenanceCall
+	declaredContentType string
+}
+
+// capturedProvenance builds the provenance stored on an exported asset: the
+// calls the session made since its previous capture, resolved from the audit
+// log, with the export's own call last (#1320). Without a capturer — a
+// deployment with no audit store — the asset still records the export itself.
+func capturedProvenance(ctx context.Context, capture portal.ProvenanceCapturer, in provenanceInput) portal.Provenance {
+	prov := portal.Provenance{
+		UserID:              in.userID,
+		SessionID:           in.sessionID,
+		DeclaredContentType: in.declaredContentType,
+	}
+	req := portal.ProvenanceRequest{
+		Tool:      in.tool,
+		SessionID: in.sessionID,
+		UserID:    in.userID,
+		Version:   1,
+		Own:       in.own,
+	}
+	if capture == nil {
+		if in.own != nil {
+			prov.Captures = []portal.ProvenanceCapture{{
+				Tool:       in.tool,
+				CapturedAt: time.Now().UTC(),
+				Version:    1,
+				SessionID:  in.sessionID,
+				Calls:      []portal.ProvenanceCall{*in.own},
+			}}
+		}
+		return prov
+	}
+	if result := capture(ctx, req); len(result.Calls) > 0 {
+		prov.Captures = []portal.ProvenanceCapture{result}
+	}
+	return prov
+}
+
+// stringParam reads a string out of a toolkit-side provenance parameter map.
+func stringParam(params map[string]any, key string) string {
+	v, _ := params[key].(string)
+	return v
+}
+
+// parseTimestamp reads the RFC 3339 timestamp a toolkit stamped on its own
+// call record, falling back to now when it is absent or unparseable — a call
+// with no time reads as having no provenance at all.
+func parseTimestamp(value string) time.Time {
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t.UTC()
+	}
+	return time.Now().UTC()
 }

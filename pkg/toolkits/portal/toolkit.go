@@ -110,6 +110,10 @@ type saveAssetInput struct {
 	ContentType string   `json:"content_type"`
 	Description string   `json:"description,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
+	// Sources are the calls the agent says this asset was built from, cited
+	// by call id or mcp:call: reference (#1320). Empty means the platform
+	// takes the session's data calls since its previous capture.
+	Sources []string `json:"sources,omitempty"`
 }
 
 // manageAssetInput defines the input for manage_asset.
@@ -127,6 +131,10 @@ type manageAssetInput struct {
 	Sections     []sectionInput `json:"sections,omitempty"`
 	Search       string         `json:"search,omitempty"`
 	Offset       int            `json:"offset,omitempty"`
+
+	// Sources are the calls behind a content edit, cited by call id or
+	// mcp:call: reference (#1320). Applies to the update and patch actions.
+	Sources []string `json:"sources,omitempty"`
 
 	// Query (search action) ranks the caller's assets by relevance to a
 	// free-text query instead of the substring Search filter.
@@ -191,7 +199,7 @@ type saveAssetOutput struct {
 	PortalURL          string `json:"portal_url,omitempty"`
 	Message            string `json:"message"`
 	ProvenanceCaptured bool   `json:"provenance_captured"`
-	ToolCallsRecorded  int    `json:"tool_calls_recorded"`
+	CallsRecorded      int    `json:"calls_recorded"`
 }
 
 // Config holds configuration for creating a portal toolkit.
@@ -212,6 +220,12 @@ type Config struct {
 	// or the noop placeholder, search degrades to lexical-only ranking (the
 	// store decides via embedding.EmbedForSearch).
 	Embedder embedding.Provider
+
+	// CaptureProvenance resolves which calls an asset write was built from
+	// (#1320). Injected by the platform, which owns the audit log the capture
+	// is read from. Nil leaves an asset recording its session and owner but no
+	// calls — what a deployment without audit gets.
+	CaptureProvenance portal.ProvenanceCapturer
 }
 
 // Toolkit implements the portal asset toolkit.
@@ -236,6 +250,8 @@ type Toolkit struct {
 	mentions        portal.MentionResolver
 	actions         map[string]manageActionHandler
 	feedbackActions map[string]feedbackActionHandler
+
+	captureProvenance portal.ProvenanceCapturer
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -272,6 +288,8 @@ func New(cfg Config) *Toolkit {
 		baseURL:         cfg.BaseURL,
 		maxContentSize:  cfg.MaxContentSize,
 		embedder:        cfg.Embedder,
+
+		captureProvenance: cfg.CaptureProvenance,
 	}
 	tk.actions = tk.buildActions()
 	tk.feedbackActions = tk.buildFeedbackActions()
@@ -476,14 +494,14 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 		return toolkit.ErrorResult("failed to upload content: " + err.Error()), nil, nil
 	}
 
-	prov := buildProvenance(ctx, userID, sessionID)
+	prov := t.buildProvenance(ctx, userID, sessionID, input.Sources)
 	if contentType != input.ContentType {
 		prov.DeclaredContentType = input.ContentType
 	}
 	slog.Info("save_asset.provenance",
 		"session_id", sessionID,
 		"user_id", userID,
-		"tool_calls", len(prov.ToolCalls),
+		"calls", capturedCalls(prov),
 	)
 
 	tags := input.Tags
@@ -529,7 +547,7 @@ func (t *Toolkit) handleSaveAsset(ctx context.Context, _ *mcp.CallToolRequest, i
 		return toolkit.ErrorResult("failed to create initial version record: " + err.Error()), nil, nil
 	}
 
-	return toolkit.JSONResultTyped(t.buildSaveOutput(assetID, prov))
+	return toolkit.JSONResultTyped(t.buildSaveOutput(assetID, prov, len(input.Sources)))
 }
 
 // manageActionHandler is a function that handles a manage_asset action.
@@ -661,7 +679,13 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageAssetInput) (*mc
 	}
 
 	if hasContent {
-		if _, contentErr := t.uploadContentUpdate(ctx, asset, input.Content, input.ContentType, input.ChangeSummary); contentErr != nil {
+		edit := contentEdit{
+			content:      input.Content,
+			declaredType: input.ContentType,
+			summary:      input.ChangeSummary,
+			sources:      input.Sources,
+		}
+		if _, contentErr := t.uploadContentUpdate(ctx, asset, edit); contentErr != nil {
 			return toolkit.ErrorResult("failed to upload new content: " + contentErr.Error()), nil, nil
 		}
 	}
@@ -703,19 +727,19 @@ func metadataUpdate(input manageAssetInput) (update portal.AssetUpdate, present 
 //
 // summary is recorded as the version's change summary, which is what makes the
 // version history readable; an empty summary falls back to the generic label.
-func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, content, declaredType, summary string) (int, error) {
-	if t.maxContentSize > 0 && len(content) > t.maxContentSize {
-		return 0, fmt.Errorf("content size %d exceeds maximum %d bytes", len(content), t.maxContentSize)
+func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, edit contentEdit) (int, error) {
+	if t.maxContentSize > 0 && len(edit.content) > t.maxContentSize {
+		return 0, fmt.Errorf("content size %d exceeds maximum %d bytes", len(edit.content), t.maxContentSize)
 	}
 	// The caller's declaration wins when specific; otherwise the asset's
 	// existing type is the declaration, so an edit to a JSON asset stays JSON.
-	declared := declaredType
+	declared := edit.declaredType
 	if declared == "" {
 		declared = asset.ContentType
 	}
 	// One conversion feeds both detection and the upload; the body can be
 	// megabytes, so converting per call site would copy it twice.
-	data := []byte(content)
+	data := []byte(edit.content)
 	ct := portal.ResolveContentType(declared, data)
 	if err := portal.ValidateContentTypeChange(asset.ContentType, ct); err != nil {
 		return 0, fmt.Errorf("content type: %w", err)
@@ -735,6 +759,7 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 		return 0, fmt.Errorf("s3 put: %w", err)
 	}
 
+	summary := edit.summary
 	if summary == "" {
 		summary = defaultChangeSummary
 	}
@@ -753,7 +778,41 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 		t.cleanupOrphanedS3(ctx, t.s3Bucket, s3Key)
 		return 0, fmt.Errorf("creating version: %w", err)
 	}
+	t.recordCapture(ctx, asset.ID, version, edit.sources)
 	return version, nil
+}
+
+// contentEdit is one replacement of an asset's body: the new content, what the
+// caller declared it to be, the summary the version history shows, and the
+// calls behind it.
+type contentEdit struct {
+	content      string
+	declaredType string
+	summary      string
+	sources      []string
+}
+
+// recordCapture appends the calls behind a content edit to the asset's
+// provenance, so each version says what fed it rather than the asset carrying
+// only the sources of its first (#1320).
+//
+// A failed append is logged, not returned: the new version is already written
+// and refusing the edit over its provenance would lose the content.
+func (t *Toolkit) recordCapture(ctx context.Context, assetID string, version int, sources []string) {
+	capture := t.capture(ctx, portal.ProvenanceRequest{
+		Tool:      ManageToolName,
+		SessionID: resolveSessionID(ctx),
+		UserID:    resolveOwnerID(ctx),
+		Sources:   sources,
+		Version:   version,
+	})
+	if capture == nil {
+		return
+	}
+	if err := t.assetStore.AppendProvenanceCapture(ctx, assetID, *capture); err != nil {
+		slog.Warn("manage_asset: provenance capture not recorded",
+			"asset_id", assetID, "version", version, "error", err)
+	}
 }
 
 func (t *Toolkit) handleDelete(ctx context.Context, input manageAssetInput) (*mcp.CallToolResult, any, error) {
@@ -925,17 +984,40 @@ func (t *Toolkit) buildS3Key(ownerID, assetID, contentType string) string {
 	return path.Join(t.s3Prefix, ownerID, assetID, "content"+ext)
 }
 
-func (t *Toolkit) buildSaveOutput(assetID string, prov portal.Provenance) saveAssetOutput {
+// buildSaveOutput reports what was saved and what its provenance recorded.
+//
+// citedSources is how many calls the caller named. When fewer were recorded
+// than were cited, the message says so: a citation only resolves among the
+// caller's own calls, and an agent that mistyped an id or cited a call from
+// someone else's session would otherwise be told the save succeeded and left
+// to assume its sources were kept.
+func (t *Toolkit) buildSaveOutput(assetID string, prov portal.Provenance, citedSources int) saveAssetOutput {
+	recorded := capturedCalls(prov)
 	out := saveAssetOutput{
 		AssetID:            assetID,
 		Message:            "Asset saved successfully.",
-		ProvenanceCaptured: len(prov.ToolCalls) > 0,
-		ToolCallsRecorded:  len(prov.ToolCalls),
+		ProvenanceCaptured: recorded > 0,
+		CallsRecorded:      recorded,
+	}
+	if citedSources > recorded {
+		out.Message += fmt.Sprintf(" %d of the %d cited sources were recorded; "+
+			"the rest named no call of yours.", recorded, citedSources)
 	}
 	if t.baseURL != "" {
 		out.PortalURL = t.baseURL + "/portal/assets/" + assetID
 	}
 	return out
+}
+
+// capturedCalls counts the calls an asset's provenance records across every
+// capture, including the pre-#1320 tool_calls shape so a count means the same
+// thing for an asset written under either.
+func capturedCalls(prov portal.Provenance) int {
+	n := len(prov.ToolCalls)
+	for _, capture := range prov.Captures {
+		n += len(capture.Calls)
+	}
+	return n
 }
 
 func validateSaveInput(input saveAssetInput) error {
@@ -957,25 +1039,39 @@ func validateSaveInput(input saveAssetInput) error {
 	return nil
 }
 
-func buildProvenance(ctx context.Context, userID, sessionID string) portal.Provenance {
+// buildProvenance records who saved the asset and, when the platform wired a
+// capturer, which calls it was built from. The capture is taken here rather
+// than accumulated over the session because the audit log already holds every
+// call: this reads it at write time (#1320).
+func (t *Toolkit) buildProvenance(ctx context.Context, userID, sessionID string, sources []string) portal.Provenance {
 	prov := portal.Provenance{
 		UserID:    userID,
 		SessionID: sessionID,
 	}
-
-	calls := middleware.GetProvenanceToolCalls(ctx)
-	if len(calls) > 0 {
-		prov.ToolCalls = make([]portal.ProvenanceToolCall, len(calls))
-		for i, c := range calls {
-			prov.ToolCalls[i] = portal.ProvenanceToolCall{
-				ToolName:   c.ToolName,
-				Timestamp:  c.Timestamp,
-				Parameters: c.Parameters,
-			}
-		}
+	capture := t.capture(ctx, portal.ProvenanceRequest{
+		Tool:      SaveToolName,
+		SessionID: sessionID,
+		UserID:    userID,
+		Sources:   sources,
+		Version:   1,
+	})
+	if capture != nil {
+		prov.Captures = []portal.ProvenanceCapture{*capture}
 	}
-
 	return prov
+}
+
+// capture runs the injected capturer, or reports nil when the deployment wired
+// none and when the capture found nothing worth recording.
+func (t *Toolkit) capture(ctx context.Context, req portal.ProvenanceRequest) *portal.ProvenanceCapture {
+	if t.captureProvenance == nil {
+		return nil
+	}
+	capture := t.captureProvenance(ctx, req)
+	if len(capture.Calls) == 0 {
+		return nil
+	}
+	return &capture
 }
 
 func generateID() (string, error) {

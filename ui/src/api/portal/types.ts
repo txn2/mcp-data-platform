@@ -42,17 +42,15 @@ export interface AssetVersion {
   created_at: string;
 }
 
-export interface Provenance {
-  tool_calls?: ProvenanceToolCall[];
-  session_id?: string;
-  user_id?: string;
-}
-
-export interface ProvenanceToolCall {
-  tool_name: string;
-  timestamp: string;
-  parameters?: Record<string, unknown>;
-}
+export type {
+  Provenance,
+  ProvenanceCapture,
+  ProvenanceCall,
+  ProvenanceCallKind,
+  ProvenanceOutcome,
+  ProvenanceToolCall,
+} from "./provenance";
+import type { Provenance } from "./provenance";
 
 export type SharePermission = "viewer" | "editor";
 

@@ -78,7 +78,11 @@ The viewer provides:
 - **Preview / Source toggle** — Switch between rendered output and raw source code
 - **Actions** — Delete, Download, and Share buttons
 - **Owner display** — Shows the asset owner's email address
-- **Metadata sidebar** — Type, size, created and updated timestamps, tags, version history, and the calls the agent made on the way to saving this asset
+- **Metadata sidebar** — Type, size, created and updated timestamps, tags, version history, and the calls this asset was built from
+
+The **Provenance** panel groups those calls by capture — one per time the asset was written, so a revised asset shows what fed each of its versions. Each call names its kind (a SQL statement, an API request, or another data call), the connection it ran against, the purpose the agent stated for it, how long it took, and whether it failed; a failed call is shown, not hidden, because it is part of how the answer was reached. Opening a call shows the full statement or request with a copy action and the `mcp:call:` reference that names it in the audit log. A capture marked **Cited** is one where the agent named its sources itself rather than the platform taking the session's recent calls. See [Provenance](provenance.md).
+
+![Provenance panel](../images/screenshots/light/user-asset-provenance-light.webp#only-light)![Provenance panel](../images/screenshots/dark/user-asset-provenance-dark.webp#only-dark)
 
 The sidebar's **Session** row and the **Open session** action beneath the captured calls both open [the session that made this asset](#my-sessions): the panel shows only the calls captured at the moment the asset was saved, while the session holds every call that session made, before and after. Both appear only on your own assets — a session opens for the person who ran it, so on an asset shared with you there is nothing to link to. Administrators get the same walk on the admin asset viewer, into the admin sessions surface.
 

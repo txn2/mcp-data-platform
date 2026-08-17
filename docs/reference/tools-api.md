@@ -1144,7 +1144,7 @@ The portal toolkit persists AI-generated assets to S3 with PostgreSQL metadata. 
 
 ### save_asset
 
-Save AI-generated content (JSX dashboard, HTML report, SVG chart, etc.) to the asset portal as a versioned asset. Automatically captures provenance: which tool calls in the current session produced this asset.
+Save AI-generated content (JSX dashboard, HTML report, SVG chart, etc.) to the asset portal as a versioned asset. Captures provenance: the calls the asset was built from, read from the audit log at write time. See [Provenance](../server/provenance.md).
 
 **Parameters:**
 
@@ -1162,6 +1162,7 @@ payload to `text/html`, `text/jsx` or `image/svg+xml`. See
 [Content Types and Viewers](../server/content-viewers.md).
 | `description` | string | No | `""` | Description (max 2000 chars) |
 | `tags` | array | No | `[]` | Tags for categorization (max 20 tags, each max 100 chars) |
+| `sources` | array | No | session window | The calls this asset was built from, as the `call_id` (or `mcp:call:<id>` reference) each query and API invocation returns. Replaces the default window; only the caller's own calls resolve (max 100) |
 
 **Response Schema:**
 
@@ -1171,7 +1172,7 @@ payload to `text/html`, `text/jsx` or `image/svg+xml`. See
   "portal_url": "https://portal.example.com/portal/assets/a1b2c3d4e5f67890a1b2c3d4e5f67890",
   "message": "Artifact saved successfully.",
   "provenance_captured": true,
-  "tool_calls_recorded": 5
+  "calls_recorded": 5
 }
 ```
 
@@ -1196,6 +1197,7 @@ List, retrieve, update, or delete saved assets. All mutations enforce ownership:
 | `description` | string | No | - | New description (for `update`) |
 | `tags` | array | No | - | New tags (for `update`) |
 | `content_type` | string | No | - | New content type (for `update`, only when replacing content) |
+| `sources` | array | No | session window | The calls behind a content edit (`update`, `patch`), as `call_id` values or `mcp:call:<id>` references. Recorded as a new capture alongside the ones earlier versions carry |
 | `query` | string | Conditional | - | Free-text relevance query (required for `search`) |
 | `limit` | integer | No | 50 | Max results for `list` (max 200); ranked `search` defaults to 20 (max 100) |
 
@@ -1226,9 +1228,28 @@ List, retrieve, update, or delete saved assets. All mutations enforce ownership:
       "tags": ["dashboard", "revenue"],
       "provenance": {
         "user_id": "user@example.com",
-        "session_id": "sess123",
-        "tool_calls": [
-          {"tool_name": "trino_query", "timestamp": "2024-01-15T10:00:00Z", "summary": "SELECT ..."}
+        "session_id": "dps_abc123",
+        "captures": [
+          {
+            "tool": "save_asset",
+            "captured_at": "2026-01-15T10:05:00Z",
+            "version": 1,
+            "session_id": "dps_abc123",
+            "event_ids": ["8kQ2f1uVQ2S1p0aT4Hn2Zw"],
+            "calls": [
+              {
+                "event_id": "8kQ2f1uVQ2S1p0aT4Hn2Zw",
+                "kind": "sql",
+                "tool": "trino_query",
+                "connection": "warehouse",
+                "statement": "SELECT region, revenue FROM sales.quarterly",
+                "purpose": "Totalling Q4 revenue by region for the board deck.",
+                "outcome": "success",
+                "duration_ms": 1840,
+                "timestamp": "2026-01-15T10:00:00Z"
+              }
+            ]
+          }
         ]
       },
       "created_at": "2024-01-15T10:05:00Z",

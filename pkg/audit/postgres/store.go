@@ -159,6 +159,9 @@ func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBu
 			qb = qb.Where(sq.Eq{eq.col: eq.val})
 		}
 	}
+	if len(filter.IDs) > 0 {
+		qb = qb.Where(sq.Eq{"id": filter.IDs})
+	}
 	if filter.StartTime != nil {
 		qb = qb.Where(sq.GtOrEq{colTimestamp: *filter.StartTime})
 	}

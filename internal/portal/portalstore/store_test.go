@@ -3,7 +3,9 @@ package portalstore
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -1370,4 +1372,79 @@ func TestPostgresAssetStoreListOrdering(t *testing.T) {
 			assert.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
+}
+
+// The append passes one capture as a JSON array so the statement can
+// concatenate it onto whatever the row already holds, and reports a row that
+// is not there rather than silently writing nothing. (What the jsonb
+// expression itself does to an empty, legacy, or malformed provenance column
+// is covered against real Postgres in provenance_realdb_integration_test.go.)
+func TestPostgresAssetStoreAppendProvenanceCapture(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+	capture := portaldomain.ProvenanceCapture{
+		Tool: "save_asset", Version: 1, EventIDs: []string{"evt-1"},
+		Calls: []portaldomain.ProvenanceCall{{EventID: "evt-1", Kind: portaldomain.ProvenanceKindSQL}},
+	}
+
+	sent := &capturedJSON{}
+	mock.ExpectExec("UPDATE portal_assets").
+		WithArgs(sent, "abc123").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	require.NoError(t, store.AppendProvenanceCapture(context.Background(), "abc123", capture))
+	assert.NoError(t, mock.ExpectationsWereMet())
+
+	var decoded []portaldomain.ProvenanceCapture
+	require.NoError(t, json.Unmarshal(sent.value, &decoded),
+		"the capture is sent as a one-element array so the statement can concatenate it")
+	require.Len(t, decoded, 1)
+	assert.Equal(t, []string{"evt-1"}, decoded[0].EventIDs)
+	assert.Equal(t, "save_asset", decoded[0].Tool)
+}
+
+// capturedJSON matches any bound argument while keeping a copy of it, so a
+// test can assert what was actually sent to the database.
+type capturedJSON struct{ value []byte }
+
+func (c *capturedJSON) Match(v driver.Value) bool {
+	b, ok := v.([]byte)
+	if !ok {
+		return false
+	}
+	c.value = append([]byte(nil), b...)
+	return true
+}
+
+func TestPostgresAssetStoreAppendProvenanceCaptureMissingRow(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+	mock.ExpectExec("UPDATE portal_assets").
+		WithArgs(sqlmock.AnyArg(), "gone").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err = store.AppendProvenanceCapture(context.Background(), "gone", portaldomain.ProvenanceCapture{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestPostgresAssetStoreAppendProvenanceCaptureExecError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresAssetStore(db)
+	mock.ExpectExec("UPDATE portal_assets").
+		WithArgs(sqlmock.AnyArg(), "abc123").
+		WillReturnError(errors.New("connection reset"))
+
+	err = store.AppendProvenanceCapture(context.Background(), "abc123", portaldomain.ProvenanceCapture{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "appending provenance capture")
 }

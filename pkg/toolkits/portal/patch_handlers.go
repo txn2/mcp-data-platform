@@ -136,7 +136,12 @@ func (t *Toolkit) handlePatch(ctx context.Context, input manageAssetInput) (*mcp
 		return toolkit.JSONResultTyped(result)
 	}
 
-	version, err := t.uploadContentUpdate(ctx, asset, res.Body, asset.ContentType, summary)
+	version, err := t.uploadContentUpdate(ctx, asset, contentEdit{
+		content:      res.Body,
+		declaredType: asset.ContentType,
+		summary:      summary,
+		sources:      input.Sources,
+	})
 	if err != nil {
 		return toolkit.ErrorResult("failed to write patched content: " + err.Error()), nil, nil
 	}

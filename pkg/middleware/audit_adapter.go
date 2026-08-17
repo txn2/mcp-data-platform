@@ -31,6 +31,14 @@ type auditFlusher interface {
 	Close(ctx context.Context) error
 }
 
+// auditFlushWaiter is implemented by a buffering audit store that can be
+// drained without being closed — pkg/audit.AsyncWriter. Provenance capture
+// waits on it so a call that just completed is readable from the store before
+// its sources are resolved (#1320).
+type auditFlushWaiter interface {
+	Flush(ctx context.Context) error
+}
+
 // auditStoreAdapter adapts an audit store to the middleware.AuditLogger interface.
 type auditStoreAdapter struct {
 	store auditStore
@@ -71,8 +79,32 @@ func (a *auditStoreAdapter) Log(ctx context.Context, event AuditEvent) error {
 	// Override timestamp from the event
 	auditEvent.Timestamp = event.Timestamp
 
+	// Keep the id the tool-call middleware minted, so the id the call already
+	// handed to its own caller (and to any asset that cited it as a source) is
+	// the id of the stored row (#1320). Events assembled outside that path
+	// carry none and keep the one NewEvent minted.
+	if event.ID != "" {
+		auditEvent.ID = event.ID
+	}
+
 	if err := a.store.Log(ctx, *auditEvent); err != nil {
 		return fmt.Errorf("logging audit event: %w", err)
+	}
+	return nil
+}
+
+// Flush waits for the events this adapter has already enqueued to reach the
+// store, so a reader that needs them can see them (#1320). It is a no-op when
+// the underlying store writes synchronously — those events are already durable
+// — and never fails the caller's own work: a flush error means the reader may
+// see a slightly stale log, not that the write path is broken.
+func (a *auditStoreAdapter) Flush(ctx context.Context) error {
+	f, ok := a.store.(auditFlushWaiter)
+	if !ok {
+		return nil
+	}
+	if err := f.Flush(ctx); err != nil {
+		return fmt.Errorf("flushing audit writer: %w", err)
 	}
 	return nil
 }

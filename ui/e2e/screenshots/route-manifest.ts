@@ -1,3 +1,4 @@
+import { assetViewerRoutes } from "./route-assets";
 import { drawerRoutes } from "./route-drawers";
 import { adminScriptRoutes, userScriptRoutes } from "./route-scripts";
 import {
@@ -265,43 +266,7 @@ export const routes: ScreenshotRoute[] = [
     beforeCapture: openShareDialogWithRecipient,
   },
 
-  // Asset viewer — one per content type
-  {
-    slug: "asset-html",
-    path: "/portal/assets/ast-001",
-    category: "user",
-  },
-  {
-    slug: "asset-svg",
-    path: "/portal/assets/ast-002",
-    category: "user",
-  },
-  {
-    slug: "asset-markdown",
-    path: "/portal/assets/ast-003",
-    category: "user",
-  },
-  {
-    slug: "asset-jsx",
-    path: "/portal/assets/ast-004",
-    category: "user",
-  },
-  {
-    slug: "asset-csv",
-    path: "/portal/assets/ast-008",
-    category: "user",
-  },
-  {
-    // Asset shared with the current user — opens in the standard viewer.
-    slug: "shared-asset",
-    path: "/portal/assets/ast-ext-001",
-    category: "user",
-  },
-  {
-    slug: "collection-asset",
-    path: "/portal/collections/col-001/assets/ast-001",
-    category: "user",
-  },
+  ...assetViewerRoutes,
   {
     // Per-user settings: email notification preferences (#631).
     slug: "settings",

@@ -344,3 +344,105 @@ func TestAsyncWriter_NilMetricsSafe(t *testing.T) {
 		t.Error("expected at least one drop with a 1-deep queue and blocked store")
 	}
 }
+
+// TestAsyncWriter_FlushWaitsForQueuedWrites is the guarantee provenance
+// capture depends on (#1320): after Flush returns, every event enqueued
+// before it is in the store, so a reader that queries immediately sees them.
+func TestAsyncWriter_FlushWaitsForQueuedWrites(t *testing.T) {
+	store := &recordingLogger{delay: time.Millisecond}
+	w := NewAsyncWriter(store)
+	defer func() { _ = w.Close(context.Background()) }()
+
+	const n = 25
+	for i := range n {
+		_ = w.Log(context.Background(), Event{ToolName: "trino_query", RequestID: string(rune('a' + i))})
+	}
+
+	if err := w.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if got := store.count(); got != n {
+		t.Errorf("after Flush the store holds %d events, want %d", got, n)
+	}
+}
+
+// A writer with an empty queue flushes immediately.
+func TestAsyncWriter_FlushWithNothingQueued(t *testing.T) {
+	w := NewAsyncWriter(&recordingLogger{})
+	defer func() { _ = w.Close(context.Background()) }()
+
+	if err := w.Flush(context.Background()); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+}
+
+// A closed writer has already drained; flushing it is not an error.
+func TestAsyncWriter_FlushAfterClose(t *testing.T) {
+	w := NewAsyncWriter(&recordingLogger{})
+	if err := w.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := w.Flush(context.Background()); err != nil {
+		t.Errorf("Flush on a closed writer = %v, want nil", err)
+	}
+}
+
+// A full queue is reported rather than waited on: the caller is an asset write
+// that must not block behind an audit backlog.
+func TestAsyncWriter_FlushReportsAFullQueue(t *testing.T) {
+	release := make(chan struct{})
+	blocking := &fakeLogger{fn: func(_ context.Context, _ Event) error {
+		<-release
+		return nil
+	}}
+	w := NewAsyncWriter(blocking, WithQueueCapacity(1))
+	defer func() {
+		close(release)
+		_ = w.Close(context.Background())
+	}()
+
+	// One event occupies the write goroutine, the next fills the queue.
+	_ = w.Log(context.Background(), Event{ToolName: "a"})
+	waitForQueueDepth(t, w, 0)
+	_ = w.Log(context.Background(), Event{ToolName: "b"})
+	waitForQueueDepth(t, w, 1)
+
+	if err := w.Flush(context.Background()); err == nil {
+		t.Error("Flush on a full queue = nil, want an error")
+	}
+}
+
+// A caller that will not wait longer gets its context's error, not a hang.
+func TestAsyncWriter_FlushHonorsContext(t *testing.T) {
+	release := make(chan struct{})
+	blocking := &fakeLogger{fn: func(_ context.Context, _ Event) error {
+		<-release
+		return nil
+	}}
+	w := NewAsyncWriter(blocking)
+	defer func() {
+		close(release)
+		_ = w.Close(context.Background())
+	}()
+
+	_ = w.Log(context.Background(), Event{ToolName: "a"})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := w.Flush(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("Flush with a canceled context = %v, want context.Canceled", err)
+	}
+}
+
+// waitForQueueDepth blocks until the writer's queue holds want items.
+func waitForQueueDepth(t *testing.T, w *AsyncWriter, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if w.QueueDepth() == want {
+			return
+		}
+		runtime.Gosched()
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("queue depth = %d, want %d", w.QueueDepth(), want)
+}

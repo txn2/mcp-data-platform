@@ -990,14 +990,14 @@ Manages the lifecycle of existing persistent memory. Create new memory with `mem
 
 ## Portal Tools
 
-The portal toolkit persists AI-generated assets (JSX dashboards, HTML reports, SVG charts) to S3 with PostgreSQL metadata, enabling viewing and sharing. Automatically captures provenance (which tool calls produced the asset).
+The portal toolkit persists AI-generated assets (JSX dashboards, HTML reports, SVG charts) to S3 with PostgreSQL metadata, enabling viewing and sharing. Every write captures provenance — the calls the asset was built from — from the audit log. See [Provenance](provenance.md).
 
 !!! tip "Prerequisites"
     Portal tools require `portal.enabled: true`, a configured S3 connection (`portal.s3_connection`), and `database.dsn`. See [Configuration](configuration.md#portal-configuration).
 
 ### save_asset
 
-Save AI-generated content to the asset portal as a versioned asset. Automatically captures provenance tracking which tool calls in the session led to this asset.
+Save AI-generated content to the asset portal as a versioned asset. Captures the calls the asset was built from: by default every data call the session made since its last save or export, or exactly the calls you name in `sources`.
 
 **Parameters:**
 
@@ -1008,12 +1008,13 @@ Save AI-generated content to the asset portal as a versioned asset. Automaticall
 | `content_type` | string | Yes | - | MIME type the asset is stored under. One of `application/json`, `application/octet-stream`, `application/sql`, `application/x-ndjson`, `application/xml`, `application/yaml`, `image/svg+xml`, `text/css`, `text/csv`, `text/html`, `text/javascript`, `text/jsx`, `text/markdown`, `text/plain`, `text/tab-separated-values`, `text/x-python`; anything else is refused (see [Accepted types](content-viewers.md#accepted-types)) |
 | `description` | string | No | - | Description of the asset (max 2000 chars) |
 | `tags` | array | No | [] | Tags for categorization (max 20 tags, each max 100 chars) |
+| `sources` | array | No | session window | The calls this asset was built from, as the `call_id` (or `mcp:call:<id>` reference) each query and API invocation returns. Replaces the default window; only your own calls resolve (max 100) |
 
 **Response includes:**
 
 - Asset ID for future reference
 - Portal URL for viewing (if `public_base_url` is configured)
-- Provenance capture status and tool call count
+- Whether provenance was captured, and how many calls it recorded
 
 ---
 
@@ -1033,6 +1034,7 @@ List, retrieve, update, or delete saved assets, and edit an asset's content in p
 | `tags` | array | No | - | New tags (for update) |
 | `content_type` | string | No | - | New content type (for update, only when replacing content). Same accepted set as `save_asset`; omit it to keep the type the asset already carries |
 | `change_summary` | string | No | - | Summary recorded on the new version (update and patch) |
+| `sources` | array | No | session window | The calls behind a content edit (update and patch), as `call_id` values or `mcp:call:<id>` references. Recorded as a new capture beside the ones earlier versions carry |
 | `query` | string | Conditional | - | Free-text relevance query (required for search) |
 | `limit` | integer | No | 50 | Max results for list (max 200); ranked search defaults to 20 (max 100) |
 

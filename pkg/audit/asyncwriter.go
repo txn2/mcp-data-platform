@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -37,7 +38,7 @@ const (
 // store (issue #884).
 type AsyncWriter struct {
 	logger       Logger
-	queue        chan Event
+	queue        chan queued
 	writeTimeout time.Duration
 	metrics      *observability.Metrics
 
@@ -63,6 +64,15 @@ type AsyncWriter struct {
 	done    chan struct{}
 }
 
+// queued is one item on the writer's queue: either an event to store or a
+// flush barrier. The barrier travels the same channel as the events so the
+// single drain goroutine reaching it proves every event enqueued before it has
+// already been written — see Flush.
+type queued struct {
+	event   Event
+	barrier chan struct{}
+}
+
 // AsyncOption configures an AsyncWriter.
 type AsyncOption func(*AsyncWriter)
 
@@ -71,7 +81,7 @@ type AsyncOption func(*AsyncWriter)
 func WithQueueCapacity(n int) AsyncOption {
 	return func(w *AsyncWriter) {
 		if n > 0 {
-			w.queue = make(chan Event, n)
+			w.queue = make(chan queued, n)
 		}
 	}
 }
@@ -106,18 +116,24 @@ func NewAsyncWriter(logger Logger, opts ...AsyncOption) *AsyncWriter {
 		opt(w)
 	}
 	if w.queue == nil {
-		w.queue = make(chan Event, DefaultAsyncQueueCapacity)
+		w.queue = make(chan queued, DefaultAsyncQueueCapacity)
 	}
 	go w.run()
 	return w
 }
 
 // run drains the queue until it is closed, writing each event with a bounded
-// per-write timeout. Exactly one instance runs per writer.
+// per-write timeout. Exactly one instance runs per writer. Reaching a flush
+// barrier releases the Flush caller waiting on it: everything queued ahead of
+// the barrier has been written by then.
 func (w *AsyncWriter) run() {
 	defer close(w.done)
-	for e := range w.queue {
-		w.write(e)
+	for it := range w.queue {
+		if it.barrier != nil {
+			close(it.barrier)
+			continue
+		}
+		w.write(it.event)
 	}
 }
 
@@ -152,11 +168,46 @@ func (w *AsyncWriter) Log(_ context.Context, e Event) error {
 		return nil
 	}
 	select {
-	case w.queue <- e:
+	case w.queue <- queued{event: e}:
 	default:
 		w.recordDrop(e)
 	}
 	return nil
+}
+
+// Flush returns once every event enqueued before the call has been written to
+// the store, or once ctx expires. It exists because a reader of the audit log
+// may need a call's own row to be durable before it reads: provenance capture
+// resolves an asset's source calls out of the audit store microseconds after
+// the last of them completed, and without the barrier the newest — the one that
+// actually produced the asset — is the one most likely to be missed (#1320).
+//
+// The barrier is an item on the same queue, so it costs one channel send and
+// never reorders or delays events. A closed writer flushes nothing and returns
+// nil: its queue is already drained by Close. A full queue is reported rather
+// than waited on, because waiting for room would block the caller behind the
+// very backlog that made the flush uncertain.
+func (w *AsyncWriter) Flush(ctx context.Context) error {
+	w.mu.RLock()
+	if w.closed {
+		w.mu.RUnlock()
+		return nil
+	}
+	barrier := make(chan struct{})
+	select {
+	case w.queue <- queued{barrier: barrier}:
+		w.mu.RUnlock()
+	default:
+		w.mu.RUnlock()
+		return errors.New("audit: flush barrier not enqueued, queue full")
+	}
+
+	select {
+	case <-barrier:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("audit: flush interrupted: %w", ctx.Err())
+	}
 }
 
 // countLoss increments the lost-event counter and its metric, returning the

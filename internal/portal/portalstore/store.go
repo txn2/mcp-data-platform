@@ -354,6 +354,48 @@ func (s *postgresAssetStore) populateCollections(ctx context.Context, assets []p
 	return nil
 }
 
+// appendProvenanceCaptureSQL appends one capture to portal_assets.provenance.
+//
+// The append is done in the statement rather than read-modify-write in Go so
+// two writes to the same asset cannot lose a capture: every reference to
+// provenance on the right-hand side reads the pre-update row under the same
+// row lock. The jsonb_typeof guards keep a row whose provenance is JSON null,
+// or whose captures key holds something other than an array, from silently
+// swallowing the append — pre-#1320 rows carry tool_calls and no captures key,
+// and the COALESCE arm is what starts the list for them.
+const appendProvenanceCaptureSQL = `
+	UPDATE portal_assets
+	SET provenance = jsonb_set(
+			CASE WHEN jsonb_typeof(provenance) = 'object' THEN provenance ELSE '{}'::jsonb END,
+			'{captures}',
+			CASE WHEN jsonb_typeof(provenance -> 'captures') = 'array'
+				THEN provenance -> 'captures' ELSE '[]'::jsonb END || $1::jsonb
+		)
+	WHERE id = $2 AND deleted_at IS NULL
+`
+
+// AppendProvenanceCapture records one more capture on an asset without
+// touching the captures already there or the asset's updated_at: what fed a
+// write is recorded by the write, not by a later edit of the row.
+func (s *postgresAssetStore) AppendProvenanceCapture(ctx context.Context, id string, capture portaldomain.ProvenanceCapture) error { //nolint:revive // interface impl
+	payload, err := json.Marshal([]portaldomain.ProvenanceCapture{capture})
+	if err != nil {
+		return fmt.Errorf("marshaling provenance capture: %w", err)
+	}
+	result, err := s.db.ExecContext(ctx, appendProvenanceCaptureSQL, payload, id)
+	if err != nil {
+		return fmt.Errorf("appending provenance capture: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("asset not found or deleted: %s", id)
+	}
+	return nil
+}
+
 func (s *postgresAssetStore) Update(ctx context.Context, id string, updates portaldomain.AssetUpdate) error { //nolint:revive // interface impl
 	qb, err := applyUpdateFields(psq.Update("portal_assets"), updates)
 	if err != nil {

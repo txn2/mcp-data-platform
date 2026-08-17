@@ -1908,7 +1908,7 @@ The portal toolkit persists AI-generated assets (JSX dashboards, HTML reports, S
 
 ### save_asset
 
-Save AI-generated content to the asset portal as a versioned asset. Automatically captures provenance tracking which tool calls produced this asset.
+Save AI-generated content to the asset portal as a versioned asset. Captures the calls the asset was built from: by default every data-access call the session made since its last save or export, or exactly the calls named in `sources`.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -1917,8 +1917,9 @@ Save AI-generated content to the asset portal as a versioned asset. Automaticall
 | `content_type` | string | Yes | - | MIME type the asset is stored under. One of `application/json`, `application/octet-stream`, `application/sql`, `application/x-ndjson`, `application/xml`, `application/yaml`, `image/svg+xml`, `text/css`, `text/csv`, `text/html`, `text/javascript`, `text/jsx`, `text/markdown`, `text/plain`, `text/tab-separated-values`, `text/x-python`; anything else is refused |
 | `description` | string | No | "" | Description (max 2000 chars) |
 | `tags` | array | No | [] | Tags for categorization (max 20 tags, each max 100 chars) |
+| `sources` | array | No | session window | The calls this asset was built from, as the `call_id` (or `mcp:call:<id>` reference) each query and API invocation returns in its own result. Replaces the default window; only the caller's own calls resolve (max 100) |
 
-Response includes asset_id, portal_url (if public_base_url configured), provenance_captured status, and tool_calls_recorded count. Content stored at `{s3_prefix}{user_id}/{asset_id}/content.{ext}`.
+Response includes asset_id, portal_url (if public_base_url configured), provenance_captured status, and calls_recorded count. Content stored at `{s3_prefix}{user_id}/{asset_id}/content.{ext}`.
 
 ### manage_asset
 
@@ -1933,6 +1934,7 @@ List, retrieve, update, delete, or relevance-search saved assets (and manage col
 | `description` | string | No | - | New description (for update) |
 | `tags` | array | No | - | New tags (for update) |
 | `content_type` | string | No | - | New content type (for update, only when replacing content) |
+| `sources` | array | No | session window | The calls behind a content edit (update and patch), as `call_id` values or `mcp:call:<id>` references. Recorded as a new capture beside the ones earlier versions carry |
 | `query` | string | Conditional | - | Free-text relevance query (required for search) |
 | `limit` | integer | No | 50 | Max results for list (max 200); ranked search defaults to 20 (max 100) |
 
@@ -2581,6 +2583,36 @@ Every raw-content endpoint (portal assets, asset versions, thumbnails, public sh
 Binary content is served from these endpoints rather than embedded in the viewer page: the public viewer embeds text content in the page as a JSON string, which cannot carry arbitrary bytes, so images, audio, video and PDFs are handed a content URL instead. The public viewer's Content-Security-Policy carries `media-src` and `object-src` for those sources; active types keep their existing sandboxed iframe and DOMPurify treatment.
 
 The public viewer's own policy governs two documents at once, which is what bounds how narrow it can be: the viewer page, and the untrusted HTML and JSX assets it renders in `blob:` URL iframes, which inherit the creating document's policy. It is `default-src 'none'; script-src 'unsafe-inline' blob: https:; style-src 'unsafe-inline' https:; img-src * data: blob:; media-src 'self' blob: data:; object-src 'self'; font-src * data:; connect-src 'self' https:`, plus `frame-src blob: data: 'self'` for a single asset or `frame-src 'self' blob: data:` for a collection whose items open in a same-origin iframe. `script-src 'unsafe-inline'` is required by both documents — the page's theme, expiry and modal handlers and the embedded content-viewer bundle are inline, and a stored HTML asset's own `<script>` blocks are the artifact, so a per-response nonce would cover the page and blank every HTML asset; what isolates an artifact is the frame's `sandbox="allow-scripts"` without `allow-same-origin`, which gives it an opaque origin. `script-src https:` is required because the JSX renderer resolves react, react-dom, recharts and lucide-react from esm.sh through an import map and stored HTML artifacts reference CDN libraries directly; plain `http:` is not permitted, since an https page blocks it as mixed content anyway and allowing it only widened the policy for plaintext deployments. `'unsafe-eval'` is not granted: Sucrase transforms JSX in the parent page and the frame runs the result as a module, so no viewer path evaluates source at runtime and an artifact calling `eval` or `new Function` is refused. `script-src blob:` stays because `worker-src` falls back through `child-src` to it, so dropping it would refuse an artifact its own web worker while widening nothing — a blob URL can only be minted by script that is already running, which `'unsafe-inline'` has already permitted. `style-src`, `img-src` and `font-src` stay permissive for artifacts that style themselves inline and pull images and webfonts from arbitrary hosts, all of which are passive, and `connect-src` is there for artifacts alone: no viewer path issues a request it governs, since content URLs are handed to elements that answer to `img-src`, `media-src` and `object-src` instead. The policy is enforced by the browser and by nothing else, so a change to it is verified by rendering each family under it: `make frontend-e2e-public-viewer` drives HTML, JSX, markdown, SVG and a collection item against a live stack and fails on any blocked resource. That suite is not part of `make verify` — it needs the content-viewer bundle built (`make frontend-build`, which the binary embeds at compile time), a running server (`make dev`) and network egress to esm.sh, which the JSX family resolves its imports from. The families served from a content URL (image, audio, video, PDF — what `media-src` and `object-src` exist for) have no public share in the dev seed and are covered by the Go tests instead.
+
+---
+
+# Provenance
+
+An asset saved to the portal says which calls produced it: the queries behind it, the API responses it drew on, the reason each call was made, and whether each one succeeded.
+
+## What is recorded
+
+Every asset write — `save_asset`, a content `update` or `patch` through `manage_asset`, `trino_export`, `api_export` — takes a capture: the calls that write was built from. An asset accumulates one capture per write, in order, so its provenance reads as the history of what fed each of its versions.
+
+A capture holds references and a snapshot. The references are the audit event ids of the captured calls, which point at the platform's full record of each call (arguments, identity, persona, connection, timing). The snapshot is those same calls as they stood at write time — kind, tool, connection, statement or request line, stated purpose, outcome, duration, timestamp — because audit rows are retained for a fixed window (90 days by default) and assets are not.
+
+Each captured call carries a kind, because assets are built from queries and from API invocations alike: `sql` for a statement run against a query engine (carrying `statement` and `connection`), `api` for an HTTP invocation through the API gateway (`method`, `path`, `operation_id`, `connection`), and `tool` for any other data-access call — catalog lookups, object reads, upstream MCP tools — carrying a `summary` of what it addressed. A failed call is captured with `outcome: "error"` and its message: a query that failed is part of how an answer was reached, and hiding it would make the record untrue. The `purpose` on each call is the one sentence the caller stated for it, so an asset says not only what ran but what it was for.
+
+## How the calls are chosen
+
+By default a capture holds every data-access call the session made since its previous capture in that session, so a second save records the calls made since the first rather than the whole session again. The boundaries are the writes themselves: `save_asset`, any `*_export` tool, and a `manage_asset` content edit. Calls the platform serves for its own bookkeeping (saving an asset, managing memory, searching the catalog) are never an asset's source; what counts is the toolkit a call was routed to — the query engines, the API gateway, the catalog, object storage, and upstream MCP gateways.
+
+The sources are resolved by reading the audit log, not by accumulating state in the serving process, which is what makes a capture correct in a multi-replica deployment: the calls a session made against one replica are recorded by an asset saved through another.
+
+An agent that knows which calls produced the content can name them. Every data call's result now carries its own identifier as a `call_reference` block (`call_id` plus an `mcp:call:<id>` reference), mirrored into structured output. Passing those ids as `sources` on `save_asset` or on a `manage_asset` content edit replaces the default window with exactly the calls named. A cited id resolves only among the caller's own calls, so one person's query can never be recorded as another person's provenance; an id that names nothing the caller ran is dropped and the capture reports that it holds fewer calls than were asked for.
+
+## Reading it back
+
+The portal's asset page groups provenance by capture: which version each capture produced, whether the agent named the sources itself, and one card per call showing kind, tool, connection, stated purpose, duration, and whether it failed. Opening a call shows the full statement or request, its outcome, and its `mcp:call:` reference, both copyable. The panel also links to the session the calls belong to, which holds everything that session did before and after the write.
+
+## Limits
+
+A capture records at most 100 calls, and the default window looks back at most 500 calls for the previous capture; a capture that hit either bound sets `truncated`, and the portal says so rather than presenting a partial list as complete. Capture depends on the audit log: with `audit.enabled: false`, or with no database, an asset records its owner and session but no calls. With `audit.log_parameters: false` or a redacted argument, a captured call still records its tool, connection, purpose, outcome and timing, but not the statement or path, which are argument values the audit policy withheld. Assets written before provenance was recorded by reference carry a flat list of tool calls with their raw arguments; the portal renders both shapes, and the older one is never written any more.
 
 ---
 

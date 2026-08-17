@@ -49,15 +49,44 @@ type (
 	Asset = portaldomain.Asset
 	// AssetVersion records a single version of an asset's content.
 	AssetVersion = portaldomain.AssetVersion
-	// Provenance records the tool call history that produced an asset.
+	// Provenance records which calls produced an asset.
 	Provenance = portaldomain.Provenance
-	// ProvenanceToolCall records a single tool invocation in the provenance chain.
+	// ProvenanceToolCall records a single tool invocation in the provenance
+	// chain. Pre-#1320 shape, still read from assets written under it.
 	ProvenanceToolCall = portaldomain.ProvenanceToolCall
+	// ProvenanceCapture is one recording of the calls an asset was built from.
+	ProvenanceCapture = portaldomain.ProvenanceCapture
+	// ProvenanceCall is one captured call in a capture's snapshot.
+	ProvenanceCall = portaldomain.ProvenanceCall
+	// ProvenanceRequest asks for a capture of the calls behind one asset write.
+	ProvenanceRequest = portaldomain.ProvenanceRequest
+	// ProvenanceCapturer resolves a write's sources into a capture.
+	ProvenanceCapturer = portaldomain.ProvenanceCapturer
 	// AssetFilter defines filtering criteria for listing assets.
 	AssetFilter = portaldomain.AssetFilter
 	// AssetUpdate holds mutable fields for updating an asset.
 	AssetUpdate = portaldomain.AssetUpdate
 )
+
+// Provenance call kinds and outcomes.
+const (
+	// ProvenanceKindSQL is a statement run against a query engine.
+	ProvenanceKindSQL = portaldomain.ProvenanceKindSQL
+	// ProvenanceKindAPI is an HTTP invocation through the API gateway.
+	ProvenanceKindAPI = portaldomain.ProvenanceKindAPI
+	// ProvenanceKindTool is any other data-access call the platform serves.
+	ProvenanceKindTool = portaldomain.ProvenanceKindTool
+	// ProvenanceOutcomeSuccess is a call that returned normally.
+	ProvenanceOutcomeSuccess = portaldomain.ProvenanceOutcomeSuccess
+	// ProvenanceOutcomeError is a call that failed.
+	ProvenanceOutcomeError = portaldomain.ProvenanceOutcomeError
+)
+
+// ParseCallReference returns the event id a source string names, accepting the
+// bare id and the mcp:call:<id> reference form alike.
+func ParseCallReference(source string) (string, bool) {
+	return portaldomain.ParseCallReference(source)
+}
 
 // Share types.
 type (

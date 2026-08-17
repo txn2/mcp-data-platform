@@ -43,7 +43,7 @@ func TestReceivingMiddlewareChain_CanonicalOrder(t *testing.T) {
 		mwErrorContract,
 		mwClientLogging,
 		mwManagedResource,
-		mwProvenance,
+		mwCallReference,
 		mwEnrichment,
 		mwUnwrapJSON,
 	}
@@ -87,7 +87,7 @@ func TestReceivingMiddlewareChain_PlatformContextReadersRequireAuth(t *testing.T
 		mwTracing:          true,
 		mwMetrics:          true,
 		mwAudit:            true,
-		mwProvenance:       true,
+		mwCallReference:    true,
 		mwEnrichment:       true,
 	}
 
@@ -116,7 +116,7 @@ func TestReceivingMiddlewareChain_DeclaredDependencies(t *testing.T) {
 	// want[X] lists middlewares that MUST be outer to X.
 	want := map[mwName][]mwName{
 		// PlatformContext readers depend on the auth/authz writer.
-		mwProvenance: {mwToolCall},
+		mwCallReference: {mwToolCall},
 		// The rate limiter reads PlatformContext identity to key its per-user
 		// bucket, so it depends on the auth/authz writer.
 		mwRateLimit: {mwToolCall},

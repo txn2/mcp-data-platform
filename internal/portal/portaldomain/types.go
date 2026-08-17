@@ -12,6 +12,7 @@
 package portaldomain
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/mail"
@@ -93,8 +94,14 @@ func ResolveContentType(declared string, content []byte) string {
 	return contenttype.DetectBytes(declared, content)
 }
 
-// Provenance records the tool call history that produced an asset.
+// Provenance records which calls produced an asset.
+//
+// Captures is the live shape (issue #1320): one entry per time the asset was
+// written, each naming the calls that fed that write by audit event id and
+// carrying a snapshot of them. ToolCalls is what assets saved before that
+// carry — the platform no longer writes it, and readers render both.
 type Provenance struct {
+	Captures  []ProvenanceCapture  `json:"captures,omitempty"`
 	ToolCalls []ProvenanceToolCall `json:"tool_calls,omitempty"`
 	SessionID string               `json:"session_id,omitempty" example:"sess_abc123"`
 	UserID    string               `json:"user_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
@@ -106,10 +113,130 @@ type Provenance struct {
 }
 
 // ProvenanceToolCall records a single tool invocation in the provenance chain.
+// It is the pre-#1320 shape, kept because assets written under it still carry
+// it. Nothing writes it any more.
 type ProvenanceToolCall struct {
 	ToolName   string         `json:"tool_name" example:"trino_query"`
 	Timestamp  string         `json:"timestamp" example:"2026-04-15T14:30:00Z"`
 	Parameters map[string]any `json:"parameters,omitempty"`
+}
+
+// Provenance call kinds. An asset is built from queries and from API
+// invocations alike, so a captured call says which it was rather than leaving
+// the reader to infer it from a tool name.
+const (
+	// ProvenanceKindSQL is a statement run against a query engine.
+	ProvenanceKindSQL = "sql"
+	// ProvenanceKindAPI is an HTTP invocation through the API gateway.
+	ProvenanceKindAPI = "api"
+	// ProvenanceKindTool is any other data-access call the platform serves
+	// (catalog lookups, object reads, upstream MCP tools).
+	ProvenanceKindTool = "tool"
+)
+
+// Provenance call outcomes, as recorded by the audit log.
+const (
+	// ProvenanceOutcomeSuccess is a call that returned normally.
+	ProvenanceOutcomeSuccess = "success"
+	// ProvenanceOutcomeError is a call that failed. A failed call is part of
+	// how an answer was reached and is captured, not hidden.
+	ProvenanceOutcomeError = "error"
+)
+
+// ProvenanceCapture is one recording of the calls an asset was built from,
+// taken when the asset was written. An update appends another, so the captures
+// read in order as the asset's history of what fed each of its versions.
+type ProvenanceCapture struct {
+	// Tool is the tool that performed this capture (save_asset, manage_asset,
+	// trino_export, api_export).
+	Tool string `json:"tool" example:"save_asset"`
+	// CapturedAt is when the capture was taken.
+	CapturedAt time.Time `json:"captured_at"`
+	// Version is the asset version this capture produced, when known.
+	Version int `json:"version,omitempty" example:"2"`
+	// SessionID is the session whose calls were captured.
+	SessionID string `json:"session_id,omitempty" example:"dps_abc123"`
+	// EventIDs are the audit event ids of the captured calls, in call order.
+	// They are the durable reference: the audit log holds the full record of
+	// each call for as long as it is retained.
+	EventIDs []string `json:"event_ids,omitempty"`
+	// Explicit records that the caller named these sources rather than the
+	// platform taking the session's calls since the previous capture.
+	Explicit bool `json:"explicit,omitempty"`
+	// Truncated records that more calls were eligible than the capture holds.
+	Truncated bool `json:"truncated,omitempty"`
+	// Calls is the snapshot of the captured calls, taken at write time.
+	// Audit rows are retained for a fixed window and assets are not, so an
+	// asset that outlives its audit rows still says what produced it.
+	Calls []ProvenanceCall `json:"calls,omitempty"`
+}
+
+// ProvenanceCall is one captured call: what ran, against what, why, and how it
+// ended. Fields that do not apply to a call's kind are empty.
+type ProvenanceCall struct {
+	// EventID is the audit event this call was read from. Empty for a call the
+	// capturing tool recorded about itself, whose own audit row is written
+	// only after it returns.
+	EventID string `json:"event_id,omitempty"`
+	// Kind is one of the ProvenanceKind constants.
+	Kind string `json:"kind" example:"sql"`
+	// Tool is the tool that was called.
+	Tool string `json:"tool" example:"trino_query"`
+	// Connection is the named connection the call was routed to.
+	Connection string `json:"connection,omitempty" example:"warehouse"`
+	// Statement is the query text, for a sql call.
+	Statement string `json:"statement,omitempty"`
+	// Method and Path are the HTTP request line, for an api call.
+	Method string `json:"method,omitempty" example:"GET"`
+	Path   string `json:"path,omitempty" example:"/v1/orders"`
+	// OperationID is the catalog operation invoked, for an api call.
+	OperationID string `json:"operation_id,omitempty" example:"listOrders"`
+	// Summary describes a call whose kind carries neither a statement nor a
+	// request line (a catalog lookup, an object read).
+	Summary string `json:"summary,omitempty"`
+	// Purpose is the reason the caller stated for the call (#1317).
+	Purpose string `json:"purpose,omitempty"`
+	// Outcome is one of the ProvenanceOutcome constants.
+	Outcome string `json:"outcome" example:"success"`
+	// Error is the failure message, for a call that ended in error.
+	Error string `json:"error,omitempty"`
+	// DurationMS is how long the call took.
+	DurationMS int64 `json:"duration_ms,omitempty" example:"143"`
+	// Timestamp is when the call started.
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// ProvenanceRequest asks for a capture of the calls behind one asset write.
+type ProvenanceRequest struct {
+	// Tool is the tool performing the write.
+	Tool string
+	// SessionID and UserID identify the caller. They scope the capture: a
+	// caller can only ever record its own calls as an asset's sources.
+	SessionID string
+	UserID    string
+	// Sources are the event ids (bare, or in mcp:call:<id> form) the caller
+	// named. When set they replace the default window entirely.
+	Sources []string
+	// Version is the asset version this write produces, when known.
+	Version int
+	// Own is the capturing call's record of itself, appended after the
+	// resolved sources. An export tool knows the statement it just ran and
+	// its own audit row does not exist yet, so it states it here.
+	Own *ProvenanceCall
+}
+
+// ProvenanceCapturer resolves a write's sources into a capture. The platform
+// implements it over the audit log; a deployment without one leaves it nil and
+// assets record their session and owner but no calls.
+type ProvenanceCapturer func(ctx context.Context, req ProvenanceRequest) ProvenanceCapture
+
+// ParseCallReference returns the event id a source string names, accepting
+// both the bare id and the mcp:call:<id> reference form, and reports whether
+// anything was left after trimming.
+func ParseCallReference(source string) (string, bool) {
+	id := strings.TrimSpace(source)
+	id = strings.TrimPrefix(id, "mcp:call:")
+	return id, id != ""
 }
 
 // SharePermission defines the access level for a share recipient.

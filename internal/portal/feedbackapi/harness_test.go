@@ -55,6 +55,10 @@ func (m *mockAssetStore) List(_ context.Context, _ portaldomain.AssetFilter) ([]
 func (*mockAssetStore) Update(_ context.Context, _ string, _ portaldomain.AssetUpdate) error {
 	return nil
 }
+func (*mockAssetStore) AppendProvenanceCapture(context.Context, string, portaldomain.ProvenanceCapture) error {
+	return nil
+}
+
 func (*mockAssetStore) SoftDelete(_ context.Context, _ string) error { return nil }
 
 type mockShareStore struct {
