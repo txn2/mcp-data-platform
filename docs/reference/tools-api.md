@@ -1184,14 +1184,14 @@ Content is stored in S3 at `{s3_prefix}{user_id}/{asset_id}/content.{ext}` where
 
 ### manage_asset
 
-List, retrieve, update, or delete saved assets. All mutations enforce ownership: users can only modify their own assets.
+List, retrieve, update, delete, or share saved assets. All mutations enforce ownership: users can only modify their own assets.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | One of: `list`, `get`, `update`, `delete`, `search` |
-| `asset_id` | string | Conditional | - | Required for `get`, `update`, `delete` |
+| `action` | string | Yes | - | One of: `list`, `get`, `update`, `delete`, `search`, `share`, `list_shares`, `revoke_share` |
+| `asset_id` | string | Conditional | - | Required for `get`, `update`, `delete`, `share`, `list_shares` |
 | `content` | string | No | - | New content (for `update` — replaces S3 object) |
 | `name` | string | No | - | New name (for `update`) |
 | `description` | string | No | - | New description (for `update`) |
@@ -1200,6 +1200,11 @@ List, retrieve, update, or delete saved assets. All mutations enforce ownership:
 | `sources` | array | No | session window | The calls behind a content edit (`update`, `patch`), as `call_id` values or `mcp:call:<id>` references. Recorded as a new capture alongside the ones earlier versions carry |
 | `query` | string | Conditional | - | Free-text relevance query (required for `search`) |
 | `limit` | integer | No | 50 | Max results for `list` (max 200); ranked `search` defaults to 20 (max 100) |
+| `recipient` | string | No | - | Who to share with (`share`): an email address, or a name resolved against the known-users directory. Omit for a link share |
+| `permission` | string | No | `viewer` | `viewer` or `editor` (`share`). A link share is always `viewer` |
+| `access_mode` | string | No | `authenticated` | Who a link share admits (`share`, no recipient): `authenticated` or `public` |
+| `expires_in` | string | Conditional | - | Duration bounding a public link (`24h`). Required for `access_mode: public`, refused for every other share |
+| `share_id` | string | Conditional | - | Share to end (required for `revoke_share`) |
 
 **Actions:**
 
@@ -1210,6 +1215,9 @@ List, retrieve, update, or delete saved assets. All mutations enforce ownership:
 | `update` | Change metadata or replace content | `asset_id` |
 | `delete` | Soft-delete an asset | `asset_id` |
 | `search` | Rank the caller's own assets by relevance to `query` (hybrid vector + lexical, lexical-only fallback). Returns each match with a `score` plus a `ranking` field; scoped server-side to the caller's own assets by `owner_id` (the library's ownership key) and fails closed without an identity. | `query` |
+| `share` | Grant access to an asset you own. With `recipient`: a restricted share addressed to that person, who is emailed the link. Without: a link, `authenticated` by default. Owner (or admin) only; anonymous callers refused. | `asset_id` |
+| `list_shares` | The shares that currently grant access to the asset — revoked and expired ones excluded — with recipient, permission, access mode, view URL, and access count | `asset_id` |
+| `revoke_share` | End one share by ID. Its token stops opening the asset immediately | `share_id` |
 
 **Response Schema (list):**
 

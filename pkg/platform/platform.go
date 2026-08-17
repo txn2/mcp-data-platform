@@ -1708,6 +1708,7 @@ func (p *Platform) initPortal() error {
 		BaseURL:           p.config.Portal.PublicBaseURL,
 		MaxContentSize:    p.config.Portal.MaxContentSize,
 		CaptureProvenance: p.captureProvenance,
+		Directory:         p.UserStore(),
 	})
 
 	// Registration stays a Platform/registry concern.
