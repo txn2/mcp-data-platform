@@ -344,10 +344,25 @@ func TestListenAndServe_ReturnsOnlyAfterTheDrain(t *testing.T) {
 		}, nil)
 	}()
 
+	// Retry until a request lands: the server is still binding the port this
+	// test just released, so a single immediate attempt races the bind and is
+	// refused, leaving the handler unentered and this test failing on a
+	// timeout that says nothing about the drain it exists to pin. Once a
+	// request is in the handler it blocks on release, so Do does not return
+	// and the loop stops there.
 	go func() {
-		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+addr, http.NoBody)
-		if resp, err := http.DefaultClient.Do(req); err == nil {
-			_ = resp.Body.Close()
+		for {
+			select {
+			case <-entered:
+				return
+			default:
+			}
+			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+addr, http.NoBody)
+			if resp, err := http.DefaultClient.Do(req); err == nil {
+				_ = resp.Body.Close()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 	select {
