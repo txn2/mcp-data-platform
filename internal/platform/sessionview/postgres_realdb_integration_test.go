@@ -295,6 +295,91 @@ func TestSessionView_RealDB_TimeRangeBoundsEvents(t *testing.T) {
 	assert.Empty(t, none, "a window before the session began holds no session")
 }
 
+// TestSessionView_RealDB_SearchFindsSessionByPurpose is the acceptance
+// criterion for recall (#1322): a phrase from what the agent said it was doing
+// returns the session that did it, carrying the words it matched on.
+func TestSessionView_RealDB_SearchFindsSessionByPurpose(t *testing.T) {
+	store, ctx := realDBFixture(t)
+
+	got, err := store.Search(ctx, SearchQuery{Text: "revenue for the board deck", UserID: realDBUser})
+	require.NoError(t, err)
+	require.Len(t, got, 1, "one session, however many of its calls matched")
+
+	m := got[0]
+	assert.Equal(t, realDBSession, m.SessionID)
+	assert.Equal(t, KindAgent, m.Kind)
+	assert.Equal(t, realDBCallCount, m.CallCount, "the roll-up counts every call, not the matching ones")
+	assert.Equal(t, 1, m.FailureCount)
+	assert.Greater(t, m.Score, 0.0, "a match ranks above nothing")
+	assert.Equal(t, []string{
+		"Finding the table behind Q3 revenue.",
+		"Reading the revenue table's columns.",
+		"Summing Q3 revenue by region for the board deck.",
+		"Adding the prior-year comparison.",
+		"Saving the finished table for the board deck.",
+	}, m.Purposes, "every distinct purpose, in the order the session first stated it")
+	assert.Equal(t, []string{"Q3 revenue by region"}, m.AssetNames)
+
+	none, err := store.Search(ctx, SearchQuery{Text: "kubernetes upgrade window", UserID: realDBUser})
+	require.NoError(t, err)
+	assert.Empty(t, none, "a phrase the session never stated finds nothing")
+}
+
+// TestSessionView_RealDB_SearchFindsSessionByAssetName covers the second arm:
+// a session is also found by the name of what it left behind, which is often
+// the only name the person remembers.
+func TestSessionView_RealDB_SearchFindsSessionByAssetName(t *testing.T) {
+	store, ctx := realDBFixture(t)
+
+	// A name sharing no word with any stated purpose, so a hit can only have
+	// come through the asset arm.
+	assets := portalstore.NewPostgresAssetStore(store.db)
+	require.NoError(t, assets.Insert(ctx, portaldomain.Asset{
+		ID:          "ast_realdb_2",
+		OwnerID:     realDBUser,
+		OwnerEmail:  "analyst@example.com",
+		Name:        "Churn cohort workbook",
+		ContentType: "text/csv",
+		S3Bucket:    "portal-assets",
+		S3Key:       "assets/ast_realdb_2/content.csv",
+		SessionID:   realDBSession,
+	}))
+
+	got, err := store.Search(ctx, SearchQuery{Text: "churn cohort", UserID: realDBUser})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, realDBSession, got[0].SessionID)
+	assert.Equal(t,
+		[]string{"Q3 revenue by region", "Churn cohort workbook"},
+		got[0].AssetNames, "every asset the session saved, oldest first")
+}
+
+// TestSessionView_RealDB_SearchScopesToTheCaller proves the scope is the
+// predicate rather than a filter applied after ranking: the same phrase that
+// finds the session for the caller who ran it finds nothing for anyone else,
+// and a deleted asset stops being something the session left behind.
+func TestSessionView_RealDB_SearchScopesToTheCaller(t *testing.T) {
+	store, ctx := realDBFixture(t)
+
+	got, err := store.Search(ctx, SearchQuery{Text: "board deck", UserID: "someone-else"})
+	require.NoError(t, err)
+	assert.Empty(t, got, "another caller's session is not theirs to find")
+
+	_, err = store.db.ExecContext(ctx,
+		`UPDATE portal_assets SET deleted_at = NOW() WHERE id = $1`, "ast_realdb_1")
+	require.NoError(t, err)
+
+	after, err := store.Search(ctx, SearchQuery{Text: "board deck", UserID: realDBUser})
+	require.NoError(t, err)
+	require.Len(t, after, 1, "the session is still findable by its purposes")
+	assert.Empty(t, after[0].AssetNames, "a deleted asset is no longer what it produced")
+
+	byName, err := store.Search(ctx, SearchQuery{Text: "Q3 revenue by region", UserID: realDBUser})
+	require.NoError(t, err)
+	require.Len(t, byName, 1,
+		"the purposes still match; the asset arm no longer contributes")
+}
+
 func toolNames(entries []TimelineEntry) []string {
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {

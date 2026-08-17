@@ -16,6 +16,8 @@ const SOURCE_LABELS: Record<string, string> = {
   assets: "Assets",
   prompts: "Prompts",
   scripts: "Managed scripts",
+  calls: "Queries and API calls",
+  sessions: "Sessions",
   endpoints: "API endpoints",
   connections: "Connections",
 };
@@ -33,6 +35,8 @@ const OPEN_ACTIONS: Record<string, string> = {
   knowledge_pages: "Open page",
   memory: "View in Memory",
   insights: "View in Insights",
+  calls: "Open call",
+  sessions: "Open session",
 };
 
 export function HitRow({ hit, onClick }: { hit: SearchHit; onClick: () => void }) {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { render } from "@testing-library/react";
-import type { SearchResponse } from "@/api/portal/types";
+import { fireEvent, render } from "@testing-library/react";
+import type { SearchHit, SearchResponse } from "@/api/portal/types";
 
 // The search hook is mocked per-test so the component renders one fixed server
 // response; the debounce is bypassed by the query length gate below.
@@ -82,6 +82,42 @@ describe("UnifiedSearch withheld results", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("Nothing matched");
     expect(text).not.toContain("hidden");
+  });
+
+  // A session is one of the reader's own sources (#1322): it reads as "Sessions"
+  // rather than as the provider key, and its drawer offers the way into it.
+  it("labels a session result and opens it", () => {
+    const opened: SearchHit[] = [];
+    state.data = {
+      groups: [
+        {
+          source: "sessions",
+          hits: [
+            {
+              text: "Sizing Q3 revenue by region for the board deck.\n5 calls on 2026-08-16",
+              source: "sessions",
+              ref: "dps_9f2c",
+              score: 0.6,
+            },
+          ],
+        },
+      ],
+      coverage: [{ source: "sessions", matched: 1, shown: 1 }],
+      count: 1,
+      ranking: "lexical",
+    };
+    const { container, getByText } = render(<UnifiedSearch onOpen={(h) => opened.push(h)} />);
+    const input = container.querySelector("input")!;
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set?.call(
+      input,
+      "revenue",
+    );
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(container.textContent).toContain("Sessions");
+    fireEvent.click(getByText(/Sizing Q3 revenue/));
+    fireEvent.click(getByText("Open session"));
+    expect(opened.map((h) => h.ref)).toEqual(["dps_9f2c"]);
   });
 
   it("renders no withheld chrome on an ordinary result", () => {

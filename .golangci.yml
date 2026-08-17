@@ -634,6 +634,15 @@ linters:
         linters:
           - revive
         text: "max-public-structs"
+      # The same contract, on the delivery side: what an agent gets back when it
+      # fetches a session (#1322) is the provider plus the shape of the document
+      # — the session, the assets and insights it produced, and one call on its
+      # timeline. The types exist so a consumer can decode the payload; naming
+      # them in one file is what makes the payload readable.
+      - path: pkg/knowledge/provider_sessions\.go
+        linters:
+          - revive
+        text: "max-public-structs"
       - path: pkg/registry/
         linters:
           - revive

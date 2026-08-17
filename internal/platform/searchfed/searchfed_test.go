@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -353,4 +354,39 @@ func TestNew_ConnectionsFederationRule(t *testing.T) {
 		Registry:    registry.NewRegistry(),
 	})
 	assert.Contains(t, providerNames(t, withStore), knowledge.SourceConnections)
+}
+
+// stubSessionReader is a session read model with no rows, which is all the
+// wiring gate looks at: the provider is registered on the reader existing, not
+// on it having anything to say.
+type stubSessionReader struct {
+	sessionview.Store
+}
+
+func (stubSessionReader) Search(context.Context, sessionview.SearchQuery) ([]sessionview.Match, error) {
+	return nil, nil
+}
+
+// TestNew_SessionsProvider proves the caller's own sessions join the corpus
+// when a session read model exists (#1322), and that a deployment without one
+// — no database, so no audit history to derive a session from — registers no
+// session source rather than one that answers nothing.
+func TestNew_SessionsProvider(t *testing.T) {
+	h := New(Config{
+		ToolkitName: "default",
+		Sessions:    stubSessionReader{},
+		Registry:    registry.NewRegistry(),
+	})
+	assert.Contains(t, providerNames(t, h), knowledge.SourceSessions)
+
+	var absent knowledge.SessionReader
+	assert.Nil(t, New(Config{ToolkitName: "default", Sessions: absent, Registry: registry.NewRegistry()}),
+		"no session read model and no other source must leave no handle")
+
+	h = New(Config{
+		ToolkitName: "default",
+		MemoryStore: memory.NewNoopStore(),
+		Registry:    registry.NewRegistry(),
+	})
+	assert.NotContains(t, providerNames(t, h), knowledge.SourceSessions)
 }

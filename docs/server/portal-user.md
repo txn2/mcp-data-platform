@@ -51,6 +51,8 @@ The detail shows:
 
 The session detail is addressable, so you can bookmark it or hand it to a colleague — though a colleague who is not an administrator will get a not-found, since a session opens only for the person who ran it.
 
+An agent recalls the same sessions the same way you read them: `search` finds them by what their calls said they were for, and `fetch mcp:session:<id>` opens one. The scope is the same one this list applies, so an agent recalls the sessions of the person it is acting for and no one else's. See [Recalling a session](../knowledge/overview.md#recalling-a-session).
+
 ### My Calls
 
 The My Calls tab is the catalog of data-access calls you have made: every query against a query engine and every invocation through the API gateway, kept with the reason stated for it and what came of the result.

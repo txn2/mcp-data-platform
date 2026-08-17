@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useInsightStats } from "@/api/admin/hooks";
 import { useAuthStore } from "@/stores/auth";
 import type { SearchHit } from "@/api/portal/types";
-import { entityHref } from "@/lib/entityRefs";
+import { hitDestination } from "@/pages/knowledge/hub/hitDestination";
 import { KnowledgePagesPage } from "@/pages/knowledge-pages/KnowledgePagesPage";
 import { CatalogSection } from "@/pages/knowledge/CatalogSection";
 import { useDataHubConnections } from "@/api/portal/datahub";
@@ -254,35 +254,17 @@ export function KnowledgeHub({
     setKnowledgeSub(next);
   };
 
-  // Open a search result in its native surface: assets and prompts deep-link to
-  // their portal viewers; knowledge pages open in the Knowledge Pages sub-tab;
-  // memory and insights switch to their tabs. Catalog/endpoint/connection hits
-  // have no portal viewer (the drawer shows their metadata only).
+  // Open a search result where that source lives: a portal viewer, a route
+  // under Activity, or one of this hub's own tabs. The destination table is in
+  // hitDestination, so a new source is added there rather than here.
   const openHit = (hit: SearchHit) => {
-    switch (hit.source) {
-      case "assets":
-        onNavigate?.(`/assets/${hit.ref}`);
-        break;
-      case "prompts":
-        onNavigate?.(`/prompts/${hit.ref}`);
-        break;
-      case "knowledge_pages": {
-        // Deep-link to the page's own URL so a search result opens the same
-        // shareable detail route as any other reference, through the shared
-        // entityHref builder so its safe-id guard applies here too (#709).
-        const href = entityHref("knowledge_page", hit.ref);
-        if (href) onNavigate?.(href);
-        break;
-      }
-      case "memory":
-        selectTab("memory");
-        break;
-      case "insights":
-        selectTab("insights");
-        break;
-      default:
-        break;
+    const dest = hitDestination(hit);
+    if (dest === null) return;
+    if ("href" in dest) {
+      onNavigate?.(dest.href);
+      return;
     }
+    selectTab(dest.tab);
   };
 
   return (

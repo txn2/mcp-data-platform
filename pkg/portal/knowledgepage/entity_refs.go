@@ -55,6 +55,14 @@ const (
 	// broken for every reader outside that scope. The page-citation path rejects it
 	// (ParseCitableRef).
 	RefTargetScript = "script"
+	// RefTargetSession is one platform session: the unit of work a caller's
+	// calls belong to, read back from the audit log (#1318, #1322). It is what
+	// an asset's provenance names as the session that produced it, and what
+	// fetch dereferences to the session's summary, its assets and insights, and
+	// its call timeline. Like memory, insights and calls it is per-user and so
+	// NOT citable on a shared knowledge page: a session resolves only for the
+	// caller who ran it.
+	RefTargetSession = "session"
 	// RefTargetCall is one recorded data-access call: a query or an API
 	// invocation, keyed by the audit event id the call handed back to its own
 	// caller (#1320, #1321). It is what an agent cites as an asset's source and
@@ -109,7 +117,12 @@ type EntityRef struct {
 	// CallID is set only by the parser for an mcp:call: reference (#1321): the
 	// audit event id of one recorded query or API invocation. Never persisted
 	// on a page — a call record is per-user, so it is not citable there.
-	CallID    string    `json:"call_id,omitempty"`
+	CallID string `json:"call_id,omitempty"`
+	// SessionID is set only by the parser for an mcp:session: reference
+	// (#1322): the id of the session whose calls are read back from the audit
+	// log. Never persisted on a page — a session is per-user, so it is not
+	// citable there.
+	SessionID string    `json:"session_id,omitempty"`
 	Source    string    `json:"source,omitempty"`
 	CreatedBy string    `json:"created_by,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
@@ -151,6 +164,8 @@ func (r EntityRef) identity() string {
 		return RefTargetScript + refKeySep + r.ScriptID
 	case RefTargetCall:
 		return RefTargetCall + refKeySep + r.CallID
+	case RefTargetSession:
+		return RefTargetSession + refKeySep + r.SessionID
 	default:
 		return r.TargetType + refKeySep
 	}
