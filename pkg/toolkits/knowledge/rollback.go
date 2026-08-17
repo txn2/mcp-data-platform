@@ -52,12 +52,16 @@ func (e *RollbackConflictError) Error() string {
 
 // RollbackResult summarizes the outcome of a successful changeset rollback.
 type RollbackResult struct {
-	ChangesetID        string   `json:"changeset_id"`
-	TargetURN          string   `json:"target_urn"`
-	RevertedChanges    []string `json:"reverted_changes"`
-	SkippedChanges     []string `json:"skipped_changes,omitempty"`
-	InsightsRolledBack []string `json:"insights_rolled_back"`
-	RolledBackBy       string   `json:"rolled_back_by,omitempty"`
+	ChangesetID     string   `json:"changeset_id"`
+	TargetURN       string   `json:"target_urn"`
+	RevertedChanges []string `json:"reverted_changes"`
+	SkippedChanges  []string `json:"skipped_changes,omitempty"`
+	// InsightsReturnedToReview lists the source insights the rollback sent back to
+	// the review queue as pending (#1257). Only insights that actually moved are
+	// listed: one already returned by an earlier rollback, or since decided some
+	// other way, is left as it is.
+	InsightsReturnedToReview []string `json:"insights_returned_to_review"`
+	RolledBackBy             string   `json:"rolled_back_by,omitempty"`
 }
 
 // recordedChange is a single change reconstructed from a changeset's new_value.
@@ -90,7 +94,7 @@ type RollbackDeps struct {
 }
 
 // RevertChangeset reverts the DataHub aspects mutated by a changeset back to
-// their pre-change state, transitions the source insights to rolled_back, and
+// their pre-change state, returns the source insights to the review queue, and
 // marks the changeset as rolled back. It is the single rollback implementation
 // shared by the apply_knowledge MCP tool and the admin REST endpoint.
 //
@@ -140,19 +144,19 @@ func RevertChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, roll
 	}
 	reverted = append(reverted, incidentReverted...)
 
-	rolledBackInsights := rollbackInsights(ctx, deps.Insights, cs.SourceInsightIDs, rolledBackBy)
+	returnedInsights := returnInsightsToReview(ctx, deps.Insights, cs.SourceInsightIDs, rolledBackBy, cs.ID)
 
 	if err := deps.Changesets.RollbackChangeset(ctx, cs.ID, rolledBackBy); err != nil {
 		return nil, fmt.Errorf("reverted DataHub but recording the rollback failed: %w", err)
 	}
 
 	return &RollbackResult{
-		ChangesetID:        cs.ID,
-		TargetURN:          cs.TargetURN,
-		RevertedChanges:    reverted,
-		SkippedChanges:     skipped,
-		InsightsRolledBack: rolledBackInsights,
-		RolledBackBy:       rolledBackBy,
+		ChangesetID:              cs.ID,
+		TargetURN:                cs.TargetURN,
+		RevertedChanges:          reverted,
+		SkippedChanges:           skipped,
+		InsightsReturnedToReview: returnedInsights,
+		RolledBackBy:             rolledBackBy,
 	}, nil
 }
 
@@ -432,13 +436,28 @@ func revertAddedDocumentation(ctx context.Context, writer DataHubWriter, urn, li
 	return fmt.Sprintf("removed documentation link %s", linkURL), true, nil
 }
 
-// rollbackInsights transitions each source insight to rolled_back. A failure on
-// one insight is logged via the returned slice (the insight is simply omitted)
-// rather than aborting the rollback, which has already mutated DataHub.
-func rollbackInsights(ctx context.Context, store InsightStore, insightIDs []string, rolledBackBy string) []string {
+// RollbackReviewNote is the review note left on an insight a rollback returned to
+// the queue (#1257). It names the changeset whose revert sent it back, so the
+// reviewer reading the queue entry knows why an insight carrying applied_by and
+// applied_at is pending again.
+func RollbackReviewNote(changesetID string) string {
+	if changesetID == "" {
+		return "Returned to review: the changeset that applied this insight was rolled back."
+	}
+	return fmt.Sprintf("Returned to review: changeset %s was rolled back.", changesetID)
+}
+
+// returnInsightsToReview sends every source insight of a rolled-back changeset
+// back to the review queue, and returns the ids that actually moved. An insight
+// that was not in the applied state (already returned by an earlier rollback, or
+// since decided some other way) is left alone and omitted, as is one whose store
+// write fails: the rollback has already mutated the sink, so it must not abort
+// here. Every id is attempted, so a changeset carrying several insights returns
+// all of them, not just the first.
+func returnInsightsToReview(ctx context.Context, store InsightStore, insightIDs []string, rolledBackBy, changesetID string) []string {
 	var done []string
 	for _, id := range insightIDs {
-		if err := store.MarkRolledBack(ctx, id, rolledBackBy); err == nil {
+		if returned, err := store.ReturnToReview(ctx, id, rolledBackBy, changesetID); err == nil && returned {
 			done = append(done, id)
 		}
 	}
@@ -527,16 +546,16 @@ func revertPageChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, 
 		return nil, err
 	}
 
-	rolledBackInsights := rollbackInsights(ctx, deps.Insights, cs.SourceInsightIDs, rolledBackBy)
+	returnedInsights := returnInsightsToReview(ctx, deps.Insights, cs.SourceInsightIDs, rolledBackBy, cs.ID)
 	if err := deps.Changesets.RollbackChangeset(ctx, cs.ID, rolledBackBy); err != nil {
 		return nil, fmt.Errorf("reverted the page but recording the rollback failed: %w", err)
 	}
 	return &RollbackResult{
-		ChangesetID:        cs.ID,
-		TargetURN:          cs.TargetURN,
-		RevertedChanges:    []string{reverted},
-		InsightsRolledBack: rolledBackInsights,
-		RolledBackBy:       rolledBackBy,
+		ChangesetID:              cs.ID,
+		TargetURN:                cs.TargetURN,
+		RevertedChanges:          []string{reverted},
+		InsightsReturnedToReview: returnedInsights,
+		RolledBackBy:             rolledBackBy,
 	}, nil
 }
 

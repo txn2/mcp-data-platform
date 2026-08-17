@@ -68,9 +68,9 @@ type mockInsightStore struct {
 	supersedeCount int
 	supersedeErr   error
 
-	// MarkRolledBack — used by the rollback handler
-	markRolledBackErr error
-	rolledBackIDs     []string
+	// ReturnToReview — used by the rollback handler
+	returnToReviewErr error
+	returnedIDs       []string
 }
 
 func (m *mockInsightStore) Insert(_ context.Context, _ knowledge.Insight) error {
@@ -118,9 +118,12 @@ func (m *mockInsightStore) MarkApplied(_ context.Context, _, _, _ string) error 
 	return m.markAppliedErr
 }
 
-func (m *mockInsightStore) MarkRolledBack(_ context.Context, id, _ string) error {
-	m.rolledBackIDs = append(m.rolledBackIDs, id)
-	return m.markRolledBackErr
+func (m *mockInsightStore) ReturnToReview(_ context.Context, id, _, _ string) (bool, error) {
+	if m.returnToReviewErr != nil {
+		return false, m.returnToReviewErr
+	}
+	m.returnedIDs = append(m.returnedIDs, id)
+	return true, nil
 }
 
 func (m *mockInsightStore) Supersede(_ context.Context, _, _ string) (int, error) {
@@ -841,7 +844,9 @@ func TestRollbackChangeset(t *testing.T) {
 		assert.Equal(t, "cs-roll", resp.ChangesetID)
 		assert.Equal(t, []string{"urn:li:glossaryTerm:added"}, writer.removeTermCalls)
 		assert.Equal(t, 1, csStore.rollbackCalled)
-		assert.Equal(t, []string{"ins-1"}, insightStore.rolledBackIDs)
+		assert.Equal(t, []string{"ins-1"}, insightStore.returnedIDs)
+		assert.Equal(t, []string{"ins-1"}, resp.InsightsReturnedToReview,
+			"the reverted changeset's source insight goes back to the review queue (#1257)")
 	})
 
 	t.Run("keeps a pre-existing term rather than removing it", func(t *testing.T) {

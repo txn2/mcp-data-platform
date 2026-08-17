@@ -856,27 +856,74 @@ func TestMemoryInsightAdapter_MarkApplied_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "marking insight applied")
 }
 
-func TestMemoryInsightAdapter_MarkRolledBack(t *testing.T) {
-	store := &mockMemoryStore{}
-	adapter := NewMemoryInsightAdapter(store)
-
-	err := adapter.MarkRolledBack(context.Background(), "ins-001", "admin@example.com")
-	require.NoError(t, err)
-	assert.True(t, store.updateCalled)
-	assert.Equal(t, "ins-001", store.updateID)
-	assert.Equal(t, StatusRolledBack, store.updateData.Metadata[metaKeyInsightStatus])
-	assert.Equal(t, "admin@example.com", store.updateData.Metadata[metaKeyReviewedBy])
-	// Rolled-back maps to archived; the column must move too (same bug as reject).
-	assert.Equal(t, memory.StatusArchived, store.updateData.Status)
+// appliedRecord is a knowledge-dimension record in the applied state, the only
+// state ReturnToReview acts on.
+func appliedRecord(id string) *memory.Record {
+	return &memory.Record{
+		ID:        id,
+		Dimension: memory.DimensionKnowledge,
+		Status:    memory.StatusActive,
+		Metadata: map[string]any{
+			metaKeyInsightStatus: StatusApplied,
+			colAppliedBy:         "admin@example.com",
+			metaKeyChangesetRef:  "cs-1",
+		},
+	}
 }
 
-func TestMemoryInsightAdapter_MarkRolledBack_Error(t *testing.T) {
-	store := &mockMemoryStore{updateErr: fmt.Errorf("update failed")}
+func TestMemoryInsightAdapter_ReturnToReview(t *testing.T) {
+	store := &mockMemoryStore{getRecord: appliedRecord("ins-001")}
 	adapter := NewMemoryInsightAdapter(store)
 
-	err := adapter.MarkRolledBack(context.Background(), "ins-001", "admin")
+	returned, err := adapter.ReturnToReview(context.Background(), "ins-001", "admin@example.com", "cs-1")
+	require.NoError(t, err)
+	assert.True(t, returned)
+	assert.True(t, store.updateCalled)
+	assert.Equal(t, "ins-001", store.updateID)
+	assert.Equal(t, StatusPending, store.updateData.Metadata[metaKeyInsightStatus])
+	assert.Equal(t, "admin@example.com", store.updateData.Metadata[metaKeyReviewedBy])
+	assert.Equal(t, RollbackReviewNote("cs-1"), store.updateData.Metadata[metaKeyReviewNotes])
+	assert.NotEmpty(t, store.updateData.Metadata[metaKeyReviewedAt])
+	// A pending insight is an active record, so the column moves back with it.
+	assert.Equal(t, memory.StatusActive, store.updateData.Status)
+	// The update carries no applied_by/changeset_ref key, so the store's metadata
+	// merge leaves the record of the reverted application in place.
+	assert.NotContains(t, store.updateData.Metadata, colAppliedBy)
+	assert.NotContains(t, store.updateData.Metadata, metaKeyChangesetRef)
+}
+
+// Only an applied insight is returned: one already returned by an earlier
+// rollback, or decided some other way since, is left exactly as it is.
+func TestMemoryInsightAdapter_ReturnToReview_NotApplied(t *testing.T) {
+	rec := appliedRecord("ins-001")
+	rec.Metadata[metaKeyInsightStatus] = StatusRejected
+	store := &mockMemoryStore{getRecord: rec}
+	adapter := NewMemoryInsightAdapter(store)
+
+	returned, err := adapter.ReturnToReview(context.Background(), "ins-001", "admin", "cs-1")
+	require.NoError(t, err)
+	assert.False(t, returned)
+	assert.False(t, store.updateCalled, "a non-applied insight must not be written")
+}
+
+func TestMemoryInsightAdapter_ReturnToReview_GetError(t *testing.T) {
+	store := &mockMemoryStore{getErr: errors.New("gone")}
+	adapter := NewMemoryInsightAdapter(store)
+
+	returned, err := adapter.ReturnToReview(context.Background(), "ins-001", "admin", "cs-1")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "marking insight rolled back")
+	assert.False(t, returned)
+	assert.Contains(t, err.Error(), "reading insight before returning it to review")
+}
+
+func TestMemoryInsightAdapter_ReturnToReview_UpdateError(t *testing.T) {
+	store := &mockMemoryStore{getRecord: appliedRecord("ins-001"), updateErr: errors.New("update failed")}
+	adapter := NewMemoryInsightAdapter(store)
+
+	returned, err := adapter.ReturnToReview(context.Background(), "ins-001", "admin", "cs-1")
+	require.Error(t, err)
+	assert.False(t, returned)
+	assert.Contains(t, err.Error(), "returning insight to review")
 }
 
 func TestMemoryInsightAdapter_Supersede(t *testing.T) {
@@ -1151,12 +1198,12 @@ func TestResolveInsightStatus_MetadataOverride(t *testing.T) {
 			expected: StatusApplied,
 		},
 		{
-			name: "archived with insight_status rolled_back",
+			name: "archived with insight_status rejected",
 			record: memory.Record{
 				Status:   memory.StatusArchived,
-				Metadata: map[string]any{"insight_status": StatusRolledBack},
+				Metadata: map[string]any{"insight_status": StatusRejected},
 			},
-			expected: StatusRolledBack,
+			expected: StatusRejected,
 		},
 		{
 			name: "empty insight_status does not override",
@@ -1227,7 +1274,6 @@ func TestMapInsightStatusToMemory(t *testing.T) {
 		{StatusPending, memory.StatusActive},
 		{StatusApproved, memory.StatusActive},
 		{StatusRejected, memory.StatusArchived},
-		{StatusRolledBack, memory.StatusArchived},
 		{StatusSuperseded, memory.StatusSuperseded},
 		{StatusApplied, memory.StatusActive},
 		{"unknown", "unknown"},
@@ -1303,9 +1349,9 @@ func TestSharedScopeForcesAppliedTogether(t *testing.T) {
 // resolve to. Pushing pending down would drop the records that carry no overlay
 // key and are pending by virtue of the column alone.
 func TestStoreInsightStatusOnlyPushesExactStatuses(t *testing.T) {
-	pushed := map[string]bool{StatusApproved: true, StatusApplied: true, StatusRolledBack: true}
+	pushed := map[string]bool{StatusApproved: true, StatusApplied: true}
 	for _, status := range []string{
-		StatusPending, StatusApproved, StatusRejected, StatusApplied, StatusSuperseded, StatusRolledBack, "",
+		StatusPending, StatusApproved, StatusRejected, StatusApplied, StatusSuperseded, "",
 	} {
 		got := storeInsightStatus(status)
 		if pushed[status] {

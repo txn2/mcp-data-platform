@@ -346,7 +346,7 @@ SELECT
     'suggested_actions', v.suggested_actions::jsonb,
     'reviewed_by', v.reviewed_by, 'review_notes', v.review_notes,
     'applied_by', v.applied_by, 'changeset_ref', v.changeset_ref),
-  CASE WHEN v.status IN ('rejected', 'rolled_back') THEN 'archived'
+  CASE WHEN v.status = 'rejected' THEN 'archived'
        WHEN v.status = 'superseded' THEN 'superseded'
        ELSE 'active' END,
   v.created_at, v.created_at
@@ -414,7 +414,7 @@ FROM (VALUES
   '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD)"]'::jsonb,
   '[{"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD)", "column": "status", "relevance": "primary"}]'::jsonb,
   '[]'::jsonb,
-  'applied', 'sarah.chen@example.com', 'Added as a data quality rule in the enrichment layer.', 'sarah.chen@example.com', 'cs-002',
+  'pending', 'sarah.chen@example.com', 'Returned to review: changeset cs-002 was rolled back.', 'sarah.chen@example.com', 'cs-002',
   NOW() - interval '6 days'
 ),
 (
@@ -447,7 +447,9 @@ FROM (VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
--- Knowledge Changesets (2: 1 applied, 1 rolled back)
+-- Knowledge Changesets (2: 1 applied, 1 rolled back). The rolled-back one's
+-- source insight (ins-006) is pending again and still carries the application it
+-- lost, which is where a rollback leaves it (#1257).
 -- ============================================================================
 
 INSERT INTO knowledge_changesets (
@@ -1282,7 +1284,17 @@ VALUES
    '[]'::jsonb,
    jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com',
                       'applied_by', 'admin@example.com', 'changeset_ref', 'cs-seed-02'), 'active',
-   NOW() - interval '11 days', NOW() - interval '8 days', NULL)
+   NOW() - interval '11 days', NOW() - interval '8 days', NULL),
+  -- Applied once, then its changeset was rolled back, so it is pending again and
+  -- keeps the application it lost (#1257). This is the Returned row in the review
+  -- queue and the rollback explanation in the insight drawer.
+  ('ins-admin-07', 'admin@example.com', 'admin', 'knowledge', 'business_knowledge', 'business_context',
+   'Wholesale orders settle in the currency of the buying entity, not the shipping warehouse.',
+   'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending', 'reviewed_by', 'admin@example.com',
+                      'applied_by', 'admin@example.com', 'changeset_ref', 'cs-seed-03',
+                      'review_notes', 'Returned to review: changeset cs-seed-03 was rolled back.'), 'active',
+   NOW() - interval '9 days', NOW() - interval '2 days', NULL)
 ON CONFLICT (id) DO NOTHING;
 
 -- Bulk knowledge-dimension insights so the admin review queue has a pending

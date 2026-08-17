@@ -73,7 +73,9 @@ func TestLivePlantAndRemediate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
-	if !remediated.InsightRetracted {
+	// A rollback returns the insight to the review queue rather than retracting
+	// it (#1257); what must be gone is every channel a witness can read.
+	if !remediated.InsightReturnedToReview {
 		t.Errorf("the rolled-back claim is still at status %q", remediated.InsightStatus)
 	}
 	if remediated.InSearch || remediated.InSink {

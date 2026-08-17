@@ -326,7 +326,9 @@ Rollback reverts each change the apply made, back to its before-image:
 - A description the apply changed is reset to the prior description.
 - An incident the apply **created** (the `flag_quality_issue` detail incident) is resolved. Its URN is recorded in the changeset's `new_value` (`created_urns`) so the rollback can find it.
 
-The rollback also transitions the changeset's source insights from `applied` to `rolled_back` and records the rollback as its own auditable tool call referencing the original `changeset_id`.
+The rollback also returns the changeset's source insights to the review queue as `pending` (listed in the response's `insights_returned_to_review`) and records the rollback as its own auditable tool call referencing the original `changeset_id`.
+
+Returning them is the point: reverting an application usually means the promotion went to the wrong destination, cited the wrong entity, or was worded badly, not that the underlying fact is worthless. A returned insight keeps its `applied_by`, `applied_at` and `changeset_ref` and carries a `review_notes` line naming the rolled-back changeset, so the reviewer who sees it next knows what was already tried. It is counted and itemized by `bulk_review` like any other pending insight, and it can be edited, approved and applied again, or rejected. `reject` remains the way to discard an insight permanently. An insight that is not in the `applied` state is left untouched, so rolling a changeset back twice never resurrects an insight that has since been decided.
 
 **When rollback is refused (rather than silently applied):**
 

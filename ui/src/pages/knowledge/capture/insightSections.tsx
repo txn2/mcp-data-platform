@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/table";
 import { formatUser } from "@/lib/formatUser";
 import { LabeledBlock, MetaField, MetaGrid } from "./fields";
+import { isReturnedToReview } from "./helpers";
 
 // InsightTables shows what the capture proposed and what it was about: the
 // suggested catalog actions, and the columns it named. Both are absent on most
@@ -75,7 +76,9 @@ export function InsightTables({ insight }: { insight: Insight }) {
 
 // InsightLifecycle records what has happened to the insight since capture: who
 // reviewed it, who applied it, and the changeset that write produced. Each block
-// appears only once that step has happened.
+// appears only once that step has happened. An insight that is pending again
+// after a rollback keeps its application, so the reviewer deciding it next reads
+// the destination and changeset that were already tried (#1257).
 export function InsightLifecycle({
   insight,
   userLabels,
@@ -93,6 +96,13 @@ export function InsightLifecycle({
           </MetaField>
           <MetaField label="Reviewed At">{at(insight.reviewed_at)}</MetaField>
         </MetaGrid>
+      )}
+
+      {isReturnedToReview(insight) && (
+        <p className="border-t pt-3 text-xs text-muted-foreground">
+          Applied once and returned to the queue when the changeset below was
+          rolled back. Approving it applies it again; rejecting it discards it.
+        </p>
       )}
 
       {insight.applied_by && (

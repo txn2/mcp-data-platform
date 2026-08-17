@@ -56,7 +56,7 @@ type fullSpyStore struct {
 	// Track calls
 	StatusCalls       []statusCall
 	MarkAppliedCalls  []markAppliedCall
-	MarkRolledBackIDs []string
+	ReturnToReviewIDs []string
 	SupersedeCalls    []supersedeCall
 
 	// Configurable returns for Stats
@@ -225,14 +225,20 @@ func (s *fullSpyStore) MarkApplied(_ context.Context, id, appliedBy, changesetRe
 	return nil
 }
 
-func (s *fullSpyStore) MarkRolledBack(_ context.Context, id, _ string) error {
-	s.MarkRolledBackIDs = append(s.MarkRolledBackIDs, id)
+// ReturnToReview models the real stores' applied-only gate: an insight in any
+// other state is left alone and reported as not returned.
+func (s *fullSpyStore) ReturnToReview(_ context.Context, id, rolledBackBy, changesetID string) (bool, error) {
+	s.ReturnToReviewIDs = append(s.ReturnToReviewIDs, id)
 	for i := range s.Insights {
-		if s.Insights[i].ID == id && s.Insights[i].Status == StatusApplied {
-			s.Insights[i].Status = StatusRolledBack
+		if s.Insights[i].ID != id || s.Insights[i].Status != StatusApplied {
+			continue
 		}
+		s.Insights[i].Status = StatusPending
+		s.Insights[i].ReviewedBy = rolledBackBy
+		s.Insights[i].ReviewNotes = RollbackReviewNote(changesetID)
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
 func (s *fullSpyStore) Supersede(_ context.Context, entityURN, excludeID string) (int, error) {

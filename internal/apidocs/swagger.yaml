@@ -682,6 +682,12 @@ definitions:
       applied_at:
         type: string
       applied_by:
+        description: |-
+          AppliedBy, AppliedAt and ChangesetRef record the last application. They are
+          retained when a rollback returns the insight to the review queue (#1257), so
+          the next reviewer sees the destination and changeset that were already tried
+          rather than deciding blind; a pending insight carrying them is one whose
+          application was reverted.
         type: string
       captured_by:
         example: analyst@example.com
@@ -2772,7 +2778,12 @@ definitions:
     properties:
       changeset_id:
         type: string
-      insights_rolled_back:
+      insights_returned_to_review:
+        description: |-
+          InsightsReturnedToReview lists the source insights the rollback sent back to
+          the review queue as pending (#1257). Only insights that actually moved are
+          listed: one already returned by an earlier rollback, or since decided some
+          other way, is left as it is.
         items:
           type: string
         type: array

@@ -111,7 +111,7 @@ var searchSchema = json.RawMessage(`{
     },
     "status": {
       "type": "string",
-      "description": "Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back)."
+      "description": "Optional filter by insight review status (pending, approved, rejected, applied, superseded)."
     },
     "sources": {
       "type": "array",

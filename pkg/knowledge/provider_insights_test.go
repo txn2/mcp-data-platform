@@ -78,7 +78,12 @@ func TestInsightsProvider_TextPathRetractsNonLive(t *testing.T) {
 		{Insight: knowledgekit.Insight{ID: "live-applied", Status: knowledgekit.StatusApplied}, Score: 0.8},
 		{Insight: knowledgekit.Insight{ID: "dead-superseded", Status: knowledgekit.StatusSuperseded}, Score: 0.95},
 		{Insight: knowledgekit.Insight{ID: "dead-rejected", Status: knowledgekit.StatusRejected}, Score: 0.7},
-		{Insight: knowledgekit.Insight{ID: "dead-rolledback", Status: knowledgekit.StatusRolledBack}, Score: 0.6},
+		// A rollback returns an insight to pending (#1257), so it is live again for
+		// its capturer exactly as it was before it was applied.
+		{Insight: knowledgekit.Insight{
+			ID: "live-returned", Status: knowledgekit.StatusPending,
+			AppliedBy: "admin@example.com", ChangesetRef: "cs-1",
+		}, Score: 0.6},
 	}}
 	p := NewInsightsProvider(s)
 	hits, err := p.Search(context.Background(), Query{Intent: "q", Caller: Caller{Email: "a@example.com"}})
@@ -89,12 +94,12 @@ func TestInsightsProvider_TextPathRetractsNonLive(t *testing.T) {
 	for _, h := range hits {
 		got[h.Ref] = true
 	}
-	for _, live := range []string{"live-pending", "live-applied"} {
+	for _, live := range []string{"live-pending", "live-applied", "live-returned"} {
 		if !got[live] {
 			t.Errorf("live insight %q was dropped from text search", live)
 		}
 	}
-	for _, dead := range []string{"dead-superseded", "dead-rejected", "dead-rolledback"} {
+	for _, dead := range []string{"dead-superseded", "dead-rejected"} {
 		if got[dead] {
 			t.Errorf("retracted insight %q surfaced in unfiltered text search (#684)", dead)
 		}
@@ -233,7 +238,6 @@ func TestInsightsProvider_EntityLookupDropsRetractedWhenNoStatus(t *testing.T) {
 				{ID: "live", InsightText: "kept", Status: knowledgekit.StatusApproved, EntityURNs: []string{urn}},
 				{ID: "rej", InsightText: "rejected", Status: knowledgekit.StatusRejected, EntityURNs: []string{urn}},
 				{ID: "sup", InsightText: "superseded", Status: knowledgekit.StatusSuperseded, EntityURNs: []string{urn}},
-				{ID: "rb", InsightText: "rolled back", Status: knowledgekit.StatusRolledBack, EntityURNs: []string{urn}},
 			},
 		},
 	}
@@ -470,7 +474,6 @@ func orgInsights() []knowledgekit.Insight {
 		mk("bob-approved", "bob@example.com", knowledgekit.StatusApproved),
 		mk("bob-rejected", "bob@example.com", knowledgekit.StatusRejected),
 		mk("bob-superseded", "bob@example.com", knowledgekit.StatusSuperseded),
-		mk("bob-rolledback", "bob@example.com", knowledgekit.StatusRolledBack),
 		mk("alice-pending", "alice@example.com", knowledgekit.StatusPending),
 	}
 }
@@ -513,7 +516,7 @@ func TestInsightsProvider_SharedArm(t *testing.T) {
 				t.Errorf("caller's own insight was dropped: %+v", hits)
 			}
 			for _, private := range []string{
-				"bob-pending", "bob-approved", "bob-rejected", "bob-superseded", "bob-rolledback",
+				"bob-pending", "bob-approved", "bob-rejected", "bob-superseded",
 			} {
 				if got[private] {
 					t.Errorf("another capturer's %q insight leaked into the caller's search", private)
@@ -629,7 +632,7 @@ func TestInsightsProvider_FetchMatchesSearchReach(t *testing.T) {
 	})
 
 	t.Run("another capturer's unapplied insight is not-found", func(t *testing.T) {
-		for _, id := range []string{"bob-pending", "bob-approved", "bob-rejected", "bob-superseded", "bob-rolledback"} {
+		for _, id := range []string{"bob-pending", "bob-approved", "bob-rejected", "bob-superseded"} {
 			_, owned, err := p.Fetch(context.Background(), knowledgepage.InsightRef(id), Caller{Email: alice})
 			if !owned || !errors.Is(err, ErrNotFound) {
 				t.Errorf("%s: owned=%v err=%v, want ErrNotFound", id, owned, err)

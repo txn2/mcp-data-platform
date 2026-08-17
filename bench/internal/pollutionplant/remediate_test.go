@@ -49,18 +49,24 @@ func remediateReq(t *testing.T, r Remediation, tr Treatment, planted Result) Rem
 	return req
 }
 
-func TestRollbackRetractsBothChannels(t *testing.T) {
+// A rollback withdraws the claim from the sink and from every channel a
+// witness identity can read, and returns the insight to the review queue as
+// pending rather than retracting it (#1257).
+func TestRollbackWithdrawsBothChannels(t *testing.T) {
 	tr := wrongFiscal(t)
 	f := newFakePlatform()
 	planted := remediable(f, tr)
-	retracted(f, "rolled_back", true, true)
+	retracted(f, "pending", true, true)
 
 	got, err := f.client().Remediate(context.Background(), remediateReq(t, RemediationRollback, tr, planted))
 	if err != nil {
 		t.Fatalf("rollback: %v", err)
 	}
-	if !got.InsightRetracted || got.InSearch || got.InSink {
+	if !got.InsightReturnedToReview || got.InSearch || got.InSink {
 		t.Errorf("rollback reported a claim still in force: %+v", got)
+	}
+	if got.InsightRetracted {
+		t.Errorf("a returned insight is undecided, not retracted: %+v", got)
 	}
 	if n := f.open(); n != 0 {
 		t.Errorf("the remediation left %d session(s) open", n)
@@ -92,9 +98,9 @@ func TestRollbackRefusesAPartialRevert(t *testing.T) {
 		clearSearch, clearEntity bool
 		want                     string
 	}{
-		"sink still carries it":   {"rolled_back", true, false, "readable at its sink"},
-		"search still carries it": {"rolled_back", false, true, "reachable through search"},
-		"insight still delivered": {"applied", true, true, "still delivers"},
+		"sink still carries it":   {"pending", true, false, "readable at its sink"},
+		"search still carries it": {"pending", false, true, "reachable through search"},
+		"insight still applied":   {"applied", true, true, "instead of returning it to the review queue"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -246,7 +252,7 @@ func TestRemediateSurfacesPlatformFailures(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newFakePlatform()
 			planted := remediable(f, tr)
-			retracted(f, "rolled_back", true, true)
+			retracted(f, "pending", true, true)
 			client := f.client()
 			tc.setup(f, client)
 			if _, err := client.Remediate(context.Background(), remediateReq(t, tc.mechanism, tr, planted)); err == nil {

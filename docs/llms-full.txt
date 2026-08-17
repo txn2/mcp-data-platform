@@ -1825,7 +1825,7 @@ A query may be text (`intent`), entity-keyed (`entity_urns`), or both. The entit
 | `intent` | string | Conditional | - | Natural-language description of what is sought; provide intent, entity_urns, or both |
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
 | `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (catalog entity, URN-linked insights, the caller's URN-linked memory), lineage-expanded |
-| `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
+| `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded) |
 | `sources` | array | No | - | Narrow to named sources (catalog, governance, context_documents, knowledge_pages, memory, insights, feedback, assets, resources, prompts, scripts, calls, sessions, endpoints, connections); only narrows, never opts past scope; an unrecognized name is echoed back in `unknown_sources` rather than silently ignored |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
 
@@ -1869,7 +1869,7 @@ The sink router (#633). Review, synthesize, and promote captured insights to the
 | `limit` | int | No | Page size for itemized bulk_review (default 20, max 100) |
 | `offset` | int | No | Page start for itemized bulk_review; pass the previous next_offset to continue |
 
-The `rollback` action reverts a changeset's changes to their before-image (removing added tags/glossary terms/documentation links, restoring a changed description), transitions the source insights to `rolled_back`, and marks the changeset rolled back. It is refused if the changeset is already rolled back, if a newer changeset has since modified the same aspect, or if the changeset touched change types whose prior state was not captured or is irreversible (column descriptions, structured properties, custom properties, incidents, curated queries, context documents, prompts, delete_tag, bulk_untag). The `list_changesets` action lists an entity's changesets for discovering rollback targets. The apply response and each `list_changesets` entry carry a `revertible` boolean (computed with the same all-or-nothing gate rollback enforces, so any single unrevertible change makes the whole changeset false; there is no partial rollback) plus `unrevertible_change_types` when false, and the apply message instructs a rollback only when the changeset can actually be reverted, so a caller never plans on reversibility a changeset lacks (a column-level `update_description`, whose before-image is only the entity-level description, is the common false case). The field is structural revertibility; a structurally revertible changeset can still be refused at rollback time if already rolled back (list_changesets folds this in) or a newer changeset touched the same aspect. The `bulk_untag` action removes a tag (tag_urn) from every entity a catalog search finds carrying it, recording one changeset for audit; it requires confirm and is not auto-revertible (re-apply add_tag to restore).
+The `rollback` action reverts a changeset's changes to their before-image (removing added tags/glossary terms/documentation links, restoring a changed description), returns the source insights to the review queue as `pending` (`insights_returned_to_review`), and marks the changeset rolled back. It is refused if the changeset is already rolled back, if a newer changeset has since modified the same aspect, or if the changeset touched change types whose prior state was not captured or is irreversible (column descriptions, structured properties, custom properties, incidents, curated queries, context documents, prompts, delete_tag, bulk_untag). The `list_changesets` action lists an entity's changesets for discovering rollback targets. The apply response and each `list_changesets` entry carry a `revertible` boolean (computed with the same all-or-nothing gate rollback enforces, so any single unrevertible change makes the whole changeset false; there is no partial rollback) plus `unrevertible_change_types` when false, and the apply message instructs a rollback only when the changeset can actually be reverted, so a caller never plans on reversibility a changeset lacks (a column-level `update_description`, whose before-image is only the entity-level description, is the common false case). The field is structural revertibility; a structurally revertible changeset can still be refused at rollback time if already rolled back (list_changesets folds this in) or a newer changeset touched the same aspect. The `bulk_untag` action removes a tag (tag_urn) from every entity a catalog search finds carrying it, recording one changeset for audit; it requires confirm and is not auto-revertible (re-apply add_tag to restore).
 
 ## Memory Tools
 
@@ -2288,7 +2288,7 @@ Admin-only tool for reviewing and applying captured insights. Requires the `admi
 pending -> approved -> applied
 pending -> rejected
 pending -> superseded
-applied -> rolled_back
+applied -> pending (changeset rolled back)
 ```
 
 | Status | Description |
@@ -2298,7 +2298,8 @@ applied -> rolled_back
 | `rejected` | Reviewed and rejected |
 | `applied` | Changes written to the canonical sink (DataHub catalog or a knowledge page); also the point the insight becomes organization-wide |
 | `superseded` | Replaced by newer insights for the same entity |
-| `rolled_back` | Applied changes were reverted |
+
+A changeset rollback returns its source insights to `pending` rather than to a terminal state, so the review queue surfaces them again; they keep `applied_by`, `applied_at` and `changeset_ref`, and their `review_notes` names the rolled-back changeset. `reject` remains the way to discard an insight.
 
 ## Insight Visibility
 
@@ -2308,7 +2309,7 @@ Applying an insight is what turns one person's capture into knowledge the organi
 |--------|--------------------------------------------------------|
 | `pending`, `approved` | Only the capturer |
 | `applied` | Every identified caller, attributed through the hit's `captured_by` |
-| `rejected`, `superseded`, `rolled_back` | Only the capturer, and only under an explicit status query |
+| `rejected`, `superseded` | Only the capturer, and only under an explicit status query |
 
 No insight is public: reaching applied insights requires an identified caller, so an anonymous visitor to a shared portal link never sees them. Discovery also does not depend on the sink, so a fact applied to the DataHub catalog is findable by search even when no tool result names the dataset it hangs off.
 
@@ -2395,7 +2396,7 @@ HTTP endpoints for managing insights and changesets. All endpoints require admin
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `status` | string | Filter by status (pending, approved, rejected, applied, superseded, rolled_back) |
+| `status` | string | Filter by status (pending, approved, rejected, applied, superseded) |
 | `category` | string | Filter by category |
 | `entity_urn` | string | Filter by entity URN |
 | `captured_by` | string | Filter by user who captured |
