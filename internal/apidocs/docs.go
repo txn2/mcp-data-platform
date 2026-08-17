@@ -17672,6 +17672,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "applied_by": {
+                    "description": "AppliedBy, AppliedAt and ChangesetRef record the last application. They are\nretained when a rollback returns the insight to the review queue (#1257), so\nthe next reviewer sees the destination and changeset that were already tried\nrather than deciding blind; a pending insight carrying them is one whose\napplication was reverted.",
                     "type": "string"
                 },
                 "captured_by": {
@@ -20437,7 +20438,8 @@ const docTemplate = `{
                 "changeset_id": {
                     "type": "string"
                 },
-                "insights_rolled_back": {
+                "insights_returned_to_review": {
+                    "description": "InsightsReturnedToReview lists the source insights the rollback sent back to\nthe review queue as pending (#1257). Only insights that actually moved are\nlisted: one already returned by an earlier rollback, or since decided some\nother way, is left as it is.",
                     "type": "array",
                     "items": {
                         "type": "string"

@@ -46,8 +46,8 @@ type insightSource interface {
 //     what the benchmark measured as a cross-identity transfer gap.
 //
 // Statuses short of applied stay private to their capturer: pending and
-// approved are unpublished personal captures, and rejected, superseded and
-// rolled-back knowledge is retracted (isLiveInsightStatus).
+// approved are unpublished personal captures, and rejected or superseded
+// knowledge is retracted (isLiveInsightStatus).
 //
 // Scope stays ScopePerUser even though the shared arm returns other people's
 // records. ScopePerUser is what makes the Router refuse this provider to an
@@ -396,11 +396,15 @@ func readableBy(in knowledgekit.Insight, caller Caller) bool {
 }
 
 // isLiveInsightStatus reports whether an insight status represents knowledge
-// still in force. Rejected, superseded, and rolled-back insights are retracted
-// and must not surface on either unfiltered discovery path (entity or text).
+// still in force. Rejected and superseded insights are retracted and must not
+// surface on either unfiltered discovery path (entity or text).
+//
+// A rollback no longer retracts an insight, it returns it to pending (#1257),
+// which is the visibility it had before it was applied: private to its capturer
+// on the owner arm, and absent from the shared arm, which requires applied.
 func isLiveInsightStatus(status string) bool {
 	switch status {
-	case knowledgekit.StatusRejected, knowledgekit.StatusSuperseded, knowledgekit.StatusRolledBack:
+	case knowledgekit.StatusRejected, knowledgekit.StatusSuperseded:
 		return false
 	default:
 		return true

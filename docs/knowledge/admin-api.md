@@ -29,7 +29,7 @@ Returns a paginated list of insights with optional filtering.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `status` | string | Filter by status: `pending`, `approved`, `rejected`, `applied`, `superseded`, `rolled_back` |
+| `status` | string | Filter by status: `pending`, `approved`, `rejected`, `applied`, `superseded` |
 | `category` | string | Filter by category: `correction`, `business_context`, `data_quality`, `usage_guidance`, `relationship`, `enhancement` |
 | `entity_urn` | string | Filter by related entity URN |
 | `captured_by` | string | Filter by the user who captured the insight |
@@ -403,7 +403,7 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/changesets/cs_x1y2z3a4b5
 POST /api/v1/admin/knowledge/changesets/{id}/rollback
 ```
 
-Reverts the DataHub aspects the changeset mutated back to their before-image, transitions the changeset's source insights to `rolled_back`, and marks the changeset rolled back. Uses the same revert engine as the `apply_knowledge` MCP `rollback` action; see [Governance: Rollback](governance.md#rollback) for the full semantics.
+Reverts the DataHub aspects the changeset mutated back to their before-image, returns the changeset's source insights to the review queue as `pending`, and marks the changeset rolled back. Uses the same revert engine as the `apply_knowledge` MCP `rollback` action; see [Governance: Rollback](governance.md#rollback) for the full semantics.
 
 **Example:**
 
@@ -420,7 +420,7 @@ curl -X POST "https://mcp.example.com/api/v1/admin/knowledge/changesets/cs_x1y2z
   "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
   "reverted_changes": ["removed glossary term urn:li:glossaryTerm:gross-margin"],
   "skipped_changes": [],
-  "insights_rolled_back": ["a1b2c3d4e5f6"],
+  "insights_returned_to_review": ["a1b2c3d4e5f6"],
   "rolled_back_by": "admin@example.com"
 }
 ```

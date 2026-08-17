@@ -16,11 +16,14 @@ import {
   confidenceVariant,
   formatAge,
   formatCategory,
+  isReturnedToReview,
 } from "./helpers";
 
 // InsightsTable is the reviewer's queue: one row per captured insight, opening
 // its detail. Age is a badge only while an insight is pending — once it has been
-// reviewed, how long it waited is history, not a call to act.
+// reviewed, how long it waited is history, not a call to act. A pending insight
+// whose application was rolled back is marked Returned, so the queue reads as
+// what is outstanding rather than as a list of fresh captures (#1257).
 export function InsightsTable({
   insights,
   loading,
@@ -81,7 +84,17 @@ export function InsightsTable({
                 {insight.insight_text}
               </TableCell>
               <TableCell className="text-center">
-                <KnowledgeStatusBadge status={insight.status} />
+                <div className="flex flex-wrap items-center justify-center gap-1">
+                  <KnowledgeStatusBadge status={insight.status} />
+                  {/* A pending insight that already carries a changeset came back
+                      when that changeset was rolled back, which is a different
+                      thing to review than a fresh capture. */}
+                  {isReturnedToReview(insight) && (
+                    <span title={`Returned when changeset ${insight.changeset_ref} was rolled back`}>
+                      <StatusBadge variant="neutral">Returned</StatusBadge>
+                    </span>
+                  )}
+                </div>
               </TableCell>
             </TableRow>
           ))}

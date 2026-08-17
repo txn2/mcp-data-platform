@@ -275,9 +275,14 @@ type Insight struct {
 	SinkClass string `json:"sink_class,omitempty" example:"schema_entity"`
 
 	// Lifecycle fields (populated by migrations 000007 and 000008)
-	ReviewedBy   string     `json:"reviewed_by,omitempty" example:"admin@example.com"`
-	ReviewedAt   *time.Time `json:"reviewed_at,omitempty"`
-	ReviewNotes  string     `json:"review_notes,omitempty" example:"Verified with data engineering team"`
+	ReviewedBy  string     `json:"reviewed_by,omitempty" example:"admin@example.com"`
+	ReviewedAt  *time.Time `json:"reviewed_at,omitempty"`
+	ReviewNotes string     `json:"review_notes,omitempty" example:"Verified with data engineering team"`
+	// AppliedBy, AppliedAt and ChangesetRef record the last application. They are
+	// retained when a rollback returns the insight to the review queue (#1257), so
+	// the next reviewer sees the destination and changeset that were already tried
+	// rather than deciding blind; a pending insight carrying them is one whose
+	// application was reverted.
 	AppliedBy    string     `json:"applied_by,omitempty"`
 	AppliedAt    *time.Time `json:"applied_at,omitempty"`
 	ChangesetRef string     `json:"changeset_ref,omitempty"`
@@ -290,7 +295,6 @@ const (
 	StatusRejected   = "rejected"
 	StatusApplied    = "applied"
 	StatusSuperseded = "superseded"
-	StatusRolledBack = "rolled_back"
 )
 
 // Apply-knowledge action names exposed by the apply_knowledge MCP tool.
@@ -310,6 +314,12 @@ const (
 )
 
 // validTransitions defines allowed status transitions.
+//
+// applied -> pending is the rollback edge (#1257): reverting a changeset undoes
+// the application, so the insight goes back to the one state the review queue is
+// made of instead of a terminal rolled_back nobody would ever see again. It keeps
+// its applied_by/applied_at/changeset_ref, so the reviewer who sees it next knows
+// what was already tried. Discarding an insight stays reject's job.
 var validTransitions = map[string]map[string]bool{
 	StatusPending: {
 		StatusApproved:   true,
@@ -321,7 +331,7 @@ var validTransitions = map[string]map[string]bool{
 		StatusRejected: true,
 	},
 	StatusApplied: {
-		StatusRolledBack: true,
+		StatusPending: true,
 	},
 }
 

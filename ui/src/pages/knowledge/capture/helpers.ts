@@ -17,8 +17,19 @@ export const INSIGHT_STATUSES = [
   "rejected",
   "applied",
   "superseded",
-  "rolled_back",
 ];
+
+// isReturnedToReview marks a pending insight that was already applied once and
+// came back when its changeset was rolled back (#1257). A rollback undoes the
+// application rather than discarding the insight, so the queue holds it again —
+// and the application it carries is the thing that tells a reviewer this one has
+// a history, not that it is a fresh capture.
+export function isReturnedToReview(insight: {
+  status: string;
+  changeset_ref?: string;
+}): boolean {
+  return insight.status === "pending" && !!insight.changeset_ref;
+}
 
 export type BadgeVariant = "success" | "error" | "warning" | "neutral";
 

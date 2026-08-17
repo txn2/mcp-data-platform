@@ -344,14 +344,14 @@ here as the follow-up if the correlation is large, and is moot if it is null.
 platform's two mechanisms rather than two spellings of one condition. Verified
 in source and documented at `bench/internal/pollutionplant/remediate.go:14-35`:
 
-- **Rollback** reverts the applied change at its sink and marks the source
-  insights rolled back. Both the sink and the insight channel stop carrying
-  the claim. The harness enforces this: `checkRetraction` fails the run if a
-  rollback leaves the claim readable at its sink or reachable through search
-  for a fresh identity.
+- **Rollback** reverts the applied change at its sink and withdraws the source
+  insights from the delivered set. Both the sink and the insight channel stop
+  carrying the claim. The harness enforces this: `checkRetraction` fails the run
+  if a rollback leaves the claim readable at its sink or reachable through
+  search for a fresh identity.
 - **Supersede** retracts the insight only. An applied insight cannot be
-  superseded through the status API (the transition table admits applied to
-  rolled_back and nothing else); what supersedes it is the capturing identity
+  superseded through the status API (the transition table admits only the
+  rollback edge out of applied); what supersedes it is the capturing identity
   restating the claim, which the recall-first check matches. The change
   already applied to the sink stays applied. The harness deliberately does not
   treat that residue as a failure, because it is the condition RQ3 exists to
@@ -360,6 +360,18 @@ in source and documented at `bench/internal/pollutionplant/remediate.go:14-35`:
 So the design variable is *how many delivery channels the retraction clears*,
 and the harness reads the post-state per channel (`InSearch`, `InSink`) rather
 than assuming it.
+
+**Platform change after the run (#1257).** The study ran when a rollback moved
+its source insights to a terminal `rolled_back` status. That status no longer
+exists: a rollback now returns the insight to the review queue as `pending`, so
+it is undecided rather than retracted. The delivery channels this design
+measures are unaffected, which is why the arms remain comparable: a pending
+insight is private to its capturer on the search path (the shared arm requires
+`applied`), and the enrichment push path excludes pending candidates outright
+(`pkg/memory/postgres.go`, the #745 gate). The harness tracks the new state as
+`InsightReturnedToReview` and holds the rollback arm to it in place of
+`InsightRetracted`; a re-run under the current platform reports the rollback
+arm's insight status as `pending`.
 
 **Channel inventory.** The confirmatory analysis must attribute over three
 surfaces, not two. A planted claim reaches an agent as:
@@ -375,11 +387,11 @@ surfaces, not two. A planted claim reaches an agent as:
 
 Channels (a) and (c) both key on the insight record and both retractions clear
 them, which is verified in source rather than inferred: the enrichment path is
-`EntityLookup`, which filters `status = active`
-(`pkg/memory/postgres.go:668-677`), and the insight-to-memory status mapping
-sends rolled_back to archived and superseded to superseded
-(`pkg/toolkits/knowledge/memory_adapter.go:678-690`, with `MarkRolledBack`
-persisting it to the status column at 450-464). Only rollback clears (b). The
+`EntityLookup`, which filters `status = active` and additionally excludes
+pending insight candidates (`pkg/memory/postgres.go`), and the
+insight-to-memory status mapping sends rejected to archived and superseded to
+superseded (`pkg/toolkits/knowledge/memory_adapter.go`). A rollback returns the
+insight to pending, which the same gate excludes. Only rollback clears (b). The
 harness's reachability check covers (a) and (b); (c) is not separately
 checked, and #1167 records it from transcripts rather than adding machinery.
 

@@ -152,7 +152,7 @@ func TestCheckStoreStatePassesOnAConstantStore(t *testing.T) {
 // in the post-state.
 func TestCheckStoreStateFailsAndStillArchivesOnDrift(t *testing.T) {
 	var out, status strings.Builder
-	err := checkStoreState(context.Background(), &fakeStack{state: state("rolled_back")},
+	err := checkStoreState(context.Background(), &fakeStack{state: state("rejected")},
 		snapshotFile(t, state("applied")), &out, &status)
 	if err == nil {
 		t.Fatal("a store that moved during the arm was accepted")
@@ -163,7 +163,7 @@ func TestCheckStoreStateFailsAndStillArchivesOnDrift(t *testing.T) {
 	if !strings.Contains(status.String(), "CROSS-IDENTITY DRIFT") {
 		t.Errorf("the drift was not reported: %s", status.String())
 	}
-	if !strings.Contains(out.String(), "rolled_back") {
+	if !strings.Contains(out.String(), "rejected") {
 		t.Errorf("the post-state was not archived: %s", out.String())
 	}
 }

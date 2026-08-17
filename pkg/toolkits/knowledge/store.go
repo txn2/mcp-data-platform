@@ -32,10 +32,15 @@ type InsightStore interface {
 	Update(ctx context.Context, id string, updates InsightUpdate) error
 	Stats(ctx context.Context, filter InsightFilter) (*InsightStats, error)
 	MarkApplied(ctx context.Context, id, appliedBy, changesetRef string) error
-	// MarkRolledBack transitions an applied insight to rolled_back. It is a no-op
-	// for insights not currently in the applied state, so re-running a rollback
-	// does not error or double-transition.
-	MarkRolledBack(ctx context.Context, id, rolledBackBy string) error
+	// ReturnToReview sends an applied insight back to pending after its changeset
+	// was rolled back (#1257), so the review queue surfaces it for a decision
+	// again. The prior application is retained (applied_by, applied_at,
+	// changeset_ref) and the rollback is recorded in the review fields, so the
+	// next reviewer sees what was already tried. It returns whether the insight
+	// was in the applied state and was transitioned: an insight in any other
+	// state is left alone (returned == false, no error), so re-running a rollback
+	// neither errors nor resurrects an insight somebody has since decided.
+	ReturnToReview(ctx context.Context, id, rolledBackBy, changesetID string) (returned bool, err error)
 	Supersede(ctx context.Context, entityURN string, excludeID string) (int, error)
 }
 
@@ -526,21 +531,29 @@ func (s *postgresStore) MarkApplied(ctx context.Context, id, appliedBy, changese
 	return nil
 }
 
-// MarkRolledBack transitions an applied insight to rolled_back. The WHERE clause
-// gates on the current status being applied so the call is idempotent: rolling
-// back the same changeset twice (or an insight whose status has since changed)
-// is a no-op rather than an error.
-func (s *postgresStore) MarkRolledBack(ctx context.Context, id, rolledBackBy string) error {
+// ReturnToReview sends an applied insight back to pending after a rollback. The
+// WHERE clause gates on the current status being applied, so the call is
+// idempotent: rolling back the same changeset twice (or an insight whose status
+// has since changed) affects no rows and reports returned == false rather than
+// erroring. applied_by, applied_at and changeset_ref are deliberately left in
+// place as the record of the application that was reverted.
+func (s *postgresStore) ReturnToReview(ctx context.Context, id, rolledBackBy, changesetID string) (bool, error) {
 	query := `
 		UPDATE knowledge_insights
-		SET status = $1, reviewed_by = $2, reviewed_at = $3
-		WHERE id = $4 AND status = $5
+		SET status = $1, reviewed_by = $2, reviewed_at = $3, review_notes = $4
+		WHERE id = $5 AND status = $6
 	`
 
-	if _, err := s.db.ExecContext(ctx, query, StatusRolledBack, rolledBackBy, time.Now(), id, StatusApplied); err != nil {
-		return fmt.Errorf("marking insight as rolled back: %w", err)
+	result, err := s.db.ExecContext(ctx, query,
+		StatusPending, rolledBackBy, time.Now(), RollbackReviewNote(changesetID), id, StatusApplied)
+	if err != nil {
+		return false, fmt.Errorf("returning insight to review: %w", err)
 	}
-	return nil
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("checking rows affected: %w", err) //nolint:revive // shared error format
+	}
+	return rows > 0, nil
 }
 
 // Supersede marks pending insights for an entity as superseded, except excludeID.
@@ -596,8 +609,12 @@ func (*noopStore) Stats(_ context.Context, _ InsightFilter) (*InsightStats, erro
 	return &InsightStats{ByCategory: map[string]int{}, ByConfidence: map[string]int{}, ByStatus: map[string]int{}}, nil
 }
 
-func (*noopStore) MarkApplied(_ context.Context, _, _, _ string) error   { return nil }    //nolint:revive // interface impl
-func (*noopStore) MarkRolledBack(_ context.Context, _, _ string) error   { return nil }    //nolint:revive // interface impl
+func (*noopStore) MarkApplied(_ context.Context, _, _, _ string) error { return nil } //nolint:revive // interface impl
+
+func (*noopStore) ReturnToReview(_ context.Context, _, _, _ string) (bool, error) { //nolint:revive // interface impl
+	return false, nil
+}
+
 func (*noopStore) Supersede(_ context.Context, _, _ string) (int, error) { return 0, nil } //nolint:revive // interface impl
 
 // Verify interface compliance.

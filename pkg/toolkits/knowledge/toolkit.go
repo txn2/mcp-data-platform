@@ -205,6 +205,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"bulk_untag (tag_urn required, confirm required) removes a tag from every entity a catalog search finds carrying it, recording one changeset; it is not auto-revertible. " +
 				"rollback (changeset_id required, confirm required) reverts the aspects a prior apply changed, back to their before-image: " +
 				"it removes tags/glossary terms/documentation links the apply added (leaving any that pre-existed) and restores the prior description. " +
+				"It also returns the changeset's source insights to the review queue as pending (insights_returned_to_review), keeping applied_by/applied_at/changeset_ref so the next reviewer sees what was already tried; " +
+				"use reject to discard an insight for good. " +
 				"Rollback is refused if the changeset is already rolled back, if a newer changeset has since changed the same aspect, " +
 				"or if the changeset touched change types whose prior state was not captured or is irreversible (column descriptions, structured properties, custom properties, incidents, curated queries, context documents, prompts, delete_tag, bulk_untag). " +
 				"list_changesets (entity_urn required) lists an entity's changesets with their ids, timestamps, actors, and rollback status. " +
@@ -233,7 +235,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"For set_custom_property, target is the customProperties key, detail is the value; for remove_custom_property, target is the key. Custom properties are recorded but not auto-revertible. " +
 				"A single apply may set multiple custom properties or remove multiple, but not both set and remove on the same entity, and not a custom-property change together with update_description on a dataProduct (they share one aspect written non-atomically); split those into separate apply calls. " +
 				"Structured properties, incidents, and context documents require DataHub 1.4.x. " +
-				"Insight lifecycle: pending → approved/rejected/superseded; approved → applied/rejected; applied → rolled_back.",
+				"Insight lifecycle: pending → approved/rejected/superseded; approved → applied/rejected; applied → pending (when its changeset is rolled back).",
 			InputSchema: applyKnowledgeSchema,
 		}, t.handleApplyKnowledge)
 	}

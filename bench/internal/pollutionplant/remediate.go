@@ -19,20 +19,23 @@ import (
 // The two mechanisms do NOT retract the same channels, and the difference is
 // a property of the platform, verified in its source rather than inferred:
 //
-//   - Rollback reverts the applied change at its sink and marks the source
-//     insights rolled back, so both the sink and the insight channel stop
-//     carrying the claim.
+//   - Rollback reverts the applied change at its sink and returns the source
+//     insights to the review queue as pending (#1257). The sink stops carrying
+//     the claim and so does every cross-identity channel, because an insight
+//     short of applied is private to its capturer. The insight itself is not
+//     retracted: it is undecided again, which is what a reverted application
+//     leaves behind.
 //   - Supersede retracts the insight only. An applied insight cannot be
 //     superseded through the status API (the transition table admits
-//     applied -> rolled_back and nothing else); what supersedes it is the
-//     capturing identity restating the claim, which the recall-first check
-//     matches and supersedes. The change that was already applied to the
+//     applied -> pending, the rollback edge, and nothing else); what supersedes
+//     it is the capturing identity restating the claim, which the recall-first
+//     check matches and supersedes. The change that was already applied to the
 //     sink stays applied.
 //
-// So supersede is a partial retraction, and a study that treated the two as
-// interchangeable would attribute a difference in recovery to the mechanism
-// when it was really a difference in how much of the claim was withdrawn.
-// Result reports each channel separately for exactly that reason.
+// So the two withdraw different amounts of the claim, and a study that treated
+// them as interchangeable would attribute a difference in recovery to the
+// mechanism when it was really a difference in what was withdrawn. Result
+// reports each channel separately for exactly that reason.
 
 // Remediation names how a planted claim is retracted.
 type Remediation string
@@ -49,10 +52,13 @@ const (
 // lifecycle constants; promote already names the ones it drives.
 const statusSuperseded = promote.StatusSuperseded
 
+// statusPending is the status a rollback returns a source insight to.
+const statusPending = "pending"
+
 // retractedStatuses are the insight statuses the platform treats as no
 // longer in force, and therefore stops delivering. Mirrors
 // knowledge.isLiveInsightStatus.
-var retractedStatuses = []string{"rejected", statusSuperseded, "rolled_back"}
+var retractedStatuses = []string{"rejected", statusSuperseded}
 
 // RemediateRequest is one remediation of one planted claim.
 type RemediateRequest struct {
@@ -88,6 +94,12 @@ type RemediateResult struct {
 	// InsightRetracted is true when that status is one the platform stops
 	// delivering.
 	InsightRetracted bool `json:"insight_retracted"`
+	// InsightReturnedToReview is true when the insight is back in the review
+	// queue as pending, which is where a rollback leaves it (#1257). It is the
+	// rollback arm's counterpart to InsightRetracted: the claim is withdrawn
+	// from every channel a witness can read, and left undecided for its
+	// capturer rather than discarded.
+	InsightReturnedToReview bool `json:"insight_returned_to_review"`
 	// CorrectionInsightID is the corrective capture's id (supersede only).
 	CorrectionInsightID string `json:"correction_insight_id,omitempty"`
 	// InSearch and InSink are the same reachability read the plant took,
@@ -234,6 +246,7 @@ func (c *Client) readRemediatedState(ctx context.Context, req RemediateRequest, 
 	}
 	res.InsightStatus = in.Status
 	res.InsightRetracted = slices.Contains(retractedStatuses, in.Status)
+	res.InsightReturnedToReview = in.Status == statusPending
 
 	email := pool.Email(req.WitnessSeq)
 	w, err := c.dial(ctx, req.WitnessSeq)
@@ -252,14 +265,17 @@ func (c *Client) readRemediatedState(ctx context.Context, req RemediateRequest, 
 	return nil
 }
 
-// checkRetraction holds each mechanism to what it is defined to retract,
+// checkRetraction holds each mechanism to what it is defined to withdraw,
 // and only to that.
 //
-// Both must retract the insight: that is the channel both mechanisms act
-// on, and a claim still at a delivered status means the mechanism did not
+// Each must move the insight off applied: that is the channel both mechanisms
+// act on, and a claim still at a delivered status means the mechanism did not
 // take (for supersede, most likely because the correction was not similar
 // enough to the claim for the recall-first check to match it, which would
 // leave the arm running on the planted condition under a remediated label).
+// Where they differ is the state that counts as taken: supersede retracts the
+// insight, rollback returns it to the review queue as pending (#1257), which
+// still removes it from every channel a witness identity can read.
 //
 // Only rollback is held to the sink and to reachability. Supersede leaves
 // the applied change in place by design, and where search federates the
@@ -268,12 +284,16 @@ func (c *Client) readRemediatedState(ctx context.Context, req RemediateRequest, 
 // that residue as a failure would have the harness refuse the very state
 // RQ3 exists to measure.
 func checkRetraction(req RemediateRequest, res RemediateResult) error {
-	if !res.InsightRetracted {
-		return fmt.Errorf("pollutionplant: %s left insight %s at status %q, which the platform still delivers; "+
-			"the arm would run on a claim still in force", req.Remediation, req.Planted.InsightID, res.InsightStatus)
-	}
 	if req.Remediation != RemediationRollback {
+		if !res.InsightRetracted {
+			return fmt.Errorf("pollutionplant: %s left insight %s at status %q, which the platform still delivers; "+
+				"the arm would run on a claim still in force", req.Remediation, req.Planted.InsightID, res.InsightStatus)
+		}
 		return nil
+	}
+	if !res.InsightReturnedToReview && !res.InsightRetracted {
+		return fmt.Errorf("pollutionplant: rollback left insight %s at status %q instead of returning it to the "+
+			"review queue; the arm would run on a claim still in force", req.Planted.InsightID, res.InsightStatus)
 	}
 	if res.InSink {
 		return fmt.Errorf("pollutionplant: rollback of changeset %s left the applied change readable at its sink; "+

@@ -52,8 +52,8 @@ func TestRevertChangeset_RemovesAddedTerm(t *testing.T) {
 	assert.Empty(t, writer.WriteCalls[0].Arg1, "no adds")
 	assert.Equal(t, "urn:li:glossaryTerm:new", writer.WriteCalls[0].Arg2)
 	assert.True(t, store.Changesets[0].RolledBack)
-	assert.Equal(t, []string{"ins-1"}, res.InsightsRolledBack)
-	assert.Equal(t, StatusRolledBack, insights.Insights[0].Status)
+	assert.Equal(t, []string{"ins-1"}, res.InsightsReturnedToReview)
+	assert.Equal(t, StatusPending, insights.Insights[0].Status)
 	assert.Len(t, res.RevertedChanges, 1)
 }
 
@@ -493,23 +493,41 @@ func TestAspectFamily(t *testing.T) {
 	}
 }
 
-// --- MarkRolledBack store impls ---
+// --- ReturnToReview store impls ---
 
-func TestPostgresStore_MarkRolledBack(t *testing.T) {
+func TestPostgresStore_ReturnToReview(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
 	store := NewPostgresStore(db)
 	mock.ExpectExec("UPDATE knowledge_insights").
-		WithArgs(StatusRolledBack, "admin", sqlmock.AnyArg(), "ins-1", StatusApplied).
+		WithArgs(StatusPending, "admin", sqlmock.AnyArg(), RollbackReviewNote("cs-1"), "ins-1", StatusApplied).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	assert.NoError(t, store.MarkRolledBack(context.Background(), "ins-1", "admin"))
+	returned, err := store.ReturnToReview(context.Background(), "ins-1", "admin", "cs-1")
+	assert.NoError(t, err)
+	assert.True(t, returned)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestPostgresStore_MarkRolledBack_DBError(t *testing.T) {
+// An insight that is not applied matches no row: the applied-only gate makes a
+// repeated rollback a no-op instead of resurrecting a decided insight.
+func TestPostgresStore_ReturnToReview_NotApplied(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+	mock.ExpectExec("UPDATE knowledge_insights").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	returned, err := store.ReturnToReview(context.Background(), "ins-1", "admin", "cs-1")
+	assert.NoError(t, err)
+	assert.False(t, returned)
+}
+
+func TestPostgresStore_ReturnToReview_DBError(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
@@ -518,9 +536,37 @@ func TestPostgresStore_MarkRolledBack_DBError(t *testing.T) {
 	mock.ExpectExec("UPDATE knowledge_insights").
 		WillReturnError(errors.New("boom"))
 
-	assert.Error(t, store.MarkRolledBack(context.Background(), "ins-1", "admin"))
+	returned, err := store.ReturnToReview(context.Background(), "ins-1", "admin", "cs-1")
+	assert.Error(t, err)
+	assert.False(t, returned)
 }
 
-func TestNoopStore_MarkRolledBack(t *testing.T) {
-	assert.NoError(t, NewNoopStore().MarkRolledBack(context.Background(), "x", "admin"))
+func TestPostgresStore_ReturnToReview_RowsAffectedError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+	mock.ExpectExec("UPDATE knowledge_insights").
+		WillReturnResult(sqlmock.NewErrorResult(errors.New("no rows count")))
+
+	returned, err := store.ReturnToReview(context.Background(), "ins-1", "admin", "cs-1")
+	assert.Error(t, err)
+	assert.False(t, returned)
+}
+
+func TestNoopStore_ReturnToReview(t *testing.T) {
+	returned, err := NewNoopStore().ReturnToReview(context.Background(), "x", "admin", "cs-1")
+	assert.NoError(t, err)
+	assert.False(t, returned)
+}
+
+// The note names the changeset so a reviewer seeing a pending insight that
+// carries applied_by knows why it is back in the queue.
+func TestRollbackReviewNote(t *testing.T) {
+	assert.Contains(t, RollbackReviewNote("cs-7"), "cs-7")
+	assert.NotEmpty(t, RollbackReviewNote(""))
+	assert.True(t, strings.HasPrefix(RollbackReviewNote(""), "Returned to review:"),
+		"the down migration matches returned insights on this prefix")
+	assert.True(t, strings.HasPrefix(RollbackReviewNote("cs-7"), "Returned to review:"))
 }

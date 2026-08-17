@@ -739,7 +739,7 @@ matches, alongside a top-level `withheld_notice`).
 | `intent` | string | Conditional | - | Natural-language description of what you are looking for. Provide `intent`, `entity_urns`, or both |
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
 | `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage |
-| `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
+| `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded) |
 | `sources` | array | No | - | Narrow the search to named sources (`catalog`, `governance`, `context_documents`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `resources`, `prompts`, `scripts`, `calls`, `sessions`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
 
@@ -948,7 +948,7 @@ Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"
 - **synthesize**: Structured change proposals from approved insights
 - **apply**: Write changes to DataHub with changeset tracking
 - **list_changesets**: List an entity's changesets (id, timestamp, actor, change type, rollback status)
-- **rollback**: Revert a changeset's changes to their before-image and transition its source insights to `rolled_back` (requires `changeset_id` and `confirm`)
+- **rollback**: Revert a changeset's changes to their before-image and return its source insights to the review queue as `pending` (requires `changeset_id` and `confirm`)
 - **bulk_untag**: Remove a tag (`tag_urn`) from every entity a catalog search finds carrying it, recording one changeset for audit (when `require_confirmation` is enabled it first returns the affected count and needs `confirm`; not auto-revertible, re-apply `add_tag` to restore)
 
 **Supported change types for `apply` action:**

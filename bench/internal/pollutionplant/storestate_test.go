@@ -96,7 +96,7 @@ func TestDriftReportsAStatusChangeAtConstantCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadStoreState: %v", err)
 	}
-	f.stored["bench-agent-200@apikey.local"][0].Status = "rolled_back"
+	f.stored["bench-agent-200@apikey.local"][0].Status = "rejected"
 	after, err := f.client().ReadStoreState(context.Background())
 	if err != nil {
 		t.Fatalf("ReadStoreState: %v", err)

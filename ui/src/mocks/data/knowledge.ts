@@ -153,7 +153,10 @@ const columnNames = [
 const relevances = ["primary", "secondary", "contextual"];
 
 // ---------------------------------------------------------------------------
-// Status distribution: 15 pending, 8 approved, 8 rejected, 12 applied, 4 superseded, 3 rolled_back
+// Status distribution: 15 pending, 8 approved, 8 rejected, 12 applied,
+// 4 superseded, 3 returned. "returned" is not a stored status: those three are
+// pending insights whose application was rolled back (#1257), which is how the
+// queue actually holds them, so the fixtures cover the reviewer's Returned state.
 // ---------------------------------------------------------------------------
 const statusPool: string[] = [
   ...Array(15).fill("pending"),
@@ -161,7 +164,7 @@ const statusPool: string[] = [
   ...Array(8).fill("rejected"),
   ...Array(12).fill("applied"),
   ...Array(4).fill("superseded"),
-  ...Array(3).fill("rolled_back"),
+  ...Array(3).fill("returned"),
 ];
 
 // Shuffle the status pool deterministically
@@ -248,6 +251,8 @@ function generateInsights(count: number): Insight[] {
     let applied_at: string | undefined;
     let changeset_ref: string | undefined;
 
+    const returned = status === "returned";
+
     if (status !== "pending") {
       reviewed_by = seededItem(reviewers);
       const reviewDate = new Date(ts);
@@ -256,12 +261,18 @@ function generateInsights(count: number): Insight[] {
       review_notes = seededItem(reviewNotesPool);
     }
 
-    if (status === "applied" || status === "rolled_back") {
+    if (status === "applied" || returned) {
       applied_by = seededItem(reviewers);
       const applyDate = new Date(reviewed_at!);
       applyDate.setHours(applyDate.getHours() + seededInt(1, 24));
       applied_at = applyDate.toISOString();
       changeset_ref = `cs-${String(seededInt(1, 10)).padStart(3, "0")}`;
+    }
+
+    // A rollback puts the insight back in the queue as pending, keeping the
+    // application it reverted and recording why it is back.
+    if (returned) {
+      review_notes = `Returned to review: changeset ${changeset_ref} was rolled back.`;
     }
 
     insights.push({
@@ -281,7 +292,7 @@ function generateInsights(count: number): Insight[] {
       entity_urns: entityUrns,
       related_columns: relatedColumns,
       suggested_actions: suggestedActions,
-      status,
+      status: returned ? "pending" : status,
       reviewed_by,
       reviewed_at,
       review_notes,
@@ -298,13 +309,12 @@ function generateInsights(count: number): Insight[] {
 }
 
 // ---------------------------------------------------------------------------
-// Generate changesets linked to applied/rolled_back insights
+// Generate changesets linked to the insights that carry one: those applied, and
+// those returned to the queue by a rollback (pending with a changeset_ref).
 // ---------------------------------------------------------------------------
 
 function generateChangesets(insights: Insight[]): Changeset[] {
-  const appliedInsights = insights.filter(
-    (i) => i.status === "applied" || i.status === "rolled_back",
-  );
+  const appliedInsights = insights.filter((i) => !!i.changeset_ref);
   const changesets: Changeset[] = [];
 
   // Group by changeset_ref
@@ -326,9 +336,9 @@ function generateChangesets(insights: Insight[]): Changeset[] {
   let idx = 0;
   for (const [ref, insightsForRef] of byRef) {
     const firstInsight = insightsForRef[0]!;
-    const isRolledBack = insightsForRef.some(
-      (i) => i.status === "rolled_back",
-    );
+    // The changeset is the rolled-back one exactly when a source insight came
+    // back to the queue still carrying it.
+    const isRolledBack = insightsForRef.some((i) => i.status === "pending");
     const changeType = seededItem(changeTypes);
 
     const cs: Changeset = {

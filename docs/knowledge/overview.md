@@ -85,7 +85,7 @@ stateDiagram-v2
     pending --> rejected: admin rejects
     pending --> superseded: newer insight replaces
     approved --> applied: changes written to DataHub
-    applied --> rolled_back: changeset reverted
+    applied --> pending: changeset rolled back
 ```
 
 | Status | Description |
@@ -95,7 +95,8 @@ stateDiagram-v2
 | `rejected` | Reviewed and rejected by admin |
 | `applied` | Changes have been written to the canonical sink (the DataHub catalog, or a knowledge page). Also the point at which the insight becomes organization-wide: see Visibility below |
 | `superseded` | Replaced by a newer insight for the same entity |
-| `rolled_back` | Applied changes were reverted via changeset rollback |
+
+Rolling back a changeset returns its source insights to `pending`, so the review queue surfaces them for a decision again. There is no terminal `rolled_back` insight status: a rollback undoes the application, and `reject` remains the way to discard an insight for good. A returned insight keeps its `applied_by`, `applied_at` and `changeset_ref`, and its `review_notes` names the changeset that was rolled back, so the next reviewer can see the destination that was already tried. See [Governance: Rollback](governance.md#rollback).
 
 ## Visibility
 
@@ -105,7 +106,7 @@ Applying an insight is what turns one person's capture into knowledge the organi
 |--------|--------------------------------------------------------|
 | `pending`, `approved` | Only the capturer. A capture under review is not yet something the organization asserts |
 | `applied` | Every identified caller, attributed to the capturer through the hit's `captured_by` |
-| `rejected`, `superseded`, `rolled_back` | Only the capturer, and only by asking for that status explicitly: retracted knowledge is dropped from ordinary discovery |
+| `rejected`, `superseded` | Only the capturer, and only by asking for that status explicitly: retracted knowledge is dropped from ordinary discovery |
 
 Two properties follow from this:
 

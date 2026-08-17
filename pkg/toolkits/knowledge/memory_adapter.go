@@ -224,13 +224,12 @@ func coarseStatus(callerStatus string) string {
 // precisely those statuses the coarse status column can never resolve to,
 // because for them an absent overlay key is not a match under either rule:
 // resolveInsightStatus falls back to mapMemoryStatusToInsight, which yields
-// pending, rejected or superseded and never these three. Pushing pending down
+// pending, rejected or superseded and never these two. Pushing pending down
 // would instead drop the records that carry no overlay key at all and are
 // pending by virtue of the column, so those statuses stay post-filtered.
 var storeFilterableStatuses = map[string]bool{
-	StatusApproved:   true,
-	StatusApplied:    true,
-	StatusRolledBack: true,
+	StatusApproved: true,
+	StatusApplied:  true,
 }
 
 // storeInsightStatus returns the status to push into the store query, or empty
@@ -446,21 +445,39 @@ func (a *memoryInsightAdapter) MarkApplied(ctx context.Context, id, appliedBy, c
 	return nil
 }
 
-// MarkRolledBack transitions an applied insight to rolled_back in the memory store.
-func (a *memoryInsightAdapter) MarkRolledBack(ctx context.Context, id, rolledBackBy string) error {
+// ReturnToReview sends an applied insight back to pending after a rollback
+// (#1257). It reads the record first so the applied-only gate the postgres store
+// expresses in its WHERE clause holds here too: an insight in any other state is
+// left untouched, so a rollback can never resurrect one somebody has since
+// rejected or superseded.
+//
+// The metadata write is a merge (memory.RecordUpdate applies `metadata || jsonb`),
+// so applied_by, applied_at and changeset_ref survive as the record of the
+// application that was reverted.
+func (a *memoryInsightAdapter) ReturnToReview(ctx context.Context, id, rolledBackBy, changesetID string) (bool, error) {
+	insight, err := a.Get(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("reading insight before returning it to review: %w", err)
+	}
+	if insight.Status != StatusApplied {
+		return false, nil
+	}
+
 	meta := map[string]any{
 		metaKeyReviewedBy:    rolledBackBy,
-		metaKeyInsightStatus: StatusRolledBack,
+		metaKeyReviewNotes:   RollbackReviewNote(changesetID),
+		metaKeyReviewedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+		metaKeyInsightStatus: StatusPending,
 	}
 	if err := a.store.Update(ctx, id, memory.RecordUpdate{
-		// Rolled-back insights map to archived; persist it to the status column
-		// so they stop surfacing in memory_recall (same fix as UpdateStatus).
-		Status:   mapInsightStatusToMemory(StatusRolledBack),
+		// A pending insight is an active record: the application is undone, so the
+		// record goes back to exactly the state it was in before it was applied.
+		Status:   mapInsightStatusToMemory(StatusPending),
 		Metadata: meta,
 	}); err != nil {
-		return fmt.Errorf("marking insight rolled back: %w", err)
+		return false, fmt.Errorf("returning insight to review: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // Supersede marks older insights for an entity as superseded by a newer one.
@@ -680,7 +697,7 @@ func mapInsightStatusToMemory(status string) string {
 	switch status {
 	case StatusPending, StatusApproved:
 		return memory.StatusActive
-	case StatusRejected, StatusRolledBack:
+	case StatusRejected:
 		return memory.StatusArchived
 	case StatusSuperseded:
 		return memory.StatusSuperseded

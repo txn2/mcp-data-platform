@@ -935,7 +935,7 @@ func TestRevertPageChangeset_CreateDeletes(t *testing.T) {
 	require.False(t, res.IsError, "rollback should succeed")
 	assert.Contains(t, pw.deleted, "kp1")
 	assert.True(t, csStore.Changesets[0].RolledBack)
-	assert.Contains(t, store.MarkRolledBackIDs, "i1")
+	assert.Contains(t, store.ReturnToReviewIDs, "i1")
 }
 
 func TestRevertPageChangeset_UpdateRestores(t *testing.T) {

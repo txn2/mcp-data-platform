@@ -62,6 +62,38 @@ describe("InsightDrawer", () => {
     expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
   });
 
+  // #1257: a rollback returns the insight to the queue rather than discarding
+  // it, so the reviewer deciding it next sees the application that was reverted.
+  it("explains a pending insight that came back from a rollback", () => {
+    render(
+      <InsightDrawer
+        insight={insight({
+          applied_by: "admin@example.com",
+          applied_at: "2026-08-02T10:00:00Z",
+          changeset_ref: "cs-004",
+          review_notes: "Returned to review: changeset cs-004 was rolled back.",
+        })}
+        onClose={vi.fn()}
+        userLabels={{}}
+      />,
+    );
+
+    expect(
+      screen.getByText(/returned to the queue when the changeset below was/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("cs-004")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
+  });
+
+  it("leaves a fresh capture without the rollback explanation", () => {
+    render(<InsightDrawer insight={insight()} onClose={vi.fn()} userLabels={{}} />);
+
+    expect(
+      screen.queryByText(/returned to the queue when the changeset below was/i),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows the drawer unchanged when nothing was observed", () => {
     render(<InsightDrawer insight={insight()} onClose={vi.fn()} userLabels={{}} />);
 

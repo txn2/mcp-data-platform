@@ -244,5 +244,4 @@ export type InsightStatus =
   | "approved"
   | "rejected"
   | "applied"
-  | "superseded"
-  | "rolled_back";
+  | "superseded";

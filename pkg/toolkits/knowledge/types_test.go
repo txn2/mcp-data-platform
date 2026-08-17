@@ -254,19 +254,17 @@ func TestValidateStatusTransition(t *testing.T) {
 		// Valid transitions from approved
 		{name: "approved to applied", from: StatusApproved, to: StatusApplied, wantErr: false},
 
-		// Valid transitions from applied
-		{name: "applied to rolled_back", from: StatusApplied, to: StatusRolledBack, wantErr: false},
+		// Valid transitions from applied: the rollback edge (#1257).
+		{name: "applied to pending", from: StatusApplied, to: StatusPending, wantErr: false},
 
 		// Invalid transitions from pending
 		{name: "pending to applied", from: StatusPending, to: StatusApplied, wantErr: true},
-		{name: "pending to rolled_back", from: StatusPending, to: StatusRolledBack, wantErr: true},
 		{name: "pending to pending", from: StatusPending, to: StatusPending, wantErr: true},
 
 		// Invalid transitions from approved
 		{name: "approved to pending", from: StatusApproved, to: StatusPending, wantErr: true},
 		{name: "approved to rejected", from: StatusApproved, to: StatusRejected, wantErr: false},
 		{name: "approved to approved", from: StatusApproved, to: StatusApproved, wantErr: true},
-		{name: "approved to rolled_back", from: StatusApproved, to: StatusRolledBack, wantErr: true},
 		{name: "approved to superseded", from: StatusApproved, to: StatusSuperseded, wantErr: true},
 
 		// Invalid transitions from rejected (terminal state)
@@ -275,14 +273,13 @@ func TestValidateStatusTransition(t *testing.T) {
 		{name: "rejected to applied", from: StatusRejected, to: StatusApplied, wantErr: true},
 
 		// Invalid transitions from applied
-		{name: "applied to pending", from: StatusApplied, to: StatusPending, wantErr: true},
 		{name: "applied to approved", from: StatusApplied, to: StatusApproved, wantErr: true},
 		{name: "applied to applied", from: StatusApplied, to: StatusApplied, wantErr: true},
+		{name: "applied to rejected", from: StatusApplied, to: StatusRejected, wantErr: true},
 
-		// Invalid transitions from rolled_back (terminal state)
-		{name: "rolled_back to pending", from: StatusRolledBack, to: StatusPending, wantErr: true},
-		{name: "rolled_back to approved", from: StatusRolledBack, to: StatusApproved, wantErr: true},
-		{name: "rolled_back to applied", from: StatusRolledBack, to: StatusApplied, wantErr: true},
+		// rolled_back is no longer a status an insight can hold (#1257).
+		{name: "rolled_back to pending", from: "rolled_back", to: StatusPending, wantErr: true},
+		{name: "applied to rolled_back", from: StatusApplied, to: "rolled_back", wantErr: true},
 
 		// Invalid transitions from superseded (terminal state)
 		{name: "superseded to pending", from: StatusSuperseded, to: StatusPending, wantErr: true},
@@ -445,7 +442,6 @@ func TestStatusConstants(t *testing.T) {
 	assert.Equal(t, "rejected", StatusRejected)
 	assert.Equal(t, "applied", StatusApplied)
 	assert.Equal(t, "superseded", StatusSuperseded)
-	assert.Equal(t, "rolled_back", StatusRolledBack)
 }
 
 func TestLimitConstants(t *testing.T) {

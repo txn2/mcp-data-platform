@@ -77,7 +77,8 @@ func TestHandleRollback_Success(t *testing.T) {
 	require.Len(t, writer.WriteCalls, 1)
 	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[0].Method)
 	assert.True(t, csStore.Changesets[0].RolledBack)
-	assert.Equal(t, StatusRolledBack, store.Insights[0].Status)
+	assert.Equal(t, StatusPending, store.Insights[0].Status)
+	assert.Equal(t, []any{"ins-1"}, m["insights_returned_to_review"])
 }
 
 func TestHandleRollback_AlreadyRolledBack(t *testing.T) {
