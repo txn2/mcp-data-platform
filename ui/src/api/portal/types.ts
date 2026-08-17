@@ -86,9 +86,10 @@ export interface Share {
  * type. It lives here rather than being restated per hook so the three
  * cannot drift apart.
  *
- * `expires_in` is link-only: the server refuses it alongside a recipient,
- * because a share addressed to a person ends when it is revoked, not on a
- * clock.
+ * `expires_in` belongs to public links alone: the server requires it for
+ * `access_mode: "public"` and refuses it for every other share, because a
+ * share that resolves against who the viewer is ends when it is revoked, not
+ * on a clock.
  */
 export interface CreateShareBody {
   expires_in?: string;

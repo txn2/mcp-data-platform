@@ -69,6 +69,7 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   const [notify, setNotify] = useState(true);
   const [message, setMessage] = useState("");
   const [shareError, setShareError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
   const [linkAccess, setLinkAccess] = useState<LinkAccessMode>("authenticated");
   const [showOptions, setShowOptions] = useState(false);
   const [showExpiration, setShowExpiration] = useState(true);
@@ -81,17 +82,34 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
     createCollShare.isPending ||
     createPromptShare.isPending;
 
+  // A public link is a bearer credential and must expire; a link only
+  // signed-in users can open ends when it is revoked, like a share addressed
+  // to a person, so it is created with no lifetime at all (#1279).
   function handleCreateLink() {
+    const isPublic = linkAccess === "public";
+    setLinkError(null);
     const opts = {
-      expires_in: ttl,
-      ...(!showExpiration && { hide_expiration: true }),
+      ...(isPublic && {
+        expires_in: ttl,
+        ...(!showExpiration && { hide_expiration: true }),
+      }),
       notice_text: noticeText.trim(),
       access_mode: linkAccess,
     };
+    // A refusal has to reach the sharer: the server decides the link's
+    // lifetime rule, so a stale tab posting the wrong shape would otherwise
+    // leave the button doing nothing at all.
+    const onError = (err: unknown) =>
+      setLinkError(
+        err instanceof Error ? err.message : "Failed to create the link.",
+      );
     if (isCollection) {
-      createCollShare.mutate({ collectionId: resolved.id, ...opts });
+      createCollShare.mutate(
+        { collectionId: resolved.id, ...opts },
+        { onError },
+      );
     } else {
-      createAssetShare.mutate({ assetId: resolved.id, ...opts });
+      createAssetShare.mutate({ assetId: resolved.id, ...opts }, { onError });
     }
   }
 
@@ -192,6 +210,7 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
             noticeText={noticeText}
             setNoticeText={setNoticeText}
             onCreate={handleCreateLink}
+            error={linkError}
             isPending={isPending}
           />
         )}

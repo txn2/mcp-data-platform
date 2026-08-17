@@ -11,6 +11,7 @@ import {
   openResourceLifecycle,
   openScriptAlertSettings,
   openShareDialog,
+  openShareDialogPublicLink,
   openShareDialogWithRecipient,
 } from "./route-actions";
 import { type ScreenshotRoute } from "./route-types";
@@ -257,11 +258,20 @@ export const routes: ScreenshotRoute[] = [
     },
   },
   {
-    // Share dialog (create public link + share with users) on an asset.
+    // Share dialog (create link + share with users) on an asset, in its
+    // default state: a link for signed-in users, which carries no lifetime.
     slug: "asset-share",
     path: "/portal/assets/ast-001",
     category: "user",
     beforeCapture: openShareDialog,
+  },
+  {
+    // Share dialog switched to a public link, the only state showing the
+    // anonymous-access warning and the lifetime control (#1279).
+    slug: "asset-share-public",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: openShareDialogPublicLink,
   },
   {
     // Share dialog with a recipient named, which is the only state that shows

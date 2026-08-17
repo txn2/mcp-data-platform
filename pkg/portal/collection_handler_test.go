@@ -1114,7 +1114,7 @@ func TestCreateCollectionShare(t *testing.T) {
 		shares := &mockCollectionShareStore{}
 		h := newTestHandlerWithCollections(&mockAssetStore{}, shares, cs, &mockS3Client{}, testUser)
 
-		body := `{"expires_in":"24h"}`
+		body := `{"access_mode":"public","expires_in":"24h"}`
 		r := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/collections/coll-1/shares", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -1197,7 +1197,7 @@ func TestCreateCollectionShare(t *testing.T) {
 		shares.insertErr = fmt.Errorf("db error")
 		h := newTestHandlerWithCollections(&mockAssetStore{}, shares, cs, &mockS3Client{}, testUser)
 
-		body := `{"expires_in":"1h"}`
+		body := `{"access_mode":"public","expires_in":"1h"}`
 		r := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/collections/coll-1/shares", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()

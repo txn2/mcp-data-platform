@@ -1350,7 +1350,7 @@ func TestCreateShareSuccess(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	body := `{"expires_in":"24h"}`
+	body := `{}`
 	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -1439,7 +1439,7 @@ func TestCreateShareInvalidDuration(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	body := `{"expires_in":"not-a-duration"}`
+	body := `{"access_mode":"public","expires_in":"not-a-duration"}`
 	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -1560,7 +1560,7 @@ func TestCreateShareWithHideExpiration(t *testing.T) {
 		&User{UserID: "u1"},
 	)
 
-	body := `{"expires_in":"24h","hide_expiration":true}`
+	body := `{"access_mode":"public","expires_in":"24h","hide_expiration":true}`
 	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -3272,7 +3272,7 @@ func TestCreateSharePublicLinkAlwaysViewer(t *testing.T) {
 		PublicBaseURL: "https://example.com",
 	}, testAuthMiddleware(&User{UserID: "u1"}))
 
-	body := `{"expires_in":"24h","permission":"editor"}`
+	body := `{"access_mode":"public","expires_in":"24h","permission":"editor"}`
 	req := httptest.NewRequestWithContext(context.Background(), "POST", "/api/v1/portal/assets/a1/shares", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

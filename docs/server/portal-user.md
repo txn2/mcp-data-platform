@@ -117,7 +117,7 @@ The **Provenance** panel groups those calls by capture — one per time the asse
 
 The sidebar's **Session** row and the **Open session** action beneath the captured calls both open [the session that made this asset](#my-sessions): the panel shows only the calls captured at the moment the asset was saved, while the session holds every call that session made, before and after. Both appear only on your own assets — a session opens for the person who ran it, so on an asset shared with you there is nothing to link to. Administrators get the same walk on the admin asset viewer, into the admin sessions surface.
 
-The Share action opens a dialog to mint a link or a user-scoped share, with a copy-once token and a per-link access count. A link share takes an optional expiration; a share addressed to a person does not, because it grants that person access until the owner revokes it rather than for a span of time. Every share carries an **access mode** that decides who the link opens for:
+The Share action opens a dialog to mint a link or a user-scoped share, with a copy-once token and a per-link access count. A public link takes an expiration, and must have one; every other share is now minted without one and grants access until the owner revokes it. Shares created before that rule keep the expiry they were given, whatever their mode, so an older link may still show a countdown. Every share carries an **access mode** that decides who the link opens for:
 
 | Mode | Who can open the link |
 |---|---|
@@ -125,9 +125,13 @@ The Share action opens a dialog to mint a link or a user-scoped share, with a co
 | `authenticated` | Any signed-in platform user |
 | `public` | Anyone with the link, without signing in |
 
-Sharing with a person makes the share `restricted`: the link resolves only for that recipient, signed in, so forwarding the email or the URL grants nothing. The **Share by Link** section mints a link for any signed-in user by default; choosing **Anyone with the link** makes it `public` and shows a warning that the link opens without sign-in. A signed-in user who is not the recipient of a restricted share sees a branded page naming the account they are signed in as, with a sign-out-and-switch action, rather than a generic not-found.
+Sharing with a person makes the share `restricted`: the link resolves only for that recipient, signed in, so forwarding the email or the URL grants nothing. The **Share by Link** section mints a link for any signed-in user by default, with no lifetime control, because such a link resolves against who the viewer is and ends on revocation. Choosing **Anyone with the link** makes it `public`, shows a warning that the link opens without sign-in, and reveals the lifetime control: possession of a public URL is the whole of its access check, so it expires on a clock as well. A signed-in user who is not the recipient of a restricted share sees a branded page naming the account they are signed in as, with a sign-out-and-switch action, rather than a generic not-found.
 
 ![Share asset](../images/screenshots/light/user-asset-share-light.webp#only-light)![Share asset](../images/screenshots/dark/user-asset-share-dark.webp#only-dark)
+
+The same dialog with the link switched to **Anyone with the link**:
+
+![Share a public link](../images/screenshots/light/user-asset-share-public-light.webp#only-light)![Share a public link](../images/screenshots/dark/user-asset-share-public-dark.webp#only-dark)
 
 Naming a recipient reveals two more controls. **Notify by email** is checked by default and can be cleared to share quietly — the share is created either way, only the email is suppressed. With notification on, an optional **Message** box attaches a short plain-text note to that email, quoted and attributed to the sharer; it travels only in the notification and is stored nowhere. The note takes text, not markup or links: a link inside a trusted platform email is a phishing vector, so one is refused rather than delivered. Addresses pasted in the `Example User <user@example.com>` form mail clients copy are reduced to the bare address as the field loses focus, so what is stored and mailed is what the sharer sees. See [Email Notifications](notifications.md) for what the recipient receives and how they control it.
 

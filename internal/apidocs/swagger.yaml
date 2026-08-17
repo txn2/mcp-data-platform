@@ -3549,9 +3549,13 @@ definitions:
         type: string
       expires_in:
         description: |-
-          ExpiresIn is a duration string ("24h") bounding a link share's life. It
-          applies to link shares only: a share addressed to a person is access
-          granted to that person and is revoked, not timed out.
+          ExpiresIn is a duration string ("24h") bounding a public link's life.
+          The access mode alone decides whether it applies: required for
+          "public", rejected for "authenticated" and "restricted", which resolve
+          against who the viewer is and end on revocation rather than a clock.
+          Naming a recipient does not exempt a share the caller also asked to
+          make public -- such a link opens for anyone holding it, whoever it was
+          announced to, so it is bounded like any other public link.
         example: 24h
         type: string
       hide_expiration:
