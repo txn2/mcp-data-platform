@@ -87,6 +87,13 @@ type Caller struct {
 	// Empty when no resolver is wired, which is the same fallback the resources
 	// middleware applies.
 	Personas []string
+	// SessionID is the unit of work the request belongs to, not part of the
+	// identity the per-user providers scope on. The call catalog uses it and
+	// nothing else does: reuse of a recorded call is credited to the session
+	// that found the record and then ran what it holds, so a fetch has to be
+	// attributable to a session to count for anything (#1321). Empty on a
+	// caller with no session, which simply records no sighting.
+	SessionID string
 
 	// conn is the persona connection boundary for this arm, set by the Router
 	// (never by an external caller, hence unexported): it answers whether the

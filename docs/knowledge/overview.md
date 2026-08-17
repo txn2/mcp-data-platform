@@ -256,6 +256,25 @@ Insights track where the knowledge came from via the `source` field:
 
 The source field is optional when calling `memory_capture`. When omitted, it defaults to `user`.
 
+## The query that answered the question
+
+A capture can also name the calls it confirms. Every query and API invocation
+returns its own `call_id`, and `memory_capture` takes those ids in `sources`.
+
+That is not bookkeeping: it is the agent's verdict on its own query. The named
+[call record](../server/portal-user.md#my-calls) becomes `satisfied` with the
+capture as its route, and enters the review queue that promotes it to a Query
+entity in the catalog. Without it, the most valuable queries would be the ones
+the platform never learns about, since a refined statement that answers a
+question in conversation and is never saved as an asset leaves no other trace.
+
+The route deliberately costs a description rather than a checkbox. An agent
+grading its own query for free would grade every query; writing what the query
+answers and what to watch out for is what makes the record worth finding, and
+what a reviewer reads before publishing it. A stranger's later re-run of the
+same statement (recorded as the record's reuse count) is the independent
+confirmation the self-report is not.
+
 ## Feedback Bridge
 
 Human feedback threads (left from the portal UI on an asset, collection, prompt, or knowledge page) connect to the knowledge loop, so an agent can resolve a thread by capturing the insight it represents and the chain stays visible end to end: **thread → insight → changeset → `target_urn`**.

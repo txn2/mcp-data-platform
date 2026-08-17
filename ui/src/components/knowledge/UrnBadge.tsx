@@ -12,3 +12,16 @@ export function UrnBadge({ urn }: { urn: string }) {
     </Badge>
   );
 }
+
+/**
+ * uniqueUrns is the list a caller should render: the entities a record names,
+ * each once, in the order it named them.
+ *
+ * The write path normalizes what it stores (memory.NormalizeEntityURNs), but a
+ * row written before that did not, and a record is about an entity once
+ * whatever its row says. Every list here keys on the URN, so a repeat would be
+ * dropped by React and logged as a duplicate key rather than rendered.
+ */
+export function uniqueUrns(urns: string[] | undefined): string[] {
+  return [...new Set((urns ?? []).filter((urn) => urn.trim() !== ""))];
+}

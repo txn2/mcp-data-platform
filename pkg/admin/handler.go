@@ -107,7 +107,14 @@ type Deps struct {
 	// SessionViewer reads sessions off the audit log: the same history
 	// AuditQuerier serves, grouped by the session id every event already
 	// carries. nil leaves the /api/v1/admin/sessions routes unregistered.
-	SessionViewer     SessionViewer
+	SessionViewer SessionViewer
+	// CallCatalog is the record of every data-access call the platform made
+	// (#1321), and the review queue of the ones worth publishing. nil leaves
+	// the /api/v1/admin/calls routes unregistered.
+	CallCatalog CallCatalog
+	// CallPromoter publishes a reviewed record. nil leaves the promote and
+	// reject actions unregistered.
+	CallPromoter      *CallPromoter
 	Knowledge         *KnowledgeHandler
 	APIKeyManager     APIKeyManager
 	BrowserAuth       *browsersession.Authenticator
@@ -362,6 +369,7 @@ func (h *Handler) registerRoutes() {
 	h.registerSystemRoutes()
 	h.registerAuditRoutes()
 	h.registerSessionRoutes()
+	h.registerCallRoutes()
 	h.registerConfigRoutes()
 	h.registerPersonaRoutes()
 	h.registerAuthKeyRoutes()

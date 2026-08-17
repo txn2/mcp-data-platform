@@ -5,6 +5,8 @@ cmd/mcp-data-platform -> pkg/platform
 cmd/preview-content-viewer -> internal/contentviewer
 internal/admin/auditapi -> internal/httpjson
 internal/admin/auditapi -> pkg/audit
+internal/admin/callapi -> internal/httpjson
+internal/admin/callapi -> internal/platform/callrecord
 internal/admin/catalogapi -> internal/httpjson
 internal/admin/catalogapi -> internal/logsan
 internal/admin/catalogapi -> pkg/registry
@@ -45,6 +47,7 @@ internal/httpserver -> internal/httpserver/unsubhttp
 internal/httpserver -> internal/httpserver/versionhttp
 internal/httpserver -> internal/notification/notifyrender
 internal/httpserver -> internal/platform/branding
+internal/httpserver -> internal/platform/callrecord
 internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/platform/resourceaudit
 internal/httpserver -> internal/platform/reviewalert
@@ -72,9 +75,11 @@ internal/httpserver -> pkg/registry
 internal/httpserver -> pkg/resource
 internal/httpserver -> pkg/session
 internal/httpserver -> pkg/toolkits/apigateway
+internal/httpserver -> pkg/toolkits/apigateway/catalog
 internal/httpserver -> pkg/toolkits/datahub
 internal/httpserver -> pkg/toolkits/gateway
 internal/httpserver -> pkg/toolkits/gateway/enrichment
+internal/httpserver -> pkg/toolkits/knowledge
 internal/httpserver -> pkg/toolkits/trino
 internal/httpserver/accessgate -> internal/logsan
 internal/httpserver/accessgate -> pkg/portal
@@ -119,7 +124,19 @@ internal/notification/notifyworker -> pkg/notification
 internal/notification/notifyworker -> pkg/notification/smtp
 internal/platform/assetindex -> pkg/indexjobs
 internal/platform/assetindex -> pkg/portal
+internal/platform/auditwiring -> internal/platform/callrecord
+internal/platform/auditwiring -> internal/platform/provenance
+internal/platform/auditwiring -> pkg/audit
+internal/platform/auditwiring -> pkg/audit/postgres
+internal/platform/auditwiring -> pkg/middleware
+internal/platform/auditwiring -> pkg/observability
 internal/platform/browserauth -> pkg/browsersession
+internal/platform/callindex -> internal/platform/callrecord
+internal/platform/callindex -> pkg/indexjobs
+internal/platform/callrecord -> internal/httpjson
+internal/platform/callrecord -> internal/sqltables
+internal/platform/callrecord -> pkg/audit
+internal/platform/callrecord -> pkg/portal/knowledgepage
 internal/platform/collectionindex -> pkg/indexjobs
 internal/platform/collectionindex -> pkg/portal
 internal/platform/completionlayer -> pkg/knowledge/federation
@@ -145,6 +162,7 @@ internal/platform/iam -> pkg/auth
 internal/platform/iam -> pkg/middleware
 internal/platform/iam -> pkg/persona
 internal/platform/indexqueue -> internal/platform/assetindex
+internal/platform/indexqueue -> internal/platform/callindex
 internal/platform/indexqueue -> internal/platform/collectionindex
 internal/platform/indexqueue -> internal/platform/datasetindex
 internal/platform/indexqueue -> internal/platform/knowledgepageindex
@@ -227,7 +245,6 @@ internal/platform/provenance -> pkg/portal
 internal/platform/reflexivecapture -> pkg/memory
 internal/platform/reflexivecapture -> pkg/middleware
 internal/platform/reflexivecapture -> pkg/toolkits/memory
-internal/platform/reflexivecapture -> pkg/urnbuild
 internal/platform/resourceaudit -> pkg/audit
 internal/platform/resourceaudit -> pkg/middleware
 internal/platform/resourceaudit -> pkg/resource
@@ -306,6 +323,9 @@ internal/platform/utilconn -> pkg/toolkits/apigateway/catalogindex
 internal/portal/access -> internal/portal/portaldomain
 internal/portal/access -> pkg/portal/threads
 internal/portal/access -> pkg/prompt
+internal/portal/callapi -> internal/httpjson
+internal/portal/callapi -> internal/platform/callrecord
+internal/portal/callapi -> internal/portal/access
 internal/portal/feedbackapi -> internal/httpjson
 internal/portal/feedbackapi -> internal/logsan
 internal/portal/feedbackapi -> internal/portal/access
@@ -332,6 +352,7 @@ internal/portal/viewerlimit -> pkg/ratelimit
 internal/server -> pkg/platform
 internal/tableavail -> pkg/query
 pkg/admin -> internal/admin/auditapi
+pkg/admin -> internal/admin/callapi
 pkg/admin -> internal/admin/catalogapi
 pkg/admin -> internal/admin/connoauthapi
 pkg/admin -> internal/admin/insightobs
@@ -340,6 +361,7 @@ pkg/admin -> internal/admin/sessionapi
 pkg/admin -> internal/admin/settingsapi
 pkg/admin -> internal/httpjson
 pkg/admin -> internal/logsan
+pkg/admin -> internal/platform/callrecord
 pkg/admin -> internal/platform/reviewalert
 pkg/admin -> internal/server
 pkg/admin -> pkg/audit
@@ -394,6 +416,7 @@ pkg/connview -> pkg/registry
 pkg/connview -> pkg/toolkit
 pkg/indexjobs -> internal/logsan
 pkg/indexjobs -> pkg/embedding
+pkg/knowledge -> internal/platform/callrecord
 pkg/knowledge -> internal/tableavail
 pkg/knowledge -> pkg/contenttype
 pkg/knowledge -> pkg/embedding
@@ -413,6 +436,7 @@ pkg/knowledge/federation -> pkg/toolkit
 pkg/knowledge/federation -> pkg/toolkits/apigateway
 pkg/memory -> pkg/semantic
 pkg/memory -> pkg/urnbuild
+pkg/middleware -> internal/sqltables
 pkg/middleware -> internal/tableavail
 pkg/middleware -> pkg/audit
 pkg/middleware -> pkg/contenttype
@@ -426,6 +450,7 @@ pkg/middleware -> pkg/searchgate
 pkg/middleware -> pkg/semantic
 pkg/middleware -> pkg/session
 pkg/middleware -> pkg/storage
+pkg/middleware -> pkg/toolkit
 pkg/middleware -> pkg/urnbuild
 pkg/notification -> internal/logsan
 pkg/notification -> pkg/ratelimit
@@ -441,8 +466,10 @@ pkg/platform -> apps
 pkg/platform -> internal/apidocs
 pkg/platform -> internal/logsan
 pkg/platform -> internal/platform/apikeystore
+pkg/platform -> internal/platform/auditwiring
 pkg/platform -> internal/platform/branding
 pkg/platform -> internal/platform/browserauth
+pkg/platform -> internal/platform/callrecord
 pkg/platform -> internal/platform/completionlayer
 pkg/platform -> internal/platform/connauth
 pkg/platform -> internal/platform/connbackfill
@@ -478,8 +505,6 @@ pkg/platform -> internal/platform/toolkitcfg
 pkg/platform -> internal/platform/toolratelimit
 pkg/platform -> internal/platform/userdir
 pkg/platform -> internal/platform/utilconn
-pkg/platform -> pkg/audit
-pkg/platform -> pkg/audit/postgres
 pkg/platform -> pkg/auth
 pkg/platform -> pkg/authevents
 pkg/platform -> pkg/browsersession
@@ -532,7 +557,9 @@ pkg/platform/instructions -> pkg/persona
 pkg/platform/personastore -> pkg/persona
 pkg/portal -> internal/contentviewer
 pkg/portal -> internal/logsan
+pkg/portal -> internal/platform/callrecord
 pkg/portal -> internal/portal/access
+pkg/portal -> internal/portal/callapi
 pkg/portal -> internal/portal/feedbackapi
 pkg/portal -> internal/portal/portaldomain
 pkg/portal -> internal/portal/portalnoop
@@ -632,6 +659,7 @@ pkg/toolkits/knowledge -> pkg/toolkit
 pkg/toolkits/memory -> pkg/embedding
 pkg/toolkits/memory -> pkg/memory
 pkg/toolkits/memory -> pkg/middleware
+pkg/toolkits/memory -> pkg/portal/knowledgepage
 pkg/toolkits/memory -> pkg/query
 pkg/toolkits/memory -> pkg/registry
 pkg/toolkits/memory -> pkg/semantic
@@ -657,6 +685,7 @@ pkg/toolkits/search -> pkg/query
 pkg/toolkits/search -> pkg/semantic
 pkg/toolkits/search -> pkg/toolkit
 pkg/toolkits/tools/toolsindex -> pkg/indexjobs
+pkg/toolkits/trino -> internal/sqltables
 pkg/toolkits/trino -> pkg/mcpcontext
 pkg/toolkits/trino -> pkg/query
 pkg/toolkits/trino -> pkg/semantic

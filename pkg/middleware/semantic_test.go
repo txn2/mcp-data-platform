@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/sqltables"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 
@@ -2476,7 +2478,7 @@ func TestExtractTableFromSQL(t *testing.T) {
 }
 
 func TestFormatTableRefs(t *testing.T) {
-	refs := []tableRef{
+	refs := []sqltables.Ref{
 		{FullPath: "catalog.schema.table1"},
 		{FullPath: "catalog.schema.table2"},
 	}
@@ -2493,7 +2495,7 @@ func TestFormatTableRefs(t *testing.T) {
 }
 
 func TestRefToTableIdentifier(t *testing.T) {
-	ref := tableRef{
+	ref := sqltables.Ref{
 		Catalog: "my_catalog",
 		Schema:  "my_schema",
 		Table:   "my_table",
@@ -2511,7 +2513,7 @@ func TestRefToTableIdentifier(t *testing.T) {
 }
 
 func TestBuildAdditionalTableContext(t *testing.T) {
-	ref := tableRef{FullPath: "catalog.schema.table"}
+	ref := sqltables.Ref{FullPath: "catalog.schema.table"}
 	ctx := &semantic.TableContext{
 		URN:         "urn:li:dataset:test",
 		Description: semTestDescTestTable,
@@ -2621,7 +2623,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 		result := &mcp.CallToolResult{Content: []mcp.Content{}}
 		provider := &mockSemanticProvider{}
 
-		enriched, err := testEnricher(provider, false).enrichTrinoQueryResult(context.Background(), result, []tableRef{}, "", nil)
+		enriched, err := testEnricher(provider, false).enrichTrinoQueryResult(context.Background(), result, []sqltables.Ref{}, "", nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 0)
 	})
@@ -2639,7 +2641,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			},
 		}
 
-		tables := []tableRef{
+		tables := []sqltables.Ref{
 			{Catalog: "cat1", Schema: "sch1", Table: "primary", FullPath: "cat1.sch1.primary"},
 			{Catalog: "cat2", Schema: "sch2", Table: "secondary", FullPath: "cat2.sch2.secondary"},
 		}
@@ -2662,7 +2664,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			},
 		}
 
-		tables := []tableRef{
+		tables := []sqltables.Ref{
 			{Catalog: "cat1", Schema: "sch1", Table: "primary", FullPath: "cat1.sch1.primary"},
 		}
 
@@ -2691,7 +2693,7 @@ func TestEnrichTrinoQueryResult(t *testing.T) {
 			},
 		}
 
-		tables := []tableRef{
+		tables := []sqltables.Ref{
 			{Catalog: "cat1", Schema: "sch1", Table: "primary", FullPath: "cat1.sch1.primary"},
 			{Catalog: "cat2", Schema: "sch2", Table: "secondary", FullPath: "cat2.sch2.secondary"},
 		}
@@ -3849,7 +3851,7 @@ func TestBuildCompactSemanticContext_V14Fields(t *testing.T) {
 }
 
 func TestBuildAdditionalTableContext_V14Fields(t *testing.T) {
-	ref := tableRef{FullPath: "catalog.schema.table"}
+	ref := sqltables.Ref{FullPath: "catalog.schema.table"}
 	ctx := &semantic.TableContext{
 		Description:     "test",
 		ActiveIncidents: 1,

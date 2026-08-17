@@ -25,6 +25,7 @@ import { userHandlers } from "./handlers/users";
 import { connectionInstanceHandlers } from "./handlers/connections";
 import { scriptHandlers } from "./handlers/scripts";
 import { sessionHandlers } from "./handlers/sessions";
+import { callHandlers } from "./handlers/calls";
 import {
   mockDataHubConnections,
   catalogBrowse,
@@ -3420,4 +3421,5 @@ export const handlers = [
   ...connectionInstanceHandlers,
   ...scriptHandlers,
   ...sessionHandlers,
+  ...callHandlers,
 ];

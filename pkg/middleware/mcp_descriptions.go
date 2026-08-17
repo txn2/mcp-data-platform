@@ -5,6 +5,8 @@ import (
 	"maps"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // Upstream tool names referenced across multiple middleware files. These are
@@ -17,17 +19,20 @@ const (
 )
 
 // defaultDescriptionOverrides contains built-in description overrides that
-// guide agents toward discovery before running queries.
+// guide agents toward discovery before running queries, and toward recording
+// the queries that worked afterwards.
 var defaultDescriptionOverrides = map[string]string{
 	toolNameTrinoQuery: "Execute a read-only SQL query against Trino and return results. " +
 		"IMPORTANT: Before writing SQL, call search to discover the table and " +
 		"understand its business context (descriptions, owners, tags, glossary terms, prior insights). " +
-		"Only SELECT, SHOW, DESCRIBE, EXPLAIN, and WITH statements are allowed.",
+		"Only SELECT, SHOW, DESCRIBE, EXPLAIN, and WITH statements are allowed. " +
+		toolkit.CaptureRoute,
 	toolNameTrinoExecute: "Execute a SQL statement against Trino, including write operations. " +
 		"IMPORTANT: Before writing SQL, call search to discover the table and " +
 		"understand its business context (descriptions, owners, tags, glossary terms, prior insights). " +
 		"Use trino_query for read-only SELECT queries. This tool should be used when " +
-		"you need to modify data or schema.",
+		"you need to modify data or schema. " +
+		toolkit.CaptureRoute,
 }
 
 // MergedDescriptionOverrides merges the built-in default overrides with

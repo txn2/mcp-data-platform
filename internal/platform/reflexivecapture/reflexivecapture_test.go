@@ -68,23 +68,6 @@ func TestCaptor_CaptureCorrection(t *testing.T) {
 	}
 }
 
-func TestURNBuilder(t *testing.T) {
-	if urnBuilder(nil) != nil {
-		t.Error("nil resolver should yield a nil builder")
-	}
-	build := urnBuilder(func(conn string) (string, map[string]string) {
-		if conn != "primary" {
-			t.Errorf("unexpected connection %q", conn)
-		}
-		return "trino", map[string]string{"raw": "warehouse"}
-	})
-	got := build("primary", "raw", "sch", "tbl")
-	want := "urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.sch.tbl,PROD)"
-	if got != want {
-		t.Errorf("URN = %q, want %q", got, want)
-	}
-}
-
 func TestWire_Gating(t *testing.T) {
 	tk, _ := memorykit.New("test", newRecordingStore(), nil)
 	server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
@@ -102,7 +85,7 @@ func TestWire_Gating(t *testing.T) {
 		Enabled:           true,
 		Server:            server,
 		Toolkit:           tk,
-		ResolveURNMapping: func(string) (string, map[string]string) { return "trino", nil },
+		BuildURN:          func(_, _, _, _ string) string { return "urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c,PROD)" },
 		PersonaAllowsTool: func(context.Context, []string, string) bool { return true },
 	})
 	if tr == nil {

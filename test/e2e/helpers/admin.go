@@ -775,8 +775,8 @@ func BuildAdminHandler(p *platform.Platform) http.Handler {
 		FilePersonaNames:  p.FilePersonaNames(),
 	}
 
-	if p.AuditStore() != nil {
-		deps.AuditQuerier = p.AuditStore()
+	if p.Audit().Store() != nil {
+		deps.AuditQuerier = p.Audit().Store()
 	}
 
 	if p.KnowledgeInsightStore() != nil {

@@ -1,4 +1,16 @@
-package middleware
+// Package sqltables extracts the physical tables a SQL statement reads.
+//
+// It is one extractor, not one per caller: semantic enrichment names the tables
+// it must fetch context for, and the call catalog names the datasets a recorded
+// query addressed (#1321). Both are answering the same question, and a second
+// implementation of it would mean an enriched table and a cataloged target
+// disagreeing about what a query touched.
+//
+// The extraction is lexical (regular expressions over FROM and JOIN clauses,
+// plus Trino's Elasticsearch raw_query table function), not a parser: it names
+// what a statement plainly reads, drops common table expressions, and makes no
+// claim about a statement it cannot parse.
+package sqltables
 
 import (
 	"regexp"
@@ -9,8 +21,8 @@ import (
 // table function expansion.
 const catalogElasticsearch = "elasticsearch"
 
-// tableRef represents an extracted table reference from SQL.
-type tableRef struct {
+// Ref is one table a statement reads.
+type Ref struct {
 	Catalog  string
 	Schema   string
 	Table    string
@@ -18,11 +30,11 @@ type tableRef struct {
 	Source   string // "FROM", "JOIN", "TABLE_FUNCTION"
 }
 
-// extractTablesFromSQL extracts all table references from SQL.
+// Extract returns every physical table a statement reads.
 // Uses regex for Trino-specific functions and standard table patterns.
 // Combines ES raw_query indices with regular table references (e.g., JOINs).
 // Filters out CTE references to only return physical tables.
-func extractTablesFromSQL(sql string) []tableRef {
+func Extract(sql string) []Ref {
 	cteNames := extractCTENames(sql)
 	collector := newTableCollector(cteNames)
 
@@ -37,7 +49,7 @@ func extractTablesFromSQL(sql string) []tableRef {
 
 // tableCollector deduplicates table refs and filters out CTEs.
 type tableCollector struct {
-	refs     []tableRef
+	refs     []Ref
 	seen     map[string]bool
 	cteNames map[string]bool
 }
@@ -49,13 +61,13 @@ func newTableCollector(cteNames map[string]bool) *tableCollector {
 	}
 }
 
-func (c *tableCollector) addAll(refs []tableRef) {
+func (c *tableCollector) addAll(refs []Ref) {
 	for _, ref := range refs {
 		c.add(ref)
 	}
 }
 
-func (c *tableCollector) add(ref tableRef) {
+func (c *tableCollector) add(ref Ref) {
 	if c.isCTE(ref) || c.seen[ref.FullPath] {
 		return
 	}
@@ -63,7 +75,7 @@ func (c *tableCollector) add(ref tableRef) {
 	c.refs = append(c.refs, ref)
 }
 
-func (c *tableCollector) isCTE(ref tableRef) bool {
+func (c *tableCollector) isCTE(ref Ref) bool {
 	return ref.Catalog == "" && ref.Schema == "" && c.cteNames[ref.Table]
 }
 
@@ -89,29 +101,54 @@ var (
 	// CTE name pattern - matches "WITH name AS" or ", name AS" for chained CTEs.
 	cteNamePattern = regexp.MustCompile(`(?i)(?:WITH|,)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(`)
 
-	// Table reference patterns for Trino 3-part names
-	// Matches: FROM/JOIN catalog.schema.table or schema.table or table.
-	tableRefPattern = regexp.MustCompile(`(?i)(?:FROM|JOIN)\s+` +
+	// tableRefPattern matches what FROM and JOIN name: a Trino table
+	// reference of up to three parts, and whether an opening parenthesis
+	// follows it.
+	//
+	// The pattern deliberately stops at the name. An earlier form also
+	// consumed an optional alias, which swallowed the JOIN keyword of
+	// "FROM a.b.t1 JOIN a.b.t2" as if it were t1's alias and left the
+	// joined table unextracted — every JOIN's second table was invisible to
+	// enrichment. Nothing after the name is needed to know the name.
+	tableRefPattern = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+` +
 		`([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*){0,2})` +
-		`(?:\s+(?:AS\s+)?[a-zA-Z_][a-zA-Z0-9_]*)?(?:\s|,|$|ON|WHERE|GROUP|ORDER|LIMIT|LEFT|RIGHT|INNER|OUTER|CROSS|NATURAL)`)
+		`\s*(\()?`)
 )
 
+// callPositions is the index of the trailing-parenthesis capture group in
+// tableRefPattern, and nameGroup the index of the name.
+const (
+	nameGroup = 1
+	callGroup = 2
+)
+
+// notTables are the words that can follow FROM or JOIN without naming a table.
+// Every one of them is followed by something else that does: a table function's
+// arguments, a lateral subquery, an inline VALUES list.
+var notTables = map[string]bool{
+	"unnest": true, "lateral": true, "table": true, "values": true, "select": true,
+}
+
 // extractTablesWithRegex extracts table references using regex.
-func extractTablesWithRegex(sql string) []tableRef {
+func extractTablesWithRegex(sql string) []Ref {
 	matches := tableRefPattern.FindAllStringSubmatch(sql, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 
 	seen := make(map[string]bool)
-	tables := make([]tableRef, 0, len(matches))
+	tables := make([]Ref, 0, len(matches))
 
 	for _, match := range matches {
-		if len(match) < 2 {
+		if len(match) <= callGroup {
 			continue
 		}
-		tablePath := match[1]
+		tablePath := match[nameGroup]
 
+		// A name followed by "(" is a function call, not a table.
+		if match[callGroup] != "" || notTables[strings.ToLower(tablePath)] {
+			continue
+		}
 		if seen[tablePath] {
 			continue
 		}
@@ -128,10 +165,10 @@ func extractTablesWithRegex(sql string) []tableRef {
 // tableNamePartsCount is the expected number of parts in a fully-qualified table name (catalog.schema.table).
 const tableNamePartsCount = 3
 
-// parseTablePath parses a dot-separated table path into tableRef.
-func parseTablePath(path string) tableRef {
+// parseTablePath parses a dot-separated table path into Ref.
+func parseTablePath(path string) Ref {
 	parts := strings.Split(path, ".")
-	ref := tableRef{FullPath: path}
+	ref := Ref{FullPath: path}
 
 	switch len(parts) {
 	case tableNamePartsCount:
@@ -149,7 +186,7 @@ func parseTablePath(path string) tableRef {
 }
 
 // extractESRawQuery extracts index references from Elasticsearch raw_query.
-func extractESRawQuery(sql string) []tableRef {
+func extractESRawQuery(sql string) []Ref {
 	if !rawQueryPattern.MatchString(sql) {
 		return nil
 	}
@@ -167,14 +204,14 @@ func extractESRawQuery(sql string) []tableRef {
 	}
 
 	indices := strings.Split(indexMatch[1], ",")
-	refs := make([]tableRef, 0, len(indices))
+	refs := make([]Ref, 0, len(indices))
 
 	for _, idx := range indices {
 		idx = strings.TrimSpace(idx)
 		if idx == "" {
 			continue
 		}
-		refs = append(refs, tableRef{
+		refs = append(refs, Ref{
 			Catalog:  catalogElasticsearch,
 			Schema:   schema,
 			Table:    idx,

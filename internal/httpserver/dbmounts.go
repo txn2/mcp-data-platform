@@ -261,7 +261,7 @@ func promptVersionDeps(p *platform.Platform) (versionhttp.Deps, bool) {
 		Registrar:   p,
 		Collections: prompt.AsCollectionStore(store),
 	}
-	if s := p.AuditStore(); s != nil {
+	if s := p.Audit().Store(); s != nil {
 		deps.Usage = s
 	}
 	// Prompts shared person-to-person are as visible as the caller's own, so
@@ -334,7 +334,7 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 	// store directly rather than the platform's async writer: this surface serves
 	// a human clicking Download, not an agent's read path, and the audit row is
 	// one insert (the same choice the DataHub REST surface makes).
-	if store := p.AuditStore(); store != nil {
+	if store := p.Audit().Store(); store != nil {
 		deps.Usage = store
 		tracker, _ := deps.Store.(resource.ReadTracker) // nil when unsupported
 		deps.ReadRecorder = resourceaudit.New(middleware.NewAuditStoreAdapter(store), tracker)

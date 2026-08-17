@@ -1,10 +1,14 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ActivityPage } from "./ActivityPage";
+import { MyCallDetailPage } from "./MyCallDetailPage";
+import { MyCallsPage } from "./MyCallsPage";
 import { MySessionDetailPage } from "./MySessionDetailPage";
 import { MySessionsPage } from "./MySessionsPage";
 import {
   ACTIVITY_ROUTE,
+  MY_CALLS_ROUTE,
   MY_SESSIONS_ROUTE,
+  myCallIdFrom,
   mySessionIdFrom,
 } from "./routes";
 
@@ -20,7 +24,15 @@ import {
 const TABS = [
   { key: "overview", label: "Overview", path: ACTIVITY_ROUTE },
   { key: "sessions", label: "My Sessions", path: MY_SESSIONS_ROUTE },
+  { key: "calls", label: "My Calls", path: MY_CALLS_ROUTE },
 ] as const;
+
+/** Which tab a route is in. The detail routes are handled before this. */
+function activeTab(route: string): (typeof TABS)[number]["key"] {
+  if (route === MY_SESSIONS_ROUTE) return "sessions";
+  if (route === MY_CALLS_ROUTE) return "calls";
+  return "overview";
+}
 
 export function ActivityRoutes({
   route,
@@ -43,8 +55,19 @@ export function ActivityRoutes({
     );
   }
 
-  if (route !== ACTIVITY_ROUTE && route !== MY_SESSIONS_ROUTE) return null;
-  const active = route === MY_SESSIONS_ROUTE ? "sessions" : "overview";
+  const callId = myCallIdFrom(route);
+  if (callId) {
+    return (
+      <MyCallDetailPage
+        callId={callId}
+        onNavigate={onNavigate}
+        onBack={() => onNavigate(MY_CALLS_ROUTE)}
+      />
+    );
+  }
+
+  if (!TABS.some((tab) => tab.path === route)) return null;
+  const active = activeTab(route);
 
   return (
     <Tabs
@@ -72,6 +95,9 @@ export function ActivityRoutes({
       </TabsContent>
       <TabsContent value="sessions">
         <MySessionsPage onNavigate={onNavigate} />
+      </TabsContent>
+      <TabsContent value="calls">
+        <MyCallsPage onNavigate={onNavigate} />
       </TabsContent>
     </Tabs>
   );

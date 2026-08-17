@@ -929,3 +929,33 @@ func TestGetEndpointSchema_SynthesizedIDTemplatedPathWithBasePath(t *testing.T) 
 		t.Errorf("expected one path param 'name': %+v", out.Parameters)
 	}
 }
+
+// An endpoint's schema carries the requests that are known to have worked
+// against this connection (#1321), which is what a promoted API call becomes.
+func TestSavedExamplesAreShownBesideTheSchema(t *testing.T) {
+	store := catalog.NewMemoryExampleStore()
+	_, err := store.SaveExample(context.Background(), catalog.Example{
+		Connection: "acme", OperationID: "listOrders", Method: "GET", Path: "/v1/orders",
+		Name: "Listing open orders.", Description: "Recorded from session dps_abc.",
+	})
+	if err != nil {
+		t.Fatalf("SaveExample: %v", err)
+	}
+
+	tk := &Toolkit{}
+	tk.SetExampleStore(store)
+
+	got := tk.savedExamples(context.Background(), "acme", "listOrders")
+	if len(got) != 1 || got[0].Name != "Listing open orders." {
+		t.Fatalf("saved examples = %+v", got)
+	}
+
+	// A connection with none, and a toolkit with no store wired, both add
+	// nothing rather than failing the read the caller asked for.
+	if len(tk.savedExamples(context.Background(), "acme", "other")) != 0 {
+		t.Error("an endpoint with no examples must carry none")
+	}
+	if len((&Toolkit{}).savedExamples(context.Background(), "acme", "listOrders")) != 0 {
+		t.Error("no example store wired means no examples, not a failure")
+	}
+}

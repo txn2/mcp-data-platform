@@ -129,3 +129,27 @@ func TestAutoCapture_InsertErrorPropagates(t *testing.T) {
 		t.Error("expected insert error to propagate")
 	}
 }
+
+// Both capture paths converge on applyCapture, which is where a record is made
+// equal to what it means. A repeated entity URN carries no information, and a
+// stored repeat would silently drop out of every surface that lists entities.
+func TestCapturePathsNormalizeEntityURNs(t *testing.T) {
+	const orders = "urn:li:dataset:(urn:li:dataPlatform:trino,cat.sales.orders,PROD)"
+
+	store := &mockStore{}
+	tk := newTestToolkit(store, nil)
+
+	if _, err := tk.AutoCapture(context.Background(), AutoCaptureInput{
+		SinkClass:  memstore.SinkSchemaEntity,
+		Content:    "Orders are keyed on order_id, not on the composite id.",
+		EntityURNs: []string{orders, "  " + orders + "  ", ""},
+		CreatedBy:  "analyst@example.com",
+	}); err != nil {
+		t.Fatalf("AutoCapture: %v", err)
+	}
+
+	rec := store.insertedRecords[0]
+	if len(rec.EntityURNs) != 1 || rec.EntityURNs[0] != orders {
+		t.Errorf("EntityURNs = %v, want the entity named once", rec.EntityURNs)
+	}
+}

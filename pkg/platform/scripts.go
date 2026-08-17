@@ -33,7 +33,7 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 			Bucket:   p.config.Portal.S3Bucket,
 			Prefix:   p.config.Portal.S3Prefix,
 		},
-		Audit:                 p.auditLogger,
+		Audit:                 p.audit.Logger(),
 		Metrics:               p.obs.Metrics(),
 		RunRetention:          p.config.Scripts.RunRetention(),
 		WorkerDisabled:        !p.config.Scripts.IsWorkerEnabled(),

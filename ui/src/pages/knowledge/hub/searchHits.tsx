@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 
 import type { SearchHit } from "@/api/portal/types";
-import { UrnBadge } from "@/components/knowledge/UrnBadge";
+import { UrnBadge, uniqueUrns } from "@/components/knowledge/UrnBadge";
 import { DrawerShell } from "@/components/patterns/DrawerShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,9 +56,11 @@ export function HitRow({ hit, onClick }: { hit: SearchHit; onClick: () => void }
           <span className="max-w-[18rem] truncate font-mono" title={hit.ref}>
             {hit.ref}
           </span>
-          {(hit.entity_urns ?? []).slice(0, 2).map((urn) => (
-            <UrnBadge key={urn} urn={urn} />
-          ))}
+          {uniqueUrns(hit.entity_urns)
+            .slice(0, 2)
+            .map((urn) => (
+              <UrnBadge key={urn} urn={urn} />
+            ))}
         </div>
       </div>
       <ChevronRight className="mt-0.5 shrink-0 text-muted-foreground" />
@@ -108,11 +110,11 @@ export function HitDetailDrawer({
             <dd>{hit.dimension}</dd>
           </div>
         )}
-        {(hit.entity_urns?.length ?? 0) > 0 && (
+        {uniqueUrns(hit.entity_urns).length > 0 && (
           <div>
             <dt className="text-xs text-muted-foreground">Linked entities</dt>
             <dd className="flex flex-wrap gap-1">
-              {hit.entity_urns!.map((urn) => (
+              {uniqueUrns(hit.entity_urns).map((urn) => (
                 <UrnBadge key={urn} urn={urn} />
               ))}
             </dd>

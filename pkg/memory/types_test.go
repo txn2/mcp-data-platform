@@ -325,3 +325,28 @@ func TestDeriveSinkClass(t *testing.T) {
 		}
 	}
 }
+
+// A record is about an entity once. A repeat is not harmless: every surface
+// that lists these keys on the URN, so the duplicate drops out of the list it
+// was meant to be in.
+func TestNormalizeEntityURNs(t *testing.T) {
+	t.Parallel()
+
+	const orders = "urn:li:dataset:(urn:li:dataPlatform:trino,sales.orders,PROD)"
+	const regions = "urn:li:dataset:(urn:li:dataPlatform:trino,sales.regions,PROD)"
+
+	got := NormalizeEntityURNs([]string{orders, "  " + orders + "  ", regions, "", "   ", orders})
+	want := []string{orders, regions}
+
+	if len(got) != len(want) {
+		t.Fatalf("NormalizeEntityURNs = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("[%d] = %q, want %q (the caller's order is kept)", i, got[i], want[i])
+		}
+	}
+	if NormalizeEntityURNs(nil) != nil {
+		t.Error("a record that names no entity must stay nil rather than become an empty list")
+	}
+}

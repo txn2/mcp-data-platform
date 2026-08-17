@@ -2,11 +2,14 @@ package middleware
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 func TestMCPDescriptionOverrideMiddleware(t *testing.T) {
@@ -164,4 +167,28 @@ func TestMCPDescriptionOverrideMiddlewareDynamic(t *testing.T) {
 // that exercise the replacement rather than the re-resolution.
 func staticOverrides(m map[string]string) func(context.Context) map[string]string {
 	return func(context.Context) map[string]string { return m }
+}
+
+// A query tool's description is where an agent learns what to do with a result
+// that worked (#1321). The override carries the platform's one sentence about
+// it, so the query tools and the API gateway ask for the same thing.
+func TestDefaultDescriptions_CarryTheCaptureRoute(t *testing.T) {
+	overrides := MergedDescriptionOverrides(nil)
+
+	for _, tool := range []string{toolNameTrinoQuery, toolNameTrinoExecute} {
+		desc, ok := overrides[tool]
+		if !ok {
+			t.Fatalf("%s has no default description", tool)
+		}
+		if !strings.Contains(desc, toolkit.CaptureRoute) {
+			t.Errorf("%s does not name the capture route:\n%s", tool, desc)
+		}
+	}
+
+	// A config override still wins: the platform states the default, the
+	// deployment decides.
+	custom := MergedDescriptionOverrides(map[string]string{toolNameTrinoQuery: "mine"})
+	if custom[toolNameTrinoQuery] != "mine" {
+		t.Errorf("config override = %q, want it to win", custom[toolNameTrinoQuery])
+	}
 }

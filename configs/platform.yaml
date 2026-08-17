@@ -597,6 +597,13 @@ audit:
   # redact_keys: ["password"]    # top-level arg keys masked as [REDACTED] (case-insensitive)
   # delivery: async              # async (default, best-effort) | sync (durable, backpressure)
 
+# The catalog of recorded queries and API invocations, written from the audit
+# pipeline above (so it exists wherever audit does). Retention sweeps by what a
+# record came to, not by age: one cited by an asset or a capture, promoted,
+# declined, or re-run by another session is never swept.
+# calls:
+#   retention_days: 90           # how long an UNUSED call record is kept
+
 # Email notifications (shares, feedback threads). Enabled by default when a
 # database is available. SMTP host/credentials are admin-configured at runtime
 # in the portal (Admin > Settings) or via /api/v1/admin/settings/smtp -- not

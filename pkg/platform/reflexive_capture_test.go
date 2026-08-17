@@ -2,6 +2,7 @@ package platform
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -18,10 +19,11 @@ func TestReflexiveURNMapping(t *testing.T) {
 		CatalogMapping: map[string]string{"raw": "warehouse"},
 	}
 
-	// No connection sources: falls back to the query-provider mapping.
-	platform, mapping := p.reflexiveURNMapping("primary")
-	if platform != "trino" || mapping["raw"] != "warehouse" {
-		t.Errorf("fallback mapping = %q/%v", platform, mapping)
+	// No connection sources: falls back to the query-provider mapping, and
+	// the mapping is applied (raw -> warehouse).
+	got := p.datasetURNFor("primary", "raw", "sch", "tbl")
+	if want := "urn:li:dataset:(urn:li:dataPlatform:trino,warehouse.sch.tbl,PROD)"; got != want {
+		t.Errorf("fallback URN = %q, want %q", got, want)
 	}
 
 	// A known connection resolves to its own platform + catalog mapping.
@@ -32,14 +34,14 @@ func TestReflexiveURNMapping(t *testing.T) {
 		DataHubSourceName: "postgres",
 		CatalogMapping:    map[string]string{"rdbms": "warehouse"},
 	})
-	platform, mapping = p.reflexiveURNMapping("pg")
-	if platform != "postgres" || mapping["rdbms"] != "warehouse" {
-		t.Errorf("per-connection mapping = %q/%v", platform, mapping)
+	got = p.datasetURNFor("pg", "rdbms", "sch", "tbl")
+	if want := "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.sch.tbl,PROD)"; got != want {
+		t.Errorf("per-connection URN = %q, want %q", got, want)
 	}
 
 	// An unknown connection falls back to the query-provider mapping.
-	if platform, _ := p.reflexiveURNMapping("nope"); platform != "trino" {
-		t.Errorf("unknown connection should fall back, got %q", platform)
+	if got := p.datasetURNFor("nope", "raw", "sch", "tbl"); !strings.Contains(got, "dataPlatform:trino") {
+		t.Errorf("unknown connection should fall back, got %q", got)
 	}
 }
 

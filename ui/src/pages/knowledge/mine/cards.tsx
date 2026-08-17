@@ -1,6 +1,6 @@
 import type { Insight, MemoryRecord } from "@/api/portal/types";
 import { KnowledgeStatusBadge } from "@/components/knowledge/KnowledgeStatusBadge";
-import { UrnBadge } from "@/components/knowledge/UrnBadge";
+import { UrnBadge, uniqueUrns } from "@/components/knowledge/UrnBadge";
 import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { Card } from "@/components/ui/card";
@@ -55,10 +55,11 @@ function CardHead({
 
 // EntityUrns names the catalog entities a record is about, when it names any.
 function EntityUrns({ urns }: { urns: string[] | undefined }) {
-  if (!urns || urns.length === 0) return null;
+  const entities = uniqueUrns(urns);
+  if (entities.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1">
-      {urns.map((urn) => (
+      {entities.map((urn) => (
         <UrnBadge key={urn} urn={urn} />
       ))}
     </div>

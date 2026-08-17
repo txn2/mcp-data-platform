@@ -55,7 +55,22 @@ const (
 	// broken for every reader outside that scope. The page-citation path rejects it
 	// (ParseCitableRef).
 	RefTargetScript = "script"
+	// RefTargetCall is one recorded data-access call: a query or an API
+	// invocation, keyed by the audit event id the call handed back to its own
+	// caller (#1320, #1321). It is what an agent cites as an asset's source and
+	// what fetch dereferences to the cataloged record. Like memory and
+	// insights it is per-user and so NOT citable on a shared knowledge page:
+	// the record resolves only for the caller who made the call. Promote the
+	// record and cite the resulting urn:li:query:... entity instead.
+	RefTargetCall = "call"
 )
+
+// CallReferencePrefix is the serialized prefix of a call reference
+// ("mcp:call:"). It is exported because the reference is produced and consumed
+// outside this package — a tool result stamps it, provenance parses it, and the
+// call catalog matches on it in SQL — and all of them must read the grammar
+// from here rather than restate the literal.
+const CallReferencePrefix = mcpScheme + RefTargetCall + refKeySep
 
 // Entity-reference sources, recording how a reference came to be so the inline
 // body-scan (a later phase) can reconcile only its own rows without clobbering
@@ -90,7 +105,11 @@ type EntityRef struct {
 	// ScriptID is set only by the parser for an mcp:script: reference (#1302). Like
 	// the memory and resource ids it is never persisted on a page, since a managed
 	// script is not citable there; a prompt stores the serialized reference instead.
-	ScriptID  string    `json:"script_id,omitempty"`
+	ScriptID string `json:"script_id,omitempty"`
+	// CallID is set only by the parser for an mcp:call: reference (#1321): the
+	// audit event id of one recorded query or API invocation. Never persisted
+	// on a page — a call record is per-user, so it is not citable there.
+	CallID    string    `json:"call_id,omitempty"`
 	Source    string    `json:"source,omitempty"`
 	CreatedBy string    `json:"created_by,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
@@ -130,6 +149,8 @@ func (r EntityRef) identity() string {
 		return RefTargetResource + refKeySep + r.ResourceID
 	case RefTargetScript:
 		return RefTargetScript + refKeySep + r.ScriptID
+	case RefTargetCall:
+		return RefTargetCall + refKeySep + r.CallID
 	default:
 		return r.TargetType + refKeySep
 	}

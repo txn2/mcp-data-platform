@@ -3,6 +3,7 @@ package memory
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -114,7 +115,15 @@ const (
 	// no insight_status key, so legacy_status is the pending source for migrated
 	// candidates. resolveInsightStatus falls back to it after insight_status, and
 	// the enrichment push gate must honor both keys (#745).
-	MetaKeyLegacyStatus  = "legacy_status"
+	MetaKeyLegacyStatus = "legacy_status"
+	// MetaKeySources holds the calls a capture confirms, as mcp:call:<event_id>
+	// references (#1321). It is how an agent says "this query answered the
+	// question": the call catalog reads the key to decide that the record it
+	// names was satisfied, and the description the capture carries is what
+	// makes the query worth reusing. Not a review-state key, but stored beside
+	// them for the same reason — the two toolkits agree on the convention
+	// without importing each other.
+	MetaKeySources       = "sources"
 	InsightStatusPending = "pending"
 	// InsightStatusSuperseded mirrors knowledgekit.StatusSuperseded. It is the
 	// review-status counterpart of the StatusSuperseded lifecycle column: when a
@@ -440,6 +449,34 @@ func NormalizeSource(s string) string {
 		return SourceUser
 	}
 	return s
+}
+
+// NormalizeEntityURNs returns the entity URNs a record is about, trimmed, with
+// blanks and repeats removed and the caller's order kept.
+//
+// A record is about an entity once. A repeat carries no information and is not
+// harmless: every surface that lists these renders one badge per URN keyed by
+// the URN itself, so a duplicate silently drops out of the list it was supposed
+// to be in. Normalizing on the write path is what keeps the stored record equal
+// to what it means.
+func NormalizeEntityURNs(urns []string) []string {
+	if len(urns) == 0 {
+		return urns
+	}
+	seen := make(map[string]struct{}, len(urns))
+	out := make([]string, 0, len(urns))
+	for _, urn := range urns {
+		trimmed := strings.TrimSpace(urn)
+		if trimmed == "" {
+			continue
+		}
+		if _, dup := seen[trimmed]; dup {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 // NormalizeDimension returns the dimension value, defaulting to "knowledge".

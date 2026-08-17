@@ -67,6 +67,16 @@ func ScriptRef(id string) string {
 	return refOrEmpty(EntityRef{TargetType: RefTargetScript, ScriptID: id})
 }
 
+// CallRef returns the canonical reference for one recorded data-access call, or
+// "" if the event id is empty. It is the receipt a query or an API invocation
+// hands back (#1320) and the key its cataloged record is fetched by (#1321). A
+// call is NOT citable on a knowledge page: the record resolves only for the
+// caller who made the call, so the page-citation path rejects it
+// (ParseCitableRef).
+func CallRef(eventID string) string {
+	return refOrEmpty(EntityRef{TargetType: RefTargetCall, CallID: eventID})
+}
+
 // refOrEmpty serializes a reference and returns it only when it round-trips
 // through ParseEntityRef, so an unresolvable reference is never emitted.
 func refOrEmpty(r EntityRef) string {

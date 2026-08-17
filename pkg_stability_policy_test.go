@@ -96,7 +96,7 @@ func stabilityAllowlist() map[string]stabilityExemption {
 			exit: "retire if migrations move behind a platform lifecycle call that a consumer never invokes directly.",
 		},
 		"pkg/audit/postgres": {
-			why:  "the reference Postgres implementation of the audit store passed to platform.WithAuditLogger.",
+			why:  "the reference Postgres implementation of the audit store passed to platform.WithAuditLogger. Its one first-party importer is now internal/platform/auditwiring, which composes the store with the delivery writer and the readers derived from it (#1321).",
 			exit: "as for pkg/configstore/postgres.",
 		},
 		"pkg/query/trino": {

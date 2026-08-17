@@ -7,6 +7,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/txn2/mcp-data-platform/internal/sqltables"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
@@ -110,7 +112,7 @@ func (cfg ReflexiveCaptureConfig) observe(req mcp.Request, result mcp.Result, pc
 	if sql == "" {
 		return
 	}
-	refs := extractTablesFromSQL(sql)
+	refs := sqltables.Extract(sql)
 	if len(refs) == 0 {
 		return // must concern a physical dataset, not a table-less expression
 	}
@@ -145,7 +147,7 @@ func (cfg ReflexiveCaptureConfig) recordFailure(sessionID, sql, connection strin
 
 // resolveFailure pairs a successful query with the single best-matching prior
 // failure on the same connection and dispatches the correction asynchronously.
-func (cfg ReflexiveCaptureConfig) resolveFailure(pc *PlatformContext, connection, successSQL string, refs []tableRef) {
+func (cfg ReflexiveCaptureConfig) resolveFailure(pc *PlatformContext, connection, successSQL string, refs []sqltables.Ref) {
 	failed := cfg.Tracker.TakeResolved(pc.SessionID, connection, meaningfulIdentifiers(successSQL), normalizeSQLText(successSQL))
 	if failed == nil {
 		return
@@ -176,7 +178,7 @@ func (cfg ReflexiveCaptureConfig) resolveFailure(pc *PlatformContext, connection
 // buildCorrection assembles the CorrectionCapture for a failure/fix pair. Entity
 // URNs are keyed with the SUCCESS query's connection and tables (the corrected,
 // physically-real dataset), not the failed query's.
-func (cfg ReflexiveCaptureConfig) buildCorrection(pc *PlatformContext, failed FailedQuery, connection, successSQL string, refs []tableRef) CorrectionCapture {
+func (cfg ReflexiveCaptureConfig) buildCorrection(pc *PlatformContext, failed FailedQuery, connection, successSQL string, refs []sqltables.Ref) CorrectionCapture {
 	return CorrectionCapture{
 		SinkClass:  memstore.SinkSchemaEntity,
 		Category:   memstore.CategoryCorrection,
@@ -195,7 +197,7 @@ func (cfg ReflexiveCaptureConfig) buildCorrection(pc *PlatformContext, failed Fa
 // entityURNs builds best-effort dataset URNs for the fully-qualified tables in
 // refs, capped at the record limit. Returns nil when no builder is wired or no
 // ref carries a catalog+schema+table triple.
-func (cfg ReflexiveCaptureConfig) entityURNs(connection string, refs []tableRef) []string {
+func (cfg ReflexiveCaptureConfig) entityURNs(connection string, refs []sqltables.Ref) []string {
 	if cfg.URNBuilder == nil {
 		return nil
 	}

@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
 // ToolGetEndpointSchema is the MCP tool name for the per-endpoint
@@ -40,7 +42,11 @@ type EndpointSchemaOutput struct {
 	RequestBody *RequestBodyDetail `json:"request_body,omitempty"`
 	Responses   []ResponseDetail   `json:"responses,omitempty"`
 	Examples    map[string]any     `json:"examples,omitempty"`
-	Note        string             `json:"note,omitempty"`
+	// SavedExamples are requests promoted from real calls against this
+	// connection (#1321). They differ from Examples, which are whatever the
+	// spec's author declared: these are known to have worked here.
+	SavedExamples []catalog.Example `json:"saved_examples,omitempty"`
+	Note          string            `json:"note,omitempty"`
 }
 
 // ParameterDetail mirrors OpenAPI's parameter shape, stripped to
@@ -113,7 +119,7 @@ const maxSchemaDepth = 8
 // shape.
 const maxResponseChars = 50000
 
-func (t *Toolkit) handleGetEndpointSchema(_ context.Context, _ *mcp.CallToolRequest, in GetEndpointSchemaInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleGetEndpointSchema(ctx context.Context, _ *mcp.CallToolRequest, in GetEndpointSchemaInput) (*mcp.CallToolResult, any, error) {
 	if in.Connection == "" {
 		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
@@ -137,7 +143,27 @@ func (t *Toolkit) handleGetEndpointSchema(_ context.Context, _ *mcp.CallToolRequ
 		return toolkit.ErrorResult(fmt.Sprintf("operation_id %q not found", in.OperationID)), nil, nil
 	}
 	out := buildEndpointSchemaOutput(match)
+	out.SavedExamples = t.savedExamples(ctx, in.Connection, out.OperationID)
 	return cappedJSONResult(out), out, nil
+}
+
+// savedExamples reads the requests promoted on this endpoint. It is
+// best-effort: an unreadable example store costs the reader the examples, never
+// the schema they asked for.
+func (t *Toolkit) savedExamples(ctx context.Context, connection, operationID string) []catalog.Example {
+	t.mu.RLock()
+	store := t.exampleStore
+	t.mu.RUnlock()
+	if store == nil {
+		return nil
+	}
+	examples, err := store.ListExamples(ctx, connection, operationID)
+	if err != nil {
+		slog.Warn("api_get_endpoint_schema: saved examples unavailable",
+			"connection", connection, "operation_id", operationID, "error", err)
+		return nil
+	}
+	return examples
 }
 
 // operationMatch carries the resolved operation plus the surrounding

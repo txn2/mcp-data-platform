@@ -1270,7 +1270,7 @@ func (t *Toolkit) raiseIncident(ctx context.Context, urn, title, description, ch
 
 // dispatchCuratedQuery handles add_curated_query changes.
 func (t *Toolkit) dispatchCuratedQuery(ctx context.Context, urn string, c ApplyChange) (string, error) {
-	queryURN, err := t.datahubWriter.CreateCuratedQuery(ctx, urn, c.Detail, c.QuerySQL, c.QueryDescription)
+	queryURN, err := t.datahubWriter.CreateCuratedQuery(ctx, []string{urn}, c.Detail, c.QuerySQL, c.QueryDescription)
 	if err != nil {
 		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
 	}
