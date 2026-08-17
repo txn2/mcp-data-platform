@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -24,10 +25,9 @@ type shSQLInput struct {
 // shHarness bundles the assembled server and the stores/loggers a test asserts
 // against.
 type shHarness struct {
-	server     *mcp.Server
-	audit      *recordingAuditLogger
-	store      pkgsession.Store
-	provenance *middleware.ProvenanceTracker
+	server *mcp.Server
+	audit  *recordingAuditLogger
+	store  pkgsession.Store
 }
 
 // sessionHandleServer wires the real assembled middleware chain (tool-call
@@ -42,7 +42,6 @@ func sessionHandleServer(t *testing.T) shHarness {
 	tracker := middleware.NewSessionWorkflowTracker(
 		[]string{"search"}, []string{"trino_query"}, sgStore, time.Hour)
 	auditLog := &recordingAuditLogger{}
-	provenance := middleware.NewProvenanceTracker()
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "session-handle-test", Version: "v0"}, nil)
 
@@ -79,7 +78,7 @@ func sessionHandleServer(t *testing.T) shHarness {
 	mcp.AddTool(server, &mcp.Tool{Name: "trino_query", Description: "query"}, okHandler)
 
 	// Chain, innermost added first (last-added runs first).
-	server.AddReceivingMiddleware(middleware.MCPProvenanceMiddleware(provenance))
+	server.AddReceivingMiddleware(middleware.MCPCallReferenceMiddleware([]string{"trino"}))
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditLog))
 	server.AddReceivingMiddleware(middleware.MCPWorkflowGateMiddleware(tracker))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(
@@ -99,7 +98,7 @@ func sessionHandleServer(t *testing.T) shHarness {
 		},
 	))
 	server.AddReceivingMiddleware(middleware.MCPSessionHandleSchemaMiddleware(shInitTool))
-	return shHarness{server: server, audit: auditLog, store: store, provenance: provenance}
+	return shHarness{server: server, audit: auditLog, store: store}
 }
 
 // mintViaPlatformInfo calls platform_info and returns the minted handle.
@@ -214,16 +213,38 @@ func TestIntegration_SessionHandle_ThreadedFlow(t *testing.T) {
 	require.True(t, ok, "expected an audit row for trino_query")
 	assert.Equal(t, handle, queryEvent.SessionID)
 
-	// Criterion 6: provenance is keyed by the threaded handle, so the calls are
-	// recorded under it (not dropped as they would be under an empty session on
-	// a headerless transport).
-	calls := h.provenance.Harvest(handle)
-	tools := make([]string, 0, len(calls))
-	for _, c := range calls {
-		tools = append(tools, c.ToolName)
+	// Criterion 6: the query's result carries the id of the audit row that
+	// recorded it, so an agent can cite this exact call as an asset's source
+	// (#1320). The id is minted before the handler runs and the row is written
+	// after it returns; this is what proves the two are the same call.
+	callID := callReferenceID(t, res)
+	assert.Equal(t, queryEvent.ID, callID,
+		"the call reference must name the audit row this call wrote")
+	assert.NotEmpty(t, callID)
+}
+
+// callReferenceID reads the call_reference block the platform appends to a
+// data call's result.
+func callReferenceID(t *testing.T, res *mcp.CallToolResult) string {
+	t.Helper()
+	for _, c := range res.Content {
+		tc, ok := c.(*mcp.TextContent)
+		if !ok {
+			continue
+		}
+		var block struct {
+			Ref struct {
+				CallID    string `json:"call_id"`
+				Reference string `json:"reference"`
+			} `json:"call_reference"`
+		}
+		if err := json.Unmarshal([]byte(tc.Text), &block); err != nil || block.Ref.CallID == "" {
+			continue
+		}
+		assert.Equal(t, "mcp:call:"+block.Ref.CallID, block.Ref.Reference)
+		return block.Ref.CallID
 	}
-	assert.Contains(t, tools, "search")
-	assert.Contains(t, tools, "trino_query")
+	return ""
 }
 
 // TestIntegration_SessionHandle_NoHandleRefused is issue #800's acceptance

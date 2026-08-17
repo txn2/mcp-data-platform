@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -140,6 +141,11 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			// Build platform context and enrich the Go context.
 			pc := NewPlatformContext(generateRequestID())
 			pc.ToolName = toolName
+			// Mint the audit event id up front: the row is written after the
+			// handler returns, but the result this call is about to produce
+			// cites the id, and an asset saved from it records the same id as
+			// its source (#1320).
+			pc.EventID = audit.NewEventID()
 			pc.SessionID = resolveSessionID(ctx, req, cfg.Transport)
 			pc.Transport = cfg.Transport
 			pc.Source = resolveSource(ctx)

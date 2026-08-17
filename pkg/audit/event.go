@@ -78,7 +78,7 @@ func EventKindForToolkit(toolkitKind string) EventType {
 // NewEvent creates a new audit event.
 func NewEvent(toolName string) *Event {
 	return &Event{
-		ID:        generateEventID(),
+		ID:        NewEventID(),
 		Timestamp: time.Now(),
 		ToolName:  toolName,
 	}
@@ -204,8 +204,15 @@ func (e *Event) WithEnrichmentMatchKind(kind string) *Event {
 	return e
 }
 
-// generateEventID generates a unique event ID.
-func generateEventID() string {
+// NewEventID mints the identifier of one audit event.
+//
+// It is exported because the id is minted before the event exists: the tool-call
+// middleware stamps it on the PlatformContext at the start of a call so the
+// call's own result can cite it (`call_id`) and an asset can record it as a
+// provenance source, while the audit row itself is written after the handler
+// returns (issue #1320). The audit adapter reuses the stamped id rather than
+// minting a second one.
+func NewEventID() string {
 	bytes := make([]byte, 16)
 	_, _ = rand.Read(bytes)
 	return base64.RawURLEncoding.EncodeToString(bytes)

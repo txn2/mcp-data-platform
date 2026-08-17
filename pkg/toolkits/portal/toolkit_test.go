@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 )
 
 // mockS3Client implements portal.S3Client for testing.
@@ -130,32 +132,105 @@ func TestSaveAsset_ValidationErrors(t *testing.T) {
 
 func TestSaveAsset_WithProvenance(t *testing.T) {
 	store := newInMemoryAssetStore()
-	tk := New(Config{Name: "test", AssetStore: store, S3Client: &mockS3Client{}, S3Bucket: "bucket"})
-
-	provCalls := []middleware.ProvenanceToolCall{
-		{ToolName: "trino_query", Timestamp: "2024-01-01T00:00:00Z", Parameters: map[string]any{"sql": "SELECT 1"}},
-		{ToolName: "datahub_search", Timestamp: "2024-01-01T00:01:00Z"},
-	}
+	var captured portal.ProvenanceRequest
+	tk := New(Config{
+		Name: "test", AssetStore: store, S3Client: &mockS3Client{}, S3Bucket: "bucket",
+		CaptureProvenance: func(_ context.Context, req portal.ProvenanceRequest) portal.ProvenanceCapture {
+			captured = req
+			return portal.ProvenanceCapture{
+				Tool: req.Tool, SessionID: req.SessionID, Version: req.Version,
+				EventIDs: []string{"e1", "e2"},
+				Calls: []portal.ProvenanceCall{
+					{EventID: "e1", Kind: portal.ProvenanceKindSQL, Tool: "trino_query", Statement: "SELECT 1"},
+					{EventID: "e2", Kind: portal.ProvenanceKindAPI, Tool: "api_invoke_endpoint", Method: "GET"},
+				},
+			}
+		},
+	})
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
 		UserID: "user1", SessionID: "sess1",
 	})
-	ctx = middleware.WithProvenanceToolCalls(ctx, provCalls)
 
 	input := saveAssetInput{
 		Name: "Chart", Content: "<svg/>", ContentType: "image/svg+xml",
+		Sources: []string{"mcp:call:e1", "e2"},
 	}
 
 	result, _, err := tk.handleSaveAsset(ctx, nil, input)
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
+	assert.Equal(t, SaveToolName, captured.Tool)
+	assert.Equal(t, "sess1", captured.SessionID)
+	assert.Equal(t, "user1", captured.UserID)
+	assert.Equal(t, []string{"mcp:call:e1", "e2"}, captured.Sources,
+		"the cited sources reach the capturer verbatim; it owns parsing them")
+	assert.Equal(t, 1, captured.Version)
+
 	var output saveAssetOutput
 	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
 	require.True(t, ok)
 	require.NoError(t, json.Unmarshal([]byte(tc.Text), &output))
 	assert.True(t, output.ProvenanceCaptured)
-	assert.Equal(t, 2, output.ToolCallsRecorded)
+	assert.Equal(t, 2, output.CallsRecorded)
+
+	stored, err := store.Get(ctx, output.AssetID)
+	require.NoError(t, err)
+	require.Len(t, stored.Provenance.Captures, 1)
+	assert.Equal(t, []string{"e1", "e2"}, stored.Provenance.Captures[0].EventIDs)
+	assert.Equal(t, portal.ProvenanceKindSQL, stored.Provenance.Captures[0].Calls[0].Kind)
+}
+
+// A deployment with no audit log to read still saves the asset; it just
+// records no calls.
+func TestSaveAsset_WithoutCapturer(t *testing.T) {
+	store := newInMemoryAssetStore()
+	tk := New(Config{Name: "test", AssetStore: store, S3Client: &mockS3Client{}, S3Bucket: "bucket"})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+		UserID: "user1", SessionID: "sess1",
+	})
+	result, _, err := tk.handleSaveAsset(ctx, nil, saveAssetInput{
+		Name: "Chart", Content: "<svg/>", ContentType: "image/svg+xml",
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	var output saveAssetOutput
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &output))
+	assert.False(t, output.ProvenanceCaptured)
+	assert.Equal(t, 0, output.CallsRecorded)
+
+	stored, err := store.Get(ctx, output.AssetID)
+	require.NoError(t, err)
+	assert.Empty(t, stored.Provenance.Captures)
+	assert.Equal(t, "sess1", stored.Provenance.SessionID)
+}
+
+// A capture that resolved no calls records no capture at all: an empty capture
+// would claim the asset was built from nothing.
+func TestSaveAsset_EmptyCaptureRecordsNothing(t *testing.T) {
+	store := newInMemoryAssetStore()
+	tk := New(Config{
+		Name: "test", AssetStore: store, S3Client: &mockS3Client{}, S3Bucket: "bucket",
+		CaptureProvenance: func(_ context.Context, req portal.ProvenanceRequest) portal.ProvenanceCapture {
+			return portal.ProvenanceCapture{Tool: req.Tool}
+		},
+	})
+	result, _, err := tk.handleSaveAsset(context.Background(), nil, saveAssetInput{
+		Name: "Chart", Content: "<svg/>", ContentType: "image/svg+xml",
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	var output saveAssetOutput
+	tc, ok := result.Content[0].(*mcp.TextContent) //nolint:errcheck // test assertion
+	require.True(t, ok)
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &output))
+	assert.False(t, output.ProvenanceCaptured)
 }
 
 func TestManageAsset_List(t *testing.T) {
@@ -261,6 +336,113 @@ func TestManageAsset_UpdateWithContent(t *testing.T) {
 
 	vv, _, _ := versions.ListByAsset(context.Background(), "a1", 0, 0)
 	assert.Len(t, vv, 1, "content update must create exactly one version")
+}
+
+// Updating an asset's content is new work with its own sources, so it appends
+// a capture rather than leaving the asset carrying only what its first version
+// was built from (#1320).
+func TestManageAsset_ContentWriteAppendsACapture(t *testing.T) {
+	tests := []struct {
+		name  string
+		input manageAssetInput
+	}{
+		{
+			name:  "update",
+			input: manageAssetInput{Action: "update", AssetID: "a1", Content: "# Updated", Sources: []string{"mcp:call:e7"}},
+		},
+		{
+			name: "patch",
+			input: manageAssetInput{
+				Action: "patch", AssetID: "a1", Sources: []string{"mcp:call:e7"},
+				Edits: []textpatch.Edit{{Find: "Report", Replace: "Revised report"}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newInMemoryAssetStore()
+			_ = store.Insert(context.Background(), portal.Asset{
+				ID: "a1", OwnerID: "user1", Name: "Old", ContentType: "text/markdown",
+				S3Bucket: "bucket", S3Key: "assets/user1/a1/content.md",
+				CurrentVersion: 1, Tags: []string{},
+				Provenance: portal.Provenance{Captures: []portal.ProvenanceCapture{
+					{Tool: SaveToolName, Version: 1, EventIDs: []string{"e1"}, Calls: []portal.ProvenanceCall{{EventID: "e1"}}},
+				}},
+			})
+
+			var captured portal.ProvenanceRequest
+			tk := New(Config{
+				Name: "test", AssetStore: store, VersionStore: newLinkedVersionStore(store),
+				S3Client: &mockS3Client{getBody: []byte("# Report"), getCT: "text/markdown"}, S3Bucket: "bucket", S3Prefix: "assets/",
+				CaptureProvenance: func(_ context.Context, req portal.ProvenanceRequest) portal.ProvenanceCapture {
+					captured = req
+					return portal.ProvenanceCapture{
+						Tool: req.Tool, Version: req.Version, Explicit: true,
+						EventIDs: []string{"e7"},
+						Calls:    []portal.ProvenanceCall{{EventID: "e7", Kind: portal.ProvenanceKindSQL, Tool: "trino_query"}},
+					}
+				},
+			})
+
+			ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+				UserID: "user1", SessionID: "sess1",
+			})
+			result, _, err := tk.handleManageAsset(ctx, nil, tt.input)
+			require.NoError(t, err)
+			require.False(t, result.IsError, "content write must succeed")
+
+			assert.Equal(t, ManageToolName, captured.Tool)
+			assert.Equal(t, []string{"mcp:call:e7"}, captured.Sources)
+			assert.Equal(t, "sess1", captured.SessionID)
+			assert.Equal(t, "user1", captured.UserID)
+			assert.Equal(t, 1, captured.Version,
+				"the capture names the version the write produced (the fixture's first recorded version)")
+
+			stored, err := store.Get(ctx, "a1")
+			require.NoError(t, err)
+			require.Len(t, stored.Provenance.Captures, 2, "the first version's capture is kept")
+			assert.Equal(t, []string{"e1"}, stored.Provenance.Captures[0].EventIDs)
+			assert.Equal(t, []string{"e7"}, stored.Provenance.Captures[1].EventIDs)
+			assert.Equal(t, captured.Version, stored.Provenance.Captures[1].Version)
+		})
+	}
+}
+
+// The content is already written when the capture is appended, so a store that
+// refuses the append must not turn a committed edit into a reported failure.
+func TestManageAsset_ContentWriteSurvivesAFailedCapture(t *testing.T) {
+	store := &captureErrorAssetStore{inMemoryAssetStore: newInMemoryAssetStore()}
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Old", ContentType: "text/markdown",
+		CurrentVersion: 1, Tags: []string{}, Provenance: portal.Provenance{},
+	})
+	versions := newInMemoryVersionStore()
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: versions,
+		S3Client: &mockS3Client{}, S3Bucket: "bucket", S3Prefix: "assets/",
+		CaptureProvenance: func(_ context.Context, req portal.ProvenanceRequest) portal.ProvenanceCapture {
+			return portal.ProvenanceCapture{Tool: req.Tool, Calls: []portal.ProvenanceCall{{EventID: "e1"}}}
+		},
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+	result, _, err := tk.handleManageAsset(ctx, nil, manageAssetInput{
+		Action: "update", AssetID: "a1", Content: "# Updated",
+	})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	vv, _, _ := versions.ListByAsset(context.Background(), "a1", 0, 0)
+	assert.Len(t, vv, 1, "the new version stands even though its provenance could not be recorded")
+}
+
+// captureErrorAssetStore refuses to record a provenance capture.
+type captureErrorAssetStore struct {
+	*inMemoryAssetStore
+}
+
+func (*captureErrorAssetStore) AppendProvenanceCapture(context.Context, string, portal.ProvenanceCapture) error {
+	return errors.New("provenance column locked")
 }
 
 func TestManageAsset_UpdateNoFields(t *testing.T) {
@@ -405,21 +587,33 @@ func TestManageAsset_MissingAssetID(t *testing.T) {
 func TestBuildSaveOutput(t *testing.T) {
 	tk := New(Config{Name: "test", BaseURL: "https://example.com", S3Bucket: "bucket"})
 	out := tk.buildSaveOutput("abc123", portal.Provenance{
-		ToolCalls: []portal.ProvenanceToolCall{{ToolName: "trino_query"}},
-	})
+		Captures: []portal.ProvenanceCapture{{Calls: []portal.ProvenanceCall{{Tool: "trino_query"}}}},
+	}, 0)
 
 	assert.Equal(t, "abc123", out.AssetID)
 	assert.Equal(t, "https://example.com/portal/assets/abc123", out.PortalURL)
 	assert.True(t, out.ProvenanceCaptured)
-	assert.Equal(t, 1, out.ToolCallsRecorded)
+	assert.Equal(t, 1, out.CallsRecorded)
 }
 
 func TestBuildSaveOutputNoBaseURL(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
-	out := tk.buildSaveOutput("abc123", portal.Provenance{})
+	out := tk.buildSaveOutput("abc123", portal.Provenance{}, 0)
 
 	assert.Empty(t, out.PortalURL)
 	assert.False(t, out.ProvenanceCaptured)
+}
+
+// A cited source that named no call of the caller's is not silently dropped:
+// the agent is told how many of the ids it gave were recorded.
+func TestBuildSaveOutputReportsUnresolvedSources(t *testing.T) {
+	tk := New(Config{Name: "test", S3Bucket: "bucket"})
+	out := tk.buildSaveOutput("abc123", portal.Provenance{
+		Captures: []portal.ProvenanceCapture{{Calls: []portal.ProvenanceCall{{Tool: "trino_query"}}}},
+	}, 3)
+
+	assert.Equal(t, 1, out.CallsRecorded)
+	assert.Contains(t, out.Message, "1 of the 3 cited sources were recorded")
 }
 
 func TestExtensionForContentType(t *testing.T) {
@@ -514,6 +708,16 @@ func (s *inMemoryAssetStore) Update(_ context.Context, id string, updates portal
 	if updates.S3Key != "" {
 		a.S3Key = updates.S3Key
 	}
+	s.assets[id] = a
+	return nil
+}
+
+func (s *inMemoryAssetStore) AppendProvenanceCapture(_ context.Context, id string, capture portal.ProvenanceCapture) error {
+	a, ok := s.assets[id]
+	if !ok || a.DeletedAt != nil {
+		return notFoundError{}
+	}
+	a.Provenance.Captures = append(a.Provenance.Captures, capture)
 	s.assets[id] = a
 	return nil
 }

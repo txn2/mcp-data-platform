@@ -21,6 +21,11 @@ type AssetStore interface {
 	GetByIdempotencyKey(ctx context.Context, ownerID, key string) (*Asset, error)
 	List(ctx context.Context, filter AssetFilter) ([]Asset, int, error)
 	Update(ctx context.Context, id string, updates AssetUpdate) error
+	// AppendProvenanceCapture adds one capture to the end of the asset's
+	// provenance, leaving the captures already recorded untouched. Updating an
+	// asset's content is new work with its own sources, so each write appends
+	// rather than replacing what the previous write recorded (#1320).
+	AppendProvenanceCapture(ctx context.Context, id string, capture ProvenanceCapture) error
 	SoftDelete(ctx context.Context, id string) error
 }
 

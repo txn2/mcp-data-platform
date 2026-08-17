@@ -68,6 +68,10 @@ func (m *mockAssetStore) Update(_ context.Context, _ string, u AssetUpdate) erro
 	m.lastUpdate = &u
 	return m.updateErr
 }
+func (*mockAssetStore) AppendProvenanceCapture(context.Context, string, portaldomain.ProvenanceCapture) error {
+	return nil
+}
+
 func (m *mockAssetStore) SoftDelete(_ context.Context, _ string) error { return m.deleteErr }
 
 type mockShareStore struct {

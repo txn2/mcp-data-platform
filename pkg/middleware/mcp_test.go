@@ -1228,50 +1228,6 @@ func TestMCPToolCallMiddleware_StdioKeepsSentinel(t *testing.T) {
 	}
 }
 
-// TestProvenanceNoCrossUserMixing_StatelessHTTP exercises the original
-// leak hazard end-to-end: two different stateless HTTP principals each
-// make tool calls against the same process. Before the fix, both pooled
-// into one shared "stdio" bucket and either user's harvest tool would
-// return the union of both users' provenance. After the fix SessionID
-// stays empty for stateless HTTP, ProvenanceTracker.Record's empty-skip
-// guard fires, and no bucket accumulates anything. The stdio bucket
-// also stays empty because no stdio caller is involved.
-func TestProvenanceNoCrossUserMixing_StatelessHTTP(t *testing.T) {
-	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
-	tracker := NewProvenanceTracker()
-	innerCount := 0
-	inner := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-		innerCount++
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
-	}
-	chain := MCPProvenanceMiddleware(tracker)(inner)
-
-	run := func(userID string, calls int) {
-		auth := &mcpTestAuthenticator{
-			userInfo: &UserInfo{UserID: userID, Roles: []string{mcpTestPersona}},
-		}
-		handler := MCPToolCallMiddleware(auth, authorizer, nil, ToolCallConfig{Transport: "http", AdminPersona: "admin"})(chain)
-		for range calls {
-			if _, err := handler(context.Background(), mcpTestMethod, newMCPTestRequest(mcpTestToolName)); err != nil {
-				t.Fatalf("handler(%s): %v", userID, err)
-			}
-		}
-	}
-
-	run("apikey:nifi-etl", 3)
-	run("apikey:other-client", 2)
-	if innerCount != 5 {
-		t.Fatalf("expected 5 inner calls, got %d", innerCount)
-	}
-
-	if got := tracker.Harvest(defaultSessionID); len(got) != 0 {
-		t.Errorf("stdio bucket should be empty for stateless http calls, got %d", len(got))
-	}
-	if got := tracker.Harvest(""); len(got) != 0 {
-		t.Errorf("empty bucket should be unreachable (record skips empty), got %d", len(got))
-	}
-}
-
 func TestMCPToolCallMiddleware_PreAuthenticatedUser(t *testing.T) {
 	// The authenticator should NOT be called when a pre-authenticated user
 	// is present in the context — this verifies the bypass path.

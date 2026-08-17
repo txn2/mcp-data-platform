@@ -33,6 +33,7 @@ const (
 	// definition, parameter parsing, and provenance output.
 	propProperties = "properties"
 	propSQL        = "sql"
+	propConnection = "connection"
 	propFormat     = "format"
 	propName       = "name"
 	propTags       = "tags"
@@ -212,10 +213,6 @@ type ExportDeps struct {
 	// GetUserContext extracts user identity from the request context.
 	// Injected by the platform to avoid importing middleware.
 	GetUserContext func(ctx context.Context) *ExportUserContext
-
-	// GetProvenanceCalls extracts provenance tool calls from the request context.
-	// Injected by the platform to avoid importing middleware.
-	GetProvenanceCalls func(ctx context.Context) []ExportProvenanceCall
 }
 
 // exportInput is the parsed input for trino_export.
@@ -367,11 +364,12 @@ func (t *Toolkit) executeAndPersist(ctx context.Context, deps *ExportDeps, input
 	}
 
 	sourceTables := extractSourceTableNames(input.SQL)
-	prov := buildExportProvenance(ctx, deps, exportProvenanceParams{
+	prov := buildExportProvenance(exportProvenanceParams{
 		userID:       uc.UserID,
 		sessionID:    uc.SessionID,
 		sql:          input.SQL,
 		sourceTables: sourceTables,
+		connection:   input.Connection,
 		format:       input.Format,
 		rowCount:     len(rows),
 	})
@@ -613,34 +611,30 @@ func extractSourceTableNames(sql string) []string {
 
 // exportProvenanceParams holds parameters for provenance construction.
 type exportProvenanceParams struct {
-	userID, sessionID, sql, format string
-	sourceTables                   []string
-	rowCount                       int
+	userID, sessionID, sql, format, connection string
+	sourceTables                               []string
+	rowCount                                   int
 }
 
-// buildExportProvenance constructs provenance metadata for an exported asset.
-func buildExportProvenance(ctx context.Context, deps *ExportDeps, p exportProvenanceParams) ExportProvenance {
+// buildExportProvenance records the export call itself.
+//
+// It states only what this call knows: the platform resolves the rest of the
+// asset's sources from the audit log when the asset is written (#1320), and
+// this call's own audit row does not exist yet — it is written after the tool
+// returns — so the export states its own statement here.
+func buildExportProvenance(p exportProvenanceParams) ExportProvenance {
 	prov := ExportProvenance{
 		UserID:    p.userID,
 		SessionID: p.sessionID,
 	}
 
-	// Include session tool calls from the provenance middleware
-	if deps.GetProvenanceCalls != nil {
-		calls := deps.GetProvenanceCalls(ctx)
-		if len(calls) > 0 {
-			prov.ToolCalls = make([]ExportProvenanceCall, len(calls))
-			copy(prov.ToolCalls, calls)
-		}
-	}
-
-	// Record the export operation itself in provenance
 	prov.ToolCalls = append(prov.ToolCalls, ExportProvenanceCall{
 		ToolName:  exportToolName,
 		Timestamp: time.Now().Format(time.RFC3339),
 		Parameters: map[string]any{
 			"export_query":  p.sql,
 			"source_tables": p.sourceTables,
+			propConnection:  p.connection,
 			propFormat:      p.format,
 			"row_count":     p.rowCount,
 		},

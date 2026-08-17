@@ -252,6 +252,7 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo, policy auditPar
 	reqChars := calculateRequestSize(info.Request)
 
 	return AuditEvent{
+		ID:                    pc.EventID,
 		Timestamp:             info.StartTime,
 		RequestID:             pc.RequestID,
 		SessionID:             pc.SessionID,

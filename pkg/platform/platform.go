@@ -41,6 +41,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/obs"
 	"github.com/txn2/mcp-data-platform/internal/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptlayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/provenance"
 	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceaudit"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourcelayer"
@@ -244,8 +245,11 @@ type Platform struct {
 	// runs, which requires the portal enabled and a database connection. Read
 	// through its accessors by the Portal* accessors (admin/portal REST wiring),
 	// the trino/api export wiring, and the search/enrichment provider assembly.
-	portalStore       *portalstore.Handle
-	provenanceTracker *middleware.ProvenanceTracker
+	portalStore *portalstore.Handle
+	// provenance resolves which calls an asset write was built from, reading
+	// the audit log at write time (#1320). nil when audit is disabled or there
+	// is no database; Capture is nil-safe, so every write path can call it.
+	provenance *provenance.Capturer
 	// Brand assets (logo SVG, brand URL, implementor logo). The owner
 	// (pkg/platform/branding) resolves each once from config and caches it behind
 	// one Handle; the caller injects the portal logo into the platform-info app
@@ -1303,6 +1307,10 @@ func (p *Platform) initAudit(opts *Options) error {
 	delivery := p.config.Audit.DeliveryMode()
 	p.auditStore = store
 	p.auditLogger = newAuditLogger(store, delivery, p.obs.Metrics())
+	// Provenance reads calls back out of this store. The logger is handed over
+	// as the flusher so a capture waits for the calls still queued in the async
+	// writer — the newest of which is usually the one that produced the asset.
+	p.provenance = provenance.New(store, asFlusher(p.auditLogger))
 
 	slog.Info("audit logging enabled",
 		"retention_days", p.config.Audit.RetentionDays,
@@ -1710,16 +1718,13 @@ func (p *Platform) initPortal() error {
 	// toolkit) behind one handle from p.db + the resolved S3 client +
 	// embeddingProv (both stay owned by Platform).
 	p.portalStore = portalstore.New(p.db, s3Client, p.embeddingProv, portalstore.Config{
-		Name:           instanceDefault,
-		S3Bucket:       p.config.Portal.S3Bucket,
-		S3Prefix:       p.config.Portal.S3Prefix,
-		BaseURL:        p.config.Portal.PublicBaseURL,
-		MaxContentSize: p.config.Portal.MaxContentSize,
+		Name:              instanceDefault,
+		S3Bucket:          p.config.Portal.S3Bucket,
+		S3Prefix:          p.config.Portal.S3Prefix,
+		BaseURL:           p.config.Portal.PublicBaseURL,
+		MaxContentSize:    p.config.Portal.MaxContentSize,
+		CaptureProvenance: p.captureProvenance,
 	})
-
-	// provenanceTracker is a middleware primitive wired into the middleware
-	// chain, not a portal store; it stays on Platform.
-	p.provenanceTracker = middleware.NewProvenanceTracker()
 
 	// Registration stays a Platform/registry concern.
 	if err := p.toolkitRegistry.Register(p.portalStore.Toolkit()); err != nil {
@@ -1787,7 +1792,8 @@ func (p *Platform) wireTrinoExport() {
 	exportCfg := p.parseExportConfig()
 
 	trinoExporter := exportadapters.NewTrinoExporter(
-		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ShareStore(), p.config.Portal.PublicBaseURL,
+		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ShareStore(),
+		p.config.Portal.PublicBaseURL, p.captureProvenance,
 	)
 
 	for _, tk := range trinoToolkits {
@@ -1814,18 +1820,6 @@ func (p *Platform) wireTrinoExport() {
 					UserEmail: pc.UserEmail,
 					SessionID: pc.SessionID,
 				}
-			},
-			GetProvenanceCalls: func(ctx context.Context) []trinokit.ExportProvenanceCall {
-				calls := middleware.GetProvenanceToolCalls(ctx)
-				result := make([]trinokit.ExportProvenanceCall, len(calls))
-				for i, c := range calls {
-					result[i] = trinokit.ExportProvenanceCall{
-						ToolName:   c.ToolName,
-						Timestamp:  c.Timestamp,
-						Parameters: c.Parameters,
-					}
-				}
-				return result
 			},
 		})
 	}
@@ -2312,29 +2306,36 @@ func (p *Platform) addManagedResourceMiddleware() {
 	p.mcpServer.AddReceivingMiddleware(middleware.MCPManagedResourceMiddleware(cfg))
 }
 
-// addProvenanceMiddleware registers provenance tracking middleware when portal is enabled.
-func (p *Platform) addProvenanceMiddleware() {
-	if p.provenanceTracker != nil {
-		harvestTools := []string{portalstore.SaveToolName}
-		if p.hasTrinoExport() {
-			harvestTools = append(harvestTools, "trino_export")
-		}
-		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPProvenanceMiddleware(p.provenanceTracker, harvestTools...),
-		)
+// addCallReferenceMiddleware hands each data call its own identifier back, so
+// an agent can name exactly which calls produced the asset it saves (#1320).
+// It is registered only when audit is recording: without a stored call there is
+// nothing for the identifier to refer to.
+func (p *Platform) addCallReferenceMiddleware() {
+	if p.auditStore == nil {
+		return
 	}
+	p.mcpServer.AddReceivingMiddleware(
+		middleware.MCPCallReferenceMiddleware(provenance.SourceToolkitKinds()),
+	)
 }
 
-// hasTrinoExport returns true if trino_export is configured.
-func (p *Platform) hasTrinoExport() bool {
-	if isExplicitlyDisabled(p.config.Portal.Export.Enabled) {
-		return false
+// captureProvenance resolves the calls behind one asset write. It is the seam
+// handed to every write path (save_asset, manage_asset, trino_export,
+// api_export) so all four capture the same way; a platform with no audit store
+// records only what the writing call states about itself.
+func (p *Platform) captureProvenance(ctx context.Context, req portal.ProvenanceRequest) portal.ProvenanceCapture {
+	return p.provenance.Capture(ctx, req)
+}
+
+// asFlusher returns the audit logger as a provenance flusher when it buffers
+// writes, and nil when it does not — a synchronous audit writer has already
+// stored what a capture is about to read.
+func asFlusher(logger middleware.AuditLogger) provenance.Flusher {
+	f, ok := logger.(provenance.Flusher)
+	if !ok {
+		return nil
 	}
-	if p.portalStore.S3Client() == nil || p.portalStore.AssetStore() == nil {
-		return false
-	}
-	trinoToolkits := p.toolkitRegistry.GetByKind("trino")
-	return len(trinoToolkits) > 0
+	return f
 }
 
 // addMCPAppsMiddleware registers MCP Apps metadata middleware and UI resources.
@@ -3625,7 +3626,8 @@ func (p *Platform) wireAPIGatewayExport() {
 	}
 
 	apiExporter := exportadapters.NewAPIExporter(
-		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ShareStore(), p.config.Portal.PublicBaseURL,
+		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ShareStore(),
+		p.config.Portal.PublicBaseURL, p.captureProvenance,
 	)
 
 	for _, tk := range apiToolkits {

@@ -17,6 +17,29 @@ export async function openShareDialog(page: Page): Promise<void> {
 }
 
 /**
+ * openAssetProvenance opens the asset viewer's metadata sidebar, which is where
+ * the provenance panel lives: the calls the asset was built from, grouped by
+ * the write that captured them (#1320).
+ */
+export async function openAssetProvenance(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Show details" }).click();
+  await page.getByText("Provenance").first().waitFor();
+  await page.waitForTimeout(400);
+}
+
+/**
+ * openAssetProvenanceCall opens one captured call from the provenance panel,
+ * which is the only state showing the statement, the stated purpose, the
+ * outcome, and the mcp:call: reference an agent cites (#1320).
+ */
+export async function openAssetProvenanceCall(page: Page): Promise<void> {
+  await openAssetProvenance(page);
+  await page.getByRole("button", { name: /Trino Query/ }).first().click();
+  await page.getByRole("dialog").waitFor();
+  await page.waitForTimeout(400);
+}
+
+/**
  * openShareDialogWithRecipient opens the Share dialog and names a recipient,
  * which is the only state showing the notify checkbox and the sharer's
  * message box (#1016). It builds on openShareDialog so the two share captures

@@ -2413,24 +2413,30 @@ func TestDescriptionOverrides_ToolsList(t *testing.T) {
 	t.Error("trino_query tool not found in list")
 }
 
-// TestMiddlewareChain_AwareHandler_ProvenanceSessionID verifies that session
+// TestMiddlewareChain_AwareHandler_SessionIDReachesAudit verifies that session
 // IDs propagated by AwareHandler through the Go request context reach
-// MCPToolCallMiddleware and MCPProvenanceMiddleware, so that provenance is
-// correctly keyed and harvested per-client in stateless Streamable HTTP mode.
+// MCPToolCallMiddleware and are recorded on the audit events, so that in
+// stateless Streamable HTTP mode a client's successive calls are attributable
+// to one session.
+//
+// That attribution is what provenance capture is built on (#1320): an asset
+// write resolves its sources by reading the audit log for its own session, so
+// a session id that does not reach the audit row means an asset with no
+// recorded sources.
 //
 // This is the integration test for the context propagation chain:
 //
 //	AwareHandler.handleInitialize → WithAwareSessionID(ctx)
 //	  → MCPToolCallMiddleware reads AwareSessionID(ctx) as fallback
 //	    → sets PlatformContext.SessionID
-//	      → MCPProvenanceMiddleware uses PlatformContext.SessionID for Record/Harvest
-func TestMiddlewareChain_AwareHandler_ProvenanceSessionID(t *testing.T) {
+//	      → MCPAuditMiddleware records it on every event
+func TestMiddlewareChain_AwareHandler_SessionIDReachesAudit(t *testing.T) {
 	const (
 		queryToolName = "data_query"
 		saveToolName  = "save_asset"
 	)
 
-	tracker := middleware.NewProvenanceTracker()
+	auditLog := &recordingAuditLogger{}
 
 	authenticator := &testAuthenticator{
 		userInfo: &middleware.UserInfo{
@@ -2445,35 +2451,26 @@ func TestMiddlewareChain_AwareHandler_ProvenanceSessionID(t *testing.T) {
 		Version: "v0.0.1",
 	}, nil)
 
-	// data_query: a normal tool whose calls should be recorded in provenance.
+	ok := func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+		}, nil
+	}
 	server.AddTool(&mcp.Tool{
 		Name:        queryToolName,
 		Description: "Run a query",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"}}}`),
-	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: "query result: 42"}},
-		}, nil
-	})
-
-	// save_asset: reads provenance from context (injected by MCPProvenanceMiddleware)
-	// and returns the count so the test can assert it.
+	}, ok)
 	server.AddTool(&mcp.Tool{
 		Name:        saveToolName,
 		Description: "Save an artifact",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		calls := middleware.GetProvenanceToolCalls(ctx)
-		resp := fmt.Sprintf(`{"provenance_count":%d}`, len(calls))
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: resp}},
-		}, nil
-	})
+	}, ok)
 
 	// Middleware order (innermost first, outermost last):
-	// 1. Provenance (innermost) — records tool calls, harvests on save_asset
-	// 2. Auth (outermost) — creates PlatformContext with session ID
-	server.AddReceivingMiddleware(middleware.MCPProvenanceMiddleware(tracker, saveToolName))
+	// 1. Audit (innermost) — records the session id the context carries
+	// 2. Auth (outermost) — creates PlatformContext with the session ID
+	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditLog))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: "http", AdminPersona: "admin"}))
 
 	// Stateless Streamable HTTP handler — no SDK-managed sessions.
@@ -2500,45 +2497,36 @@ func TestMiddlewareChain_AwareHandler_ProvenanceSessionID(t *testing.T) {
 	}
 	defer func() { _ = clientSession.Close() }()
 
-	// Call data_query — this should be recorded in provenance under the
-	// AwareHandler session ID (not the default "stdio").
-	_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
+	if _, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
 		Name:      queryToolName,
 		Arguments: map[string]any{"sql": "SELECT 1"},
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("calling data_query: %v", err)
 	}
-
-	// Call save_asset — MCPProvenanceMiddleware harvests the provenance
-	// for this session and injects it into the context. The tool handler
-	// returns the count so we can verify the chain worked end-to-end.
-	result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+	if _, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
 		Name:      saveToolName,
 		Arguments: map[string]any{"name": "test-artifact"},
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("calling save_asset: %v", err)
 	}
-	if result.IsError {
-		t.Fatalf("save_asset returned error: %v", result.Content)
-	}
 
-	// Verify provenance was captured (count > 0 means session IDs matched
-	// between Record and Harvest through the full AwareHandler → middleware chain).
-	found := false
-	for _, c := range result.Content {
-		if tc, ok := c.(*mcp.TextContent); ok {
-			if strings.Contains(tc.Text, `"provenance_count":1`) {
-				found = true
-				break
-			}
-			// Dump content for debugging if assertion fails
-			t.Logf("save_asset content: %s", tc.Text)
-		}
-	}
+	queryEvent, found := waitForAuditEvent(auditLog, queryToolName, 2*time.Second)
 	if !found {
-		t.Fatal("expected provenance_count:1 — AwareHandler session ID did not propagate through middleware chain")
+		t.Fatal("expected an audit event for data_query")
+	}
+	saveEvent, found := waitForAuditEvent(auditLog, saveToolName, 2*time.Second)
+	if !found {
+		t.Fatal("expected an audit event for save_asset")
+	}
+	if queryEvent.SessionID == "" {
+		t.Fatal("data_query recorded no session id — AwareHandler session ID did not propagate through the middleware chain")
+	}
+	if queryEvent.SessionID != saveEvent.SessionID {
+		t.Fatalf("the two calls recorded different sessions (%q, %q); a save could not find the query that fed it",
+			queryEvent.SessionID, saveEvent.SessionID)
+	}
+	if queryEvent.ID == "" || queryEvent.ID == saveEvent.ID {
+		t.Fatalf("each call must carry its own minted event id, got %q and %q", queryEvent.ID, saveEvent.ID)
 	}
 }
 

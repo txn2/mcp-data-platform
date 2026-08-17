@@ -13,6 +13,11 @@ type AuditLogger interface {
 
 // AuditEvent represents an auditable event.
 type AuditEvent struct {
+	// ID is the identifier the tool-call middleware minted for this call before
+	// the handler ran, so the call could be cited by the result it produced and
+	// by an asset built from it (issue #1320). Empty on an event assembled
+	// outside that path; the store adapter then mints one.
+	ID                    string         `json:"id,omitempty"`
 	Timestamp             time.Time      `json:"timestamp"`
 	RequestID             string         `json:"request_id"`
 	SessionID             string         `json:"session_id"`

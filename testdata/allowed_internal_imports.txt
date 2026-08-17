@@ -222,6 +222,8 @@ internal/platform/promptlayer/attachbind -> pkg/resource
 internal/platform/promptlayer/notifystore -> pkg/prompt
 internal/platform/promptlayer/promptschema -> pkg/prompt
 internal/platform/promptlayer/promptschema -> pkg/textpatch
+internal/platform/provenance -> pkg/audit
+internal/platform/provenance -> pkg/portal
 internal/platform/reflexivecapture -> pkg/memory
 internal/platform/reflexivecapture -> pkg/middleware
 internal/platform/reflexivecapture -> pkg/toolkits/memory
@@ -461,6 +463,7 @@ pkg/platform -> internal/platform/obs
 pkg/platform -> internal/platform/portalcfg
 pkg/platform -> internal/platform/portalstore
 pkg/platform -> internal/platform/promptlayer
+pkg/platform -> internal/platform/provenance
 pkg/platform -> internal/platform/reflexivecapture
 pkg/platform -> internal/platform/resourceaudit
 pkg/platform -> internal/platform/resourcelayer

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Database,
+  Globe,
   Search,
   FileText,
   Info,
@@ -19,15 +20,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { Provenance, ProvenanceToolCall } from "@/api/portal/types";
+import type {
+  Provenance,
+  ProvenanceCall,
+  ProvenanceCapture,
+  ProvenanceToolCall,
+} from "@/api/portal/types";
 import { formatToolName } from "@/lib/formatToolName";
+import { formatDuration } from "@/lib/formatDuration";
 
 interface Props {
   provenance: Provenance;
   /**
    * Opens the session these calls belong to. The panel shows the calls the
-   * asset captured at the moment it was saved; the session holds every call
+   * asset captured at the moment it was written; the session holds every call
    * that session made, before and after. Omitted where the reader cannot open
    * it — a session refuses anyone but its own caller and an admin (#1319).
    */
@@ -39,6 +47,7 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   trino_: Database,
   datahub_: Search,
   s3_: FileText,
+  api_: Globe,
   platform_: Info,
 };
 
@@ -49,48 +58,11 @@ function getToolIcon(toolName: string): LucideIcon {
   return Terminal;
 }
 
-/** Extract a human-readable summary from the tool call parameters. */
-function extractSummary(call: ProvenanceToolCall): string | null {
-  const params = call.parameters;
-  if (!params || Object.keys(params).length === 0) return null;
-
-  // SQL queries
-  if (params.sql) {
-    const sql = String(params.sql).trim();
-    return sql.length > 120 ? sql.slice(0, 120) + "..." : sql;
-  }
-
-  // Search queries
-  if (params.query) return `"${params.query}"`;
-
-  // URN-based lookups
-  if (params.urn) return String(params.urn);
-
-  // Table operations
-  if (params.table) {
-    const parts = [params.catalog, params.schema, params.table].filter(Boolean);
-    return parts.join(".");
-  }
-
-  // Bucket/key for S3
-  if (params.bucket) {
-    return params.key
-      ? `${params.bucket}/${params.key}`
-      : String(params.bucket);
-  }
-
-  // Fall back to first string value
-  const firstStr = Object.values(params).find((v) => typeof v === "string");
-  if (firstStr) return String(firstStr);
-
-  return null;
-}
-
-/** Pretty-print the parameters for the detail modal. */
-function formatDetail(params: Record<string, unknown> | undefined): string {
-  if (!params || Object.keys(params).length === 0) return "(no parameters)";
-  return JSON.stringify(params, null, 2);
-}
+const KIND_LABELS: Record<string, string> = {
+  sql: "SQL",
+  api: "API",
+  tool: "Tool",
+};
 
 function relativeTime(timestamp: string): string {
   const now = Date.now();
@@ -106,15 +78,88 @@ function relativeTime(timestamp: string): string {
   return `${days}d ago`;
 }
 
-function ProvenanceCard({
+/** The one line that says what a call did: the statement, the request, or what it addressed. */
+function callSummary(call: ProvenanceCall): string {
+  if (call.kind === "sql") return call.statement ?? "";
+  if (call.kind === "api") {
+    const request = [call.method, call.path].filter(Boolean).join(" ");
+    return request || call.operation_id || "";
+  }
+  return call.summary ?? "";
+}
+
+/** The full text a reader copies: the statement for a query, the request otherwise. */
+function callDetail(call: ProvenanceCall): string {
+  const summary = callSummary(call);
+  if (summary) return summary;
+  return call.operation_id || call.tool;
+}
+
+function truncate(text: string, max = 120): string {
+  return text.length > max ? text.slice(0, max) + "..." : text;
+}
+
+/** Copy control shared by the call detail and the call reference. */
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    const done = () => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    };
+    const writeFallback = () => {
+      const el = document.createElement("textarea");
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+      done();
+    };
+
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done, writeFallback);
+    } else {
+      writeFallback();
+    }
+  };
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      onClick={handleCopy}
+      className="text-muted-foreground"
+      title={label}
+      aria-label={label}
+    >
+      {copied ? (
+        <>
+          <Check className="text-emerald-600 dark:text-emerald-400" />
+          Copied
+        </>
+      ) : (
+        <>
+          <Copy />
+          Copy
+        </>
+      )}
+    </Button>
+  );
+}
+
+function CallCard({
   call,
   onClick,
 }: {
-  call: ProvenanceToolCall;
+  call: ProvenanceCall;
   onClick: () => void;
 }) {
-  const Icon = getToolIcon(call.tool_name);
-  const summary = extractSummary(call);
+  const Icon = getToolIcon(call.tool);
+  const summary = callSummary(call);
+  const failed = call.outcome === "error";
 
   return (
     <button
@@ -128,8 +173,18 @@ function ProvenanceCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium">
-              {formatToolName(call.tool_name)}
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Badge variant="muted" className="shrink-0">
+                {KIND_LABELS[call.kind] ?? call.kind}
+              </Badge>
+              <span className="truncate text-sm font-medium">
+                {formatToolName(call.tool)}
+              </span>
+              {failed && (
+                <Badge variant="danger" className="shrink-0">
+                  Failed
+                </Badge>
+              )}
             </span>
             <span
               className="shrink-0 text-[11px] text-muted-foreground"
@@ -140,59 +195,39 @@ function ProvenanceCard({
           </div>
           {summary && (
             <p className="mt-0.5 truncate text-xs text-muted-foreground font-mono">
-              {summary}
+              {truncate(summary)}
             </p>
           )}
+          {call.purpose && (
+            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground italic">
+              {call.purpose}
+            </p>
+          )}
+          <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-muted-foreground">
+            {call.connection && <span>{call.connection}</span>}
+            {call.duration_ms !== undefined && call.duration_ms > 0 && (
+              <span>{formatDuration(call.duration_ms)}</span>
+            )}
+          </div>
         </div>
       </div>
     </button>
   );
 }
 
-/** Extract the SQL string from parameters, or null if not a SQL call. */
-function extractSQL(call: ProvenanceToolCall): string | null {
-  if (!call.tool_name.startsWith("trino_")) return null;
-  if (!call.parameters?.sql) return null;
-  return String(call.parameters.sql);
-}
-
-function DetailModal({
+function CallDetailModal({
   call,
   open,
   onOpenChange,
 }: {
-  call: ProvenanceToolCall | null;
+  call: ProvenanceCall | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [copied, setCopied] = useState(false);
-
   if (!call) return null;
-  const Icon = getToolIcon(call.tool_name);
-  const sql = extractSQL(call);
-  const detail = sql ?? formatDetail(call.parameters);
-
-  const handleCopy = () => {
-    const writeFallback = () => {
-      const el = document.createElement("textarea");
-      el.value = detail;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand("copy");
-      document.body.removeChild(el);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    };
-
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(detail).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }, writeFallback);
-    } else {
-      writeFallback();
-    }
-  };
+  const Icon = getToolIcon(call.tool);
+  const detail = callDetail(call);
+  const isStatement = call.kind === "sql" && Boolean(call.statement);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -200,45 +235,68 @@ function DetailModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Icon className="h-4 w-4 text-muted-foreground" />
-            {formatToolName(call.tool_name)}
+            {formatToolName(call.tool)}
           </DialogTitle>
           <DialogDescription className="text-xs">
-            {call.tool_name} &middot;{" "}
-            {new Date(call.timestamp).toLocaleString()}
+            {call.tool} &middot; {new Date(call.timestamp).toLocaleString()}
+            {call.connection && <> &middot; {call.connection}</>}
+            {call.duration_ms !== undefined && call.duration_ms > 0 && (
+              <> &middot; {formatDuration(call.duration_ms)}</>
+            )}
           </DialogDescription>
         </DialogHeader>
+
+        {call.purpose && (
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">
+              Stated purpose
+            </p>
+            <p className="text-sm">{call.purpose}</p>
+          </div>
+        )}
+
+        {call.outcome === "error" && (
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">
+              Outcome
+            </p>
+            <p className="text-sm text-red-700 dark:text-red-300">
+              Failed{call.error ? `: ${call.error}` : ""}
+            </p>
+          </div>
+        )}
 
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <p className="text-xs font-medium text-muted-foreground">
-              {sql ? "SQL Query" : "Parameters"}
+              {isStatement ? "SQL Query" : "Request"}
             </p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              onClick={handleCopy}
-              className="text-muted-foreground"
-              title={sql ? "Copy SQL query" : "Copy parameters"}
-              aria-label={sql ? "Copy SQL query" : "Copy parameters"}
-            >
-              {copied ? (
-                <>
-                  <Check className="text-emerald-600 dark:text-emerald-400" />
-                  Copied
-                </>
-              ) : (
-                <>
-                  <Copy />
-                  Copy
-                </>
-              )}
-            </Button>
+            <CopyButton
+              text={detail}
+              label={isStatement ? "Copy SQL query" : "Copy request"}
+            />
           </div>
           <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-words">
             {detail}
           </pre>
         </div>
+
+        {call.event_id && (
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground">
+                Call reference
+              </p>
+              <CopyButton
+                text={`mcp:call:${call.event_id}`}
+                label="Copy call reference"
+              />
+            </div>
+            <p className="font-mono text-xs break-all text-muted-foreground">
+              mcp:call:{call.event_id}
+            </p>
+          </div>
+        )}
 
         <DialogFooter>
           <DialogClose asChild>
@@ -252,56 +310,76 @@ function DetailModal({
   );
 }
 
-export function ProvenancePanel({ provenance, onOpenSession }: Props) {
-  const calls = provenance.tool_calls ?? [];
-  const [selected, setSelected] = useState<ProvenanceToolCall | null>(null);
-  const [showAll, setShowAll] = useState(false);
+/** The heading over one capture: which write it belongs to, and how it was decided. */
+function CaptureHeading({ capture }: { capture: ProvenanceCapture }) {
+  const parts = [formatToolName(capture.tool)];
+  if (capture.captured_at) parts.push(relativeTime(capture.captured_at));
 
-  if (calls.length === 0) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="flex items-center gap-1.5 text-xs font-medium">
+        {capture.version ? `Version ${capture.version}` : "Capture"}
+        {capture.explicit && (
+          <Badge variant="info" title="The agent named these calls">
+            Cited
+          </Badge>
+        )}
+      </span>
+      <span className="text-[11px] text-muted-foreground">
+        {parts.join(" · ")}
+      </span>
+    </div>
+  );
+}
+
+export function ProvenancePanel({ provenance, onOpenSession }: Props) {
+  const captures = provenance.captures ?? [];
+  const legacyCalls = provenance.tool_calls ?? [];
+  const [selected, setSelected] = useState<ProvenanceCall | null>(null);
+
+  if (captures.length === 0) {
+    if (legacyCalls.length > 0) {
+      return (
+        <LegacyProvenance calls={legacyCalls} onOpenSession={onOpenSession} />
+      );
+    }
     return <NoProvenance onOpenSession={onOpenSession} />;
   }
 
-  const trinoCalls = calls.filter((c) => c.tool_name.startsWith("trino_"));
-  const otherCalls = calls.filter((c) => !c.tool_name.startsWith("trino_"));
-  const visibleCalls = showAll ? calls : trinoCalls;
+  const total = captures.reduce((n, c) => n + (c.calls?.length ?? 0), 0);
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium">Provenance</h3>
         <span className="text-xs text-muted-foreground">
-          {trinoCalls.length} {trinoCalls.length === 1 ? "query" : "queries"}
-          {otherCalls.length > 0 && !showAll && ` + ${otherCalls.length} other`}
+          {total} {total === 1 ? "call" : "calls"}
         </span>
       </div>
 
-      <div className="space-y-2">
-        {visibleCalls.map((call, i) => (
-          <ProvenanceCard
-            key={i}
-            call={call}
-            onClick={() => setSelected(call)}
-          />
-        ))}
-      </div>
-
-      {otherCalls.length > 0 && (
-        // A disclosure toggle, not an empty state: the dashed outline this
-        // used to carry is reserved for EmptyState.
-        <Button
-          type="button"
-          variant="outline"
-          size="xs"
-          onClick={() => setShowAll((v) => !v)}
-          className="w-full text-muted-foreground"
-        >
-          {showAll ? "Show queries only" : `Show all ${calls.length} calls`}
-        </Button>
-      )}
+      {captures.map((capture, ci) => (
+        <div key={ci} className="space-y-2">
+          <CaptureHeading capture={capture} />
+          {(capture.calls ?? []).map((call, i) => (
+            <CallCard
+              key={call.event_id ?? `${ci}-${i}`}
+              call={call}
+              onClick={() => setSelected(call)}
+            />
+          ))}
+          {capture.truncated && (
+            <p className="text-[11px] text-muted-foreground">
+              {capture.explicit
+                ? "Some cited calls were not found and are not recorded."
+                : "More calls were made than this capture records."}
+            </p>
+          )}
+        </div>
+      ))}
 
       {onOpenSession && <OpenSessionButton onClick={onOpenSession} />}
 
-      <DetailModal
+      <CallDetailModal
         call={selected}
         open={selected !== null}
         onOpenChange={(open) => {
@@ -310,6 +388,131 @@ export function ProvenancePanel({ provenance, onOpenSession }: Props) {
       />
     </div>
   );
+}
+
+/**
+ * Assets written before #1320 carry a flat list of tool calls with their raw
+ * parameters and no outcome, duration, or identity. They are still shown, as
+ * what they are.
+ */
+function LegacyProvenance({
+  calls,
+  onOpenSession,
+}: {
+  calls: ProvenanceToolCall[];
+  onOpenSession?: () => void;
+}) {
+  const [selected, setSelected] = useState<ProvenanceToolCall | null>(null);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium">Provenance</h3>
+        <span className="text-xs text-muted-foreground">
+          {calls.length} {calls.length === 1 ? "call" : "calls"}
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {calls.map((call, i) => {
+          const Icon = getToolIcon(call.tool_name);
+          return (
+            <button
+              type="button"
+              key={i}
+              onClick={() => setSelected(call)}
+              className="w-full text-left rounded-md border bg-card p-3 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <div className="flex items-start gap-2.5">
+                <div className="mt-0.5 rounded bg-muted p-1.5">
+                  <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium">
+                      {formatToolName(call.tool_name)}
+                    </span>
+                    <span
+                      className="shrink-0 text-[11px] text-muted-foreground"
+                      title={new Date(call.timestamp).toLocaleString()}
+                    >
+                      {relativeTime(call.timestamp)}
+                    </span>
+                  </div>
+                  {legacySummary(call) && (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground font-mono">
+                      {truncate(legacySummary(call))}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {onOpenSession && <OpenSessionButton onClick={onOpenSession} />}
+
+      <Dialog
+        open={selected !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null);
+        }}
+      >
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>
+              {selected ? formatToolName(selected.tool_name) : ""}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {selected
+                ? `${selected.tool_name} · ${new Date(selected.timestamp).toLocaleString()}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground">
+                Parameters
+              </p>
+              <CopyButton
+                text={legacyDetail(selected)}
+                label="Copy parameters"
+              />
+            </div>
+            <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-words">
+              {legacyDetail(selected)}
+            </pre>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="secondary">
+                Close
+              </Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function legacySummary(call: ProvenanceToolCall): string {
+  const params = call.parameters;
+  if (!params) return "";
+  for (const key of ["sql", "query", "urn", "table", "path", "bucket"]) {
+    const value = params[key];
+    if (typeof value === "string" && value) return value;
+  }
+  return "";
+}
+
+function legacyDetail(call: ProvenanceToolCall | null): string {
+  if (!call?.parameters || Object.keys(call.parameters).length === 0) {
+    return "(no parameters)";
+  }
+  if (typeof call.parameters.sql === "string") return call.parameters.sql;
+  return JSON.stringify(call.parameters, null, 2);
 }
 
 /**

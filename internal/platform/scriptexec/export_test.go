@@ -67,7 +67,11 @@ func (*fakeAssets) List(context.Context, portal.AssetFilter) (assets []portal.As
 	return nil, 0, nil
 }
 func (*fakeAssets) Update(context.Context, string, portal.AssetUpdate) error { return nil }
-func (*fakeAssets) SoftDelete(context.Context, string) error                 { return nil }
+func (*fakeAssets) AppendProvenanceCapture(context.Context, string, portal.ProvenanceCapture) error {
+	return nil
+}
+
+func (*fakeAssets) SoftDelete(context.Context, string) error { return nil }
 
 // fakeVersionStore models the portal version store: each CreateVersion returns
 // the next number for that asset, which is what makes a run's output a new

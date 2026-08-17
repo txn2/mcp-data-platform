@@ -93,6 +93,7 @@ nav:
     - Administration:
       - User Portal: server/portal-user.md
       - Content Types and Viewers: server/content-viewers.md
+      - Provenance: server/provenance.md
       - Admin Portal: server/admin-portal.md
       - Admin API: server/admin-api.md
       - Email Notifications: server/notifications.md

@@ -4001,6 +4001,10 @@ definitions:
     type: object
   portaldomain.Provenance:
     properties:
+      captures:
+        items:
+          $ref: '#/definitions/portaldomain.ProvenanceCapture'
+        type: array
       declared_content_type:
         description: |-
           DeclaredContentType is the media type the writer declared, recorded only
@@ -4019,6 +4023,108 @@ definitions:
       user_id:
         example: 550e8400-e29b-41d4-a716-446655440000
         type: string
+    type: object
+  portaldomain.ProvenanceCall:
+    properties:
+      connection:
+        description: Connection is the named connection the call was routed to.
+        example: warehouse
+        type: string
+      duration_ms:
+        description: DurationMS is how long the call took.
+        example: 143
+        type: integer
+      error:
+        description: Error is the failure message, for a call that ended in error.
+        type: string
+      event_id:
+        description: |-
+          EventID is the audit event this call was read from. Empty for a call the
+          capturing tool recorded about itself, whose own audit row is written
+          only after it returns.
+        type: string
+      kind:
+        description: Kind is one of the ProvenanceKind constants.
+        example: sql
+        type: string
+      method:
+        description: Method and Path are the HTTP request line, for an api call.
+        example: GET
+        type: string
+      operation_id:
+        description: OperationID is the catalog operation invoked, for an api call.
+        example: listOrders
+        type: string
+      outcome:
+        description: Outcome is one of the ProvenanceOutcome constants.
+        example: success
+        type: string
+      path:
+        example: /v1/orders
+        type: string
+      purpose:
+        description: Purpose is the reason the caller stated for the call (#1317).
+        type: string
+      statement:
+        description: Statement is the query text, for a sql call.
+        type: string
+      summary:
+        description: |-
+          Summary describes a call whose kind carries neither a statement nor a
+          request line (a catalog lookup, an object read).
+        type: string
+      timestamp:
+        description: Timestamp is when the call started.
+        type: string
+      tool:
+        description: Tool is the tool that was called.
+        example: trino_query
+        type: string
+    type: object
+  portaldomain.ProvenanceCapture:
+    properties:
+      calls:
+        description: |-
+          Calls is the snapshot of the captured calls, taken at write time.
+          Audit rows are retained for a fixed window and assets are not, so an
+          asset that outlives its audit rows still says what produced it.
+        items:
+          $ref: '#/definitions/portaldomain.ProvenanceCall'
+        type: array
+      captured_at:
+        description: CapturedAt is when the capture was taken.
+        type: string
+      event_ids:
+        description: |-
+          EventIDs are the audit event ids of the captured calls, in call order.
+          They are the durable reference: the audit log holds the full record of
+          each call for as long as it is retained.
+        items:
+          type: string
+        type: array
+      explicit:
+        description: |-
+          Explicit records that the caller named these sources rather than the
+          platform taking the session's calls since the previous capture.
+        type: boolean
+      session_id:
+        description: SessionID is the session whose calls were captured.
+        example: dps_abc123
+        type: string
+      tool:
+        description: |-
+          Tool is the tool that performed this capture (save_asset, manage_asset,
+          trino_export, api_export).
+        example: save_asset
+        type: string
+      truncated:
+        description: Truncated records that more calls were eligible than the capture
+          holds.
+        type: boolean
+      version:
+        description: Version is the asset version this capture produced, when known.
+        example: 2
+        type: integer
     type: object
   portaldomain.ProvenanceToolCall:
     properties:

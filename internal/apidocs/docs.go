@@ -21622,6 +21622,12 @@ const docTemplate = `{
         "portaldomain.Provenance": {
             "type": "object",
             "properties": {
+                "captures": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.ProvenanceCapture"
+                    }
+                },
                 "declared_content_type": {
                     "description": "DeclaredContentType is the media type the writer declared, recorded only\nwhen detection replaced it. It is the audit trail for a reclassified\nasset: it answers \"what did the upstream actually say\" without which a\nstored type that disagrees with the source is unexplainable.",
                     "type": "string",
@@ -21640,6 +21646,120 @@ const docTemplate = `{
                 "user_id": {
                     "type": "string",
                     "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "portaldomain.ProvenanceCall": {
+            "type": "object",
+            "properties": {
+                "connection": {
+                    "description": "Connection is the named connection the call was routed to.",
+                    "type": "string",
+                    "example": "warehouse"
+                },
+                "duration_ms": {
+                    "description": "DurationMS is how long the call took.",
+                    "type": "integer",
+                    "example": 143
+                },
+                "error": {
+                    "description": "Error is the failure message, for a call that ended in error.",
+                    "type": "string"
+                },
+                "event_id": {
+                    "description": "EventID is the audit event this call was read from. Empty for a call the\ncapturing tool recorded about itself, whose own audit row is written\nonly after it returns.",
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "Kind is one of the ProvenanceKind constants.",
+                    "type": "string",
+                    "example": "sql"
+                },
+                "method": {
+                    "description": "Method and Path are the HTTP request line, for an api call.",
+                    "type": "string",
+                    "example": "GET"
+                },
+                "operation_id": {
+                    "description": "OperationID is the catalog operation invoked, for an api call.",
+                    "type": "string",
+                    "example": "listOrders"
+                },
+                "outcome": {
+                    "description": "Outcome is one of the ProvenanceOutcome constants.",
+                    "type": "string",
+                    "example": "success"
+                },
+                "path": {
+                    "type": "string",
+                    "example": "/v1/orders"
+                },
+                "purpose": {
+                    "description": "Purpose is the reason the caller stated for the call (#1317).",
+                    "type": "string"
+                },
+                "statement": {
+                    "description": "Statement is the query text, for a sql call.",
+                    "type": "string"
+                },
+                "summary": {
+                    "description": "Summary describes a call whose kind carries neither a statement nor a\nrequest line (a catalog lookup, an object read).",
+                    "type": "string"
+                },
+                "timestamp": {
+                    "description": "Timestamp is when the call started.",
+                    "type": "string"
+                },
+                "tool": {
+                    "description": "Tool is the tool that was called.",
+                    "type": "string",
+                    "example": "trino_query"
+                }
+            }
+        },
+        "portaldomain.ProvenanceCapture": {
+            "type": "object",
+            "properties": {
+                "calls": {
+                    "description": "Calls is the snapshot of the captured calls, taken at write time.\nAudit rows are retained for a fixed window and assets are not, so an\nasset that outlives its audit rows still says what produced it.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portaldomain.ProvenanceCall"
+                    }
+                },
+                "captured_at": {
+                    "description": "CapturedAt is when the capture was taken.",
+                    "type": "string"
+                },
+                "event_ids": {
+                    "description": "EventIDs are the audit event ids of the captured calls, in call order.\nThey are the durable reference: the audit log holds the full record of\neach call for as long as it is retained.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "explicit": {
+                    "description": "Explicit records that the caller named these sources rather than the\nplatform taking the session's calls since the previous capture.",
+                    "type": "boolean"
+                },
+                "session_id": {
+                    "description": "SessionID is the session whose calls were captured.",
+                    "type": "string",
+                    "example": "dps_abc123"
+                },
+                "tool": {
+                    "description": "Tool is the tool that performed this capture (save_asset, manage_asset,\ntrino_export, api_export).",
+                    "type": "string",
+                    "example": "save_asset"
+                },
+                "truncated": {
+                    "description": "Truncated records that more calls were eligible than the capture holds.",
+                    "type": "boolean"
+                },
+                "version": {
+                    "description": "Version is the asset version this capture produced, when known.",
+                    "type": "integer",
+                    "example": 2
                 }
             }
         },

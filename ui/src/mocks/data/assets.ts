@@ -33,10 +33,61 @@ export const mockAssets: Asset[] = [
     provenance: {
       session_id: agentSessions[0]!,
       user_id: "user-alice",
-      tool_calls: [
-        { tool_name: "trino_query", timestamp: daysAgo(3), parameters: { sql: "SELECT region, SUM(revenue) FROM sales.quarterly GROUP BY region" } },
-        { tool_name: "datahub_search", timestamp: daysAgo(3), parameters: { query: "revenue table" } },
-        { tool_name: "save_asset", timestamp: daysAgo(3), parameters: { name: "Q4 Revenue Dashboard" } },
+      captures: [
+        {
+          tool: "save_asset",
+          captured_at: daysAgo(3),
+          version: 1,
+          session_id: agentSessions[0]!,
+          event_ids: ["evt-q4-1", "evt-q4-2"],
+          calls: [
+            {
+              event_id: "evt-q4-1",
+              kind: "tool",
+              tool: "datahub_get_entity",
+              connection: "acme-catalog",
+              summary: "urn:li:dataset:(urn:li:dataPlatform:trino,sales.quarterly,PROD)",
+              purpose: "Checking the ownership and freshness of the revenue table before charting it.",
+              outcome: "success",
+              duration_ms: 212,
+              timestamp: daysAgo(3),
+            },
+            {
+              event_id: "evt-q4-2",
+              kind: "sql",
+              tool: "trino_query",
+              connection: "warehouse",
+              statement: "SELECT region, SUM(revenue) FROM sales.quarterly GROUP BY region",
+              purpose: "Totalling Q4 revenue by region for the board dashboard.",
+              outcome: "success",
+              duration_ms: 1_840,
+              timestamp: daysAgo(3),
+            },
+          ],
+        },
+        {
+          tool: "manage_asset",
+          captured_at: daysAgo(1),
+          version: 5,
+          session_id: agentSessions[0]!,
+          explicit: true,
+          event_ids: ["evt-q4-3"],
+          calls: [
+            {
+              event_id: "evt-q4-3",
+              kind: "api",
+              tool: "api_invoke_endpoint",
+              connection: "crm",
+              method: "GET",
+              path: "/v1/accounts?segment=enterprise",
+              operation_id: "listAccounts",
+              purpose: "Adding the enterprise account names the revenue split is broken out by.",
+              outcome: "success",
+              duration_ms: 640,
+              timestamp: daysAgo(1),
+            },
+          ],
+        },
       ],
     },
     session_id: agentSessions[0]!,
@@ -56,6 +107,8 @@ export const mockAssets: Asset[] = [
     thumbnail_s3_key: "thumbnails/ast-002.png",
     size_bytes: 6_800,
     tags: ["chart", "sales", "pipeline"],
+    // Kept in the pre-#1320 shape: the panel renders both, and an asset saved
+    // before the platform recorded sources by reference still reads.
     provenance: {
       session_id: agentSessions[1]!,
       user_id: "user-alice",
@@ -84,9 +137,39 @@ export const mockAssets: Asset[] = [
     provenance: {
       session_id: agentSessions[2]!,
       user_id: "user-alice",
-      tool_calls: [
-        { tool_name: "trino_query", timestamp: daysAgo(2), parameters: { sql: "SELECT warehouse, SUM(qty) FROM inventory.levels GROUP BY warehouse" } },
-        { tool_name: "save_asset", timestamp: daysAgo(2), parameters: { name: "Weekly Inventory Report" } },
+      captures: [
+        {
+          tool: "save_asset",
+          captured_at: daysAgo(2),
+          version: 1,
+          session_id: agentSessions[2]!,
+          event_ids: ["evt-inv-1", "evt-inv-2"],
+          calls: [
+            {
+              event_id: "evt-inv-1",
+              kind: "sql",
+              tool: "trino_query",
+              connection: "warehouse",
+              statement: "SELECT warehouse, SUM(quantity) FROM inventory.level GROUP BY warehouse",
+              purpose: "Summing stock per warehouse for the weekly report.",
+              outcome: "error",
+              error: "TABLE_NOT_FOUND: inventory.level",
+              duration_ms: 95,
+              timestamp: daysAgo(2),
+            },
+            {
+              event_id: "evt-inv-2",
+              kind: "sql",
+              tool: "trino_query",
+              connection: "warehouse",
+              statement: "SELECT warehouse, SUM(qty) FROM inventory.levels GROUP BY warehouse",
+              purpose: "Summing stock per warehouse for the weekly report.",
+              outcome: "success",
+              duration_ms: 1_120,
+              timestamp: daysAgo(2),
+            },
+          ],
+        },
       ],
     },
     session_id: agentSessions[2]!,

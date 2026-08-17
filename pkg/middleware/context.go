@@ -45,6 +45,14 @@ type PlatformContext struct {
 	SessionID string
 	StartTime time.Time
 
+	// EventID is the identifier of the audit event this call will write, minted
+	// before the handler runs (issue #1320). The audit row is written after the
+	// call returns, so nothing downstream could cite the call otherwise: the
+	// call-reference middleware hands this id back to the agent as `call_id`,
+	// and an asset saved later records it as the source it was built from.
+	// Empty on a call assembled outside MCPToolCallMiddleware.
+	EventID string
+
 	// SessionHandleThreaded records that THIS call carried an explicit
 	// platform-minted session handle as an argument, as opposed to having its
 	// session resolved for it (adopted from the caller's identity, taken from

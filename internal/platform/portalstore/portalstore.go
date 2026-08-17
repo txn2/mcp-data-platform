@@ -38,6 +38,11 @@ import (
 type Config struct {
 	// Name is the toolkit instance name (the platform passes its default).
 	Name string
+
+	// CaptureProvenance resolves which calls an asset write was built from,
+	// passed straight through to the asset toolkit (#1320). Nil in a
+	// deployment with no audit log to read.
+	CaptureProvenance portal.ProvenanceCapturer
 	// S3Bucket / S3Prefix address the portal's blob backend; empty in
 	// database-only mode (no S3 client).
 	S3Bucket string
@@ -144,6 +149,8 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 		BaseURL:         cfg.BaseURL,
 		MaxContentSize:  cfg.MaxContentSize,
 		Embedder:        embedder,
+
+		CaptureProvenance: cfg.CaptureProvenance,
 	})
 	return h
 }

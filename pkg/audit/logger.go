@@ -97,7 +97,12 @@ var ValidSortColumns = map[string]bool{
 
 // QueryFilter defines criteria for querying audit events.
 type QueryFilter struct {
-	ID          string
+	ID string
+	// IDs selects a set of events by identifier in one query. It exists for
+	// provenance capture (issue #1320), which resolves the event ids an agent
+	// cited as an asset's sources; combine it with UserID or SessionID to keep
+	// the lookup scoped to the caller's own calls. Empty means no id-set filter.
+	IDs         []string
 	StartTime   *time.Time
 	EndTime     *time.Time
 	UserID      string

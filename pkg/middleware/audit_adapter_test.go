@@ -257,3 +257,73 @@ func TestAuditStoreAdapter_Log_PreservesTimestamp(t *testing.T) {
 	require.Len(t, store.events, 1)
 	assert.Equal(t, specificTime, store.events[0].Timestamp)
 }
+
+// The id the tool-call middleware minted is the id of the stored row: an agent
+// was already handed it, and an asset may already cite it as a source (#1320).
+func TestAuditStoreAdapter_LogKeepsTheMintedID(t *testing.T) {
+	store := &mockAuditStore{}
+	adapter := newAuditStoreAdapterWithStore(store)
+
+	require.NoError(t, adapter.Log(context.Background(), AuditEvent{ID: "evt-minted", ToolName: "trino_query"}))
+	require.Len(t, store.events, 1)
+	assert.Equal(t, "evt-minted", store.events[0].ID)
+}
+
+// An event assembled outside the tool-call path still gets an id.
+func TestAuditStoreAdapter_LogMintsAnIDWhenNoneWasStamped(t *testing.T) {
+	store := &mockAuditStore{}
+	adapter := newAuditStoreAdapterWithStore(store)
+
+	require.NoError(t, adapter.Log(context.Background(), AuditEvent{ToolName: "trino_query"}))
+	require.Len(t, store.events, 1)
+	assert.NotEmpty(t, store.events[0].ID)
+}
+
+// Flush drains the async writer without closing it, so a provenance capture
+// can read the calls that just completed.
+func TestAuditStoreAdapter_FlushDrainsAsyncWriter(t *testing.T) {
+	store := &drainableAuditStore{delay: time.Millisecond}
+	writer := audit.NewAsyncWriter(store)
+	adapter := NewAuditStoreAdapter(writer)
+	defer func() { _ = writer.Close(context.Background()) }()
+
+	const n = 10
+	for range n {
+		require.NoError(t, adapter.Log(context.Background(), AuditEvent{ToolName: "trino_query"}))
+	}
+
+	flusher, ok := adapter.(interface{ Flush(context.Context) error })
+	require.True(t, ok, "the adapter must offer the flush the capture waits on")
+	require.NoError(t, flusher.Flush(context.Background()))
+	assert.Equal(t, n, store.count())
+
+	require.NoError(t, adapter.Log(context.Background(), AuditEvent{ToolName: "trino_query"}),
+		"the writer is still open after a flush")
+}
+
+// A store that writes synchronously has nothing to wait for.
+func TestAuditStoreAdapter_FlushWithoutABufferingStore(t *testing.T) {
+	adapter := newAuditStoreAdapterWithStore(&mockAuditStore{})
+	flusher, ok := adapter.(interface{ Flush(context.Context) error })
+	require.True(t, ok)
+	assert.NoError(t, flusher.Flush(context.Background()))
+}
+
+// A flush that cannot complete is reported to the caller, which treats it as
+// degraded accuracy rather than a failed write.
+func TestAuditStoreAdapter_FlushError(t *testing.T) {
+	store := &blockingDrainStore{release: make(chan struct{})}
+	defer close(store.release)
+	writer := audit.NewAsyncWriter(store)
+	adapter := NewAuditStoreAdapter(writer)
+
+	require.NoError(t, adapter.Log(context.Background(), AuditEvent{ToolName: "trino_query"}))
+
+	flusher, ok := adapter.(interface{ Flush(context.Context) error })
+	require.True(t, ok)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := flusher.Flush(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "flushing audit writer")
+}

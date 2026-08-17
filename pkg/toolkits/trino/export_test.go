@@ -146,9 +146,6 @@ func newTestExportToolkit(assetStore ExportAssetStore, versionStore ExportVersio
 				SessionID: "sess-abc",
 			}
 		},
-		GetProvenanceCalls: func(_ context.Context) []ExportProvenanceCall {
-			return nil
-		},
 	})
 	return tk
 }
@@ -350,7 +347,6 @@ func TestHandleExport_ReadOnlyEnforcedEvenWhenConfigAllowsWrite(t *testing.T) {
 		GetUserContext: func(_ context.Context) *ExportUserContext {
 			return &ExportUserContext{UserID: "u1", UserEmail: "a@example.com", SessionID: "s1"}
 		},
-		GetProvenanceCalls: func(_ context.Context) []ExportProvenanceCall { return nil },
 	})
 
 	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
@@ -620,31 +616,27 @@ func TestFormatExportResult(t *testing.T) {
 	assert.True(t, errResult.IsError)
 }
 
+// The export records the call it just made and nothing else: the rest of the
+// asset's sources are resolved from the audit log when the asset is written
+// (#1320), and this call's own audit row does not exist yet.
 func TestBuildExportProvenance(t *testing.T) {
-	deps := &ExportDeps{
-		GetProvenanceCalls: func(_ context.Context) []ExportProvenanceCall {
-			return []ExportProvenanceCall{
-				{ToolName: "trino_query", Timestamp: "2026-01-01T00:00:00Z"},
-			}
-		},
-	}
-
-	prov := buildExportProvenance(context.Background(), deps, exportProvenanceParams{
+	prov := buildExportProvenance(exportProvenanceParams{
 		userID:       "u1",
 		sessionID:    "s1",
 		sql:          "SELECT 1",
 		sourceTables: []string{"catalog.schema.t"},
+		connection:   "warehouse",
 		format:       "csv",
 		rowCount:     100,
 	})
 
 	assert.Equal(t, "u1", prov.UserID)
 	assert.Equal(t, "s1", prov.SessionID)
-	// Should have the session call + the export operation itself
-	require.Len(t, prov.ToolCalls, 2)
-	assert.Equal(t, "trino_query", prov.ToolCalls[0].ToolName)
-	assert.Equal(t, exportToolName, prov.ToolCalls[1].ToolName)
-	assert.Equal(t, "SELECT 1", prov.ToolCalls[1].Parameters["export_query"])
+	require.Len(t, prov.ToolCalls, 1)
+	assert.Equal(t, exportToolName, prov.ToolCalls[0].ToolName)
+	assert.Equal(t, "SELECT 1", prov.ToolCalls[0].Parameters["export_query"])
+	assert.Equal(t, "warehouse", prov.ToolCalls[0].Parameters[propConnection])
+	assert.Equal(t, 100, prov.ToolCalls[0].Parameters["row_count"])
 }
 
 func TestInsertAssetWithRace_Success(t *testing.T) {
@@ -805,11 +797,6 @@ func TestHandleExport_FullFlow(t *testing.T) {
 				SessionID: "sess-abc",
 			}
 		},
-		GetProvenanceCalls: func(_ context.Context) []ExportProvenanceCall {
-			return []ExportProvenanceCall{
-				{ToolName: "trino_query", Timestamp: "2026-01-01T00:00:00Z"},
-			}
-		},
 	})
 
 	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
@@ -868,7 +855,6 @@ func TestHandleExport_S3FailureNoAsset(t *testing.T) {
 		GetUserContext: func(_ context.Context) *ExportUserContext {
 			return &ExportUserContext{UserID: "u1", UserEmail: "a@example.com", SessionID: "s1"}
 		},
-		GetProvenanceCalls: func(_ context.Context) []ExportProvenanceCall { return nil },
 	})
 
 	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
@@ -905,7 +891,6 @@ func TestHandleExport_WithCreatePublicLink(t *testing.T) {
 		GetUserContext: func(_ context.Context) *ExportUserContext {
 			return &ExportUserContext{UserID: "u1", UserEmail: "a@example.com", SessionID: "s1"}
 		},
-		GetProvenanceCalls: func(_ context.Context) []ExportProvenanceCall { return nil },
 	})
 
 	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{
@@ -937,7 +922,6 @@ func TestHandleExport_ByteCapExceeded_WithClient(t *testing.T) {
 		GetUserContext: func(_ context.Context) *ExportUserContext {
 			return &ExportUserContext{UserID: "u1", UserEmail: "a@example.com", SessionID: "s1"}
 		},
-		GetProvenanceCalls: func(_ context.Context) []ExportProvenanceCall { return nil },
 	})
 
 	result, err := tk.handleExport(context.Background(), buildExportRequest(map[string]any{

@@ -44,6 +44,10 @@ func (m *mockAdminAssetStore) Update(_ context.Context, _ string, u portal.Asset
 	m.lastUpdate = &u
 	return m.updateErr
 }
+func (*mockAdminAssetStore) AppendProvenanceCapture(context.Context, string, portal.ProvenanceCapture) error {
+	return nil
+}
+
 func (m *mockAdminAssetStore) SoftDelete(_ context.Context, _ string) error { return m.deleteErr }
 
 func (m *mockAdminAssetStore) GetByIDs(_ context.Context, ids []string) (map[string]*portal.Asset, error) {

@@ -53,7 +53,13 @@ func (*assetStore) List(_ context.Context, _ portaldomain.AssetFilter) ([]portal
 //nolint:revive // interface implementation method on an unexported type
 func (*assetStore) Update(_ context.Context, _ string, _ portaldomain.AssetUpdate) error {
 	return nil
-}                                                                //nolint:revive // interface impl
+}
+
+//nolint:revive // interface implementation method on an unexported type
+func (*assetStore) AppendProvenanceCapture(_ context.Context, _ string, _ portaldomain.ProvenanceCapture) error {
+	return nil
+}
+
 func (*assetStore) SoftDelete(_ context.Context, _ string) error { return nil } //nolint:revive // interface impl
 
 // --- ShareStore ---
