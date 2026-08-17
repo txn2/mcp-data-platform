@@ -77,6 +77,17 @@ func CallRef(eventID string) string {
 	return refOrEmpty(EntityRef{TargetType: RefTargetCall, CallID: eventID})
 }
 
+// SessionRef returns the canonical reference for a platform session, or "" if
+// the id is empty. It is how a session is named from outside the session read
+// model: an asset's provenance points back at the session that produced it, and
+// search emits it on a hit so an agent can fetch the session it ran (#1322). A
+// session is NOT citable on a knowledge page — it is read back from one
+// caller's own calls, so the citation would resolve for that caller alone — and
+// the page-citation path rejects it (ParseCitableRef).
+func SessionRef(id string) string {
+	return refOrEmpty(EntityRef{TargetType: RefTargetSession, SessionID: id})
+}
+
 // refOrEmpty serializes a reference and returns it only when it round-trips
 // through ParseEntityRef, so an unresolvable reference is never emitted.
 func refOrEmpty(r EntityRef) string {

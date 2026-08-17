@@ -17,6 +17,7 @@ package sessionview
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"time"
 
@@ -212,4 +213,26 @@ type Store interface {
 	// Insights returns the insights the session captured, oldest first.
 	// Scoped the same way Assets is.
 	Insights(ctx context.Context, sessionID string) ([]InsightRef, error)
+}
+
+// Reader is the whole read model an agent-facing consumer needs: the operator
+// reads of Store, plus relevance search over the caller's own sessions. The
+// discovery path takes this rather than Store because recalling a session has
+// two halves — finding it, then opening it — and a consumer that could only
+// open one would need the id it was trying to find.
+type Reader interface {
+	Store
+	// Search ranks the caller's own sessions against a query.
+	Search(ctx context.Context, q SearchQuery) ([]Match, error)
+}
+
+// ReaderFor returns the session read model over db, or nil when there is no
+// database. The nil is the gate: sessions are read from the audit log, so a
+// deployment without one has no session to recall, and its consumers register
+// no session surface at all rather than one that answers nothing.
+func ReaderFor(db *sql.DB) Reader {
+	if db == nil {
+		return nil
+	}
+	return NewPostgresStore(db)
 }

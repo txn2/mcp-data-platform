@@ -622,13 +622,16 @@ business/domain ontology, searched over their full markdown content), the caller
 personal memory, captured insights, the caller's feedback threads, saved assets,
 the caller's own recorded calls (the queries and API invocations they have already
 run, each hit carrying its outcome and how many later sessions re-ran it, so a
-proven statement outranks a guess),
+proven statement outranks a guess), the caller's own sessions (found by what
+their calls said they were for and by the names of what they saved, so "what did
+I do about churn last week" reaches the work rather than only the individual
+calls inside it),
 managed resources (human-uploaded reference material, searched over their metadata
 **and their extracted file content**), prompts, managed scripts, API endpoints (aggregated across
 every API gateway connection, reusing
-the per-connection semantic ranking of `api_list_endpoints`), and connections. Memory, insights, and
-assets are per-user, scoped server-side to the caller, so a search never surfaces
-another user's private records; the catalog, the governance vocabulary, knowledge
+the per-connection semantic ranking of `api_list_endpoints`), and connections. Memory, insights,
+assets, recorded calls, and sessions are per-user, scoped server-side to the
+caller, so a search never surfaces another user's private records; the catalog, the governance vocabulary, knowledge
 pages, prompts, scripts, endpoints
 (each gateway applies its own route policy), and connections are shared. Resources
 and scripts are visibility-scoped: global material reaches every caller, persona
@@ -737,7 +740,7 @@ matches, alongside a top-level `withheld_notice`).
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
 | `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
-| `sources` | array | No | - | Narrow the search to named sources (`catalog`, `governance`, `context_documents`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `resources`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
+| `sources` | array | No | - | Narrow the search to named sources (`catalog`, `governance`, `context_documents`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `resources`, `prompts`, `scripts`, `calls`, `sessions`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
 
 ---
@@ -802,6 +805,7 @@ routing each well-formed reference by its form to the owning source:
 | `mcp:insight:<id>` | insights | the full captured insight (scoped to the caller; fetch-only, not citable on a page) |
 | `mcp:memory:<id>` | memory | the full personal memory record (scoped to the caller; fetch-only, not citable on a page) |
 | `mcp:call:<id>` | calls | the recorded call: the statement or request that ran, the purpose stated for it, what came of it, and how many later sessions re-ran it. Reading one is also what makes your own re-run of it count as reuse (scoped to the caller; fetch-only, not citable on a page) |
+| `mcp:session:<id>` | sessions | the session the caller ran: its summary, the assets and insights it produced as references to follow, and its call timeline in order — each call with the purpose stated for it, and, where the catalog recorded one, its kind, its outcome, and the `mcp:call:` reference that reads it in full (scoped to the caller; fetch-only, not citable on a page) |
 
 The usual source of a reference is a `search` result's `reference` field, but
 `fetch` is not limited to references `search` produced: a well-formed reference
@@ -822,7 +826,8 @@ returns is reported as a clean not-found, the same bound the portal's reference
 labels carry.
 
 **Scope mirrors `search` exactly:** the per-user sources (assets, your memory, your
-insights) are read only for the identity that owns the record, a
+insights, your recorded calls, your sessions) are read only for the identity that
+owns the record, a
 persona/personal-scoped prompt only for the matching caller, and a managed resource
 or managed script only for a caller whose visible scopes include it, so `fetch` never
 returns content the same caller could not have

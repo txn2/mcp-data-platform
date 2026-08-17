@@ -175,6 +175,9 @@ func applyFilters(qb sq.SelectBuilder, f Filter) sq.SelectBuilder {
 	if f.SessionID != "" {
 		qb = qb.Where(sq.Eq{"r.session_id": f.SessionID})
 	}
+	if len(f.EventIDs) > 0 {
+		qb = qb.Where(sq.Eq{"r.event_id": f.EventIDs})
+	}
 	if f.Target != "" {
 		qb = qb.Where(sq.Expr("r.targets @> to_jsonb(?::text)", f.Target))
 	}

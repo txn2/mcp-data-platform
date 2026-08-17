@@ -51,6 +51,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
 	"github.com/txn2/mcp-data-platform/internal/platform/searchfed"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
+	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/userdir"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
@@ -1656,6 +1657,7 @@ func (p *Platform) initSearch() error {
 		ResourceReads:      p.resources.ReadRecorder(),
 		ScriptStore:        scriptstore.NewDiscoveryStore(p.db),
 		CallCatalog:        callSearcher(p.audit.Calls()),
+		Sessions:           sessionview.ReaderFor(p.db),
 		VerifiableInsights: p.config.Knowledge.IsVerifiableInsightsEnabled(),
 		QueryProvider:      p.queryProvider,
 		PersonasForRoles:   iam.PersonasForRoles(p.personaRegistry),

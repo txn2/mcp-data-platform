@@ -175,6 +175,11 @@ type Filter struct {
 	Target string
 	// SessionID keeps the calls one session made.
 	SessionID string
+	// EventIDs keeps the records of named audit events. It is how a caller
+	// that already holds a page of events — a session's timeline — reads the
+	// records for exactly those events, rather than reading a session's whole
+	// history and discarding most of it. Empty states no restriction.
+	EventIDs []string
 	// Search matches the purpose and the statement.
 	Search string
 	// PromotableOnly keeps the records a reviewer can act on: satisfied, not

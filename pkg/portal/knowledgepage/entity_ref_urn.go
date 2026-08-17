@@ -46,6 +46,8 @@ func (r EntityRef) URN() string {
 		return mcpScheme + RefTargetScript + refKeySep + r.ScriptID
 	case RefTargetCall:
 		return CallReferencePrefix + r.CallID
+	case RefTargetSession:
+		return mcpScheme + RefTargetSession + refKeySep + r.SessionID
 	default:
 		return ""
 	}
@@ -82,10 +84,11 @@ func ParseEntityRef(s string) (EntityRef, error) {
 // reference reaches a narrower audience than the page carrying it, so the citation
 // would be broken for most of its readers:
 //
-//   - the per-user sources, personal memory (mcp:memory:<id>) and captured insights
-//     (mcp:insight:<id>), which are ScopePerUser and resolve only for their owner
-//     (#699). An insight promoted to the catalog via apply_knowledge becomes a
-//     shared DataHub entity, which IS citable as its urn:li:... form.
+//   - the per-user sources, personal memory (mcp:memory:<id>), captured insights
+//     (mcp:insight:<id>), recorded calls (mcp:call:<id>) and sessions
+//     (mcp:session:<id>), which are ScopePerUser and resolve only for their owner
+//     (#699, #1321, #1322). An insight promoted to the catalog via apply_knowledge
+//     becomes a shared DataHub entity, which IS citable as its urn:li:... form.
 //   - the visibility-scoped sources, managed resources (mcp:resource:<id>, #1012)
 //     and managed scripts (mcp:script:<id>, #1302), whose global/persona/personal
 //     scope reaches fewer readers than a shared page does.
@@ -101,6 +104,8 @@ func ParseCitableRef(s string) (EntityRef, error) {
 	switch ref.TargetType {
 	case RefTargetCall:
 		return EntityRef{}, fmt.Errorf("a call reference (%q) cannot be cited on a knowledge page: a recorded call resolves only for the caller who made it, so the citation would be broken for every other reader; promote the record to a catalog query and cite the resulting urn:li:... entity instead", s)
+	case RefTargetSession:
+		return EntityRef{}, fmt.Errorf("a session reference (%q) cannot be cited on a knowledge page: a session is read back from the calls one caller made, so it resolves for that caller alone; cite what the session produced (an asset, or an insight promoted to the catalog) instead", s)
 	case RefTargetMemory, RefTargetInsight:
 		return EntityRef{}, fmt.Errorf("a personal %s reference (%q) cannot be cited on a knowledge page: it is private to its owner, so the citation would resolve for no one else; promote the insight to the catalog and cite the resulting urn:li:... entity, or cite a shared entity instead", ref.TargetType, s)
 	case RefTargetResource:
@@ -162,6 +167,12 @@ func parseSimpleMCPRef(typ, id, s string) (EntityRef, error) {
 		// another caller's call, or one whose audit window has passed, as
 		// not-found.
 		return EntityRef{TargetType: RefTargetCall, CallID: id}, nil
+	case RefTargetSession:
+		// A session id is the handle the platform minted (or the transport
+		// derived), an opaque server-generated string. The caller-scoped read
+		// resolves it: another caller's session, and one whose audit window has
+		// passed, are both not-found.
+		return EntityRef{TargetType: RefTargetSession, SessionID: id}, nil
 	case RefTargetScript:
 		// Script ids are opaque server-generated strings ("script_<uuid>"), accepted
 		// as-is; the visibility-checked fetch resolves them and reports a stale id as

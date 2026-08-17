@@ -106,6 +106,12 @@ type Config struct {
 	// source out entirely.
 	CallCatalog knowledge.CallSearcher
 
+	// Sessions federates the caller's own sessions into the corpus (#1322):
+	// the units of work they ran, found by what their calls said they were
+	// for. nil (no database, and so no audit history to derive a session from)
+	// leaves the source out entirely.
+	Sessions knowledge.SessionReader
+
 	// ResourceBlobs and ResourceBucket let the resources provider return a text
 	// resource's contents inline from `fetch`. Nil leaves fetch returning
 	// metadata plus the canonical URI; it does not affect searchability.
@@ -303,7 +309,24 @@ func appendScriptProvider(cfg Config, providers []knowledge.Provider) []knowledg
 	if cfg.CallCatalog != nil {
 		providers = append(providers, knowledge.NewCallsProvider(cfg.CallCatalog))
 	}
-	return providers
+	return appendSessionProvider(cfg, providers)
+}
+
+// appendSessionProvider adds the caller's own sessions to the corpus (#1322).
+// The call catalog is wired into it when one exists, so a recalled session's
+// timeline says what each call was and what came of it; the type assertion is
+// how the same catalog handle serves both sources without the owner passing it
+// twice, and a catalog that cannot list leaves the timeline unannotated rather
+// than absent.
+func appendSessionProvider(cfg Config, providers []knowledge.Provider) []knowledge.Provider {
+	if cfg.Sessions == nil {
+		return providers
+	}
+	sp := knowledge.NewSessionsProvider(cfg.Sessions)
+	if calls, ok := cfg.CallCatalog.(knowledge.SessionCallReader); ok {
+		sp.SetCalls(calls)
+	}
+	return append(providers, sp)
 }
 
 // appendFederationProviders adds the registry-federated search sources (API

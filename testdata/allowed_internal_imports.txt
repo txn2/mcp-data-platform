@@ -417,6 +417,7 @@ pkg/connview -> pkg/toolkit
 pkg/indexjobs -> internal/logsan
 pkg/indexjobs -> pkg/embedding
 pkg/knowledge -> internal/platform/callrecord
+pkg/knowledge -> internal/platform/sessionview
 pkg/knowledge -> internal/tableavail
 pkg/knowledge -> pkg/contenttype
 pkg/knowledge -> pkg/embedding
@@ -500,6 +501,7 @@ pkg/platform -> internal/platform/scriptlayer
 pkg/platform -> internal/platform/scriptstore
 pkg/platform -> internal/platform/searchfed
 pkg/platform -> internal/platform/sessionsync
+pkg/platform -> internal/platform/sessionview
 pkg/platform -> internal/platform/toolargs
 pkg/platform -> internal/platform/toolkitcfg
 pkg/platform -> internal/platform/toolratelimit

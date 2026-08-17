@@ -110,11 +110,25 @@ func (p *AssetsProvider) Fetch(ctx context.Context, ref string, caller Caller) (
 		return nil, true, ErrNotFound
 	}
 	return &Document{
-		Reference: ref,
-		Source:    SourceAssets,
-		Title:     asset.Name,
-		Content:   asset,
+		Reference:  ref,
+		Source:     SourceAssets,
+		Title:      asset.Name,
+		Content:    asset,
+		References: assetOutboundRefs(*asset),
 	}, true, nil
+}
+
+// assetOutboundRefs are the links an asset declares: the session that produced
+// it. The asset has carried that session id since #1318, but as a bare string
+// the reader could do nothing with; as a reference it is the way back to the
+// work — the calls, their purposes, and what else came of them (#1322). Nil for
+// an asset saved outside any session, which has nothing to point at.
+func assetOutboundRefs(a portal.Asset) []DocumentRef {
+	ref := knowledgepage.SessionRef(a.SessionID)
+	if ref == "" {
+		return nil
+	}
+	return []DocumentRef{{Reference: ref, Type: knowledgepage.RefTargetSession}}
 }
 
 // assetHitText renders an asset as a knowledge snippet: its name, and its

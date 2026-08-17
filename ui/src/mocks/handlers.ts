@@ -12,7 +12,7 @@ import type {
 } from "@/api/admin/types";
 import type { Share } from "@/api/portal/types";
 import { http, HttpResponse } from "msw";
-import { mockAuditEvents } from "./data/audit";
+import { agentSessions, mockAuditEvents } from "./data/audit";
 import { mockInsights, mockChangesets } from "./data/knowledge";
 import { mockPersonas, mockPersonaDetails } from "./data/personas";
 import { mockSystemInfo, mockTools, mockConnections } from "./data/system";
@@ -3385,6 +3385,22 @@ export const handlers = [
             source: "assets",
             ref: "ast-001",
             score: 0.64,
+          },
+        ],
+      },
+      {
+        // A real mock session id so "Open session" resolves. The caller's own
+        // work is a search source (#1322): the session is found by what its
+        // calls said they were for.
+        source: "sessions",
+        hits: [
+          {
+            text:
+              "Sizing Q3 revenue by region for the board deck.\n" +
+              "Saved: Q3 Revenue Dashboard\n6 calls on 2026-08-16",
+            source: "sessions",
+            ref: agentSessions[0]!,
+            score: 0.62,
           },
         ],
       },

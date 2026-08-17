@@ -42,7 +42,7 @@ flowchart LR
     end
 ```
 
-- **`search`** is the universal, topology-free discovery entry point: one query fans across the technical catalog, the caller's memory, captured insights, the caller's feedback, saved assets, uploaded reference material (managed resources, indexed over their file contents), prompts, managed scripts, API endpoints, and connections, returning a balanced, grouped-by-source, per-user-scoped result set with a coverage summary. See [search](../server/tools.md#search).
+- **`search`** is the universal, topology-free discovery entry point: one query fans across the technical catalog, the caller's memory, captured insights, the caller's feedback, saved assets, uploaded reference material (managed resources, indexed over their file contents), prompts, managed scripts, the caller's own recorded calls, the caller's own sessions, API endpoints, and connections, returning a balanced, grouped-by-source, per-user-scoped result set with a coverage summary. See [search](../server/tools.md#search).
 - **`memory_capture`** (memory toolkit) records domain knowledge during sessions. Available to all personas when enabled. Reviewed sink-classes (`business_knowledge`, `schema_entity`, `operational_rule`) create insights with status `pending`. (To read knowledge back, use `search`.)
 - **`apply_knowledge`** is an admin-only tool for reviewing, approving, synthesizing, and applying insights to DataHub.
 - **[Admin REST API](admin-api.md)** provides HTTP endpoints for managing insights and changesets outside the MCP protocol.
@@ -274,6 +274,30 @@ answers and what to watch out for is what makes the record worth finding, and
 what a reviewer reads before publishing it. A stranger's later re-run of the
 same statement (recorded as the record's reuse count) is the independent
 confirmation the self-report is not.
+
+## Recalling a session
+
+A call is one step; the work is the session. An agent recalls its own past work
+the way a person does — by what it was for, not by an id it kept (#1322):
+
+- **`search`** carries a `sessions` source over the caller's own sessions,
+  matched against the purposes their calls stated and the names of the assets
+  they saved. A hit carries an `mcp:session:<id>` reference.
+- **`fetch mcp:session:<id>`** opens one: its summary, the assets and insights
+  it produced (each as a reference to follow), and its call timeline in order.
+  Every call carries the purpose stated for it, and a call the catalog recorded
+  also carries its kind, its outcome, and the `mcp:call:` reference that reads
+  the record in full. A call with no record — discovery, portal work — is still
+  on the timeline, because it is part of what the session did, and simply
+  carries nothing to fetch.
+- **`fetch mcp:asset:<id>`** now returns the session that produced the asset as
+  an outbound reference, so a result leads back to the work behind it.
+
+Both are scoped in the read itself: a session is derived from the calls one
+caller made, so another caller's session id is answered exactly as an id that
+never ran. The same read model serves the portal's
+[My Sessions](../server/portal-user.md#my-sessions), so what an agent recalls
+and what its owner opens are the same session.
 
 ## Feedback Bridge
 

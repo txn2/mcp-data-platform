@@ -123,6 +123,28 @@ func TestAssetsProvider_Fetch(t *testing.T) {
 		if a, ok := doc.Content.(*portal.Asset); !ok || a.ID != "a1" {
 			t.Errorf("Content = %+v, want the asset", doc.Content)
 		}
+		if doc.References != nil {
+			t.Errorf("an asset saved outside a session points at nothing: %+v", doc.References)
+		}
+	})
+
+	// The session id an asset has carried since #1318 becomes the way back to
+	// the work that produced it (#1322).
+	t.Run("points back at the session that produced it", func(t *testing.T) {
+		s := &fakeAssetSearcher{asset: &portal.Asset{
+			ID: "a1", OwnerID: owner, Name: "Q3 export", SessionID: "dps_9f2c",
+		}}
+		doc, _, err := NewAssetsProvider(s).Fetch(context.Background(), ref, Caller{UserID: owner})
+		if err != nil {
+			t.Fatalf("Fetch: %v", err)
+		}
+		if len(doc.References) != 1 {
+			t.Fatalf("References = %+v", doc.References)
+		}
+		if doc.References[0].Reference != "mcp:session:dps_9f2c" ||
+			doc.References[0].Type != knowledgepage.RefTargetSession {
+			t.Errorf("References[0] = %+v, want the session reference", doc.References[0])
+		}
 	})
 
 	t.Run("declines a non-asset reference", func(t *testing.T) {
