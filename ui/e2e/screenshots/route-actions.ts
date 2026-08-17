@@ -40,6 +40,20 @@ export async function openAssetProvenanceCall(page: Page): Promise<void> {
 }
 
 /**
+ * openShareDialogPublicLink opens the Share dialog and switches the link to
+ * "Anyone with the link", which is the only state showing the anonymous-access
+ * warning and the lifetime control: a public link is the one share that
+ * expires on a clock (#1279).
+ */
+export async function openShareDialogPublicLink(page: Page): Promise<void> {
+  await openShareDialog(page);
+  await page.getByLabel("Who can open this link").click();
+  await page.getByRole("option", { name: "Anyone with the link" }).click();
+  await page.getByText(/works without signing in/).waitFor();
+  await page.waitForTimeout(400);
+}
+
+/**
  * openShareDialogWithRecipient opens the Share dialog and names a recipient,
  * which is the only state showing the notify checkbox and the sharer's
  * message box (#1016). It builds on openShareDialog so the two share captures

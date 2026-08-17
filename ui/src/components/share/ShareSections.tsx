@@ -26,7 +26,7 @@ import {
  */
 export type LinkAccessMode = Exclude<ShareAccessMode, "restricted">;
 
-/** The lifetimes a link share can be minted with. */
+/** The lifetimes a public link can be minted with. */
 const TTL_OPTIONS = [
   { value: "1h", label: "1 hour" },
   { value: "24h", label: "24 hours" },
@@ -46,6 +46,7 @@ export interface LinkShareSectionProps {
   noticeText: string;
   setNoticeText: (v: string) => void;
   onCreate: () => void;
+  error: string | null;
   isPending: boolean;
 }
 
@@ -54,6 +55,11 @@ export interface LinkShareSectionProps {
  * one any signed-in user can open, or a public one that opens without signing
  * in. The public choice carries an explicit warning, since it is the only mode
  * where possession of the URL is the whole of the access check.
+ *
+ * That is also why the lifetime control appears only for the public choice: a
+ * bearer link must expire, while a link only signed-in users can open ends
+ * when its owner revokes it, the way a share addressed to a person does
+ * (#1279).
  */
 export function LinkShareSection({
   linkAccess,
@@ -67,8 +73,10 @@ export function LinkShareSection({
   noticeText,
   setNoticeText,
   onCreate,
+  error,
   isPending,
 }: LinkShareSectionProps) {
+  const isPublic = linkAccess === "public";
   return (
     <div>
       <h3 className="text-sm font-medium mb-2">Share by Link</h3>
@@ -85,30 +93,43 @@ export function LinkShareSection({
             <SelectItem value="public">Anyone with the link</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={ttl} onValueChange={setTtl}>
-          <SelectTrigger size="sm" aria-label="Link expiration">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {TTL_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {isPublic && (
+          <Select value={ttl} onValueChange={setTtl}>
+            <SelectTrigger size="sm" aria-label="Link expiration">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TTL_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <Button type="button" size="sm" onClick={onCreate} disabled={isPending}>
           <Link />
           Create Link
         </Button>
       </div>
-      {linkAccess === "public" && (
+      {isPublic ? (
         <Alert variant="warning" className="mt-2">
           <TriangleAlert />
           <AlertDescription className="text-xs">
             This link works without signing in. Anyone who receives it,
             including anyone it is forwarded to, can open the content.
           </AlertDescription>
+        </Alert>
+      ) : (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Any signed-in user who has the link can open it. The link does not
+          expire; it works until you revoke it.
+        </p>
+      )}
+      {error && (
+        <Alert variant="destructive" className="mt-2">
+          <TriangleAlert />
+          <AlertDescription className="text-xs">{error}</AlertDescription>
         </Alert>
       )}
       <Button
@@ -123,15 +144,19 @@ export function LinkShareSection({
       </Button>
       {showOptions && (
         <div className="mt-2 space-y-2 rounded-md border bg-muted/30 p-3">
-          <Label className="text-sm font-normal">
-            <input
-              type="checkbox"
-              checked={showExpiration}
-              onChange={(e) => setShowExpiration(e.target.checked)}
-              className="rounded border-input"
-            />
-            Show expiration notice
-          </Label>
+          {/* The notice announces a deadline, so it has something to say only
+              on a link that has one. */}
+          {isPublic && (
+            <Label className="text-sm font-normal">
+              <input
+                type="checkbox"
+                checked={showExpiration}
+                onChange={(e) => setShowExpiration(e.target.checked)}
+                className="rounded border-input"
+              />
+              Show expiration notice
+            </Label>
+          )}
           <div>
             <Label
               className="font-normal text-muted-foreground"

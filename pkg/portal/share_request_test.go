@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
 
 // shareTestAsset is the asset every share in this file targets, owned by
@@ -45,6 +47,59 @@ func postShare(t *testing.T, h *Handler, body string) *httptest.ResponseRecorder
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	return w
+}
+
+// shareRoute posts a create-share request to one of the three share routes.
+type shareRoute struct {
+	kind string
+	post func(body string) *httptest.ResponseRecorder
+}
+
+// shareRouteSet holds one poster per share route, each over its own handler so
+// one route's stores cannot answer for another's.
+type shareRouteSet struct {
+	asset      shareRoute
+	collection shareRoute
+	prompt     shareRoute
+}
+
+// shareRoutes returns a poster for each of the asset, collection, and prompt
+// share routes.
+func shareRoutes(t *testing.T) shareRouteSet {
+	t.Helper()
+
+	post := func(h *Handler, path string) func(string) *httptest.ResponseRecorder {
+		return func(body string) *httptest.ResponseRecorder {
+			r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, path, strings.NewReader(body))
+			r.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			return w
+		}
+	}
+
+	assetHandler, _, _ := shareHandlerWithNotifier(testUser)
+
+	collHandler := newTestHandlerWithCollections(
+		&mockAssetStore{}, &mockCollectionShareStore{},
+		&collHandlerMockCollStore{getColl: baseCollection()}, &mockS3Client{}, testUser,
+	)
+
+	prompts := newMockPromptStore()
+	prompts.prompts["report"] = &prompt.Prompt{
+		ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: testUser.Email,
+	}
+	promptHandler := NewHandler(Deps{
+		AssetStore:  NewNoopAssetStore(),
+		ShareStore:  &mockShareStore{},
+		PromptStore: prompts,
+	}, testAuthMiddleware(testUser))
+
+	return shareRouteSet{
+		asset:      shareRoute{"asset", post(assetHandler, "/api/v1/portal/assets/asset-1/shares")},
+		collection: shareRoute{"collection", post(collHandler, "/api/v1/portal/collections/coll-1/shares")},
+		prompt:     shareRoute{"prompt", post(promptHandler, "/api/v1/portal/prompts/p1/shares")},
+	}
 }
 
 func TestCreateShareNotifyFlag(t *testing.T) {
@@ -138,15 +193,104 @@ func TestCreateShareDisplayNameEmail(t *testing.T) {
 	})
 }
 
-func TestCreateShareExpiryIsLinkOnly(t *testing.T) {
-	t.Run("link share accepts expires_in", func(t *testing.T) {
+// TestCreateShareExpiryIsPublicOnly pins the one rule that decides a share's
+// lifetime (#1279): a public link is a bearer credential and must expire,
+// while every other share resolves against who the viewer is and ends when the
+// owner revokes it.
+func TestCreateShareExpiryIsPublicOnly(t *testing.T) {
+	t.Run("public link accepts expires_in", func(t *testing.T) {
 		h, _, _ := shareHandlerWithNotifier(testUser)
-		w := postShare(t, h, `{"expires_in":"24h"}`)
+		w := postShare(t, h, `{"access_mode":"public","expires_in":"24h"}`)
 		require.Equal(t, http.StatusCreated, w.Code)
 
 		var resp shareResponse
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 		require.NotNil(t, resp.Share.ExpiresAt)
+	})
+
+	t.Run("public link with a dead-on-arrival lifetime is refused", func(t *testing.T) {
+		for _, body := range []string{
+			`{"access_mode":"public","expires_in":"0s"}`,
+			`{"access_mode":"public","expires_in":"-1h"}`,
+		} {
+			h, _, shares := shareHandlerWithNotifier(testUser)
+			w := postShare(t, h, body)
+			assert.Equal(t, http.StatusBadRequest, w.Code, "body %s", body)
+			assert.Contains(t, w.Body.String(), "positive duration")
+			assert.Nil(t, shares.inserted, "a refused share must store nothing")
+		}
+	})
+
+	t.Run("public link without expires_in is refused", func(t *testing.T) {
+		h, _, shares := shareHandlerWithNotifier(testUser)
+		w := postShare(t, h, `{"access_mode":"public"}`)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "expires_in is required")
+		assert.Nil(t, shares.inserted, "a refused share must store nothing")
+	})
+
+	t.Run("authenticated link never expires", func(t *testing.T) {
+		for _, body := range []string{`{}`, `{"access_mode":"authenticated"}`} {
+			h, _, shares := shareHandlerWithNotifier(testUser)
+			w := postShare(t, h, body)
+			require.Equal(t, http.StatusCreated, w.Code, "body %s", body)
+
+			var resp shareResponse
+			require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+			assert.Equal(t, AccessModeAuthenticated, resp.Share.AccessMode)
+			assert.Nil(t, resp.Share.ExpiresAt,
+				"a link only signed-in users can open ends by revocation, not a clock")
+			require.NotNil(t, shares.inserted)
+			assert.Nil(t, shares.inserted.ExpiresAt, "the stored share must carry no expiry either")
+		}
+	})
+
+	t.Run("expires_in on an authenticated link is refused", func(t *testing.T) {
+		for _, body := range []string{`{"expires_in":"24h"}`, `{"access_mode":"authenticated","expires_in":"24h"}`} {
+			h, _, shares := shareHandlerWithNotifier(testUser)
+			w := postShare(t, h, body)
+			assert.Equal(t, http.StatusBadRequest, w.Code, "body %s", body)
+			assert.Contains(t, w.Body.String(), "only signed-in users can open")
+			assert.Nil(t, shares.inserted, "a refused share must store nothing")
+		}
+	})
+
+	t.Run("assets and collections answer alike", func(t *testing.T) {
+		// The share routes are separate handlers over one buildShare, so this
+		// asserts the lifetime rule reaches the collection route too, not only
+		// the asset route the rest of this file exercises. A prompt is not
+		// shared by link at all (createPromptShare requires a recipient), so
+		// it is covered below rather than here.
+		routes := shareRoutes(t)
+		for _, route := range []shareRoute{routes.asset, routes.collection} {
+			for _, tc := range []struct {
+				name string
+				body string
+				want int
+			}{
+				{"authenticated link is created", `{}`, http.StatusCreated},
+				{"expires_in on an authenticated link", `{"expires_in":"24h"}`, http.StatusBadRequest},
+				{"public link without expires_in", `{"access_mode":"public"}`, http.StatusBadRequest},
+				{"public link with expires_in", `{"access_mode":"public","expires_in":"24h"}`, http.StatusCreated},
+			} {
+				w := route.post(tc.body)
+				assert.Equal(t, tc.want, w.Code, "%s: %s", route.kind, tc.name)
+			}
+		}
+	})
+
+	t.Run("a prompt share is addressed to a person and never expires", func(t *testing.T) {
+		route := shareRoutes(t).prompt
+
+		w := route.post(`{"shared_with_email":"bob@example.com"}`)
+		require.Equal(t, http.StatusCreated, w.Code)
+		var resp shareResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.Nil(t, resp.Share.ExpiresAt)
+
+		w = route.post(`{"shared_with_email":"bob@example.com","expires_in":"24h"}`)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "addressed to a person")
 	})
 
 	t.Run("named share never expires", func(t *testing.T) {
@@ -163,10 +307,12 @@ func TestCreateShareExpiryIsLinkOnly(t *testing.T) {
 		for _, body := range []string{
 			`{"shared_with_email":"bob@example.com","expires_in":"24h"}`,
 			`{"shared_with_user_id":"u-2","expires_in":"24h"}`,
+			`{"shared_with_email":"bob@example.com","access_mode":"restricted","expires_in":"24h"}`,
 		} {
 			h, _, shares := shareHandlerWithNotifier(testUser)
 			w := postShare(t, h, body)
 			assert.Equal(t, http.StatusBadRequest, w.Code, "body %s", body)
+			assert.Contains(t, w.Body.String(), "addressed to a person")
 			assert.Nil(t, shares.inserted, "a refused share must store nothing")
 		}
 	})

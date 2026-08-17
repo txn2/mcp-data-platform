@@ -1394,9 +1394,13 @@ func (h *Handler) revertContentToVersion(ctx context.Context, asset *Asset, asse
 
 // createShareRequest is the request body for creating a share.
 type createShareRequest struct {
-	// ExpiresIn is a duration string ("24h") bounding a link share's life. It
-	// applies to link shares only: a share addressed to a person is access
-	// granted to that person and is revoked, not timed out.
+	// ExpiresIn is a duration string ("24h") bounding a public link's life.
+	// The access mode alone decides whether it applies: required for
+	// "public", rejected for "authenticated" and "restricted", which resolve
+	// against who the viewer is and end on revocation rather than a clock.
+	// Naming a recipient does not exempt a share the caller also asked to
+	// make public -- such a link opens for anyone holding it, whoever it was
+	// announced to, so it is bounded like any other public link.
 	ExpiresIn        string  `json:"expires_in,omitempty" example:"24h"`
 	SharedWithUserID string  `json:"shared_with_user_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000"`
 	SharedWithEmail  string  `json:"shared_with_email,omitempty" example:"colleague@example.com"`
@@ -1572,24 +1576,67 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 		NoticeText:       noticeText,
 	}
 
-	// A share addressed to a person grants that person access; it ends when
-	// the owner revokes it, not on a clock. Expiry belongs to link shares,
-	// where the URL is the credential and a bounded life limits what a
-	// forwarded or leaked link is worth. Setting both is a contradiction, so
-	// it is refused rather than silently resolved either way.
-	if req.ExpiresIn != "" {
-		if email != "" || req.SharedWithUserID != "" {
-			return Share{}, errors.New("expires_in does not apply to a share addressed to a person; revoke the share to end access")
-		}
-		dur, parseErr := time.ParseDuration(req.ExpiresIn)
-		if parseErr != nil {
-			return Share{}, errors.New("invalid expires_in duration")
-		}
-		exp := time.Now().Add(dur)
-		share.ExpiresAt = &exp
+	if expErr := applyExpiry(&share, mode, req.ExpiresIn); expErr != nil {
+		return Share{}, expErr
 	}
 
 	return share, nil
+}
+
+// Errors about a share's lifetime. Each names the shape it applies to, so a
+// caller that hits one knows which half of the rule it is on.
+var (
+	errExpiryOnPersonShare = errors.New(
+		"expires_in does not apply to a share addressed to a person; revoke the share to end access")
+	errExpiryOnAuthenticatedShare = errors.New(
+		"expires_in does not apply to a link only signed-in users can open; revoke the share to end access")
+	errPublicShareNeedsExpiry = errors.New(
+		"expires_in is required for access_mode public; a link that opens without signing in must have a bounded life")
+	errInvalidExpiresIn     = errors.New("invalid expires_in duration")
+	errNonPositiveExpiresIn = errors.New("expires_in must be a positive duration")
+)
+
+// applyExpiry sets share.ExpiresAt from expiresIn, enforcing the one rule that
+// decides a share's lifetime: a public link expires, everything else is
+// revoke-only.
+//
+// A public link is a bearer credential — holding the URL is the whole of the
+// access check — so a bounded life is what limits how long a forwarded or
+// leaked copy keeps opening for a holder who never signs in, and it is
+// required rather than optional (#1279). (A signed-in viewer who opens one is
+// promoted to a share of their own, which the owner sees and revokes; from
+// that point their access is identity-resolved and the clock no longer governs
+// it. See maybeAutoPromoteViewer in public.go.) Every other share resolves
+// against who the viewer is from the start: a named person, or any signed-in
+// user. Access there ends when the owner revokes it, so a clock on top would
+// expire a grant that is still meant to hold, and an expiry is refused rather
+// than silently ignored.
+func applyExpiry(share *Share, mode shareaccess.Mode, expiresIn string) error {
+	if mode != shareaccess.ModePublic {
+		if expiresIn == "" {
+			return nil
+		}
+		if share.SharedWithEmail != "" || share.SharedWithUserID != "" {
+			return errExpiryOnPersonShare
+		}
+		return errExpiryOnAuthenticatedShare
+	}
+
+	if expiresIn == "" {
+		return errPublicShareNeedsExpiry
+	}
+	dur, err := time.ParseDuration(expiresIn)
+	if err != nil {
+		return errInvalidExpiresIn
+	}
+	// A share minted already expired is a dead link the creator would have to
+	// discover by handing it to someone, so it is refused at creation.
+	if dur <= 0 {
+		return errNonPositiveExpiresIn
+	}
+	exp := time.Now().Add(dur)
+	share.ExpiresAt = &exp
+	return nil
 }
 
 // listShares handles GET /api/v1/portal/assets/{id}/shares.

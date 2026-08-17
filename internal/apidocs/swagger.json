@@ -21504,7 +21504,7 @@
                     "example": "restricted"
                 },
                 "expires_in": {
-                    "description": "ExpiresIn is a duration string (\"24h\") bounding a link share's life. It\napplies to link shares only: a share addressed to a person is access\ngranted to that person and is revoked, not timed out.",
+                    "description": "ExpiresIn is a duration string (\"24h\") bounding a public link's life.\nThe access mode alone decides whether it applies: required for\n\"public\", rejected for \"authenticated\" and \"restricted\", which resolve\nagainst who the viewer is and end on revocation rather than a clock.\nNaming a recipient does not exempt a share the caller also asked to\nmake public -- such a link opens for anyone holding it, whoever it was\nannounced to, so it is bounded like any other public link.",
                     "type": "string",
                     "example": "24h"
                 },

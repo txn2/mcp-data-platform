@@ -325,10 +325,10 @@ the same rule as the field loses focus, so what the sharer sees is what will
 be stored and mailed.
 
 A share addressed to a person carries no expiration: it grants that person
-access until the owner revokes it. `expires_in` is a link-share concept --
-where the URL is the credential and a bounded life limits what a forwarded
-link is worth -- and sending it alongside a recipient is refused rather than
-silently resolved either way.
+access until the owner revokes it. `expires_in` belongs to a public link
+alone -- there the URL is the credential, and a bounded life limits what a
+forwarded copy is worth -- so it is required for `access_mode: public` and
+refused everywhere else, rather than silently resolved either way.
 
 ## Delivery history
 

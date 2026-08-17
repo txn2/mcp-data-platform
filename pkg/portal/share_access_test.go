@@ -385,11 +385,11 @@ func TestCreateShareAccessModeDefaults(t *testing.T) {
 	}{
 		{"named recipient defaults to restricted", `{"shared_with_email":"bob@example.com"}`, AccessModeRestricted},
 		{"user id recipient defaults to restricted", `{"shared_with_user_id":"u2"}`, AccessModeRestricted},
-		{"no recipient defaults to authenticated", `{"expires_in":"24h"}`, AccessModeAuthenticated},
-		{"public is honored when asked for", `{"access_mode":"public"}`, AccessModePublic},
+		{"no recipient defaults to authenticated", `{}`, AccessModeAuthenticated},
+		{"public is honored when asked for", `{"access_mode":"public","expires_in":"24h"}`, AccessModePublic},
 		{
 			"public is honored for a named recipient",
-			`{"shared_with_email":"bob@example.com","access_mode":"public"}`,
+			`{"shared_with_email":"bob@example.com","access_mode":"public","expires_in":"24h"}`,
 			AccessModePublic,
 		},
 	}

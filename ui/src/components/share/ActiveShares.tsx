@@ -20,9 +20,12 @@ function formatTimeRemaining(expiresAt?: string): string {
 
 /**
  * ActiveShares lists the shares already granted on an item, with the copy and
- * revoke actions for each. A share addressed to a person reads "No
- * expiration", which is the whole truth for it: such a share ends when it is
- * revoked, and the revoke control next to it is how.
+ * revoke actions for each. A share with no expiry reads "No expiration",
+ * which is the whole truth for it: it ends when it is revoked, and the revoke
+ * control next to it is how. Only a public link is minted with an expiry now
+ * (#1279), but rows created before that rule may still carry one whatever
+ * their mode, so the countdown is driven by the share's own expires_at rather
+ * than by its access mode.
  */
 export function ActiveShares({
   shares,

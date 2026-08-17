@@ -80,18 +80,18 @@ All three fields are optional. When omitted, the left zone is hidden and only th
 The public viewer includes:
 
 - **Light/dark mode** — Defaults to the system `prefers-color-scheme` setting. A toggle button in the header allows switching; the choice is persisted to `localStorage`.
-- **Expiration notice** — When the share has an expiration, a notice bar shows the relative time remaining (e.g., "This page expires in 6 hours"). Hidden when the share has no expiry or `hide_expiration` was set at share creation.
+- **Expiration notice** — When the share has an expiration, a notice bar shows the relative time remaining (e.g., "This page expires in 6 hours"). Only a public link is created with one, so the notice is what an older share created under the previous rule may still show as well. Hidden when the share has no expiry, or when its creator set `hide_expiration`.
 - **Notice text** — Configurable per-share via `notice_text`. Defaults to "Proprietary & Confidential. Only share with authorized viewers." Set to `""` to hide the notice entirely.
 
 These fields are set per-share when creating a share via `POST /api/v1/portal/assets/{id}/shares`:
 
 ```json
-{"expires_in": "24h", "hide_expiration": true, "notice_text": "Internal use only."}
+{"access_mode": "public", "expires_in": "24h", "hide_expiration": true, "notice_text": "Internal use only."}
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `expires_in` | string | - | Duration string (e.g., `"24h"`, `"72h"`) |
+| `expires_in` | string | - | Positive duration string (e.g., `"24h"`, `"72h"`). Required for `access_mode: public` and rejected for every other share: a public link is a bearer credential and must expire, while a share that resolves against who the viewer is ends on revocation. |
 | `shared_with_user_id` | string | - | Target user ID for private shares |
 | `shared_with_email` | string | - | Target email for private shares |
 | `hide_expiration` | bool | `false` | Hide the expiration countdown in the public viewer |

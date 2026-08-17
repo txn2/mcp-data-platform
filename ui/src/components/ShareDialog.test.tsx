@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 
 // Capture what the dialog sends to the create-share mutations, so the tests
 // assert on the request rather than on the rendered button alone.
@@ -58,6 +58,7 @@ describe("ShareDialog access modes", () => {
 
     expect(createAsset.mutate).toHaveBeenCalledWith(
       expect.objectContaining({ assetId: "ast-1", access_mode: "authenticated" }),
+      expect.anything(),
     );
   });
 
@@ -71,7 +72,53 @@ describe("ShareDialog access modes", () => {
 
     expect(createAsset.mutate).toHaveBeenCalledWith(
       expect.objectContaining({ access_mode: "public" }),
+      expect.anything(),
     );
+  });
+
+  it("offers no lifetime for a signed-in-users link and sends none", () => {
+    renderDialog();
+
+    expect(screen.queryByLabelText(/link expiration/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/does not expire/i)).toBeInTheDocument();
+
+    // The expiration-notice option has no deadline to announce either.
+    fireEvent.click(screen.getByRole("button", { name: /options/i }));
+    expect(screen.queryByLabelText(/show expiration notice/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /create link/i }));
+
+    expect(createAsset.mutate).toHaveBeenCalledWith(
+      expect.not.objectContaining({ expires_in: expect.anything() }),
+      expect.anything(),
+    );
+  });
+
+  it("sends the chosen lifetime with a public link", () => {
+    renderDialog();
+
+    choose(/who can open this link/i, /anyone with the link/i);
+    choose(/link expiration/i, /7 days/i);
+    fireEvent.click(screen.getByRole("button", { name: /create link/i }));
+
+    expect(createAsset.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ access_mode: "public", expires_in: "168h" }),
+      expect.anything(),
+    );
+  });
+
+  it("shows the server's refusal instead of a button that does nothing", () => {
+    renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: /create link/i }));
+
+    // The dialog cannot know the server's lifetime rule, so a refusal has to
+    // reach the sharer rather than being swallowed.
+    const opts = createAsset.mutate.mock.calls[0]?.[1];
+    act(() => {
+      opts.onError(new Error("expires_in does not apply to a link only signed-in users can open"));
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/only signed-in users can open/i);
   });
 
   it("states that a recipient share opens only for that person", () => {
