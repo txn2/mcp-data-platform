@@ -8,6 +8,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/txn2/mcp-data-platform/internal/sqltables"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -250,14 +252,14 @@ func TestReflexiveEntityURNs(t *testing.T) {
 			return "urn:" + catalog + "." + schema + "." + table
 		},
 	}
-	refs := extractTablesFromSQL("SELECT * FROM cat.sch.orders o JOIN cat.sch.customers c ON o.id = c.id")
+	refs := sqltables.Extract("SELECT * FROM cat.sch.orders o JOIN cat.sch.customers c ON o.id = c.id")
 	urns := cfg.entityURNs("primary", refs)
 	if len(urns) != 2 {
 		t.Fatalf("expected 2 urns, got %v", urns)
 	}
 
 	// A two-part table (no catalog) yields no URN; a nil builder yields none.
-	partial := extractTablesFromSQL("SELECT * FROM sch.orders")
+	partial := sqltables.Extract("SELECT * FROM sch.orders")
 	if got := cfg.entityURNs("primary", partial); got != nil {
 		t.Errorf("two-part table should not produce a URN, got %v", got)
 	}

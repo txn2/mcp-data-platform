@@ -6,13 +6,13 @@ import (
 	"log/slog"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 
+	"github.com/txn2/mcp-data-platform/internal/sqltables"
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
@@ -45,13 +45,6 @@ const (
 
 // rowEstimatePattern matches "rows: 12345" in Trino EXPLAIN IO output.
 var rowEstimatePattern = regexp.MustCompile(`rows:\s*(\d+)`)
-
-// tableFromSQLPattern extracts table references from SQL FROM and JOIN clauses.
-var tableFromSQLPattern = regexp.MustCompile(
-	`(?i)(?:FROM|JOIN)\s+` +
-		`([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*){1,2})` +
-		`(?:\s|$|,|;|\))`,
-)
 
 // elicitationDeclinedCategory mirrors middleware.ErrCategoryDeclined to avoid
 // an import cycle. The audit middleware uses the CategorizedError interface to
@@ -315,37 +308,25 @@ func parseRowEstimates(plan string) int64 {
 	return maxRows
 }
 
-// extractTablesFromSQL extracts table identifiers from SQL for PII checking.
-// This is a simplified extractor that handles catalog.schema.table and
-// schema.table patterns from FROM and JOIN clauses.
+// extractTablesFromSQL names the tables a statement reads, for PII checking.
+//
+// The extraction itself is the platform's one extractor (internal/sqltables);
+// what this adds is the shape the semantic layer asks in. A reference with
+// neither catalog nor schema is dropped: a bare name cannot be resolved to a
+// catalog entity, so it can carry no PII classification to check.
 func extractTablesFromSQL(sql string) []semantic.TableIdentifier {
-	matches := tableFromSQLPattern.FindAllStringSubmatch(sql, -1)
-	seen := make(map[string]bool, len(matches))
+	refs := sqltables.Extract(sql)
 	var tables []semantic.TableIdentifier
-
-	for _, match := range matches {
-		if len(match) < tablePartsTwo {
+	for _, ref := range refs {
+		if ref.Schema == "" {
 			continue
 		}
-		ref := match[1]
-		if seen[ref] {
-			continue
-		}
-		seen[ref] = true
-
-		parts := strings.Split(ref, ".")
-		var tid semantic.TableIdentifier
-		switch len(parts) {
-		case tablePartsThree:
-			tid = semantic.TableIdentifier{Catalog: parts[0], Schema: parts[1], Table: parts[2]}
-		case tablePartsTwo:
-			tid = semantic.TableIdentifier{Schema: parts[0], Table: parts[1]}
-		default:
-			continue
-		}
-		tables = append(tables, tid)
+		tables = append(tables, semantic.TableIdentifier{
+			Catalog: ref.Catalog,
+			Schema:  ref.Schema,
+			Table:   ref.Table,
+		})
 	}
-
 	return tables
 }
 

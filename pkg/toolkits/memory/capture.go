@@ -13,6 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
@@ -125,6 +126,7 @@ type memoryCaptureInput struct {
 	Confidence       string                   `json:"confidence,omitempty"`
 	Source           string                   `json:"source,omitempty"`
 	ThreadIDs        []string                 `json:"thread_ids,omitempty"`
+	Sources          []string                 `json:"sources,omitempty"`
 	Metadata         map[string]any           `json:"metadata,omitempty"`
 }
 
@@ -207,6 +209,10 @@ type captureActor struct {
 // tool and AutoCapture funnel through here so server-initiated captures get
 // identical semantics. The record is mutated in place to carry its embedding.
 func (t *Toolkit) applyCapture(ctx context.Context, rec *memstore.Record, sinkClass string, actor captureActor, threadIDs []string) (captureOutcome, error) {
+	// Both write paths converge here, so this is where the record is made
+	// equal to what it means: a record is about an entity once, and a repeat
+	// would silently drop out of every list that keys on the URN.
+	rec.EntityURNs = memstore.NormalizeEntityURNs(rec.EntityURNs)
 	t.embedCaptureRecord(ctx, rec, rec.Content)
 
 	// Recall-first reuses the embedding just computed (no second embed call).
@@ -265,6 +271,18 @@ func validateSuggestedActions(actions []suggestedActionInput) error {
 	return nil
 }
 
+// withSources folds the cited calls into the free-form metadata, so the one
+// metadata assembler sees them alongside everything else a capture carries.
+func withSources(input memoryCaptureInput) map[string]any {
+	if len(input.Sources) == 0 {
+		return input.Metadata
+	}
+	extra := map[string]any{}
+	maps.Copy(extra, input.Metadata)
+	extra[memstore.MetaKeySources] = input.Sources
+	return extra
+}
+
 // buildCaptureRecord assembles the memory record for a capture, applying the
 // sink-class routing: dimension, live-vs-reviewed status overlay, and metadata.
 func (*Toolkit) buildCaptureRecord(id, content string, input memoryCaptureInput, actor captureActor) memstore.Record {
@@ -281,17 +299,30 @@ func (*Toolkit) buildCaptureRecord(id, content string, input memoryCaptureInput,
 		EntityURNs:     input.EntityURNs,
 		RelatedColumns: input.RelatedColumns,
 		Status:         memstore.StatusActive,
-		Metadata:       captureMetadata(input.Type, actor.SessionID, input.SuggestedActions, input.Metadata),
+		Metadata:       captureMetadata(input.Type, actor.SessionID, input.SuggestedActions, withSources(input)),
 	}
 }
 
+// maxCaptureSources bounds how many calls one capture may confirm. A capture
+// states what answered a question; a list longer than this is not a statement.
+const maxCaptureSources = 20
+
 // captureMetadata builds the record metadata, adding the pending insight overlay
 // (review state + catalog proposals + session) for reviewed sink-classes so
-// apply_knowledge surfaces them as pending insights. Identity-agnostic (takes a
-// sessionID, not a PlatformContext) so both the tool and AutoCapture share it.
+// apply_knowledge surfaces them as pending insights, and the calls the capture
+// confirms. Identity-agnostic (takes a sessionID, not a PlatformContext) so both
+// the tool and AutoCapture share it.
 func captureMetadata(sinkClass, sessionID string, suggestedActions []suggestedActionInput, extra map[string]any) map[string]any {
 	meta := map[string]any{}
 	maps.Copy(meta, extra)
+	// The normalized list replaces whatever form the caller sent, and a list
+	// that normalizes to nothing leaves no key: the catalog matches on the
+	// reference form, so a raw value left here would name no call.
+	if sources := normalizeSources(extra); len(sources) > 0 {
+		meta[memstore.MetaKeySources] = sources
+	} else {
+		delete(meta, memstore.MetaKeySources)
+	}
 	if !memstore.SinkClassIsLive(sinkClass) {
 		meta[memstore.MetaKeyInsightStatus] = memstore.InsightStatusPending
 		if sessionID != "" {
@@ -305,6 +336,33 @@ func captureMetadata(sinkClass, sessionID string, suggestedActions []suggestedAc
 		return nil
 	}
 	return meta
+}
+
+// normalizeSources reads the calls a capture confirms out of the metadata it was
+// assembled with, and returns them in the one reference form the catalog matches
+// on. A bare event id is accepted and expanded: the id is what a tool result
+// hands back as call_id, and refusing it would be refusing the agent's own
+// receipt.
+func normalizeSources(extra map[string]any) []string {
+	raw, _ := extra[memstore.MetaKeySources].([]string)
+	seen := make(map[string]struct{}, len(raw))
+	sources := make([]string, 0, len(raw))
+	for _, s := range raw {
+		id := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), knowledgepage.CallReferencePrefix))
+		ref := knowledgepage.CallRef(id)
+		if ref == "" {
+			continue
+		}
+		if _, dup := seen[ref]; dup {
+			continue
+		}
+		seen[ref] = struct{}{}
+		sources = append(sources, ref)
+		if len(sources) == maxCaptureSources {
+			break
+		}
+	}
+	return sources
 }
 
 // embedCaptureRecord stamps an embedding when a real embedder is configured
@@ -462,6 +520,7 @@ var memoryCaptureSchema = json.RawMessage(`{
     "confidence": {"type": "string", "description": "high, medium, or low (default medium)."},
     "source": {"type": "string", "description": "user (default), agent_discovery, or enrichment_gap."},
     "thread_ids": {"type": "array", "items": {"type": "string"}, "description": "Optional feedback threads this capture resolves (reviewed sink-classes only)."},
+    "sources": {"type": "array", "items": {"type": "string"}, "description": "The calls this capture confirms, as the mcp:call:<id> reference each query and API invocation returns (call_id in its result). Cite the call whose result answered the question: it records the query as reusable, with your description of what it answers, and puts it in the review queue for promotion to the catalog. Max 20."},
     "metadata": {"type": "object", "description": "Optional free-form metadata."}
   }
 }`)

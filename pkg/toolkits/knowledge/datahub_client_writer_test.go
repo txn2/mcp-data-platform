@@ -1440,7 +1440,7 @@ func TestDataHubClientWriter_CreateCuratedQuery(t *testing.T) {
 	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
 	urn, err := writer.CreateCuratedQuery(
 		context.Background(),
-		testURN,
+		[]string{testURN},
 		"Daily revenue",
 		"SELECT date, SUM(amount) FROM sales GROUP BY date",
 		"Revenue by day",
@@ -1775,7 +1775,7 @@ func TestDataHubClientWriter_CreateCuratedQuery_Error(t *testing.T) {
 	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
 	_, err := writer.CreateCuratedQuery(
 		context.Background(),
-		testURN,
+		[]string{testURN},
 		"Query",
 		"SELECT 1",
 		"desc",

@@ -32,7 +32,12 @@ type DataHubWriter interface {
 	AddDocumentationLink(ctx context.Context, urn string, url string, description string) error
 	// RemoveDocumentationLink removes a documentation link by URL. Used to revert add_documentation.
 	RemoveDocumentationLink(ctx context.Context, urn string, url string) error
-	CreateCuratedQuery(ctx context.Context, entityURN, name, sql, description string) (string, error)
+	// CreateCuratedQuery creates a Query entity associated with every dataset
+	// the statement reads. It takes the set rather than one URN because a
+	// query that joins three tables belongs to all three, and DataHub's own
+	// write accepts the set; a promoted call record (#1321) carries exactly
+	// that set as its targets.
+	CreateCuratedQuery(ctx context.Context, datasetURNs []string, name, sql, description string) (string, error)
 
 	// Structured properties (DataHub 1.4.x)
 	UpsertStructuredProperties(ctx context.Context, urn string, propertyURN string, values []any) error
@@ -99,7 +104,7 @@ func (*NoopDataHubWriter) AddDocumentationLink(_ context.Context, _, _, _ string
 func (*NoopDataHubWriter) RemoveDocumentationLink(_ context.Context, _, _ string) error { return nil }
 
 // CreateCuratedQuery is a no-op.
-func (*NoopDataHubWriter) CreateCuratedQuery(_ context.Context, _, _, _, _ string) (string, error) {
+func (*NoopDataHubWriter) CreateCuratedQuery(_ context.Context, _ []string, _, _, _ string) (string, error) {
 	return "", nil
 }
 
@@ -153,6 +158,13 @@ var _ DataHubWriter = (*NoopDataHubWriter)(nil)
 // noDataHubConfigured opens every refusal raised by an unresolvable DataHub
 // connection, so the apply and rollback paths state the same condition.
 const noDataHubConfigured = "no DataHub connection is configured"
+
+// DataHubWritable reports whether w reaches a real DataHub instance, for a
+// caller outside this package deciding whether a write path is worth wiring at
+// all. The composition root uses it to leave the call-record promotion path
+// unwired rather than let a promotion report success having written nothing
+// (#1321).
+func DataHubWritable(w DataHubWriter) bool { return datahubWritable(w) }
 
 // datahubWritable reports whether w reaches a real DataHub instance. A nil writer
 // and NoopDataHubWriter (substituted whenever no DataHub connection resolves) do

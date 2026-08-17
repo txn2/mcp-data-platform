@@ -290,3 +290,21 @@ func TestAccessibleTools(t *testing.T) {
 		t.Errorf("expected only search, got %v", got)
 	}
 }
+
+// The capture route is the only way a query answered in conversation becomes
+// something the next person can find (#1321). If the baseline stops naming it,
+// the platform stops asking for it.
+func TestBuild_NamesTheCaptureRoute(t *testing.T) {
+	baseline := Build([]string{toolSearch, toolFetch, toolMemoryCapture})
+
+	for _, want := range []string{"call_id", "`memory_capture` `sources`", "worth"} {
+		if !strings.Contains(baseline, want) {
+			t.Errorf("baseline is missing %q:\n%s", want, baseline)
+		}
+	}
+
+	// It is named only where the tool that performs it is available.
+	if strings.Contains(Build([]string{toolSearch, toolFetch}), "call_id") {
+		t.Error("a caller without memory_capture must not be told to use it")
+	}
+}

@@ -16,7 +16,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
-	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 // entryTTL bounds how long a query failure stays eligible to pair with a later
@@ -40,10 +39,6 @@ func (c Config) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
-// URNMappingResolver returns the DataHub platform name and catalog mapping for a
-// connection, used to entity-key a correction to its dataset.
-type URNMappingResolver func(connection string) (platform string, catalogMapping map[string]string)
-
 // PersonaToolCheck reports whether a caller with the given roles is authorized
 // the named tool. Reflexive capture uses it to respect the memory_capture grant.
 type PersonaToolCheck func(ctx context.Context, roles []string, tool string) bool
@@ -52,10 +47,13 @@ type PersonaToolCheck func(ctx context.Context, roles []string, tool string) boo
 // closures so this package never imports the platform package (which would
 // cycle).
 type Deps struct {
-	Enabled           bool
-	Server            *mcp.Server
-	Toolkit           *memorykit.Toolkit
-	ResolveURNMapping URNMappingResolver
+	Enabled bool
+	Server  *mcp.Server
+	Toolkit *memorykit.Toolkit
+	// BuildURN entity-keys a correction to the dataset it concerns. The
+	// platform owns the one builder (connection -> platform and catalog
+	// mapping -> URN); nil leaves corrections unkeyed.
+	BuildURN middleware.URNBuilder
 	// PersonaAllowsTool gates capture on the memory_capture grant. Nil means no
 	// persona gating is configured (allow), matching the tools/list visibility
 	// middleware when no authorizer is wired.
@@ -76,7 +74,7 @@ func Wire(d Deps) *middleware.SessionErrorTracker {
 	cfg := middleware.ReflexiveCaptureConfig{
 		Captor:     &captor{toolkit: d.Toolkit},
 		Tracker:    tracker,
-		URNBuilder: urnBuilder(d.ResolveURNMapping),
+		URNBuilder: d.BuildURN,
 	}
 	if d.PersonaAllowsTool != nil {
 		cfg.CapturePermitted = func(ctx context.Context, pc *middleware.PlatformContext) bool {
@@ -86,18 +84,6 @@ func Wire(d Deps) *middleware.SessionErrorTracker {
 	d.Server.AddReceivingMiddleware(middleware.MCPReflexiveCaptureMiddleware(cfg))
 	slog.Info("reflexive knowledge capture enabled (auto-captures query-error corrections into review)")
 	return tracker
-}
-
-// urnBuilder adapts a URNMappingResolver to the middleware's URNBuilder. Returns
-// nil when no resolver is wired (corrections are then not entity-keyed).
-func urnBuilder(resolve URNMappingResolver) middleware.URNBuilder {
-	if resolve == nil {
-		return nil
-	}
-	return func(connection, catalog, schema, table string) string {
-		platform, mapping := resolve(connection)
-		return urnbuild.DatasetURN(platform, mapping, catalog, schema, table)
-	}
 }
 
 // captor adapts the memory toolkit's AutoCapture to the middleware's

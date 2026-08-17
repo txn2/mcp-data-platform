@@ -131,6 +131,7 @@ type Config struct {
 	Workflow             WorkflowConfig      `yaml:"workflow"`
 	Notifications        NotificationsConfig `yaml:"notifications"`
 	Scripts              ScriptsConfig       `yaml:"scripts"`
+	Calls                CallsConfig         `yaml:"calls"`
 	SessionGate          SessionGateConfig   `yaml:"session_gate"`
 	Purpose              PurposeConfig       `yaml:"purpose"`
 	RateLimit            RateLimitConfig     `yaml:"rate_limit"`
@@ -1339,6 +1340,18 @@ func (c *ScriptsConfig) RunRetention() time.Duration {
 		return scriptexec.DefaultRunRetention
 	}
 	return time.Duration(c.RunRetentionDays) * hoursPerDay * time.Hour
+}
+
+// CallsConfig configures the catalog of recorded data-access calls (#1321).
+// Nothing here turns the catalog on: it is written from the audit pipeline and
+// so exists wherever audit does. What a deployment chooses is how long a call
+// that came to nothing is kept.
+type CallsConfig struct {
+	// RetentionDays is how long a recorded call is kept when nothing came of
+	// it. A record an asset or a capture cites, one that was promoted or
+	// declined, and one another session re-ran are evidence and are never
+	// swept, whatever their age. Zero or negative takes the default (90 days).
+	RetentionDays int `yaml:"retention_days"`
 }
 
 // NotificationsConfig configures the email notification substrate: the

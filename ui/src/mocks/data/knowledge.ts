@@ -502,7 +502,13 @@ function applyObservedState(insights: Insight[]): void {
     if (!insight) return;
     const urn = `urn:li:dataset:(urn:li:dataPlatform:trino,${fixture.table},PROD)`;
     insight.insight_text = fixture.text;
-    insight.entity_urns = [urn, ...insight.entity_urns.slice(1)];
+    // The fixture URN leads, and the tail keeps only the entities it is not
+    // already: the server normalizes entity URNs on write, so a mock record
+    // naming one twice would be a shape the product cannot produce.
+    insight.entity_urns = [
+      urn,
+      ...insight.entity_urns.slice(1).filter((u) => u !== urn),
+    ];
     insight.suggested_actions = insight.suggested_actions.map((a) => ({
       ...a,
       target: urn,

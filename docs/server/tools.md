@@ -589,6 +589,16 @@ Capture is **recall-first**: before writing, it runs a similarity check over the
 | `confidence` | string | No | medium | high, medium, low |
 | `source` | string | No | user | user, agent_discovery, enrichment_gap |
 | `thread_ids` | array | No | [] | Feedback threads this capture resolves |
+| `sources` | array | No | [] | The calls this capture confirms, as the `call_id` (or `mcp:call:<id>` reference) each query and API invocation returns; max 20 |
+
+**Confirming the query that answered the question.** Every query and API call
+returns its own `call_id`. Naming that id in `sources` is how an agent says the
+statement was worth running: the [call record](portal-user.md#my-calls) becomes
+`satisfied`, with the capture as its route, and enters the review queue for
+promotion to the catalog. It is the only route for the common case where the
+answer went into the conversation and was never saved as an asset. It
+deliberately costs a description rather than a checkbox: a rating that cost
+nothing would be applied to everything.
 
 ---
 
@@ -610,6 +620,9 @@ when configured), the governance vocabulary (DataHub glossary terms, tags, and
 domains), context documents, canonical knowledge pages (the internal-knowledge home for
 business/domain ontology, searched over their full markdown content), the caller's
 personal memory, captured insights, the caller's feedback threads, saved assets,
+the caller's own recorded calls (the queries and API invocations they have already
+run, each hit carrying its outcome and how many later sessions re-ran it, so a
+proven statement outranks a guess),
 managed resources (human-uploaded reference material, searched over their metadata
 **and their extracted file content**), prompts, managed scripts, API endpoints (aggregated across
 every API gateway connection, reusing
@@ -788,6 +801,7 @@ routing each well-formed reference by its form to the owning source:
 | `mcp:connection:(kind,name)` | connections | the connection descriptor |
 | `mcp:insight:<id>` | insights | the full captured insight (scoped to the caller; fetch-only, not citable on a page) |
 | `mcp:memory:<id>` | memory | the full personal memory record (scoped to the caller; fetch-only, not citable on a page) |
+| `mcp:call:<id>` | calls | the recorded call: the statement or request that ran, the purpose stated for it, what came of it, and how many later sessions re-ran it. Reading one is also what makes your own re-run of it count as reuse (scoped to the caller; fetch-only, not citable on a page) |
 
 The usual source of a reference is a `search` result's `reference` field, but
 `fetch` is not limited to references `search` produced: a well-formed reference

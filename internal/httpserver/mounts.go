@@ -14,6 +14,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/httpserver/datahubapi"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/internal/httpserver/httpauth"
+	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/platform/reviewalert"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionview"
@@ -31,7 +32,9 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	datahubkit "github.com/txn2/mcp-data-platform/pkg/toolkits/datahub"
+	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
 // defaultAdminPathPrefix and defaultAdminPersona mirror applyAdminDefaults for
@@ -321,8 +324,8 @@ func mcpappsBrandName(p *platform.Platform) string {
 
 // wirePortalOptionalDeps populates optional portal dependencies (audit, knowledge, persona).
 func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
-	if p.AuditStore() != nil {
-		deps.AuditMetrics = p.AuditStore()
+	if p.Audit().Store() != nil {
+		deps.AuditMetrics = p.Audit().Store()
 	}
 	// A session is rolled up out of the audit log and joined to what it
 	// produced, so the read model needs the database rather than the audit
@@ -331,6 +334,10 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if db := p.DB(); db != nil {
 		deps.SessionViewer = sessionview.NewPostgresStore(db)
 	}
+	// The call catalog and the promotion path are the same two objects the
+	// operator surface takes; what differs is the scope each read carries and
+	// who the action is attributed to.
+	deps.CallCatalog, deps.CallPromoter = callCatalog(p)
 	if p.KnowledgeInsightStore() != nil {
 		deps.InsightStore = p.KnowledgeInsightStore()
 	}
@@ -404,7 +411,7 @@ func buildDataHubBridge(p *platform.Platform) datahubapi.Bridge {
 // handler (#718) over an assembled bridge.
 func dataHubRegistrar(p *platform.Platform, bridge datahubapi.Bridge, resolver portal.PersonaResolver, adminRoles []string) func(*http.ServeMux) {
 	var auditLogger audit.Logger
-	if store := p.AuditStore(); store != nil {
+	if store := p.Audit().Store(); store != nil {
 		auditLogger = store
 	}
 	handler := datahubapi.NewHandler(datahubapi.Deps{
@@ -610,9 +617,9 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 		FilePersonaNames:   p.FilePersonaNames(),
 	}
 
-	if p.AuditStore() != nil {
-		deps.AuditQuerier = p.AuditStore()
-		deps.AuditMetricsQuerier = p.AuditStore()
+	if p.Audit().Store() != nil {
+		deps.AuditQuerier = p.Audit().Store()
+		deps.AuditMetricsQuerier = p.Audit().Store()
 	}
 
 	// Sessions are read off the audit log, so they need the database rather
@@ -622,6 +629,7 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	if db := p.DB(); db != nil {
 		deps.SessionViewer = sessionview.NewPostgresStore(db)
 	}
+	deps.CallCatalog, deps.CallPromoter = callCatalog(p)
 
 	// Note: WireGatewayTokenStore and WireGatewayBroadcaster run earlier
 	// in the caller so they apply even when admin is disabled.
@@ -675,6 +683,63 @@ func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http
 	deps.ScriptReviewAlert = reviewAlertSettings(p, reviewalert.ScriptTarget())
 
 	return admin.NewHandler(deps, buildAdminAuth(p))
+}
+
+// callCatalog returns the catalog of recorded data-access calls and the path
+// that publishes one, or nils when this deployment keeps no catalog.
+//
+// The promoter is built here rather than inside the platform because what a
+// promoted record becomes lives outside the audit layer: a query becomes a
+// DataHub Query entity through the knowledge toolkit's writer, and an API call
+// becomes an example on its endpoint in the API catalog. Each writer is passed
+// only when it reaches something real: a noop DataHub writer would report a
+// promotion that persisted nothing (#1321).
+func callCatalog(p *platform.Platform) (callrecord.Store, *callrecord.Promoter) {
+	calls := p.Audit().Calls()
+	if calls == nil {
+		return nil, nil
+	}
+	var queries callrecord.CuratedQueryWriter
+	if w := p.KnowledgeDataHubWriter(); knowledgekit.DataHubWritable(w) {
+		queries = w
+	}
+	var examples callrecord.ExampleWriter
+	// The API catalog store answers endpoint examples when it is
+	// database-backed, which is the same condition the catalog itself has.
+	if store, ok := p.APIGatewayCatalogStore().(catalog.ExampleStore); ok {
+		examples = exampleWriter{store: store}
+	}
+	if queries == nil && examples == nil {
+		// Nothing to promote to. The catalog is still served: a record is
+		// worth reading whether or not this deployment can publish it.
+		return calls, nil
+	}
+	return calls, callrecord.NewPromoter(calls, queries, examples)
+}
+
+// exampleWriter adapts the API catalog's example store to the promotion path's
+// narrower contract, which is stated in the catalog's own terms rather than the
+// gateway's.
+type exampleWriter struct {
+	store catalog.ExampleStore
+}
+
+// SaveExample stores a promoted API call as an example on its endpoint.
+func (e exampleWriter) SaveExample(ctx context.Context, ex callrecord.Example) (string, error) {
+	id, err := e.store.SaveExample(ctx, catalog.Example{
+		Connection:   ex.Connection,
+		OperationID:  ex.OperationID,
+		Method:       ex.Method,
+		Path:         ex.Path,
+		Name:         ex.Name,
+		Description:  ex.Description,
+		CallRecordID: ex.CallRecordID,
+		CreatedBy:    ex.CreatedBy,
+	})
+	if err != nil {
+		return "", fmt.Errorf("saving endpoint example: %w", err)
+	}
+	return id, nil
 }
 
 // wireAdminIndexDeps attaches the api-gateway catalog store, embed-job queue,

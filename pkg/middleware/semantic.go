@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/sqltables"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
@@ -127,6 +128,11 @@ type EnrichmentConfig struct {
 	// ConnectionsForURN returns connection names that can access the dataset
 	// identified by a DataHub URN, based on the URN's platform component.
 	ConnectionsForURN func(urn string) []string
+
+	// ProvenQueries returns the caller's recorded queries that already
+	// answered something on a table, appended when a table is described
+	// (#1321). Nil leaves a describe carrying only what the catalog knows.
+	ProvenQueries ProvenQueryLister
 
 	// SemanticFallbackEnabled turns on the issue #444 fallback: when
 	// a URN-equality lookup misses on the semantic provider, the
@@ -359,7 +365,7 @@ func (e *semanticEnricher) handleDedupEnrichment(
 func extractTableKeysFromRequest(request mcp.CallToolRequest) []string {
 	// Check for SQL query first (multi-table support)
 	if sql := extractSQLFromRequest(request); sql != "" {
-		tables := extractTablesFromSQL(sql)
+		tables := sqltables.Extract(sql)
 		if len(tables) > 0 {
 			keys := make([]string, len(tables))
 			for i, t := range tables {
@@ -536,7 +542,7 @@ func (e *semanticEnricher) enrichTrinoResult(
 ) (*mcp.CallToolResult, error) {
 	// Check for SQL query first (multi-table support)
 	if sql := extractSQLFromRequest(request); sql != "" {
-		tables := extractTablesFromSQL(sql)
+		tables := sqltables.Extract(sql)
 		if len(tables) > 0 {
 			slog.Debug("extracted tables from SQL for enrichment",
 				"sql_length", len(sql),
@@ -560,6 +566,26 @@ func (e *semanticEnricher) enrichTrinoResult(
 	// Parse table identifier and apply catalog mapping
 	table := applyCatalogMapping(parseTableIdentifier(tableName), catalogMapping)
 
+	enriched, err := e.enrichTrinoTable(ctx, result, table, tableName, pc)
+	if err != nil {
+		return enriched, err
+	}
+	// The queries that already answered something on this table are appended
+	// whether or not the catalog knows the table: a table with no catalog entry
+	// is exactly the one where someone else's working query is worth the most
+	// (#1321).
+	return e.appendProvenQueries(ctx, enriched, table, pc), nil
+}
+
+// enrichTrinoTable adds the catalog's context for one named table, which is
+// what a describe returns against.
+func (e *semanticEnricher) enrichTrinoTable(
+	ctx context.Context,
+	result *mcp.CallToolResult,
+	table semantic.TableIdentifier,
+	tableName string,
+	pc *PlatformContext,
+) (*mcp.CallToolResult, error) {
 	// Get semantic context for the table
 	semanticCtx, err := e.semanticProvider.GetTableContext(ctx, table)
 	if err != nil {
@@ -724,7 +750,7 @@ func extractSQLFromRequest(request mcp.CallToolRequest) string {
 }
 
 // formatTableRefs formats table refs for logging.
-func formatTableRefs(refs []tableRef) []string {
+func formatTableRefs(refs []sqltables.Ref) []string {
 	result := make([]string, len(refs))
 	for i, r := range refs {
 		result[i] = r.FullPath
@@ -738,7 +764,7 @@ func formatTableRefs(refs []tableRef) []string {
 func (e *semanticEnricher) enrichTrinoQueryResult(
 	ctx context.Context,
 	result *mcp.CallToolResult,
-	tables []tableRef,
+	tables []sqltables.Ref,
 	filterSQL string,
 	catalogMapping map[string]string,
 ) (*mcp.CallToolResult, error) {
@@ -830,7 +856,7 @@ func isSafetyRelevant(col *semantic.ColumnContext) bool {
 }
 
 // refToTableIdentifier converts tableRef to semantic.TableIdentifier.
-func refToTableIdentifier(ref tableRef) semantic.TableIdentifier {
+func refToTableIdentifier(ref sqltables.Ref) semantic.TableIdentifier {
 	return semantic.TableIdentifier{
 		Catalog: ref.Catalog,
 		Schema:  ref.Schema,
@@ -839,7 +865,7 @@ func refToTableIdentifier(ref tableRef) semantic.TableIdentifier {
 }
 
 // buildAdditionalTableContext creates summary context for additional tables.
-func buildAdditionalTableContext(ref tableRef, ctx *semantic.TableContext) map[string]any {
+func buildAdditionalTableContext(ref sqltables.Ref, ctx *semantic.TableContext) map[string]any {
 	summary := map[string]any{
 		keyTable:       ref.FullPath,
 		keyDescription: ctx.Description,
@@ -1146,7 +1172,7 @@ func extractTableFromSQL(args map[string]any) string {
 	if !ok || sql == "" {
 		return ""
 	}
-	tables := extractTablesFromSQL(sql)
+	tables := sqltables.Extract(sql)
 	if len(tables) > 0 {
 		return tables[0].FullPath
 	}

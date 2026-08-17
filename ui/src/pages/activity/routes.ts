@@ -16,6 +16,20 @@ export function mySessionPath(sessionId: string): string {
   return `${MY_SESSIONS_ROUTE}/${encodeURIComponent(sessionId)}`;
 }
 
+/** The reader's own recorded calls, listed. */
+export const MY_CALLS_ROUTE = "/activity/calls";
+
+/** Where one of the reader's own calls opens. */
+export function myCallPath(callId: string): string {
+  return `${MY_CALLS_ROUTE}/${encodeURIComponent(callId)}`;
+}
+
+/** The call id in a detail route, or null when route is not one. */
+export function myCallIdFrom(route: string): string | null {
+  const match = route.match(/^\/activity\/calls\/(.+)$/);
+  return match ? decodeURIComponent(match[1]!) : null;
+}
+
 /** The session id in a detail route, or null when route is not one. */
 export function mySessionIdFrom(route: string): string | null {
   const match = route.match(/^\/activity\/sessions\/(.+)$/);

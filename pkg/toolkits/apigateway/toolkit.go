@@ -85,6 +85,11 @@ type Toolkit struct {
 	// with catalog_id set still register, but with zero ops).
 	catalogStore catalog.Store
 
+	// exampleStore reads the requests promoted on an endpoint: calls
+	// against this connection that are known to have worked (#1321). nil
+	// leaves an endpoint's schema exactly as its spec declares it.
+	exampleStore catalog.ExampleStore
+
 	// exportDeps holds platform-side dependencies for api_export
 	// (nil = export disabled, tool not registered).
 	exportDeps *ExportDeps
@@ -136,6 +141,15 @@ func (t *Toolkit) SetCatalogStore(s catalog.Store) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.catalogStore = s
+}
+
+// SetExampleStore wires the store of promoted endpoint examples, so reading an
+// endpoint's schema also shows the requests that are known to have worked
+// against this connection (#1321).
+func (t *Toolkit) SetExampleStore(s catalog.ExampleStore) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.exampleStore = s
 }
 
 // CatalogStore returns the wired catalog store, or nil. Used by the
@@ -445,7 +459,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"PROPFIND, MKCOL, MOVE, COPY; " +
 			"path is joined to the connection's base_url; response bodies above the connection's " +
 			"max_response_bytes are truncated and flagged. Use list_connections to discover " +
-			"available kind=api connections.",
+			"available kind=api connections. " + toolkit.CaptureRoute,
 		InputSchema: invokeEndpointSchema,
 	}, t.handleInvoke)
 

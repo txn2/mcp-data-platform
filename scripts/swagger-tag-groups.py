@@ -69,6 +69,13 @@ TAG_DESCRIPTIONS = {
         "a user can access. Each persona defines allow/deny patterns, context overrides, "
         "and priority-based role mapping."
     ),
+    "Calls": (
+        "The data-access calls the platform recorded: every query and API invocation "
+        "with the purpose stated for it, what it addressed, and an outcome derived from "
+        "what was later built from it. A satisfied record can be promoted, which turns a "
+        "query into a catalog Query entity and an API call into a saved example on its "
+        "endpoint."
+    ),
     "Sessions": (
         "Sessions read back from the audit log. A session is not a stored row: it is "
         "every tool call sharing one session id, so the list reaches as far back as "
@@ -111,6 +118,7 @@ TAG_GROUPS = [
         "tags": [
             "Audit",
             "Auth Keys",
+            "Calls",
             "Config",
             "Connections",
             "Personas",

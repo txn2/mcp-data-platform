@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/assetindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/callindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/collectionindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
@@ -47,6 +48,10 @@ type Consumers struct {
 	PortalCollections    bool
 	PortalKnowledgePages bool
 	Resources            bool
+	// Calls registers the call-catalog consumer, which embeds the recorded
+	// data-access calls so a prior query is findable by what it answers and
+	// not only by the words it contains (#1321).
+	Calls bool
 	// CatalogDatasets registers the catalog-dataset consumer, which mirrors the
 	// configured semantic catalog's dataset text into the platform's own index
 	// (#1131). Unlike the others it is not gated on a platform sub-store: its
@@ -276,6 +281,16 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 		return h.registry.Register(
 			memoryindex.NewSource(memStore),
 			memoryindex.NewSink(memStore, cfg.ModelName),
+		)
+	})
+	// Calls consumer: embeds recorded queries and API invocations off the
+	// audit writer's goroutine, which is where they are recorded and where an
+	// embedding call would not belong.
+	tryRegister(cfg.Consumers.Calls, "calls", func() error {
+		callStore := callindex.NewStore(cfg.DB)
+		return h.registry.Register(
+			callindex.NewSource(callStore),
+			callindex.NewSink(callStore, cfg.ModelName),
 		)
 	})
 	// Prompts consumer: embeds approved prompts for semantic discovery (#557).

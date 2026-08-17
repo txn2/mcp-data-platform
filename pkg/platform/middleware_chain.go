@@ -199,7 +199,7 @@ func (p *Platform) addAuditMiddleware() {
 	if p.config.Audit.IsToolCallLoggingEnabled() {
 		p.mcpServer.AddReceivingMiddleware(
 			middleware.MCPAuditMiddleware(
-				p.auditLogger,
+				p.audit.Logger(),
 				middleware.WithParameterLogging(p.config.Audit.IsParameterLoggingEnabled()),
 				middleware.WithRedactKeys(p.config.Audit.RedactKeys),
 			),

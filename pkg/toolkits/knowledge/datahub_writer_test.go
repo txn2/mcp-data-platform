@@ -91,7 +91,7 @@ func TestNoopDataHubWriter_UpdateColumnDescriptionBatch(t *testing.T) {
 
 func TestNoopDataHubWriter_CreateCuratedQuery(t *testing.T) {
 	writer := &NoopDataHubWriter{}
-	urn, err := writer.CreateCuratedQuery(context.Background(), testDatasetURN, "test query", "SELECT 1", "a test")
+	urn, err := writer.CreateCuratedQuery(context.Background(), []string{testDatasetURN}, "test query", "SELECT 1", "a test")
 	assert.NoError(t, err)
 	assert.Equal(t, "", urn)
 }

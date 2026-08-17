@@ -22,8 +22,10 @@ import (
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/apps"
+	"github.com/txn2/mcp-data-platform/internal/platform/auditwiring"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/browserauth"
+	"github.com/txn2/mcp-data-platform/internal/platform/callrecord"
 	"github.com/txn2/mcp-data-platform/internal/platform/completionlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/connbackfill"
@@ -51,8 +53,6 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/internal/platform/userdir"
-	"github.com/txn2/mcp-data-platform/pkg/audit"
-	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
@@ -65,7 +65,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
-	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
@@ -92,6 +91,7 @@ import (
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
+	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 // providerNoop is the provider name for no-op (disabled) providers.
@@ -138,8 +138,13 @@ type Platform struct {
 	lifecycle *Lifecycle
 
 	// Database
-	db         *sql.DB
-	auditStore *auditpostgres.Store
+	db *sql.DB
+
+	// audit is everything derived from the audit log, assembled as one layer:
+	// the store, the logger the middleware writes through, the catalog of
+	// data-access calls, and the provenance capturer. Never nil after
+	// initAudit; the members are nil when a deployment has no database.
+	audit *auditwiring.Layer
 
 	// Config store
 	configStore       configstore.Store
@@ -181,9 +186,6 @@ type Platform struct {
 
 	// Browser session (OIDC login flow + cookie-based auth for the web UI)
 	browserSession *browserauth.Session
-
-	// Audit
-	auditLogger middleware.AuditLogger
 
 	// Session management: the externalized session store, the
 	// enrichment-dedup cache, the client-facing MCP notification
@@ -246,10 +248,6 @@ type Platform struct {
 	// through its accessors by the Portal* accessors (admin/portal REST wiring),
 	// the trino/api export wiring, and the search/enrichment provider assembly.
 	portalStore *portalstore.Handle
-	// provenance resolves which calls an asset write was built from, reading
-	// the audit log at write time (#1320). nil when audit is disabled or there
-	// is no database; Capture is nil-safe, so every write path can call it.
-	provenance *provenance.Capturer
 	// Brand assets (logo SVG, brand URL, implementor logo). The owner
 	// (pkg/platform/branding) resolves each once from config and caches it behind
 	// one Handle; the caller injects the portal logo into the platform-info app
@@ -795,6 +793,12 @@ func (p *Platform) WireAPIGatewayCatalogStore(store apigatewaycatalog.Store) {
 			continue
 		}
 		api.SetCatalogStore(store)
+		// The same store answers "what examples were promoted on this
+		// endpoint" when it is database-backed, so reading an endpoint's
+		// schema shows the requests known to have worked (#1321).
+		if examples, ok := store.(apigatewaycatalog.ExampleStore); ok {
+			api.SetExampleStore(examples)
+		}
 		for _, detail := range api.ListConnections() {
 			if err := api.ReloadConnection(detail.Name); err != nil {
 				slog.Warn("apigateway: catalog wire reload failed",
@@ -1273,20 +1277,19 @@ func (p *Platform) initBrowserSession() error {
 	return nil
 }
 
-// initAudit initializes audit logging.
+// initAudit initializes audit logging and everything derived from it.
 func (p *Platform) initAudit(opts *Options) error {
-	// Use provided audit logger if available. An injected logger is used
-	// verbatim (no async-writer wrapping): the audit middleware calls Log
-	// synchronously, so the caller is responsible for making it non-blocking
-	// — see WithAuditLogger (#884).
+	// An injected logger is used verbatim (no async-writer wrapping): the audit
+	// middleware calls Log synchronously, so the caller is responsible for
+	// making it non-blocking — see WithAuditLogger (#884).
 	if opts.AuditLogger != nil {
-		p.auditLogger = opts.AuditLogger
+		p.audit = auditwiring.Injected(opts.AuditLogger)
 		return nil
 	}
 
 	// Audit is enabled by default when a database is available.
 	if isExplicitlyDisabled(p.config.Audit.Enabled) || p.db == nil {
-		p.auditLogger = &middleware.NoopAuditLogger{}
+		p.audit = auditwiring.Injected(&middleware.NoopAuditLogger{})
 		return nil
 	}
 
@@ -1296,21 +1299,16 @@ func (p *Platform) initAudit(opts *Options) error {
 		return err
 	}
 
-	// Create PostgreSQL audit store
-	store := auditpostgres.New(p.db, auditpostgres.Config{
-		RetentionDays: p.config.Audit.RetentionDays,
-	})
-
-	// Start background cleanup routine
-	store.StartCleanupRoutine(24 * time.Hour)
-
 	delivery := p.config.Audit.DeliveryMode()
-	p.auditStore = store
-	p.auditLogger = newAuditLogger(store, delivery, p.obs.Metrics())
-	// Provenance reads calls back out of this store. The logger is handed over
-	// as the flusher so a capture waits for the calls still queued in the async
-	// writer — the newest of which is usually the one that produced the asset.
-	p.provenance = provenance.New(store, asFlusher(p.auditLogger))
+	p.audit = auditwiring.Assemble(auditwiring.Config{
+		DB:            p.db,
+		RetentionDays: p.config.Audit.RetentionDays,
+		SyncDelivery:  delivery == AuditDeliverySync,
+		Metrics:       p.obs.Metrics(),
+		BuildURN:      p.datasetURNFor,
+
+		CallRetentionDays: p.config.Calls.RetentionDays,
+	})
 
 	slog.Info("audit logging enabled",
 		"retention_days", p.config.Audit.RetentionDays,
@@ -1318,26 +1316,9 @@ func (p *Platform) initAudit(opts *Options) error {
 		"log_parameters", p.config.Audit.IsParameterLoggingEnabled(),
 		"redact_keys", len(p.config.Audit.RedactKeys),
 		"delivery", delivery,
+		"call_retention_days", callrecord.RetentionDays(p.config.Calls.RetentionDays),
 	)
 	return nil
-}
-
-// newAuditLogger wraps the audit store in the writer selected by the configured
-// delivery mode (#898) and adapts it to the middleware.AuditLogger interface.
-//
-// Async (default): a bounded writer with a single drain goroutine, a per-write
-// timeout, and drain-on-shutdown replaces the middleware's old per-call detached
-// goroutine, which grew without bound under a stalled store (#884); a sustained
-// outage sheds events. Sync: write on the request goroutine with a per-write
-// timeout, trading tool-call latency for backpressure and zero queue-overflow
-// drops. Either way the adapter owns the writer; for async it drains the writer
-// on Close via the platform's existing audit-logger Closer path, so no extra
-// Platform field is held.
-func newAuditLogger(store audit.Logger, delivery string, m *observability.Metrics) middleware.AuditLogger {
-	if delivery == AuditDeliverySync {
-		return middleware.NewAuditStoreAdapter(audit.NewSyncWriter(store, audit.WithSyncMetrics(m)))
-	}
-	return middleware.NewAuditStoreAdapter(audit.NewAsyncWriter(store, audit.WithMetrics(m)))
 }
 
 // initSessions assembles the session / cross-replica-sync layer (session
@@ -1674,6 +1655,7 @@ func (p *Platform) initSearch() error {
 		ResourceBucket:     p.config.Resources.Managed.S3Bucket,
 		ResourceReads:      p.resources.ReadRecorder(),
 		ScriptStore:        scriptstore.NewDiscoveryStore(p.db),
+		CallCatalog:        callSearcher(p.audit.Calls()),
 		VerifiableInsights: p.config.Knowledge.IsVerifiableInsightsEnabled(),
 		QueryProvider:      p.queryProvider,
 		PersonasForRoles:   iam.PersonasForRoles(p.personaRegistry),
@@ -1878,8 +1860,8 @@ func (p *Platform) initManagedResources() error {
 	// continue to serve unchanged. The logger is the platform's own —
 	// asynchronous by default — because these surfaces sit in front of an
 	// agent's read.
-	if p.auditLogger != nil && !isExplicitlyDisabled(p.config.Audit.Enabled) {
-		if rec := resourceaudit.New(p.auditLogger, p.resources.ReadTracker()); rec != nil {
+	if p.audit.Logger() != nil && !isExplicitlyDisabled(p.config.Audit.Enabled) {
+		if rec := resourceaudit.New(p.audit.Logger(), p.resources.ReadTracker()); rec != nil {
 			p.resources.SetReadRecorder(rec)
 		}
 	}
@@ -2226,11 +2208,11 @@ func (p *Platform) bindPromptCollaborators() {
 	}
 	// Prompt-serve audit events and the usage rollup they feed (#1009). The
 	// nil checks avoid binding a typed-nil store into the interfaces.
-	if p.auditLogger != nil {
-		p.prompts.SetAuditLogger(p.auditLogger)
+	if p.audit.Logger() != nil {
+		p.prompts.SetAuditLogger(p.audit.Logger())
 	}
-	if p.auditStore != nil {
-		p.prompts.SetUsageReader(p.auditStore)
+	if p.audit.Store() != nil {
+		p.prompts.SetUsageReader(p.audit.Store())
 	}
 	// Prompt attachments (#1013): New returns nil when the deployment has no
 	// attachment-capable prompt store or no managed resources, and a nil
@@ -2259,21 +2241,39 @@ func (p *Platform) addReflexiveCaptureMiddleware() {
 		Enabled:           p.config.Knowledge.ReflexiveCapture.IsEnabled() && p.memory.Toolkit() != nil,
 		Server:            p.mcpServer,
 		Toolkit:           p.memory.Toolkit(),
-		ResolveURNMapping: p.reflexiveURNMapping,
+		BuildURN:          p.datasetURNFor,
 		PersonaAllowsTool: p.reflexivePersonaAllowsTool(),
 	})
 }
 
-// reflexiveURNMapping resolves the DataHub platform and catalog mapping for a
-// connection, falling back to the query-provider mapping when it is unknown.
-func (p *Platform) reflexiveURNMapping(connection string) (platform string, catalogMapping map[string]string) {
+// callSearcher offers the call catalog to search only when there is one. A
+// typed nil handed to an interface field would read as present and answer every
+// query with a nil-pointer dereference, so the nil is resolved here.
+func callSearcher(calls *callrecord.PostgresStore) knowledge.CallSearcher {
+	if calls == nil {
+		return nil
+	}
+	return calls
+}
+
+// datasetURNFor builds the dataset URN a table is known by in the catalog,
+// resolving the connection's DataHub platform name and catalog mapping first
+// and falling back to the query-provider mapping when the connection is
+// unknown.
+//
+// It is the platform's one answer to "which catalog entity is this table", and
+// every path that must agree with enrichment about that — reflexive capture
+// entity-keying a correction, the call catalog naming a query's targets — takes
+// it rather than composing its own.
+func (p *Platform) datasetURNFor(connection, catalog, schema, table string) string {
+	mapping := p.config.Query.URNMapping
+	platform, catalogMapping := mapping.Platform, mapping.CatalogMapping
 	if p.connectionSources != nil && connection != "" {
 		if src := p.connectionSources.ForConnectionName(connection); src != nil {
-			return src.DataHubSourceName, src.CatalogMapping
+			platform, catalogMapping = src.DataHubSourceName, src.CatalogMapping
 		}
 	}
-	m := p.config.Query.URNMapping
-	return m.Platform, m.CatalogMapping
+	return urnbuild.DatasetURN(platform, catalogMapping, catalog, schema, table)
 }
 
 // reflexivePersonaAllowsTool returns the persona tool-access predicate, or nil
@@ -2311,7 +2311,7 @@ func (p *Platform) addManagedResourceMiddleware() {
 // It is registered only when audit is recording: without a stored call there is
 // nothing for the identifier to refer to.
 func (p *Platform) addCallReferenceMiddleware() {
-	if p.auditStore == nil {
+	if !p.audit.Recording() {
 		return
 	}
 	p.mcpServer.AddReceivingMiddleware(
@@ -2324,18 +2324,7 @@ func (p *Platform) addCallReferenceMiddleware() {
 // api_export) so all four capture the same way; a platform with no audit store
 // records only what the writing call states about itself.
 func (p *Platform) captureProvenance(ctx context.Context, req portal.ProvenanceRequest) portal.ProvenanceCapture {
-	return p.provenance.Capture(ctx, req)
-}
-
-// asFlusher returns the audit logger as a provenance flusher when it buffers
-// writes, and nil when it does not — a synchronous audit writer has already
-// stored what a capture is about to read.
-func asFlusher(logger middleware.AuditLogger) provenance.Flusher {
-	f, ok := logger.(provenance.Flusher)
-	if !ok {
-		return nil
-	}
-	return f
+	return p.audit.Capturer().Capture(ctx, req)
 }
 
 // addMCPAppsMiddleware registers MCP Apps metadata middleware and UI resources.
@@ -2581,6 +2570,7 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 		SearchSchemaPreview:         p.config.Enrichment.IsSearchSchemaPreviewEnabled(),
 		SchemaPreviewMaxColumns:     p.config.Enrichment.EffectiveSchemaPreviewMaxColumns(),
 		SemanticFallbackEnabled:     p.config.Enrichment.IsSemanticFallbackEnabled(),
+		ProvenQueries:               auditwiring.ProvenQueries(p.audit.Calls()),
 		SemanticFallbackTopK:        p.config.Enrichment.EffectiveSemanticFallbackTopK(),
 		VerifiableInsights:          p.config.Knowledge.IsVerifiableInsightsEnabled(),
 		MemoryLimit:                 p.config.Enrichment.EffectiveMemoryLimit(),
@@ -2955,9 +2945,13 @@ func (p *Platform) OAuthServer() *oauth.Server {
 	return p.oauthHandle.Server()
 }
 
-// AuditStore returns the PostgreSQL audit store, or nil if audit is disabled.
-func (p *Platform) AuditStore() *auditpostgres.Store {
-	return p.auditStore
+// Audit returns the audit layer: the store, the logger, the catalog of
+// data-access calls derived from the log, and the provenance capturer. It
+// replaces the separate per-member accessors so the facade exposes the
+// subsystem rather than a growing list of its parts; every member is nil-safe,
+// so a caller reads what a deployment has without checking the layer first.
+func (p *Platform) Audit() *auditwiring.Layer {
+	return p.audit
 }
 
 // Authenticator returns the platform authenticator.
@@ -3368,7 +3362,10 @@ func (p *Platform) Close() error {
 	p.flushEnrichmentState()
 	p.closeSessionLayer(&errs)
 	p.closeAuthEventStore(&errs)
-	p.closeAuditLayer(&errs)
+	// The audit layer closes itself in the order its assembly requires
+	// (drain the writer through the store, then stop the sweepers and the
+	// store); it holds the database handle Phase 4 closes last.
+	closeResource(&errs, p.audit)
 	p.closeProvidersAndRegistry(&errs)
 	p.closeMetricsLayer(&errs)
 	p.closeDatabase(&errs)
@@ -3439,24 +3436,6 @@ func (p *Platform) closeSessionLayer(errs *[]error) {
 	if p.oauthHandle != nil {
 		slog.Debug("shutdown: closing OAuth server")
 		closeResource(errs, p.oauthHandle)
-	}
-}
-
-// closeAuditLayer closes the audit logger, then the underlying audit store.
-// Order matters: the logger is the async-writer-backed adapter, whose Close
-// drains the queue through the store before the store (and later the database)
-// is closed, so events queued at shutdown are persisted. Draining is bounded by
-// the adapter's deadline; events still queued when it expires are abandoned
-// (canceled, not written into the closing store) and counted in
-// audit_events_dropped_total — audit delivery is best-effort (#884).
-func (p *Platform) closeAuditLayer(errs *[]error) {
-	if closer, ok := p.auditLogger.(Closer); ok {
-		slog.Debug("shutdown: closing audit logger")
-		closeResource(errs, closer)
-	}
-	if p.auditStore != nil {
-		slog.Debug("shutdown: closing audit store")
-		closeResource(errs, p.auditStore)
 	}
 }
 

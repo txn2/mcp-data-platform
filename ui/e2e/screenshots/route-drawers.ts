@@ -78,6 +78,39 @@ export const drawerRoutes: ScreenshotRoute[] = [
     },
   },
   {
+    // One recorded call opened by an operator: what ran, what came of it, and
+    // the decision to publish it. The detail hangs off an id, so it is reached
+    // by clicking a row rather than by a static URL.
+    slug: "admin-call-detail",
+    path: "/portal/admin/calls",
+    category: "admin",
+    beforeCapture: async (page) => {
+      // Prefer a satisfied record, so the capture shows what was built from
+      // the call and the publish decision rather than the not-yet state.
+      const satisfied = page.locator("table tbody tr:has-text('satisfied')").first();
+      const row = (await satisfied.count())
+        ? satisfied
+        : page.locator("table tbody tr").first();
+      await row.click({ timeout: 2_000 }).catch(() => {});
+      await page.waitForTimeout(600);
+    },
+  },
+  {
+    // The reader's own call opened, reached the way the reader reaches it: by
+    // clicking a row in My Calls.
+    slug: "my-call-detail",
+    path: "/portal/activity/calls",
+    category: "user",
+    beforeCapture: async (page) => {
+      const satisfied = page.locator("table tbody tr:has-text('satisfied')").first();
+      const row = (await satisfied.count())
+        ? satisfied
+        : page.locator("table tbody tr").first();
+      await row.click({ timeout: 2_000 }).catch(() => {});
+      await page.waitForTimeout(600);
+    },
+  },
+  {
     slug: "knowledge-insight-detail",
     path: "/portal/knowledge#insights",
     category: "admin",

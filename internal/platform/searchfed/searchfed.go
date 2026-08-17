@@ -100,6 +100,12 @@ type Config struct {
 	// so a store that cannot contributes no provider.
 	ScriptStore script.Store
 
+	// CallCatalog federates the caller's own recorded data-access calls into
+	// the corpus (#1321): the queries and API invocations they already ran,
+	// with what each was for and what came of it. nil (no database) leaves the
+	// source out entirely.
+	CallCatalog knowledge.CallSearcher
+
 	// ResourceBlobs and ResourceBucket let the resources provider return a text
 	// resource's contents inline from `fetch`. Nil leaves fetch returning
 	// metadata plus the canonical URI; it does not affect searchability.
@@ -290,6 +296,12 @@ func appendPortalStoreProviders(cfg Config, providers []knowledge.Provider) []kn
 func appendScriptProvider(cfg Config, providers []knowledge.Provider) []knowledge.Provider {
 	if s, ok := cfg.ScriptStore.(knowledge.ScriptSearcher); ok {
 		providers = append(providers, knowledge.NewScriptsProvider(s))
+	}
+	// Recorded calls (#1321). A query worth running again is knowledge, and
+	// the search-first workflow only pays off if the last person's working
+	// statement is among what search reaches.
+	if cfg.CallCatalog != nil {
+		providers = append(providers, knowledge.NewCallsProvider(cfg.CallCatalog))
 	}
 	return providers
 }

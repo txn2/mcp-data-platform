@@ -1,5 +1,6 @@
 import type { Asset, Share, SharedAsset } from "@/api/portal/types";
 import { agentSessions } from "./audit";
+import { citedEventIDs } from "./calls";
 
 // The first assets are attributed to sessions the audit mock actually
 // recorded, so a session opened in the admin UI shows the asset it saved
@@ -403,3 +404,35 @@ export const mockSharedWithMe: SharedAsset[] = [
     permission: "editor",
   },
 ];
+
+// An asset that a recorded call produced names that call in its own
+// provenance, which is where the call catalog reads satisfaction from. The
+// citations are applied here rather than written into the literals above
+// because the ids belong to generated audit events: writing them by hand would
+// be writing ids that do not exist.
+for (const asset of mockAssets) {
+  const eventIDs = citedEventIDs(asset.id);
+  if (eventIDs.length === 0) continue;
+  const captures = asset.provenance?.captures;
+  if (captures && captures.length > 0) {
+    const capture = captures[0]!;
+    capture.event_ids = [...(capture.event_ids ?? []), ...eventIDs];
+    continue;
+  }
+  // An asset with no capture of its own gets one, recorded under the export
+  // tool: an export is a stream-to-asset write, which is how the catalog
+  // tells an export apart from a save.
+  asset.provenance = {
+    ...(asset.provenance ?? {}),
+    captures: [
+      {
+        tool: "trino_export",
+        captured_at: asset.created_at,
+        version: 1,
+        session_id: asset.session_id ?? "",
+        event_ids: eventIDs,
+        calls: [],
+      },
+    ],
+  };
+}

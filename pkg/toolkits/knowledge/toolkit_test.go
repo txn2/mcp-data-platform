@@ -428,8 +428,8 @@ func (w *spyWriter) RemoveDocumentationLink(_ context.Context, urn, url string) 
 	return w.recordAndCheck("RemoveDocumentationLink", urn, url, "")
 }
 
-func (w *spyWriter) CreateCuratedQuery(_ context.Context, urn, name, sqlText, _ string) (string, error) {
-	if err := w.recordAndCheck("CreateCuratedQuery", urn, name, sqlText); err != nil {
+func (w *spyWriter) CreateCuratedQuery(_ context.Context, datasetURNs []string, name, sqlText, _ string) (string, error) {
+	if err := w.recordAndCheck("CreateCuratedQuery", strings.Join(datasetURNs, ","), name, sqlText); err != nil {
 		return "", err
 	}
 	if w.QueryURN != "" {

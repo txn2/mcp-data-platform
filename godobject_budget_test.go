@@ -72,7 +72,12 @@ const (
 	// Platform.WireRuntime entry point; it holds no state, so the field count
 	// is unchanged. This is the #756 exit point (see the file header): the
 	// field ceiling is now frozen as a standing anti-regrowth invariant.
-	maxPlatformFields = 46
+	// The call catalog (#1321) folded the three audit-derived fields
+	// (auditStore, auditLogger, provenance) into one auditwiring.Layer that
+	// owns their assembly, their shutdown order, and the sweeper lifecycle,
+	// ratcheting 46 → 44. A ceiling with slack is not a ratchet, so it is
+	// pinned to the actual rather than left where the extraction found it.
+	maxPlatformFields = 44
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the
@@ -102,7 +107,9 @@ const (
 	// 213. This is the #756 exit point (see the file header): the method ceiling
 	// is now frozen as a standing anti-regrowth invariant, not a figure to keep
 	// driving down.
-	maxPlatformMethods = 213
+	// The same extraction (#1321) moved the audit layer's shutdown ordering
+	// onto the layer, removing closeAuditLayer and ratcheting 213 → 212.
+	maxPlatformMethods = 212
 )
 
 // TestPlatformGodObjectBudget fails when the Platform struct grows more fields

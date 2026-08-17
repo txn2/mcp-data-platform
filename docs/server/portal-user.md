@@ -10,7 +10,7 @@ The sidebar is divided into **User** pages (described here) and **Admin** pages 
 
 ## Activity
 
-Activity has two tabs: **Overview**, the aggregates, and **My Sessions**, the individual sessions those aggregates are made of.
+Activity has three tabs: **Overview**, the aggregates; **My Sessions**, the individual sessions those aggregates are made of; and **My Calls**, the queries and API calls those sessions ran.
 
 ### Overview
 
@@ -50,6 +50,35 @@ The detail shows:
 - **Timeline** — Its calls in the order they were made, each with the purpose the agent stated for it, the connection it went to, whether it succeeded, and how long it took
 
 The session detail is addressable, so you can bookmark it or hand it to a colleague — though a colleague who is not an administrator will get a not-found, since a session opens only for the person who ran it.
+
+### My Calls
+
+The My Calls tab is the catalog of data-access calls you have made: every query against a query engine and every invocation through the API gateway, kept with the reason stated for it and what came of the result.
+
+![My Calls](../images/screenshots/light/user-my-calls-light.webp#only-light)![My Calls](../images/screenshots/dark/user-my-calls-dark.webp#only-dark)
+
+Each row leads with the purpose, because it is the only line about the call a person wrote, and carries the statement under it. The **Outcome** column is what the catalog exists for, and it is derived on every read rather than stored:
+
+| Outcome | What it means |
+|---------|---------------|
+| `satisfied` | Something was built from the call: an asset, an export, or a capture that named it |
+| `failed` | The call returned an error |
+| `superseded` | A later call in the same session ran over the same tables, and nothing was built from this one |
+| `ran` | The call succeeded and nothing has come of it yet |
+
+Deriving the outcome rather than storing it means it can never be stale with respect to the asset or the capture that gives it meaning: save an asset citing a query and the query reads satisfied on the next read, with no backfill and nothing to recompute.
+
+**Reuse** is the other column worth reading. It counts the later sessions that found the record and then ran what it holds. A session running its own query again does not count, and neither does an identical query written independently: without the sighting, nothing says this record led to it. It is the one signal on a record that a stranger, and not its author, found it worth running.
+
+The facets narrow by kind (SQL or API), connection, outcome, and free text over the purpose and the statement. **Awaiting review** keeps the records that answered something and have not been published or declined, most re-run first. There is no user facet and no user column: this list is always your own, and another person's record id is answered as not found.
+
+Click a row to open the record.
+
+![My Call](../images/screenshots/light/user-my-call-detail-light.webp#only-light)![My Call](../images/screenshots/dark/user-my-call-detail-dark.webp#only-dark)
+
+The detail shows the statement or request line, the datasets it addressed, what was built from it (each asset opening in the viewer), the session that ran it, and the `mcp:call:<id>` reference an agent cites it by.
+
+A satisfied record can be **published**. A query becomes a Query entity in the data catalog, associated with every dataset it reads; an API call becomes a saved example on its endpoint, shown to whoever reads that endpoint's schema next. A record you decide is not worth publishing can be **declined** with a note, which stops it being offered.
 
 ## Assets
 

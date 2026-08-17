@@ -2535,6 +2535,272 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/calls": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every data-access call the platform recorded, newest first: each query and API invocation with the purpose stated for it, the outcome derived from what was built from it, and how many later sessions re-ran it. Set queue=promotable for the review queue, which keeps the records that answered something and orders them by reuse first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Calls"
+                ],
+                "summary": "List recorded calls",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter to one caller's calls",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by call kind (sql, api)",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by connection name",
+                        "name": "connection",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by outcome (failed, satisfied, superseded, ran)",
+                        "name": "outcome",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by a dataset URN or endpoint the call addressed",
+                        "name": "target",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter to one session's calls",
+                        "name": "session_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Match the purpose or the statement",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Set to 'promotable' for the review queue",
+                        "name": "queue",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 25, max: 200)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_internal_admin_callapi.callListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/calls/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one call record whoever made it: the statement or request line, the purpose stated for it, its outcome and how it was reached, the assets and captures built from it, and how many later sessions re-ran it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Calls"
+                ],
+                "summary": "Get one recorded call",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Call record ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/callrecord.Record"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/calls/{id}/promote": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Publishes a satisfied record: a query becomes a Query entity in the data catalog, associated with every dataset it reads; an API call becomes a saved example on its endpoint. The record then carries what it became and who promoted it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Calls"
+                ],
+                "summary": "Promote a recorded call",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Call record ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/callrecord.Record"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/calls/{id}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Records that a reviewer decided this record is not worth publishing, with an optional note, so the review queue stops offering it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Calls"
+                ],
+                "summary": "Decline a recorded call",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Call record ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Why the record was declined",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_internal_admin_callapi.rejectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/callrecord.Record"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/collections": {
             "get": {
                 "security": [
@@ -9716,6 +9982,290 @@ const docTemplate = `{
                         "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/calls": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the calling user's own data-access calls, newest first: every query and API invocation the platform recorded, with the purpose stated for it and the outcome derived from what was built from it. There is no user parameter; the listing is always the caller's own.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Calls"
+                ],
+                "summary": "List my calls",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by call kind (sql, api)",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by connection name",
+                        "name": "connection",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by outcome (failed, satisfied, superseded, ran)",
+                        "name": "outcome",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by a dataset URN or endpoint the call addressed",
+                        "name": "target",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter to one session's calls",
+                        "name": "session_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Match the purpose or the statement",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Set to 'promotable' for the records awaiting promotion, most reused first",
+                        "name": "queue",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number, 1-based (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 25, max: 200)",
+                        "name": "per_page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_internal_portal_callapi.callListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/calls/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns one of the caller's own call records: the statement or request line, the purpose stated for it, its outcome and how it was reached, the assets and captures built from it, and how many later sessions re-ran it. A record id belonging to another user is not found, the same answer an id that was never used gets.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Calls"
+                ],
+                "summary": "Get one of my calls",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Call record ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/callrecord.Record"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/calls/{id}/promote": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Publishes a satisfied record: a query becomes a Query entity in the data catalog, associated with every dataset it reads; an API call becomes a saved example on its endpoint. The record then carries what it became. Only the caller's own records can be promoted here, and only a record that answered something and has not already been promoted or declined.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Calls"
+                ],
+                "summary": "Promote one of my calls",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Call record ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/callrecord.Record"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/calls/{id}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Records that the caller decided this record is not worth publishing, with an optional note, so it stops being offered for promotion.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Calls"
+                ],
+                "summary": "Decline one of my calls",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Call record ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Why the record was declined",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_internal_portal_callapi.rejectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/callrecord.Record"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/httpjson.ProblemDetail"
                         }
                     }
                 }
@@ -18555,6 +19105,162 @@ const docTemplate = `{
                 "TypeTokenDeletedAdmin"
             ]
         },
+        "callrecord.Artifact": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "example": "ast_7c1e"
+                },
+                "kind": {
+                    "description": "Kind is one of the SatisfiedBy values.",
+                    "type": "string",
+                    "example": "asset"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Q3 revenue by region"
+                }
+            }
+        },
+        "callrecord.Record": {
+            "type": "object",
+            "properties": {
+                "artifacts": {
+                    "description": "Artifacts are what was built from this call: the assets, exports and\ncaptured insights that cite it.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/callrecord.Artifact"
+                    }
+                },
+                "connection": {
+                    "description": "Connection is the named connection the call went through. It is part of\na record's identity: the same statement against two warehouses is two\nrecords, and reuse never crosses connections.",
+                    "type": "string",
+                    "example": "acme-warehouse"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "duration_ms": {
+                    "type": "integer",
+                    "example": 143
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "event_id": {
+                    "description": "EventID is the audit event this call was recorded under and the key of\nits mcp:call:\u003cevent_id\u003e reference.",
+                    "type": "string",
+                    "example": "a1b2c3d4e5f6g7h8"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "9b1c0f26-1a3e-4c5f-9d0b-2f7a6e5c4d31"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "sql"
+                },
+                "method": {
+                    "description": "Method, Path and OperationID are the request line, on an api record.",
+                    "type": "string",
+                    "example": "GET"
+                },
+                "operation_id": {
+                    "type": "string",
+                    "example": "listOrders"
+                },
+                "outcome": {
+                    "description": "Outcome is derived on every read; see the package comment.",
+                    "type": "string",
+                    "example": "satisfied"
+                },
+                "path": {
+                    "type": "string",
+                    "example": "/v1/orders"
+                },
+                "persona": {
+                    "type": "string",
+                    "example": "data-engineer"
+                },
+                "promoted_at": {
+                    "type": "string"
+                },
+                "promoted_by": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "promoted_urn": {
+                    "type": "string",
+                    "example": "urn:li:query:abc123"
+                },
+                "purpose": {
+                    "description": "Purpose is the reason the caller stated for making the call (#1317).",
+                    "type": "string",
+                    "example": "Sizing Q3 revenue by region for the board deck."
+                },
+                "reference": {
+                    "description": "Reference is EventID in the form an agent cites.",
+                    "type": "string",
+                    "example": "mcp:call:a1b2c3d4e5f6g7h8"
+                },
+                "rejected_at": {
+                    "type": "string"
+                },
+                "rejected_by": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "rejection_note": {
+                    "type": "string"
+                },
+                "response_chars": {
+                    "type": "integer",
+                    "example": 2450
+                },
+                "reuse_count": {
+                    "description": "ReuseCount is how many later sessions fetched this record and then ran\nwhat it holds. It is the only signal on a record that a stranger, and\nnot its author, found it worth running.",
+                    "type": "integer",
+                    "example": 2
+                },
+                "satisfied_by": {
+                    "description": "SatisfiedBy names the route that satisfied the record (asset, export,\ncapture). Empty on every other outcome.",
+                    "type": "string",
+                    "example": "capture"
+                },
+                "session_id": {
+                    "type": "string",
+                    "example": "dps_9f2c1a4b8e7d6c5a"
+                },
+                "statement": {
+                    "description": "Statement is the SQL text, on a sql record.",
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "targets": {
+                    "description": "Targets are what the call addressed: DataHub dataset URNs parsed from\nthe SQL, or the endpoint identity for an API call. Sorted and\ndeduplicated, so two records over the same tables compare equal.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tool_name": {
+                    "type": "string",
+                    "example": "trino_query"
+                },
+                "user_email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "user_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
         "catalogapi.catalogResponse": {
             "type": "object",
             "properties": {
@@ -19300,6 +20006,38 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_txn2_mcp-data-platform_internal_admin_callapi.callListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/callrecord.Record"
+                    }
+                },
+                "page": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "per_page": {
+                    "type": "integer",
+                    "example": 25
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 12
+                }
+            }
+        },
+        "github_com_txn2_mcp-data-platform_internal_admin_callapi.rejectRequest": {
+            "type": "object",
+            "properties": {
+                "note": {
+                    "type": "string",
+                    "example": "Superseded by the revenue_by_region view."
+                }
+            }
+        },
         "github_com_txn2_mcp-data-platform_internal_admin_sessionapi.sessionListResponse": {
             "type": "object",
             "properties": {
@@ -19320,6 +20058,38 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 42
+                }
+            }
+        },
+        "github_com_txn2_mcp-data-platform_internal_portal_callapi.callListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/callrecord.Record"
+                    }
+                },
+                "page": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "per_page": {
+                    "type": "integer",
+                    "example": 25
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 12
+                }
+            }
+        },
+        "github_com_txn2_mcp-data-platform_internal_portal_callapi.rejectRequest": {
+            "type": "object",
+            "properties": {
+                "note": {
+                    "type": "string",
+                    "example": "Superseded by the revenue_by_region view."
                 }
             }
         },
@@ -24048,7 +24818,7 @@ const docTemplate = `{
             "in": "header"
         }
     }
-,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "Assets", "Collections", "Knowledge", "Memory", "Prompts", "Resources", "Shares"]}, {"name": "Admin API", "tags": ["Audit", "Auth Keys", "Config", "Connections", "Personas", "Scripts", "Sessions", "System", "Tools"]}]}`
+,"tags":[{"name": "User", "description": "Current user identity, roles, persona, and available tools."}, {"name": "Activity", "description": "Personal analytics for the authenticated user's tool usage. Timeseries, breakdowns, and summary statistics scoped to the calling user."}, {"name": "Assets", "description": "AI-generated assets \u2014 dashboards, reports, visualizations, and data exports. Supports HTML, JSX, SVG, Markdown, and CSV content types with versioning, thumbnails, and sharing."}, {"name": "Collections", "description": "Curated groups of assets organized into ordered sections with markdown descriptions. Collections support sharing via public links and user-level permissions."}, {"name": "Knowledge", "description": "Domain knowledge captured during AI sessions. Insights go through an admin review workflow before being written back to the data catalog. Includes insight statistics and governance lifecycle tracking."}, {"name": "Memory", "description": "Persistent memory records accumulated across sessions \u2014 corrections, preferences, business context, and data quality observations. Backed by PostgreSQL with pgvector for semantic search."}, {"name": "Prompts", "description": "Reusable prompt templates with argument placeholders. Users manage personal prompts and browse available global, persona, and system prompts."}, {"name": "Resources", "description": "Human-uploaded reference materials \u2014 SQL templates, runbooks, checklists, and brand assets. Scoped by visibility (global, persona, user) and accessible to AI agents via the MCP resources protocol."}, {"name": "Shares", "description": "Asset and collection sharing via public links (token-based, time-limited) and user shares (email-based with viewer/editor permissions)."}, {"name": "Audit", "description": "Platform-wide audit log of every tool call. Paginated event queries with filtering, aggregate statistics, performance percentiles, enrichment metrics, and discovery pattern analytics."}, {"name": "Auth Keys", "description": "API key management for programmatic access. Create, list, and revoke keys with role assignment and expiration. Keys from the config file are read-only."}, {"name": "Config", "description": "Platform configuration management. Read the active config, export as YAML, and manage per-key database overrides for whitelisted settings with hot-reload."}, {"name": "Connections", "description": "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."}, {"name": "Personas", "description": "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."}, {"name": "Calls", "description": "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."}, {"name": "Sessions", "description": "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."}, {"name": "Scripts", "description": "Managed-script review and approval. Browse scripts and their version history, read a version alongside the capabilities and connections its source reaches for, and approve a version \u2014 which binds the capability grant it executes under and is the only thing that makes a script executable."}, {"name": "System", "description": "Platform identity, version, runtime feature availability, registered tools, and toolkit connections."}, {"name": "Tools", "description": "Tool schema introspection and interactive execution. Browse JSON schemas for all registered tools and execute tool calls with parameter validation."}],"x-tagGroups":[{"name": "User API", "tags": ["User", "Activity", "Assets", "Collections", "Knowledge", "Memory", "Prompts", "Resources", "Shares"]}, {"name": "Admin API", "tags": ["Audit", "Auth Keys", "Calls", "Config", "Connections", "Personas", "Scripts", "Sessions", "System", "Tools"]}]}`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{

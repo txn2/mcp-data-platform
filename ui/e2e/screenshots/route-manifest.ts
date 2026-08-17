@@ -34,6 +34,13 @@ export const routes: ScreenshotRoute[] = [
     category: "user",
   },
   {
+    // The reader's own recorded calls, the third face of the Activity
+    // section: what they ran, why, and what came of it.
+    slug: "my-calls",
+    path: "/portal/activity/calls",
+    category: "user",
+  },
+  {
     slug: "my-assets",
     path: "/portal/",
     category: "user",
@@ -359,6 +366,13 @@ export const routes: ScreenshotRoute[] = [
   {
     slug: "admin-sessions",
     path: "/portal/admin/sessions",
+    category: "admin",
+  },
+  {
+    // The operator's catalog of every recorded call, with the outcome each
+    // was derived to and the reuse that argues for publishing it.
+    slug: "admin-calls",
+    path: "/portal/admin/calls",
     category: "admin",
   },
   {

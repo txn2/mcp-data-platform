@@ -1751,6 +1751,138 @@ definitions:
     - TypeRefreshRotationPersistenceFailed
     - TypeTokenDeletedRevoked
     - TypeTokenDeletedAdmin
+  callrecord.Artifact:
+    properties:
+      id:
+        example: ast_7c1e
+        type: string
+      kind:
+        description: Kind is one of the SatisfiedBy values.
+        example: asset
+        type: string
+      name:
+        example: Q3 revenue by region
+        type: string
+    type: object
+  callrecord.Record:
+    properties:
+      artifacts:
+        description: |-
+          Artifacts are what was built from this call: the assets, exports and
+          captured insights that cite it.
+        items:
+          $ref: '#/definitions/callrecord.Artifact'
+        type: array
+      connection:
+        description: |-
+          Connection is the named connection the call went through. It is part of
+          a record's identity: the same statement against two warehouses is two
+          records, and reuse never crosses connections.
+        example: acme-warehouse
+        type: string
+      created_at:
+        type: string
+      duration_ms:
+        example: 143
+        type: integer
+      error_message:
+        type: string
+      event_id:
+        description: |-
+          EventID is the audit event this call was recorded under and the key of
+          its mcp:call:<event_id> reference.
+        example: a1b2c3d4e5f6g7h8
+        type: string
+      id:
+        example: 9b1c0f26-1a3e-4c5f-9d0b-2f7a6e5c4d31
+        type: string
+      kind:
+        example: sql
+        type: string
+      method:
+        description: Method, Path and OperationID are the request line, on an api
+          record.
+        example: GET
+        type: string
+      operation_id:
+        example: listOrders
+        type: string
+      outcome:
+        description: Outcome is derived on every read; see the package comment.
+        example: satisfied
+        type: string
+      path:
+        example: /v1/orders
+        type: string
+      persona:
+        example: data-engineer
+        type: string
+      promoted_at:
+        type: string
+      promoted_by:
+        example: marcus.johnson@example.com
+        type: string
+      promoted_urn:
+        example: urn:li:query:abc123
+        type: string
+      purpose:
+        description: Purpose is the reason the caller stated for making the call (#1317).
+        example: Sizing Q3 revenue by region for the board deck.
+        type: string
+      reference:
+        description: Reference is EventID in the form an agent cites.
+        example: mcp:call:a1b2c3d4e5f6g7h8
+        type: string
+      rejected_at:
+        type: string
+      rejected_by:
+        example: marcus.johnson@example.com
+        type: string
+      rejection_note:
+        type: string
+      response_chars:
+        example: 2450
+        type: integer
+      reuse_count:
+        description: |-
+          ReuseCount is how many later sessions fetched this record and then ran
+          what it holds. It is the only signal on a record that a stranger, and
+          not its author, found it worth running.
+        example: 2
+        type: integer
+      satisfied_by:
+        description: |-
+          SatisfiedBy names the route that satisfied the record (asset, export,
+          capture). Empty on every other outcome.
+        example: capture
+        type: string
+      session_id:
+        example: dps_9f2c1a4b8e7d6c5a
+        type: string
+      statement:
+        description: Statement is the SQL text, on a sql record.
+        type: string
+      success:
+        example: true
+        type: boolean
+      targets:
+        description: |-
+          Targets are what the call addressed: DataHub dataset URNs parsed from
+          the SQL, or the endpoint identity for an API call. Sorted and
+          deduplicated, so two records over the same tables compare equal.
+        items:
+          type: string
+        type: array
+      tool_name:
+        example: trino_query
+        type: string
+      user_email:
+        example: marcus.johnson@example.com
+        type: string
+      user_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    type: object
   catalogapi.catalogResponse:
     properties:
       created_at:
@@ -2330,6 +2462,28 @@ definitions:
       name:
         type: string
     type: object
+  github_com_txn2_mcp-data-platform_internal_admin_callapi.callListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/callrecord.Record'
+        type: array
+      page:
+        example: 1
+        type: integer
+      per_page:
+        example: 25
+        type: integer
+      total:
+        example: 12
+        type: integer
+    type: object
+  github_com_txn2_mcp-data-platform_internal_admin_callapi.rejectRequest:
+    properties:
+      note:
+        example: Superseded by the revenue_by_region view.
+        type: string
+    type: object
   github_com_txn2_mcp-data-platform_internal_admin_sessionapi.sessionListResponse:
     properties:
       data:
@@ -2345,6 +2499,28 @@ definitions:
       total:
         example: 42
         type: integer
+    type: object
+  github_com_txn2_mcp-data-platform_internal_portal_callapi.callListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/callrecord.Record'
+        type: array
+      page:
+        example: 1
+        type: integer
+      per_page:
+        example: 25
+        type: integer
+      total:
+        example: 12
+        type: integer
+    type: object
+  github_com_txn2_mcp-data-platform_internal_portal_callapi.rejectRequest:
+    properties:
+      note:
+        example: Superseded by the revenue_by_region view.
+        type: string
     type: object
   github_com_txn2_mcp-data-platform_internal_portal_sessionapi.sessionListResponse:
     properties:
@@ -7555,6 +7731,182 @@ paths:
       summary: Delete auth key
       tags:
       - Auth Keys
+  /admin/calls:
+    get:
+      description: 'Returns every data-access call the platform recorded, newest first:
+        each query and API invocation with the purpose stated for it, the outcome
+        derived from what was built from it, and how many later sessions re-ran it.
+        Set queue=promotable for the review queue, which keeps the records that answered
+        something and orders them by reuse first.'
+      parameters:
+      - description: Filter to one caller's calls
+        in: query
+        name: user_id
+        type: string
+      - description: Filter by call kind (sql, api)
+        in: query
+        name: kind
+        type: string
+      - description: Filter by connection name
+        in: query
+        name: connection
+        type: string
+      - description: Filter by outcome (failed, satisfied, superseded, ran)
+        in: query
+        name: outcome
+        type: string
+      - description: Filter by a dataset URN or endpoint the call addressed
+        in: query
+        name: target
+        type: string
+      - description: Filter to one session's calls
+        in: query
+        name: session_id
+        type: string
+      - description: Match the purpose or the statement
+        in: query
+        name: q
+        type: string
+      - description: Set to 'promotable' for the review queue
+        in: query
+        name: queue
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 25, max: 200)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_txn2_mcp-data-platform_internal_admin_callapi.callListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List recorded calls
+      tags:
+      - Calls
+  /admin/calls/{id}:
+    get:
+      description: 'Returns one call record whoever made it: the statement or request
+        line, the purpose stated for it, its outcome and how it was reached, the assets
+        and captures built from it, and how many later sessions re-ran it.'
+      parameters:
+      - description: Call record ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/callrecord.Record'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get one recorded call
+      tags:
+      - Calls
+  /admin/calls/{id}/promote:
+    post:
+      description: 'Publishes a satisfied record: a query becomes a Query entity in
+        the data catalog, associated with every dataset it reads; an API call becomes
+        a saved example on its endpoint. The record then carries what it became and
+        who promoted it.'
+      parameters:
+      - description: Call record ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/callrecord.Record'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Promote a recorded call
+      tags:
+      - Calls
+  /admin/calls/{id}/reject:
+    post:
+      consumes:
+      - application/json
+      description: Records that a reviewer decided this record is not worth publishing,
+        with an optional note, so the review queue stops offering it.
+      parameters:
+      - description: Call record ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Why the record was declined
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_internal_admin_callapi.rejectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/callrecord.Record'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Decline a recorded call
+      tags:
+      - Calls
   /admin/collections:
     get:
       description: Returns all asset collections without owner restriction, with active
@@ -12171,6 +12523,197 @@ paths:
       summary: Search my assets
       tags:
       - Assets
+  /portal/calls:
+    get:
+      description: 'Returns the calling user''s own data-access calls, newest first:
+        every query and API invocation the platform recorded, with the purpose stated
+        for it and the outcome derived from what was built from it. There is no user
+        parameter; the listing is always the caller''s own.'
+      parameters:
+      - description: Filter by call kind (sql, api)
+        in: query
+        name: kind
+        type: string
+      - description: Filter by connection name
+        in: query
+        name: connection
+        type: string
+      - description: Filter by outcome (failed, satisfied, superseded, ran)
+        in: query
+        name: outcome
+        type: string
+      - description: Filter by a dataset URN or endpoint the call addressed
+        in: query
+        name: target
+        type: string
+      - description: Filter to one session's calls
+        in: query
+        name: session_id
+        type: string
+      - description: Match the purpose or the statement
+        in: query
+        name: q
+        type: string
+      - description: Set to 'promotable' for the records awaiting promotion, most
+          reused first
+        in: query
+        name: queue
+        type: string
+      - description: 'Page number, 1-based (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Results per page (default: 25, max: 200)'
+        in: query
+        name: per_page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_txn2_mcp-data-platform_internal_portal_callapi.callListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List my calls
+      tags:
+      - Calls
+  /portal/calls/{id}:
+    get:
+      description: 'Returns one of the caller''s own call records: the statement or
+        request line, the purpose stated for it, its outcome and how it was reached,
+        the assets and captures built from it, and how many later sessions re-ran
+        it. A record id belonging to another user is not found, the same answer an
+        id that was never used gets.'
+      parameters:
+      - description: Call record ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/callrecord.Record'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get one of my calls
+      tags:
+      - Calls
+  /portal/calls/{id}/promote:
+    post:
+      description: 'Publishes a satisfied record: a query becomes a Query entity in
+        the data catalog, associated with every dataset it reads; an API call becomes
+        a saved example on its endpoint. The record then carries what it became. Only
+        the caller''s own records can be promoted here, and only a record that answered
+        something and has not already been promoted or declined.'
+      parameters:
+      - description: Call record ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/callrecord.Record'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Promote one of my calls
+      tags:
+      - Calls
+  /portal/calls/{id}/reject:
+    post:
+      consumes:
+      - application/json
+      description: Records that the caller decided this record is not worth publishing,
+        with an optional note, so it stops being offered for promotion.
+      parameters:
+      - description: Call record ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Why the record was declined
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_internal_portal_callapi.rejectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/callrecord.Record'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/httpjson.ProblemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Decline one of my calls
+      tags:
+      - Calls
   /portal/collections:
     get:
       description: Returns paginated collections owned by the current user.
@@ -16412,6 +16955,8 @@ tags:
     description: "Toolkit connection management for Trino, DataHub, and S3 backends. View file-configured connections, create database-managed instances, and inspect connection details."
   - name: "Personas"
     description: "Role-based access control profiles that determine which tools and connections a user can access. Each persona defines allow/deny patterns, context overrides, and priority-based role mapping."
+  - name: "Calls"
+    description: "The data-access calls the platform recorded: every query and API invocation with the purpose stated for it, what it addressed, and an outcome derived from what was later built from it. A satisfied record can be promoted, which turns a query into a catalog Query entity and an API call into a saved example on its endpoint."
   - name: "Sessions"
     description: "Sessions read back from the audit log. A session is not a stored row: it is every tool call sharing one session id, so the list reaches as far back as audit retention. One session opens onto the assets and insights it produced and the ordered record of its calls, each with the purpose the agent stated."
   - name: "Scripts"
@@ -16437,6 +16982,7 @@ x-tagGroups:
     tags:
       - "Audit"
       - "Auth Keys"
+      - "Calls"
       - "Config"
       - "Connections"
       - "Personas"

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/auditwiring"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -2056,7 +2058,7 @@ func TestInitAuditNoopWithoutDatabase(t *testing.T) {
 }
 
 // syncProbeLogger is an audit.Logger that records, at write time, whether the
-// write ran synchronously with the caller. It lets newAuditLogger's sync branch
+// write ran synchronously with the caller. It lets the sync delivery branch
 // be distinguished from the async branch without a database.
 type syncProbeLogger struct {
 	mu      sync.Mutex
@@ -2087,7 +2089,7 @@ func (l *syncProbeLogger) count() int {
 
 func TestNewAuditLogger_SyncWritesInline(t *testing.T) {
 	store := &syncProbeLogger{}
-	logger := newAuditLogger(store, AuditDeliverySync, nil)
+	logger := auditwiring.NewLogger(store, true, nil)
 
 	// A sync writer performs the store write on the caller's goroutine, so the
 	// event is visible the instant Log returns — no drain, no sleep.
@@ -2103,7 +2105,7 @@ func TestNewAuditLogger_AsyncEnqueues(t *testing.T) {
 	// A held write proves the async writer does NOT block the caller: Log
 	// returns immediately even though the store write is stuck.
 	store := &syncProbeLogger{release: make(chan struct{})}
-	logger := newAuditLogger(store, AuditDeliveryAsync, nil)
+	logger := auditwiring.NewLogger(store, false, nil)
 
 	if err := logger.Log(context.Background(), middleware.AuditEvent{ToolName: "trino_query"}); err != nil {
 		t.Fatalf("Log returned error: %v", err)
@@ -2435,7 +2437,7 @@ func TestClose_NilAuditStore(t *testing.T) {
 	}
 
 	// Verify auditStore is nil
-	if p.auditStore != nil {
+	if p.audit.Store() != nil {
 		t.Error("auditStore should be nil without database")
 	}
 
@@ -2901,7 +2903,7 @@ func TestAuditStore_Accessor(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	// Without database config, auditStore is nil
-	if p.AuditStore() != nil {
+	if p.Audit().Store() != nil {
 		t.Error("AuditStore() should be nil without database configured")
 	}
 }
@@ -4894,19 +4896,19 @@ func TestWireAPIGatewayRoutePolicy_NoAuthorizer_NoOp(t *testing.T) {
 func TestAsFlusher(t *testing.T) {
 	store := &syncProbeLogger{}
 
-	if f := asFlusher(newAuditLogger(store, AuditDeliveryAsync, nil)); f == nil {
+	if f := auditwiring.AsFlusher(auditwiring.NewLogger(store, false, nil)); f == nil {
 		t.Error("async delivery must expose a flusher")
 	} else if err := f.Flush(context.Background()); err != nil {
 		t.Errorf("Flush: %v", err)
 	}
 
-	if f := asFlusher(newAuditLogger(store, AuditDeliverySync, nil)); f != nil {
+	if f := auditwiring.AsFlusher(auditwiring.NewLogger(store, true, nil)); f != nil {
 		if err := f.Flush(context.Background()); err != nil {
 			t.Errorf("a sync writer's flush must be a no-op, got %v", err)
 		}
 	}
 
-	if f := asFlusher(&middleware.NoopAuditLogger{}); f != nil {
+	if f := auditwiring.AsFlusher(&middleware.NoopAuditLogger{}); f != nil {
 		t.Error("a logger that cannot flush must not be offered as a flusher")
 	}
 }

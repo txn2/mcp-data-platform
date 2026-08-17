@@ -160,7 +160,14 @@ type Deps struct {
 	// scoped to the caller: the same read model the operator surface uses,
 	// narrowed to the sessions the reader ran themselves. nil (no database)
 	// leaves the routes unregistered.
-	SessionViewer     SessionViewer
+	SessionViewer SessionViewer
+	// CallCatalog is the record of the data-access calls the caller made
+	// (#1321), served scoped to them. nil (no database) leaves the routes
+	// unregistered.
+	CallCatalog CallCatalog
+	// CallPromoter publishes a record its owner chose to publish. nil leaves
+	// the promote and reject actions unregistered.
+	CallPromoter      *CallPromoter
 	InsightStore      InsightReader
 	ChangesetReader   ChangesetReader
 	MemoryStore       MemoryReader
@@ -383,6 +390,7 @@ func (h *Handler) registerRoutes() {
 	// The caller's own sessions: the individual runs behind the activity
 	// dashboard's aggregates, each openable.
 	h.registerSessionRoutes()
+	h.registerCallRoutes()
 
 	// Activity routes (user-scoped audit metrics)
 	if h.deps.AuditMetrics != nil {

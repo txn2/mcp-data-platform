@@ -87,6 +87,7 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 			PortalCollections:    p.portalStore.CollectionStore() != nil,
 			PortalKnowledgePages: p.portalStore.KnowledgePageStore() != nil,
 			Resources:            p.resources.Store() != nil,
+			Calls:                p.audit.Calls() != nil,
 			CatalogDatasets:      p.config.Semantic.Provider == kindDataHub && p.config.Knowledge.CatalogIndex.IsEnabled(),
 		},
 		Producers: append(p.portalStore.IndexProducers(), p.knowledge.PageIndexProducer(),

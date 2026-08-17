@@ -24,6 +24,7 @@ import { AdminAssetViewerPage } from "@/pages/viewer/AdminAssetViewerPage";
 import { AdminCollectionRoutes } from "@/pages/collections/AdminCollectionRoutes";
 import { ToolsPage } from "@/pages/tools/ToolsPage";
 import { AuditLogPage } from "@/pages/audit/AuditLogPage";
+import { CallRoutes } from "@/pages/calls/CallRoutes";
 import { SessionRoutes } from "@/pages/sessions/SessionRoutes";
 import { ConfigEditorPage } from "@/pages/settings/ConfigEditorPage";
 import { CatalogsPanel } from "@/pages/settings/CatalogsPanel";
@@ -41,6 +42,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 const pageTitles: Record<string, string> = {
   "/activity": "Activity",
   "/activity/sessions": "Activity",
+  "/activity/calls": "Activity",
   "/": "Assets",
   "/collections": "Collections",
   "/resources": "Resources",
@@ -63,6 +65,7 @@ const pageTitles: Record<string, string> = {
   "/admin/resources": "Resources",
   "/admin/scripts": "Scripts",
   "/admin/sessions": "Sessions",
+  "/admin/calls": "Calls",
   "/admin/keys": "Keys",
   "/admin/users": "Users",
   "/admin/changelog": "Change Log",
@@ -77,6 +80,8 @@ function pageTitleFor(route: string): string {
   if (route.startsWith("/admin/collections/")) return "Collection";
   if (route.startsWith("/admin/sessions/")) return "Session";
   if (route.startsWith("/activity/sessions/")) return "Session";
+  if (route.startsWith("/admin/calls/")) return "Call";
+  if (route.startsWith("/activity/calls/")) return "Call";
   return pageTitles[route] ?? "Assets";
 }
 
@@ -438,6 +443,7 @@ export function AppShell() {
               )}
               {route === "/admin/scripts" && <AdminScriptsPage />}
               <SessionRoutes route={route} onNavigate={navigate} />
+              <CallRoutes route={route} onNavigate={navigate} />
               {route === "/admin/keys" && <KeysPage />}
               {route === "/admin/users" && <UsersPanel />}
               {route === "/admin/changelog" && <ChangelogPage />}

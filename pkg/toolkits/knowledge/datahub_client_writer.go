@@ -893,19 +893,28 @@ func (w *DataHubClientWriter) RemoveDocumentationLink(ctx context.Context, urn, 
 	return nil
 }
 
-// CreateCuratedQuery creates a Query entity in DataHub associated with the given dataset.
-func (w *DataHubClientWriter) CreateCuratedQuery(ctx context.Context, entityURN, name, sqlText, description string) (string, error) {
+// CreateCuratedQuery creates a Query entity in DataHub associated with every
+// dataset the statement reads.
+//
+// Language is stated rather than left to the default: a Query entity with no
+// language renders without syntax highlighting in the catalog, and every
+// statement this platform promotes is SQL.
+func (w *DataHubClientWriter) CreateCuratedQuery(ctx context.Context, datasetURNs []string, name, sqlText, description string) (string, error) {
 	result, err := w.client.CreateQuery(ctx, dhclient.CreateQueryInput{
 		Name:        name,
 		Description: description,
 		Statement:   sqlText,
-		DatasetURNs: []string{entityURN},
+		Language:    queryLanguageSQL,
+		DatasetURNs: datasetURNs,
 	})
 	if err != nil {
-		return "", fmt.Errorf("creating curated query for %s: %w", entityURN, err)
+		return "", fmt.Errorf("creating curated query for %v: %w", datasetURNs, err)
 	}
 	return result.URN, nil
 }
+
+// queryLanguageSQL is the language a promoted statement is recorded under.
+const queryLanguageSQL = "SQL"
 
 // UpsertStructuredProperties sets a structured property on an entity.
 func (w *DataHubClientWriter) UpsertStructuredProperties(ctx context.Context, urn, propertyURN string, values []any) error {

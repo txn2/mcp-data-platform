@@ -67,7 +67,14 @@ func Build(accessibleTools []string) string {
 		bullets = append(bullets,
 			"Capture what you learn. When you establish something durable (a definition, a "+
 				"correction, a data-quality finding), record it with `memory_capture` so it is "+
-				"available next time instead of rediscovered.")
+				"available next time instead of rediscovered.",
+			"Record the query that answered the question. Every query and API call returns its "+
+				"own `call_id`. When a result met the purpose you stated and the statement is worth "+
+				"running again (including when the answer only went into the conversation and was "+
+				"never saved as an asset), name that id in `memory_capture` `sources` with a "+
+				"description of what it answers and any caveats. That is what turns a one-off "+
+				"statement into something the next person finds, and what puts it up for promotion "+
+				"to the catalog.")
 	}
 	if has[toolApplyKnowledge] {
 		bullets = append(bullets,

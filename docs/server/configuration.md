@@ -607,6 +607,23 @@ audit:
 
 See [Audit Logging](audit.md) for query examples and retention details.
 
+## Call Catalog Configuration
+
+The `calls` block controls how long the [call catalog](portal-user.md#my-calls) keeps a recorded query or API invocation. Nothing here turns the catalog on: it is written from the audit pipeline, so it exists wherever audit does and nowhere else.
+
+```yaml
+calls:
+  retention_days: 90
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `retention_days` | int | `90` | How long a recorded call is kept **when nothing came of it**. Zero or negative takes the default. |
+
+**What retention does not touch.** The sweep is by what a record came to, not by its age alone. A record an asset, an export, or a capture cites; a record someone promoted; a record someone declined; and a record another session found and re-ran are all evidence, and none of them is ever swept, whatever their age. What ages out is the draft nobody used: a query that ran, answered nothing anybody kept, and was never run again.
+
+The sweep runs once a day per deployment, under a PostgreSQL advisory lock so that several replicas sharing one database delete once rather than each.
+
 ## Notifications Configuration
 
 The `notifications` block controls the email-notification substrate: the

@@ -85,6 +85,12 @@ never be recorded as another person's provenance, and an id that names nothing
 the caller ran is dropped, with the capture reporting that it holds fewer calls
 than were asked for.
 
+The same id names the call in the [call catalog](portal-user.md#my-calls),
+where the call is a record in its own right: what it was for, what it
+addressed, and what came of it. An asset citing a call is one of the things
+that makes that record read as `satisfied`, and `memory_capture` takes the same
+ids in its own `sources` for the answer that never became an asset.
+
 ## Reading it back
 
 The portal's asset page groups provenance by capture: which version each

@@ -44,6 +44,8 @@ func (r EntityRef) URN() string {
 		return mcpScheme + RefTargetResource + refKeySep + r.ResourceID
 	case RefTargetScript:
 		return mcpScheme + RefTargetScript + refKeySep + r.ScriptID
+	case RefTargetCall:
+		return CallReferencePrefix + r.CallID
 	default:
 		return ""
 	}
@@ -97,6 +99,8 @@ func ParseCitableRef(s string) (EntityRef, error) {
 		return EntityRef{}, err
 	}
 	switch ref.TargetType {
+	case RefTargetCall:
+		return EntityRef{}, fmt.Errorf("a call reference (%q) cannot be cited on a knowledge page: a recorded call resolves only for the caller who made it, so the citation would be broken for every other reader; promote the record to a catalog query and cite the resulting urn:li:... entity instead", s)
 	case RefTargetMemory, RefTargetInsight:
 		return EntityRef{}, fmt.Errorf("a personal %s reference (%q) cannot be cited on a knowledge page: it is private to its owner, so the citation would resolve for no one else; promote the insight to the catalog and cite the resulting urn:li:... entity, or cite a shared entity instead", ref.TargetType, s)
 	case RefTargetResource:
@@ -152,6 +156,12 @@ func parseSimpleMCPRef(typ, id, s string) (EntityRef, error) {
 		// Resource ids are opaque server-generated strings, accepted as-is; the
 		// scope-checked fetch resolves them and reports a stale id as not-found.
 		return EntityRef{TargetType: RefTargetResource, ResourceID: id}, nil
+	case RefTargetCall:
+		// A call id is the audit event id the call was recorded under, an opaque
+		// server-generated string. The caller-scoped read resolves it and reports
+		// another caller's call, or one whose audit window has passed, as
+		// not-found.
+		return EntityRef{TargetType: RefTargetCall, CallID: id}, nil
 	case RefTargetScript:
 		// Script ids are opaque server-generated strings ("script_<uuid>"), accepted
 		// as-is; the visibility-checked fetch resolves them and reports a stale id as
