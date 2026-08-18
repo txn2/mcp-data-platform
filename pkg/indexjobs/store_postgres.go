@@ -506,6 +506,12 @@ func (s *PostgresStore) List(ctx context.Context, filter ListFilter) ([]Job, err
 // subquery uses DISTINCT ON so a unit with a long history counts
 // once, under its most recent job's state — matching how the admin
 // surface presents a unit's current status.
+//
+// Failed is the one count that does not come from that subquery. It
+// counts the units holding an open failure, which is the same
+// population ActiveFailures lists; see KindCounts.Failed for why the
+// latest-status reading of it reports zero exactly when a kind is
+// failing continuously.
 func (s *PostgresStore) Counts(ctx context.Context, sourceKind string) (*KindCounts, error) {
 	const q = `
 		WITH last AS (
@@ -517,7 +523,6 @@ func (s *PostgresStore) Counts(ctx context.Context, sourceKind string) (*KindCou
 		SELECT COUNT(*) FILTER (WHERE status = 'pending'),
 		       COUNT(*) FILTER (WHERE status = 'running'),
 		       COUNT(*) FILTER (WHERE status = 'succeeded'),
-		       COUNT(*) FILTER (WHERE status = 'failed'),
 		       (SELECT MAX(COALESCE(completed_at, started_at, created_at))
 		          FROM index_jobs WHERE source_kind = $1),
 		       (SELECT COUNT(DISTINCT source_id)
@@ -529,8 +534,8 @@ func (s *PostgresStore) Counts(ctx context.Context, sourceKind string) (*KindCou
 	c := &KindCounts{SourceKind: sourceKind}
 	var lastActivity sql.NullTime
 	if err := s.db.QueryRowContext(ctx, q, sourceKind).Scan(
-		&c.Pending, &c.Running, &c.Succeeded, &c.Failed, &lastActivity,
-		&c.UnresolvedFailures); err != nil {
+		&c.Pending, &c.Running, &c.Succeeded, &lastActivity,
+		&c.Failed); err != nil {
 		return nil, fmt.Errorf("indexjobs: counts: %w", err)
 	}
 	if lastActivity.Valid {

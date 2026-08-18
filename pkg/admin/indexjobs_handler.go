@@ -49,16 +49,17 @@ type indexKindSummary struct {
 	Verdict string `json:"verdict"`
 	Pending int    `json:"pending"`
 	Running int    `json:"running"`
-	// Succeeded / Failed are per-unit latest-status counts ("N units
-	// whose last run was X"), NOT job counts. The UI labels them as
-	// such so "1 succeeded" no longer reads as a one-job history.
+	// Pending / Running / Succeeded are per-unit latest-status counts
+	// ("N units whose last run was X"), NOT job counts. The UI labels
+	// them as such so "1 succeeded" no longer reads as a one-job
+	// history.
 	Succeeded int `json:"succeeded"`
-	Failed    int `json:"failed"`
-	// UnresolvedFailures is the number of distinct units with an open
-	// failed job. It is the verdict's "degraded" signal and the count
-	// the triage panel badge shows, distinct from Failed (which still
-	// counts units whose latest row is a dismissed/superseded failure).
-	UnresolvedFailures int `json:"unresolved_failures"`
+	// Failed is the number of units carrying an open failed job: the
+	// same population the failure-triage list holds, and the verdict's
+	// "degraded" signal. It is not a latest-status count, because a
+	// failing unit is re-queued and its latest status is pending; a
+	// unit is counted under both while its retry is queued.
+	Failed int `json:"failed"`
 	// LastActivity is the most recent job's activity timestamp
 	// (completed, else started, else created), RFC3339, omitted when
 	// the kind has no jobs yet (e.g. vectors seeded outside the queue).
@@ -189,12 +190,11 @@ func kindSummary(ctx context.Context, svc IndexJobsService, kind string) (indexK
 		return indexKindSummary{}, fmt.Errorf("counts: %w", err)
 	}
 	out := indexKindSummary{
-		Kind:               kind,
-		Pending:            counts.Pending,
-		Running:            counts.Running,
-		Succeeded:          counts.Succeeded,
-		Failed:             counts.Failed,
-		UnresolvedFailures: counts.UnresolvedFailures,
+		Kind:      kind,
+		Pending:   counts.Pending,
+		Running:   counts.Running,
+		Succeeded: counts.Succeeded,
+		Failed:    counts.Failed,
 	}
 	if counts.LastActivity != nil && !counts.LastActivity.IsZero() {
 		s := counts.LastActivity.UTC().Format(time.RFC3339)

@@ -30,12 +30,11 @@ const summary: IndexJobsSummary = {
   kinds: [
     {
       kind: "api_catalog",
-      verdict: "degraded",
+      verdict: "indexing",
       pending: 1,
       running: 0,
       succeeded: 6,
       failed: 2,
-      unresolved_failures: 2,
       last_activity: new Date().toISOString(),
       coverage: { indexed: 142, expected: 168, expected_known: true },
     },
@@ -46,9 +45,20 @@ const summary: IndexJobsSummary = {
       running: 1,
       succeeded: 1,
       failed: 0,
-      unresolved_failures: 0,
       last_activity: new Date().toISOString(),
       coverage: { indexed: 87, expected: 87, expected_known: true },
+    },
+    {
+      // Every unit failing and being re-queued: the pending count is the
+      // failure repeating, not a pass in flight (#1349).
+      kind: "calls",
+      verdict: "degraded",
+      pending: 12,
+      running: 0,
+      succeeded: 0,
+      failed: 9,
+      last_activity: new Date().toISOString(),
+      coverage: { indexed: 0, expected: 12, expected_known: true },
     },
   ],
 };
@@ -144,7 +154,9 @@ describe("IndexingPage", () => {
     render(<IndexingPage />);
     expect(screen.getByText(/Embedding provider active/i)).toBeInTheDocument();
     expect(screen.getByText("Degraded")).toBeInTheDocument();
-    expect(screen.getByText("Indexing…")).toBeInTheDocument();
+    // Two kinds are mid-pass (api_catalog is retrying two units while
+    // still producing vectors), so the badge appears more than once.
+    expect(screen.getAllByText("Indexing…").length).toBe(2);
   });
 
   it("shows a triage error state instead of 'all clear' when failures fail to load", () => {
@@ -165,6 +177,43 @@ describe("IndexingPage", () => {
     expect(screen.getAllByText(/Units by last run/i).length).toBeGreaterThan(0);
   });
 
+  it("states open failures once, and never as a zero cell (#1349)", () => {
+    render(<IndexingPage />);
+    // api_catalog carries two units with an open failure. That number is
+    // stated once, on the attention line. A failing unit is re-queued, so
+    // a "failed" cell in the by-last-run grid would read zero right next
+    // to it -- the contradiction the card used to render.
+    expect(screen.getByText(/2 units need attention/i)).toBeInTheDocument();
+    expect(screen.queryByText("failed")).not.toBeInTheDocument();
+  });
+
+  it("renders a kind whose every unit is failing as degraded, not as work in flight (#1349)", () => {
+    summaryState = {
+      data: {
+        provider: summary.provider,
+        kinds: [
+          {
+            kind: "calls",
+            // The server's verdict: queued work with nothing indexed is
+            // the failure repeating, not a pass in flight.
+            verdict: "degraded",
+            pending: 67,
+            running: 0,
+            succeeded: 0,
+            failed: 57,
+            last_activity: new Date().toISOString(),
+            coverage: { indexed: 0, expected: 68, expected_known: true },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    render(<IndexingPage />);
+    expect(screen.getByText("Degraded")).toBeInTheDocument();
+    expect(screen.getByText(/57 units need attention/i)).toBeInTheDocument();
+    expect(screen.getByText(/0 \/ 68 indexed/)).toBeInTheDocument();
+  });
+
   it("renders a fully-indexed kind with no job history as up to date, never 'never'", () => {
     summaryState = {
       data: {
@@ -177,7 +226,6 @@ describe("IndexingPage", () => {
             running: 0,
             succeeded: 0,
             failed: 0,
-            unresolved_failures: 0,
             coverage: { indexed: 34, expected: 34, expected_known: true },
           },
         ],
@@ -209,7 +257,6 @@ describe("IndexingPage", () => {
             running: 0,
             succeeded: 0,
             failed: 0,
-            unresolved_failures: 0,
             coverage: { indexed: 0, expected: 0, expected_known: true },
           },
         ],

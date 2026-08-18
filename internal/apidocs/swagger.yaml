@@ -610,6 +610,12 @@ definitions:
           Coverage is the indexed-vs-expected rollup, omitted for kinds
           whose Sink reports none.
       failed:
+        description: |-
+          Failed is the number of units carrying an open failed job: the
+          same population the failure-triage list holds, and the verdict's
+          "degraded" signal. It is not a latest-status count, because a
+          failing unit is re-queued and its latest status is pending; a
+          unit is counted under both while its retry is queued.
         type: integer
       kind:
         type: string
@@ -628,16 +634,10 @@ definitions:
         type: integer
       succeeded:
         description: |-
-          Succeeded / Failed are per-unit latest-status counts ("N units
-          whose last run was X"), NOT job counts. The UI labels them as
-          such so "1 succeeded" no longer reads as a one-job history.
-        type: integer
-      unresolved_failures:
-        description: |-
-          UnresolvedFailures is the number of distinct units with an open
-          failed job. It is the verdict's "degraded" signal and the count
-          the triage panel badge shows, distinct from Failed (which still
-          counts units whose latest row is a dismissed/superseded failure).
+          Pending / Running / Succeeded are per-unit latest-status counts
+          ("N units whose last run was X"), NOT job counts. The UI labels
+          them as such so "1 succeeded" no longer reads as a one-job
+          history.
         type: integer
       verdict:
         description: |-

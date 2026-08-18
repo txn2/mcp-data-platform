@@ -116,8 +116,7 @@ export function KindCard({
   // is all zeros (or, confusingly, a stale "N succeeded"), so it is
   // hidden: an up-to-date card is just the verdict, the coverage bar,
   // and recency. It reappears when there is real work or a failure.
-  const showStates =
-    summary.running > 0 || summary.pending > 0 || summary.unresolved_failures > 0;
+  const showStates = summary.running > 0 || summary.pending > 0 || summary.failed > 0;
   return (
     <Card className="gap-3 p-4">
       <div className="flex items-center justify-between gap-2">
@@ -149,14 +148,21 @@ export function KindCard({
 
       {/* Job-state family, shown only when there is active work or an
           open failure; labelled so "succeeded" reads as "units whose
-          last run succeeded", not a job count. */}
+          last run succeeded", not a job count.
+
+          Failures are stated on their own line rather than as a fourth
+          cell of this grid. A failing unit is re-queued, so its last
+          run is pending and a latest-status failure cell reads zero for
+          exactly the kind that is failing everything -- which is how a
+          card came to show "failed 0" above "57 units need attention".
+          One number, one place. */}
       {showStates && (
         <div className="border-t pt-2">
           <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
             Units by last run
           </div>
-          <div className="grid grid-cols-4 gap-1 text-center text-xs">
-            {(["pending", "running", "succeeded", "failed"] as const).map((s) => (
+          <div className="grid grid-cols-3 gap-1 text-center text-xs">
+            {(["pending", "running", "succeeded"] as const).map((s) => (
               <div key={s}>
                 <div className="font-semibold tabular-nums" style={{ color: STATUS_COLORS[s] }}>
                   {summary[s].toLocaleString()}
@@ -165,10 +171,9 @@ export function KindCard({
               </div>
             ))}
           </div>
-          {summary.unresolved_failures > 0 && (
+          {summary.failed > 0 && (
             <div className="mt-1 text-[10px] text-destructive">
-              {summary.unresolved_failures} unit{summary.unresolved_failures === 1 ? "" : "s"} need
-              attention
+              {summary.failed.toLocaleString()} unit{summary.failed === 1 ? "" : "s"} need attention
             </div>
           )}
         </div>

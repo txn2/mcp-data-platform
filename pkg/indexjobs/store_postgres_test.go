@@ -227,17 +227,14 @@ func TestStore_Counts(t *testing.T) {
 	defer done()
 	activity := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	mock.ExpectQuery("WITH last AS").WithArgs("api_catalog").
-		WillReturnRows(sqlmock.NewRows([]string{"pending", "running", "succeeded", "failed", "last_activity", "unresolved_failures"}).
-			AddRow(1, 2, 3, 4, activity, 2))
+		WillReturnRows(sqlmock.NewRows([]string{"pending", "running", "succeeded", "last_activity", "failed"}).
+			AddRow(1, 2, 3, activity, 4))
 	c, err := s.Counts(context.Background(), "api_catalog")
 	if err != nil {
 		t.Fatalf("Counts: %v", err)
 	}
 	if c.Pending != 1 || c.Running != 2 || c.Succeeded != 3 || c.Failed != 4 {
 		t.Errorf("counts = %+v", c)
-	}
-	if c.UnresolvedFailures != 2 {
-		t.Errorf("UnresolvedFailures = %d; want 2", c.UnresolvedFailures)
 	}
 	if c.LastActivity == nil || !c.LastActivity.Equal(activity) {
 		t.Errorf("LastActivity = %v; want %v", c.LastActivity, activity)
@@ -251,8 +248,8 @@ func TestStore_CountsNoActivity(t *testing.T) {
 	s, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectQuery("WITH last AS").WithArgs("tools").
-		WillReturnRows(sqlmock.NewRows([]string{"pending", "running", "succeeded", "failed", "last_activity", "unresolved_failures"}).
-			AddRow(0, 0, 0, 0, nil, 0))
+		WillReturnRows(sqlmock.NewRows([]string{"pending", "running", "succeeded", "last_activity", "failed"}).
+			AddRow(0, 0, 0, nil, 0))
 	c, err := s.Counts(context.Background(), "tools")
 	if err != nil {
 		t.Fatalf("Counts: %v", err)

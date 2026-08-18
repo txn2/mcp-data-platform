@@ -1,11 +1,14 @@
 // Shared helpers for the Indexing dashboard components. Pure functions and
 // constants used across the badge, card, panel, and job-table modules.
 
+// STATUS_COLORS tints the by-last-run cells on a kind card and the coverage
+// bar. Failures are not in it: they are stated as a destructive-toned sentence
+// rather than a cell, because a failing unit is re-queued and its last run is
+// pending (see KindCard).
 export const STATUS_COLORS: Record<string, string> = {
   pending: "hsl(38, 92%, 50%)",
   running: "hsl(217, 91%, 60%)",
   succeeded: "hsl(142, 71%, 45%)",
-  failed: "hsl(0, 72%, 51%)",
 };
 
 export function relTime(iso?: string): string {

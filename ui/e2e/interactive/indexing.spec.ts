@@ -36,9 +36,15 @@ test.describe("Admin Indexing Dashboard", () => {
 
   test("leads with a health verdict per kind and the throughput timeline", async ({ page }) => {
     // The verdict is the lead health word, replacing the meaningless
-    // per-unit-count heatmap.
+    // per-unit-count heatmap. Two kinds are mid-pass (api_catalog is
+    // retrying two units while still producing vectors), so that badge
+    // appears more than once.
     await expect(page.getByText("Degraded")).toBeVisible();
-    await expect(page.getByText("Indexing…")).toBeVisible();
+    await expect(page.getByText("Indexing…")).toHaveCount(2);
+    // The degraded kind states its open failures once, on the attention
+    // line: a failing unit is re-queued, so a "failed" cell in the
+    // by-last-run grid would read zero right beside it (#1349).
+    await expect(page.getByText("9 units need attention")).toBeVisible();
     await expect(
       page.locator('svg[aria-label="Completed index jobs over time"]'),
     ).toBeVisible();
