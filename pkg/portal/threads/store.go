@@ -233,6 +233,16 @@ type ThreadFilter struct {
 	// caller's own threads are not surfaced as feedback awaiting their action.
 	ExcludeAuthorID    string
 	ExcludeAuthorEmail string
+	// ActivityAfter restricts to threads whose timeline gained an event after
+	// this instant, i.e. threads with activity the caller has not been shown
+	// yet. Thread creation writes the thread's first event in the same
+	// transaction, so a thread opened after the instant qualifies on its own
+	// first event and needs no separate created-after clause.
+	//
+	// ExcludeAuthorID / ExcludeAuthorEmail apply to the event as well as the
+	// thread: an event the excluded user wrote does not count as activity, so a
+	// caller's own reply on their own asset's thread never re-raises it.
+	ActivityAfter *time.Time
 	// MentionedEmail restricts to threads holding an event that @-mentions this
 	// address (#627), which is the "mentions of me" inbox. It matches the
 	// mentions recorded on the event by the write path, not the token text, so
@@ -896,6 +906,7 @@ func applyThreadFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
 	qb = applyThreadAuthorFilter(qb, f)
 	qb = applyThreadAuthorExcludeFilter(qb, f)
 	qb = applyThreadMentionFilter(qb, f)
+	qb = applyThreadActivityAfterFilter(qb, f)
 	if or := threadTargetIDsCond(f); or != nil {
 		qb = qb.Where(or)
 	}
@@ -914,6 +925,31 @@ func applyThreadMentionFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuil
 		`EXISTS (SELECT 1 FROM portal_thread_events e
 		          WHERE e.thread_id = t.id AND e.metadata -> 'mentions' @> ?::jsonb)`,
 		mention.ContainmentFilter(f.MentionedEmail)))
+}
+
+// applyThreadActivityAfterFilter restricts to threads with an event newer than
+// f.ActivityAfter that the excluded user did not write. The exclusion is applied
+// inside the EXISTS rather than around it so a thread whose only recent event is
+// the caller's own reply is not reported back to them as new activity. The
+// predicate matches the (thread_id, created_at) index on portal_thread_events.
+func applyThreadActivityAfterFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
+	if f.ActivityAfter == nil {
+		return qb
+	}
+	conds := []string{"ea.thread_id = t.id", "ea.created_at > ?"}
+	args := []any{*f.ActivityAfter}
+	if f.ExcludeAuthorID != "" {
+		conds = append(conds, "ea.author_id <> ?")
+		args = append(args, f.ExcludeAuthorID)
+	}
+	if f.ExcludeAuthorEmail != "" {
+		conds = append(conds, "LOWER(ea.author_email) <> LOWER(?)")
+		args = append(args, f.ExcludeAuthorEmail)
+	}
+	// #nosec G202 -- conds holds only the fixed predicates above; every value is a bound argument
+	return qb.Where(sq.Expr(
+		"EXISTS (SELECT 1 FROM portal_thread_events ea WHERE "+strings.Join(conds, " AND ")+")",
+		args...))
 }
 
 // applyThreadAuthorExcludeFilter drops threads opened by the excluded user (by

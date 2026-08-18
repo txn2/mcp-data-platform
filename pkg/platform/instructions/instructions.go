@@ -24,6 +24,7 @@ const (
 	toolMemoryCapture  = "memory_capture"
 	toolApplyKnowledge = "apply_knowledge"
 	toolManagePrompt   = "manage_prompt"
+	toolManageFeedback = "manage_feedback"
 )
 
 // Build returns the platform-owned "how to operate this platform" instruction

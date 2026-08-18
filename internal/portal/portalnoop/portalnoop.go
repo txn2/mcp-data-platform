@@ -12,6 +12,7 @@ package portalnoop
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
 )
@@ -95,6 +96,10 @@ func (*shareStore) ListByPrompt(_ context.Context, _ string) ([]portaldomain.Sha
 }
 
 func (*shareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]portaldomain.SharedPromptRef, error) { //nolint:revive // interface impl
+	return nil, nil
+}
+
+func (*shareStore) ListSharedWithUserSince(_ context.Context, _, _ string, _ time.Time, _ int) ([]portaldomain.SharedTargetRef, error) { //nolint:revive // interface impl
 	return nil, nil
 }
 

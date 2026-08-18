@@ -97,6 +97,7 @@ nav:
       - Admin Portal: server/admin-portal.md
       - Admin API: server/admin-api.md
       - Email Notifications: server/notifications.md
+      - Session-Start Notices: server/session-notices.md
     - Operations:
       - Audit Logging: server/audit.md
       - Observability: server/observability.md

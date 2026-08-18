@@ -3,6 +3,8 @@ package notification
 import (
 	"context"
 	"testing"
+
+	"github.com/txn2/mcp-data-platform/pkg/auth"
 )
 
 func TestNormalizeAddress(t *testing.T) {
@@ -131,5 +133,54 @@ func TestEnqueue_DisplayFormRecipientIsQueuedNormalized(t *testing.T) {
 	}
 	if queue.enqueued[0].Recipient != "teammate@example.com" {
 		t.Errorf("Recipient = %q, want the normalized bare address", queue.enqueued[0].Recipient)
+	}
+}
+
+func TestDeliverable(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{name: "ordinary address", in: "user@example.com", want: true},
+		{name: "empty", in: "", want: false},
+		{name: "whitespace only", in: "   ", want: false},
+		{name: "synthetic api-key address", in: "ci@apikey.local", want: false},
+		{name: "synthetic address in display form", in: "CI Runner <ci@apikey.local>", want: false},
+		{name: "synthetic address with mixed case", in: "CI@APIKey.Local", want: false},
+		// The check is on the domain, not on a substring: a real domain that
+		// merely contains the synthetic one is a real mailbox.
+		{name: "domain that only ends similarly", in: "user@notapikey.local", want: true},
+		{name: "synthetic name as a subdomain of a real domain", in: "user@apikey.local.example.com", want: true},
+		{name: "synthetic domain as a local part", in: "apikey.local@example.com", want: true},
+		// A value that does not parse is compared as-is by NormalizeAddress; it
+		// is not this predicate's job to reject it.
+		{name: "unparseable value", in: "not an address", want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Deliverable(tc.in); got != tc.want {
+				t.Errorf("Deliverable(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// The synthetic domain is spelled in two packages: pkg/auth mints addresses in
+// it, pkg/notification refuses to deliver to it. pkg/notification deliberately
+// does not import pkg/auth at runtime -- it is the lower-level domain and must
+// not depend on the auth layer for a string -- so this test is what keeps the
+// two copies equal. If it fails, the platform is minting addresses in a domain
+// the mail path no longer recognizes, and undeliverable rows are queued again.
+func TestSyntheticDomainMatchesTheOneAuthMints(t *testing.T) {
+	if syntheticAPIKeyDomain != auth.SyntheticEmailDomain {
+		t.Fatalf("synthetic domain drifted: notification has %q, auth mints %q",
+			syntheticAPIKeyDomain, auth.SyntheticEmailDomain)
+	}
+	// And the address auth actually builds must be one this package refuses,
+	// which is the property that matters rather than the constants alone.
+	if Deliverable(auth.SyntheticEmail("ci-pipeline")) {
+		t.Errorf("Deliverable(%q) = true; the address auth mints for a keyless "+
+			"API key must never be treated as a mailbox", auth.SyntheticEmail("ci-pipeline"))
 	}
 }

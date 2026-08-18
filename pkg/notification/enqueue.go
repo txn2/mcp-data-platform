@@ -137,6 +137,16 @@ func (e *Enqueuer) enqueue(ctx context.Context, recipient, category string, p Pa
 	if recipient == "" || recipient == NormalizeAddress(p.Actor) {
 		return false, nil
 	}
+	// An address the platform minted for a keyless API key is an identity, not
+	// a mailbox (#1345). The check lives here rather than at the trigger sites
+	// so it holds for every category -- share, comment, mention, script run,
+	// review alert -- through the one seam they all pass through. The drop is
+	// silent, like the opted-out and self-notification drops above: the owner
+	// of an agent-saved asset is a recipient of every comment on it, so a
+	// warning per event would be its own noise.
+	if !Deliverable(recipient) {
+		return false, nil
+	}
 	prefs, err := e.prefs.Get(ctx, recipient)
 	if err != nil {
 		// The recipient is request-supplied and these errors are logged by

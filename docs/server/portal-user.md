@@ -292,6 +292,12 @@ Feedback lets the people who review your work, including subject-matter experts 
 
 Feedback is organized into **threads**. A thread targets one asset, collection, prompt, or knowledge page, or it lives on a **standalone channel** for general feedback not tied to a single object. Each thread has a kind (comment, question, correction, rating, approval, rejection, or suggestion), a status (open, answered, resolved, won't fix, acknowledged), an optional `requires_resolution` flag, and a timeline of events (the opening message plus replies and status changes). A thread can be anchored to a specific selection within the target so a correction like "we don't use that term" stays pinned to the place it refers to, along with the version it was raised against. Standalone-channel threads are visible to every signed-in user; feedback on an asset, collection, or prompt is visible to people who can already view that object; knowledge pages are org-shared, so any signed-in user can read and add feedback on them.
 
+Feedback you have not seen also reaches you outside the portal: an
+[email notification](notifications.md) when a thread event lands, and a
+[session-start notice](session-notices.md) on the first `platform_info` call of
+an agent session, which lists the unresolved threads other people left on assets
+you own.
+
 ### The feedback panel
 
 Open the **Feedback** button in an asset, collection, prompt, or knowledge-page viewer to slide out the feedback panel. It lists the threads on that item with their kind, status, and activity, and a header counts how many are open and how many still need resolution. Selecting a text passage in markdown or plain-text content (an asset, a prompt, or a knowledge page) before opening **New** lets you anchor your feedback to that selection. In the Knowledge hub, each knowledge-page card shows an open-thread badge so you can see where feedback is waiting.

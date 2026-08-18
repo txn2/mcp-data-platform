@@ -193,6 +193,10 @@ internal/platform/memorylayer -> pkg/portal/knowledgepage
 internal/platform/memorylayer -> pkg/semantic
 internal/platform/memorylayer -> pkg/toolkits/knowledge
 internal/platform/memorylayer -> pkg/toolkits/memory
+internal/platform/notices -> internal/logsan
+internal/platform/notices -> internal/portal/portaldomain
+internal/platform/notices -> pkg/middleware
+internal/platform/notices -> pkg/portal/threads
 internal/platform/notifydelivery -> internal/logsan
 internal/platform/notifydelivery -> internal/notification/notifyprefs
 internal/platform/notifydelivery -> internal/notification/notifyqueue
@@ -210,6 +214,7 @@ internal/platform/obs -> pkg/observability
 internal/platform/portalstore -> internal/platform/assetindex
 internal/platform/portalstore -> internal/platform/collectionindex
 internal/platform/portalstore -> internal/platform/knowledgepageindex
+internal/platform/portalstore -> internal/platform/notices
 internal/platform/portalstore -> pkg/embedding
 internal/platform/portalstore -> pkg/indexjobs
 internal/platform/portalstore -> pkg/portal
@@ -486,6 +491,7 @@ pkg/platform -> internal/platform/listchanged
 pkg/platform -> internal/platform/mcpapps
 pkg/platform -> internal/platform/memorylayer
 pkg/platform -> internal/platform/mwchain
+pkg/platform -> internal/platform/notices
 pkg/platform -> internal/platform/oauthserver
 pkg/platform -> internal/platform/obs
 pkg/platform -> internal/platform/portalcfg

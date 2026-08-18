@@ -3,6 +3,7 @@ package threads
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,4 +102,45 @@ func TestApplyThreadFilterMention_AbsentWithoutAnAddress(t *testing.T) {
 	sql, _, err := applyThreadFilter(psq.Select("t.id").From("portal_threads t"), ThreadFilter{}).ToSql()
 	require.NoError(t, err)
 	assert.NotContains(t, sql, "mentions", "sql: %s", sql)
+}
+
+// The session-start notice digest (#1278) asks for threads that MOVED since the
+// caller was last briefed, which is an event-level question: the thread's own
+// updated_at moves for reasons that are not new feedback.
+func TestApplyThreadFilterActivityAfter(t *testing.T) {
+	after := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	qb := applyThreadFilter(psq.Select("t.id").From("portal_threads t"),
+		ThreadFilter{ActivityAfter: &after})
+	sql, args, err := qb.ToSql()
+	require.NoError(t, err)
+
+	assert.Contains(t, sql, "EXISTS (SELECT 1 FROM portal_thread_events ea", "sql: %s", sql)
+	assert.Contains(t, sql, "ea.thread_id = t.id", "sql: %s", sql)
+	assert.Contains(t, sql, "ea.created_at >", "sql: %s", sql)
+	assert.Contains(t, args, after)
+}
+
+// The caller's own reply is not activity awaiting the caller, so the author
+// exclusion has to reach INSIDE the EXISTS. Excluding only at thread level
+// would leave a thread someone else opened re-raised by the owner's own answer.
+func TestApplyThreadFilterActivityAfterExcludesTheCallersOwnEvents(t *testing.T) {
+	after := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	qb := applyThreadFilter(psq.Select("t.id").From("portal_threads t"), ThreadFilter{
+		ActivityAfter:      &after,
+		ExcludeAuthorID:    "u1",
+		ExcludeAuthorEmail: "Owner@Example.com",
+	})
+	sql, args, err := qb.ToSql()
+	require.NoError(t, err)
+
+	assert.Contains(t, sql, "ea.author_id <>", "sql: %s", sql)
+	assert.Contains(t, sql, "LOWER(ea.author_email) <> LOWER(", "sql: %s", sql)
+	assert.Contains(t, args, "u1")
+	assert.Contains(t, args, "Owner@Example.com")
+}
+
+func TestApplyThreadFilterActivityAfter_AbsentWithoutAnInstant(t *testing.T) {
+	sql, _, err := applyThreadFilter(psq.Select("t.id").From("portal_threads t"), ThreadFilter{}).ToSql()
+	require.NoError(t, err)
+	assert.NotContains(t, sql, "portal_thread_events ea", "sql: %s", sql)
 }

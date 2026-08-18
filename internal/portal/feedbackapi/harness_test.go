@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/portal/access"
 	"github.com/txn2/mcp-data-platform/internal/portal/portaldomain"
@@ -112,6 +113,10 @@ func (m *mockShareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _
 
 func (m *mockShareStore) ListSharedCollectionsWithUser(_ context.Context, _, _ string, _, _ int) ([]portaldomain.SharedCollection, int, error) {
 	return m.sharedCollRes, m.sharedCollTot, m.sharedCollErr
+}
+
+func (*mockShareStore) ListSharedWithUserSince(_ context.Context, _, _ string, _ time.Time, _ int) ([]portaldomain.SharedTargetRef, error) {
+	return nil, nil
 }
 
 func (m *mockShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]portaldomain.SharedPromptRef, error) {

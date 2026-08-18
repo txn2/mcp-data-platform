@@ -85,6 +85,10 @@ func (*mockCollectionShareStore) ListByPrompt(_ context.Context, _ string) ([]Sh
 	return nil, nil
 }
 
+func (*mockCollectionShareStore) ListSharedWithUserSince(_ context.Context, _, _ string, _ time.Time, _ int) ([]SharedTargetRef, error) {
+	return nil, nil
+}
+
 func (*mockCollectionShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]SharedPromptRef, error) {
 	return nil, nil
 }

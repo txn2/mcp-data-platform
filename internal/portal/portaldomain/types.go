@@ -323,6 +323,22 @@ type SharedPromptRef struct {
 	Permission SharePermission
 }
 
+// SharedTargetRef is one active share grant to a named recipient, whatever kind
+// of artifact it points at. portal_shares is a single polymorphic table, so the
+// three per-kind list queries (assets, collections, prompts) collapse to one
+// where the caller wants recency rather than the artifact body: the session-start
+// notice digest names what was shared and when, and dereferences it through the
+// portal. TargetName is the artifact's display name, resolved in the same query.
+type SharedTargetRef struct {
+	ShareID    string
+	TargetType string // one of the TargetType* constants
+	TargetID   string
+	TargetName string
+	SharedBy   string
+	SharedAt   time.Time
+	Permission SharePermission
+}
+
 // ShareSummary indicates what kinds of active shares exist for an asset.
 type ShareSummary struct {
 	HasUserShare  bool `json:"has_user_share" example:"true"`

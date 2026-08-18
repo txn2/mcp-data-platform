@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/assetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/collectionindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgepageindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/notices"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -74,6 +75,11 @@ type Handle struct {
 	knowledgePageStore knowledgepage.Store
 	s3Client           portal.S3Client
 	toolkit            *portalkit.Toolkit
+	// notices assembles a caller's session-start digest from the asset, share
+	// and thread stores above plus its own watermark table (#1278). Set only by
+	// New, which has the *sql.DB the watermark needs; a Handle assembled from
+	// injected stores carries none and reports no notices.
+	notices *notices.Handle
 	// indexProducers are the write-path index-job producers the Postgres
 	// stores were built with, exposed for the index-jobs queue to bind once it
 	// exists. Empty when the Handle was assembled from injected stores
@@ -123,6 +129,7 @@ func New(db *sql.DB, s3Client portal.S3Client, embedder embedding.Provider, cfg 
 		S3Client:      s3Client,
 	}, embedder, cfg)
 	h.indexProducers = []*indexjobs.Producer{assets, collections, pages}
+	h.notices = notices.New(db, h.assetStore, h.shareStore, h.threadStore)
 	return h
 }
 
@@ -191,6 +198,16 @@ func (h *Handle) CollectionStore() portal.CollectionStore {
 		return nil
 	}
 	return h.collectionStore
+}
+
+// Notices returns the session-start notice digest assembler, or nil on a nil
+// Handle or one assembled without a database. A nil assembler builds no digest,
+// so callers need no guard of their own.
+func (h *Handle) Notices() *notices.Handle {
+	if h == nil {
+		return nil
+	}
+	return h.notices
 }
 
 // ThreadStore returns the portal feedback-thread store, or nil on a nil Handle.

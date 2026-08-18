@@ -661,6 +661,69 @@ func (s *postgresShareStore) ListSharedPromptsWithUser(ctx context.Context, user
 	return refs, nil
 }
 
+// ListSharedWithUserSince returns the active share grants naming this user,
+// across all three artifact kinds, created after since. portal_shares is one
+// polymorphic table, so a single query serves every kind rather than three
+// per-kind round trips; the target tables are joined only for the display name
+// and to drop a grant whose artifact has since been deleted.
+//
+// Who shared it is the person who made the grant (ps.created_by), not the
+// artifact's owner: an editor may share someone else's asset, and naming the
+// owner would tell the recipient it came from a person who did nothing. The
+// owner is the fallback for a legacy row with no recorded creator. The id
+// tiebreaker on the ordering keeps a page stable when two grants land in the
+// same instant.
+func (s *postgresShareStore) ListSharedWithUserSince(ctx context.Context, userID, email string, since time.Time, limit int) ([]portaldomain.SharedTargetRef, error) { //nolint:revive // interface impl
+	if limit <= 0 {
+		limit = portaldomain.DefaultLimit
+	}
+	if limit > portaldomain.MaxLimit {
+		limit = portaldomain.MaxLimit
+	}
+	query := `
+		SELECT ps.id,
+		       CASE WHEN ps.asset_id IS NOT NULL THEN 'asset'
+		            WHEN ps.collection_id IS NOT NULL THEN 'collection'
+		            ELSE 'prompt' END,
+		       COALESCE(ps.asset_id, ps.collection_id, ps.prompt_id::text),
+		       COALESCE(pa.name, pc.name, NULLIF(pr.display_name, ''), pr.name, ''),
+		       COALESCE(NULLIF(ps.created_by, ''), NULLIF(pa.owner_email, ''),
+		                NULLIF(pc.owner_email, ''), pr.owner_email, ''),
+		       ps.created_at, ps.permission
+		FROM portal_shares ps
+		LEFT JOIN portal_assets pa      ON ps.asset_id = pa.id      AND pa.deleted_at IS NULL
+		LEFT JOIN portal_collections pc ON ps.collection_id = pc.id AND pc.deleted_at IS NULL
+		LEFT JOIN prompts pr            ON ps.prompt_id = pr.id
+		WHERE ( ($1 <> '' AND ps.shared_with_user_id = $1)
+		     OR ($2 <> '' AND LOWER(ps.shared_with_email) = LOWER($2)) )
+		  AND ps.revoked = FALSE
+		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
+		  AND ps.created_at > $3
+		  AND COALESCE(pa.id, pc.id, pr.id::text) IS NOT NULL
+		ORDER BY ps.created_at DESC, ps.id DESC
+		LIMIT $4
+	`
+	rows, err := s.db.QueryContext(ctx, query, userID, email, since, limit)
+	if err != nil {
+		return nil, fmt.Errorf("querying shares since: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup after read-only query
+
+	var refs []portaldomain.SharedTargetRef
+	for rows.Next() {
+		var r portaldomain.SharedTargetRef
+		if err := rows.Scan(&r.ShareID, &r.TargetType, &r.TargetID, &r.TargetName,
+			&r.SharedBy, &r.SharedAt, &r.Permission); err != nil {
+			return nil, fmt.Errorf("scanning share since row: %w", err)
+		}
+		refs = append(refs, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating share since rows: %w", err)
+	}
+	return refs, nil
+}
+
 func (s *postgresShareStore) GetUserCollectionPermission(ctx context.Context, collectionID, userID, email string) (portaldomain.SharePermission, error) { //nolint:revive // interface impl
 	query := `
 		SELECT permission FROM portal_shares

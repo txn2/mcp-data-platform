@@ -139,6 +139,10 @@ func (m *mockShareStore) ListByPrompt(_ context.Context, _ string) ([]Share, err
 	return m.listByPrompt, m.listByPromptE
 }
 
+func (*mockShareStore) ListSharedWithUserSince(_ context.Context, _, _ string, _ time.Time, _ int) ([]SharedTargetRef, error) {
+	return nil, nil
+}
+
 func (m *mockShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]SharedPromptRef, error) {
 	return m.promptRefs, m.promptRefsErr
 }
@@ -272,6 +276,10 @@ func (c *captureShareStore) ListByCollection(ctx context.Context, id string) ([]
 
 func (c *captureShareStore) ListByPrompt(ctx context.Context, id string) ([]Share, error) {
 	return c.inner.ListByPrompt(ctx, id)
+}
+
+func (*captureShareStore) ListSharedWithUserSince(_ context.Context, _, _ string, _ time.Time, _ int) ([]SharedTargetRef, error) {
+	return nil, nil
 }
 
 func (c *captureShareStore) ListSharedPromptsWithUser(ctx context.Context, userID, email string) ([]SharedPromptRef, error) {

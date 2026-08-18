@@ -216,10 +216,13 @@ func (h *Handler) persistAPIKey(r *http.Request, keyValue string, def auth.APIKe
 	return nil
 }
 
-// apiKeyEmailFallback returns the email or a default based on name.
+// apiKeyEmailFallback returns the email or the synthetic address built from the
+// key's name. The synthetic form comes from pkg/auth rather than being spelled
+// again here, so a key created through the admin API and one authenticated from
+// config carry the same address.
 func apiKeyEmailFallback(email, name string) string {
 	if email != "" {
 		return email
 	}
-	return name + "@apikey.local"
+	return auth.SyntheticEmail(name)
 }

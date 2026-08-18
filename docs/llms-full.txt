@@ -2763,6 +2763,7 @@ The platform emails users when a teammate shares an asset, collection, or prompt
 ## How it works
 
 1. A direct share or feedback-thread event consults the recipient's preferences and queues a notification row. Enqueue failures are logged, never surfaced: the share or comment always succeeds. The actor is never a recipient of their own event: the exclusion lives at the enqueue seam every trigger passes through and compares normalized addresses, so an owner or grantee recorded as "Display Name <addr>" is still recognized as the author. A thread event with no resolvable author queues no general fan-out (it cannot be shown not to be a self-notification), though addresses the body named explicitly still get their mention.
+1b. One drop is not a preference: an API key with no configured `email` authenticates as a synthetic `name@apikey.local` address (auth.SyntheticEmail), which is an identity rather than a mailbox and becomes the owner_email of every asset an agent saves under that key. notification.Deliverable refuses it at the same enqueue seam as the other drops, so every category is covered by one check and each comment on an agent-produced asset no longer queues an undeliverable row that burns five retries and buries genuine failures in the admin delivery history. A key configured with a real address is unaffected. The domain constant is spelled in both pkg/auth and pkg/notification (the latter must not depend on the auth layer for a string) and a test asserts the two agree.
 2. A background send worker claims due rows (Postgres LISTEN/NOTIFY plus a 30s poll fallback), renders a branded table-based HTML email with a plaintext alternative, and delivers over SMTP. Failed sends retry up to 5 times with exponential backoff (30s doubling, 32m cap). Delivery leases (2m) make rows crash-safe across pod restarts.
 3. Daily-digest users receive one email per day summarizing that window's events.
 4. One trigger has no human behind it: an hourly check compares the knowledge review queue against the operator's staleness threshold and queues an alert when it crosses (see Review queue alerts below).
@@ -2832,6 +2833,32 @@ notifications:
 ```
 
 The SMTP connection itself is admin-configured at runtime, not in YAML. Emails deep-link into the portal via portal.public_base_url (asset/collection shares use the token viewer; prompts link to the in-app prompt page) and include a link to the recipient's notification preferences. When SMTP is unconfigured or disabled, queued rows wait without burning retry attempts. Retention bounds the queue: sent/failed rows purge after 30 days and undelivered rows older than 7 days are dropped as stale, so late SMTP enablement never delivers an ancient backlog. A per-actor rate limit (burst 30, 6/min sustained per replica) bounds outbound volume per account. The send-test action requires an enabled configuration (409 otherwise).
+
+---
+
+# Session-Start Notices
+
+Email reaches a person who reads email and the portal activity feed reaches a person who opens the portal; someone working entirely through an agent does neither. platform_info attaches a `notices` block to the first call of every session, addressed to the person behind the agent, and the agent instructions in the same response tell the agent to relay it before starting on the request. No configuration: present wherever the portal and a database are.
+
+## What is in it
+
+- `notices.feedback` — unresolved feedback threads on assets the caller OWNS (ownership by user id, the same scoping every other owned-artifact view uses). Threads the caller opened and replies the caller wrote are excluded at the store, inside the activity-after EXISTS as well as at thread level, so a caller's own answer on their own asset never re-raises it. Each entry carries thread_id, kind, status, title, author_email, asset_id, asset_name, asset_reference (mcp:asset:<id>, dereferenced by fetch and answered with manage_feedback) and last_activity_at. Capped at 10; `feedback_total` reports the whole count so an agent never implies the list is complete.
+- `notices.new_shares` — assets, collections, and prompts granted to the caller by name, newest first, capped at 10 with `new_shares_truncated` marking a page that did not fit (the query is bounded, not counted, so an overflow row is the honest answer to "is this everything"). portal_shares is one polymorphic table, so a single query serves all three kinds. A public link nobody was named on is not a share with anyone and never appears. Each entry carries kind, id, name, reference (mcp:<kind>:<id>), shared_by, shared_at, and permission; shared_by is the person who MADE the grant (ps.created_by), not the artifact's owner, since an editor may share someone else's asset.
+- `notices.since` — the watermark the digest covers, RFC3339.
+
+The block is absent entirely when there is nothing to report, and for an anonymous caller. A caller whose identity carries no user id owns no assets and so gets no feedback notices, though shares still resolve for them by email; an API-key principal does have one (apikey:<name>), so assets it saved are assets it owns.
+
+## Delivered once
+
+Delivering the digest advances the caller's notice watermark (`user_notice_watermarks`, keyed by lowercased email or, absent one, user id), so the next session hears only what arrived since. That is why the instructions say to relay it rather than act on it silently: a notice the agent keeps to itself is not repeated. The watermark is stamped from an instant captured BEFORE the queries run, so activity landing mid-build is reported next session rather than lost, and it never moves backwards, so two concurrent sessions cannot undo each other. It is deliberately not users.last_seen_at, which the user directory refreshes asynchronously during the very session whose digest is being computed.
+
+Two consequences: a caller who has never been briefed has no watermark and is briefed on the last 30 days rather than their whole history (the platform cannot tell what they already saw in the portal, and announcing a two-year-old share as new would be false); and when one half of the digest fails to load, the digest is still returned but the watermark does NOT advance, so a database hiccup delays a notice rather than swallowing it. Orientation never fails over a notice: every error is logged and swallowed.
+
+Both lists are a briefing rather than an inbox: the watermark advances past what a cap left out, so the agent instructions tell the agent to name the portal (activity feed for feedback, Shared With Me for shares) as the complete view rather than presenting the entries as everything there is.
+
+## Relationship to the other surfaces
+
+Email notifications (on the event or in a daily digest), the portal activity feed (whenever the person looks), and session-start notices (first call of a session) are independent. Turning email off does not affect notices, and relaying a notice marks nothing read in the portal.
 
 ---
 

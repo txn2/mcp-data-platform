@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/notices"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	personapkg "github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
@@ -32,9 +33,18 @@ type Info struct {
 	PortalURL           string                `json:"portal_url,omitempty"`
 	Persona             *PersonaInfo          `json:"persona,omitempty"`
 	Prompts             []registry.PromptInfo `json:"prompts,omitempty"`
-	Features            Features              `json:"features"`
-	ConfigVersion       ConfigVersionInfo     `json:"config_version"`
+	// Notices is what is waiting for this caller: unresolved feedback other
+	// people left on assets they own, and artifacts newly shared with them
+	// (#1278). Absent when there is nothing to report. Delivering it advances
+	// the caller's watermark, so it is shown once.
+	Notices       *Notices          `json:"notices,omitempty"`
+	Features      Features          `json:"features"`
+	ConfigVersion ConfigVersionInfo `json:"config_version"`
 }
+
+// Notices is the caller's session-start digest, aliased so a library consumer
+// can name the type the Info field carries.
+type Notices = notices.Digest
 
 // ConfigVersionInfo provides information about the config API version.
 type ConfigVersionInfo struct {
@@ -256,6 +266,9 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 	if p.config.Purpose.IsEnabled() {
 		notes = append(notes, instructions.PurposeNote(p.config.Purpose.IsRequired()))
 	}
+	digest := p.portalStore.Notices().Build(ctx, middleware.GetPlatformContext(ctx))
+	feedbackCount, shareCount := digest.Counts()
+	notes = append(notes, instructions.NoticesNote(accessibleTools, feedbackCount, shareCount))
 	agentInstructions := instructions.ComposeForCaller(
 		p.config.ServerAgentInstructions(ctx),
 		p.toolkitRegistry.AllTools(),
@@ -287,6 +300,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		PortalURL:           p.config.Portal.PublicBaseURL,
 		Persona:             persona,
 		Prompts:             p.AllPromptInfos(),
+		Notices:             digest,
 		Features:            p.buildFeatures(ctx, accessibleTools),
 		ConfigVersion: ConfigVersionInfo{
 			APIVersion:        p.config.APIVersion,
