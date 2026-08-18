@@ -1,0 +1,12 @@
+-- Reverse 000111.
+--
+-- The down migration deliberately does NOT restore the two-function shape. That
+-- shape cannot have its index built on PostgreSQL 17, so recreating it would
+-- hand back a state that the very next reindex refuses — a reverse migration
+-- whose result is broken on the server it just ran on. The self-contained
+-- script_fts and its index are what 000102 now creates and what stepping back
+-- to 102 is meant to leave in place, so this is a no-op by design.
+--
+-- Stepping further back to 101 drops the function and the index outright, which
+-- 000102's own down migration does.
+SELECT 1;

@@ -100,18 +100,29 @@ smoke:
 # index expression), down-migration dependency-order bugs, and dev-seed rot.
 # sqlmock and the embedded-file presence checks cannot catch these. Provisions
 # its own container on a non-default port so it never touches the dev DB.
-MIGRATE_PG_IMAGE := pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
+# Run against every PostgreSQL major a deployment may be on, because the engine
+# is what decides whether this SQL is legal and the majors disagree. PostgreSQL
+# 17 restricts search_path to pg_catalog and pg_temp during maintenance
+# operations, so an index expression whose function body calls a function of
+# ours builds on 16 and fails on 17. A single-major gate reported that as green
+# and it reached a release (000102, fixed in 000111). One major is not a gate.
+MIGRATE_PG_IMAGES := \
+	pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc \
+	pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
 MIGRATE_PG_CONTAINER := mcp-migrate-check-pg
 MIGRATE_PG_PORT := 55432
 
-## migrate-check: Apply all migrations + seed to a throwaway real Postgres
+## migrate-check: Apply all migrations + seed to a throwaway real Postgres, per major
 migrate-check:
 	@echo "Running real-Postgres migration gate..."
-	@docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true
-	@docker run -d --name $(MIGRATE_PG_CONTAINER) \
-		-e POSTGRES_USER=migrate -e POSTGRES_PASSWORD=migrate -e POSTGRES_DB=migrate_check \
-		-p 127.0.0.1:$(MIGRATE_PG_PORT):5432 $(MIGRATE_PG_IMAGE) >/dev/null
-	@trap 'docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true' EXIT; \
+	@set -e; \
+	trap 'docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true' EXIT; \
+	for img in $(MIGRATE_PG_IMAGES); do \
+		echo "  === $$img ==="; \
+		docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true; \
+		docker run -d --name $(MIGRATE_PG_CONTAINER) \
+			-e POSTGRES_USER=migrate -e POSTGRES_PASSWORD=migrate -e POSTGRES_DB=migrate_check \
+			-p 127.0.0.1:$(MIGRATE_PG_PORT):5432 $$img >/dev/null; \
 		echo "  waiting for Postgres on :$(MIGRATE_PG_PORT)..."; \
 		for i in $$(seq 1 60); do \
 			docker exec $(MIGRATE_PG_CONTAINER) pg_isready -h localhost -p 5432 -U migrate -d migrate_check >/dev/null 2>&1 && break; \
@@ -119,8 +130,10 @@ migrate-check:
 			sleep 1; \
 		done; \
 		MIGRATE_TEST_DSN="postgres://migrate:migrate@localhost:$(MIGRATE_PG_PORT)/migrate_check?sslmode=disable" \
-			$(GOTEST) -count=1 -run TestMigrationsAgainstRealPostgres ./pkg/database/migrate/
-	@echo "Migration gate passed."
+			$(GOTEST) -count=1 -run TestMigrationsAgainstRealPostgres ./pkg/database/migrate/; \
+		docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true; \
+	done
+	@echo "Migration gate passed on every pinned major."
 
 ## coverage: Generate coverage report
 coverage: test

@@ -63,6 +63,20 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U migrate -d migrate_check"
           --health-interval 5s --health-timeout 5s --health-retries 10
+      # The next major, because the majors disagree about what SQL is legal and
+      # a deployment picks its own. Keep in step with MIGRATE_PG_IMAGES in the
+      # Makefile.
+      postgres17:
+        image: pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
+        env:
+          POSTGRES_USER: migrate
+          POSTGRES_PASSWORD: migrate
+          POSTGRES_DB: migrate_check
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U migrate -d migrate_check"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -83,6 +97,17 @@ jobs:
       # runs every *RealDB* test against the real schema. This is the gate the
       # prompt-create defect bypassed: sqlmock rubber-stamped an INSERT that real
       # Postgres rejects (NULL into NOT NULL tags). Blocks merge on failure.
+      # The same migration gate against the next PostgreSQL major. PostgreSQL 17
+      # restricts search_path to pg_catalog and pg_temp during maintenance
+      # operations, so an index expression whose function body calls a function
+      # of ours builds on 16 and fails on 17. Running the gate on one major
+      # reported exactly that as green and it reached a release (000102, fixed
+      # by 000111). One major is not a gate.
+      - name: Run migration gate against PostgreSQL 17
+        env:
+          MIGRATE_TEST_DSN: postgres://migrate:migrate@localhost:5433/migrate_check?sslmode=disable
+        run: go test -count=1 -run TestMigrationsAgainstRealPostgres ./pkg/database/migrate/
+
       - name: Run real-DB round-trip gate
         run: make test-realdb
 
