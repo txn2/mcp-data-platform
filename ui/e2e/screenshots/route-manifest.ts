@@ -193,6 +193,15 @@ export const routes: ScreenshotRoute[] = [
   },
   ...userScriptRoutes,
   {
+    // An address with no page behind it (#1359). Captured because the failure
+    // it replaced was invisible: the shell rendered its chrome, a section
+    // title, and an empty content area, which reads as "you have none of
+    // these" rather than "there is nothing here".
+    slug: "not-found",
+    path: "/portal/nonesuch",
+    category: "user",
+  },
+  {
     // Personal prompt create form.
     slug: "prompt-create",
     path: "/portal/prompts",

@@ -226,3 +226,53 @@ function ordinal(n: number): string {
 export function skipsShortMonths(c: Cadence): boolean {
   return c.kind === "monthly" && c.day > 28;
 }
+
+/**
+ * CadenceLine is a schedule rendered for a place that has one line for it.
+ *
+ * `verbatim` reports that the text IS the expression rather than a sentence
+ * about it, so a listing can set it in the mono face it sets other machine
+ * text in. Wrapping an expression this module cannot read in a phrase that
+ * says "custom" adds a word and no information; the expression is what the
+ * reader has to go on, so it is what is shown.
+ */
+export interface CadenceLine {
+  text: string;
+  verbatim: boolean;
+}
+
+/** cadenceLine renders an expression for a listing: the sentence the editor
+ * states when the cadence is one the builder can express, and the expression
+ * itself when it is not. */
+export function cadenceLine(spec: string, timezone: string): CadenceLine {
+  const cadence = fromCron(spec);
+  if (cadence.kind === "custom") {
+    return { text: cadence.spec || "No cadence set", verbatim: !!cadence.spec };
+  }
+  return { text: describe(cadence, timezone), verbatim: false };
+}
+
+/**
+ * ScheduleState is what a schedule is doing, as one fact rather than as a
+ * phrase. The editor has a paragraph to say it in and a listing column has a
+ * few words, so they render it differently; deciding it here is what keeps
+ * them from disagreeing about whether a cadence is going to fire.
+ *
+ * "Idle" is enabled with nothing due, which is a real state an expression
+ * reaches once its last fire has passed. It is named rather than rendered as
+ * an empty next fire, which reads as a page that failed to load something.
+ */
+export type ScheduleState =
+  | { kind: "paused" }
+  | { kind: "idle" }
+  | { kind: "due"; at: string };
+
+/** scheduleState reads a schedule's state off the two fields that decide it. */
+export function scheduleState(schedule: {
+  enabled: boolean;
+  next_run_at?: string;
+}): ScheduleState {
+  if (!schedule.enabled) return { kind: "paused" };
+  if (!schedule.next_run_at) return { kind: "idle" };
+  return { kind: "due", at: schedule.next_run_at };
+}

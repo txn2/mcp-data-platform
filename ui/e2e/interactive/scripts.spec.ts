@@ -22,13 +22,20 @@ test.describe("Portal script pages", () => {
 
     await expect(page.getByText("Daily Sales Report")).toBeVisible();
     await expect(page.getByText("Approved v2").first()).toBeVisible();
-    await expect(page.getByText("0 7 * * 1-5")).toBeVisible();
     await expect(page.getByText("succeeded").first()).toBeVisible();
+
+    // The cadence in the words the editor two clicks away states it in, rather
+    // than the expression the platform stores it as (#1358).
+    await expect(
+      page.getByText("Every weekday at 7:00 AM, America/Los_Angeles"),
+    ).toBeVisible();
+    // An expression the builder cannot express is shown as itself.
+    await expect(page.getByText("*/30 * * * *")).toBeVisible();
 
     // A script nothing has approved runs nothing, whatever else is true of it.
     await expect(page.getByText("Nothing approved")).toBeVisible();
     // A disabled cadence says so rather than showing a fire that will not happen.
-    await expect(page.getByText("paused")).toBeVisible();
+    await expect(page.getByText("Paused")).toBeVisible();
   });
 
   test("says plainly when there are no scripts at all", async ({ page }) => {
@@ -62,6 +69,15 @@ test.describe("Portal script pages", () => {
     // Every terminal state a run can end in.
     await expect(page.getByText("Skipped (overlap)")).toBeVisible();
     await expect(page.getByText(/relation "sales.orders" does not exist/).first()).toBeVisible();
+
+    // Run history in three columns, with what repeats folded into the row it
+    // qualifies (#1362): no Trigger, Version, or Outputs column of its own.
+    await expect(page.getByRole("columnheader", { name: "Run" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Produced" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Trigger" })).toHaveCount(0);
+    await expect(page.getByRole("columnheader", { name: "Version" })).toHaveCount(0);
+    await expect(page.getByText("schedule · v2").first()).toBeVisible();
+    await expect(page.getByText("1 output").first()).toBeVisible();
   });
 
   test("opens a run and shows the log it captured", async ({ page }) => {
@@ -131,6 +147,13 @@ test.describe("Portal script pages", () => {
     await expect(page.getByText("Automations")).toBeVisible();
     await expect(page.getByText("On a cadence")).toBeVisible();
     await expect(page.getByText("Last run failed")).toBeVisible();
+
+    // Each caption states what its number counts and over what population, and
+    // the failure tile names the smaller population it is computed over (#1360).
+    await expect(page.getByText("scripts visible to you")).toBeVisible();
+    await expect(page.getByText("have a version an administrator approved")).toBeVisible();
+    await expect(page.getByText("run on a schedule, unattended")).toBeVisible();
+    await expect(page.getByText(/of the \d+ you own/)).toBeVisible();
   });
 
   // Editing the code is the second mutation on this surface, and the outcome

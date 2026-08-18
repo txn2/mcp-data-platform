@@ -28,6 +28,10 @@ import {
 // this list read next to that asset's version history is the whole story of
 // what the dashboard has been showing.
 
+// RUN_COLUMNS is the width of the run table, named once so the error line and
+// the expanded detail keep spanning all of it.
+const RUN_COLUMNS = 3;
+
 export function ScriptRunHistory({
   scriptId,
   onNavigate,
@@ -58,12 +62,9 @@ export function ScriptRunHistory({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Status</TableHead>
-              <TableHead>Trigger</TableHead>
-              <TableHead>Version</TableHead>
-              <TableHead>When</TableHead>
+              <TableHead>Run</TableHead>
               <TableHead>Duration</TableHead>
-              <TableHead>Outputs</TableHead>
+              <TableHead>Produced</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -109,27 +110,35 @@ function RunRows({
           does. A run's log is the reason anyone comes here, so it should not
           be behind a second target. */}
       <TableRow className="cursor-pointer" onClick={onToggle}>
+        {/* How it ended and when, together, because they are read as one fact.
+            What triggered it and which version ran are the qualifiers of that
+            fact rather than facts of their own: the trigger is a two-value
+            enumeration and the version is the same number down the whole
+            column, so neither earns a column at the width this page has. */}
         <TableCell>
-          <Badge variant={runStatusVariant(run.status)}>{runStatusLabel(run.status)}</Badge>
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <Badge variant={runStatusVariant(run.status)}>{runStatusLabel(run.status)}</Badge>
+            <span className="text-xs">{runWhen(run)}</span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {run.trigger} · v{run.version}
+          </div>
         </TableCell>
-        <TableCell className="text-xs">{run.trigger}</TableCell>
-        <TableCell className="font-mono text-xs">v{run.version}</TableCell>
-        <TableCell className="text-xs">{runWhen(run)}</TableCell>
-        <TableCell className="text-xs">
+        <TableCell className="text-xs whitespace-nowrap tabular-nums">
           {run.duration_ms > 0 ? formatDuration(run.duration_ms) : "—"}
         </TableCell>
-        <TableCell className="text-xs">{run.output_count}</TableCell>
+        <TableCell className="text-xs">{outputCount(run.output_count)}</TableCell>
       </TableRow>
       {run.error && !open && (
         <TableRow>
-          <TableCell colSpan={6} className="pt-0 text-xs text-red-700 dark:text-red-300">
+          <TableCell colSpan={RUN_COLUMNS} className="pt-0 text-xs text-red-700 dark:text-red-300">
             {run.error}
           </TableCell>
         </TableRow>
       )}
       {open && (
         <TableRow>
-          <TableCell colSpan={6} className="bg-muted/30">
+          <TableCell colSpan={RUN_COLUMNS} className="bg-muted/30">
             <RunDetail scriptId={scriptId} runId={run.id} onNavigate={onNavigate} />
           </TableCell>
         </TableRow>
@@ -260,6 +269,14 @@ function RunOutputs({
       })}
     </ul>
   );
+}
+
+// outputCount says what a run produced in words. A count on its own is the
+// least informative thing this column could hold: "0" and "2" both need the
+// noun to mean anything, and the noun is what the reader is scanning for.
+function outputCount(n: number): string {
+  if (n <= 0) return "nothing";
+  return `${n} output${n === 1 ? "" : "s"}`;
 }
 
 function RunLog({ run }: { run: ScriptRunDetail }) {

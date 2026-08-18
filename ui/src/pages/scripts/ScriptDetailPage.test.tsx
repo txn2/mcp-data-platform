@@ -347,4 +347,36 @@ describe("ScriptDetailPage: the run history", () => {
     fireEvent.click(screen.getAllByRole("row", { name: /succeeded/ })[0]!);
     expect(screen.getByText("This run printed nothing.")).toBeInTheDocument();
   });
+
+  // #1362: the table laid out six columns and needed horizontal room it does
+  // not have. Trigger and version repeat down the whole column, so they are
+  // folded into the row they qualify rather than each holding a column open.
+  it("carries the run in three columns, with the repeating fields folded in", () => {
+    renderPage();
+    const runTable = screen.getByRole("columnheader", { name: "Run" }).closest("table")!;
+    expect(
+      within(runTable).getAllByRole("columnheader").map((h) => h.textContent),
+    ).toEqual(["Run", "Duration", "Produced"]);
+    expect(within(runTable).getAllByText("schedule · v2").length).toBe(runs.length);
+  });
+
+  // A bare count needs its noun to mean anything, and the noun is what a reader
+  // scanning this column is looking for.
+  it("names what a run produced rather than printing a bare count", () => {
+    renderPage();
+    expect(screen.getByText("1 output")).toBeInTheDocument();
+    expect(screen.getAllByText("nothing").length).toBe(2);
+  });
+
+  // The expanded detail and the failure line span the table however wide it is;
+  // a stale span would leave either sitting in the first column.
+  it("spans the whole table with the failure line and the expanded run", () => {
+    renderPage();
+    const failure = screen.getByText(/relation does not exist/);
+    expect(failure.getAttribute("colspan")).toBe("3");
+    fireEvent.click(screen.getAllByRole("row", { name: /succeeded/ })[0]!);
+    expect(
+      screen.getByText("Requested by").closest("td")?.getAttribute("colspan"),
+    ).toBe("3");
+  });
 });

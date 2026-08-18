@@ -90,9 +90,6 @@
   "src/components/layout/AppShell.tsx": {
     "complexity": {
       "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
     }
   },
   "src/lib/entityRefs.ts": {
