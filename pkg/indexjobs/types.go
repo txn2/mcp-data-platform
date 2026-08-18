@@ -258,25 +258,31 @@ type Job struct {
 // produce it for every registered kind uniformly.
 type KindCounts struct {
 	SourceKind string
-	Pending    int
-	Running    int
-	Succeeded  int
-	Failed     int
+	// Pending, Running and Succeeded are per-unit latest-status counts:
+	// how many units rest on a job in that state.
+	Pending   int
+	Running   int
+	Succeeded int
+	// Failed is the number of distinct units carrying at least one open
+	// failed job (status='failed' AND resolved_at IS NULL): the same
+	// population ActiveFailures enumerates, so the number and the
+	// failure list can never disagree about what is open.
+	//
+	// It is deliberately NOT the latest-status rollup its three
+	// siblings are. A failing unit is re-queued, so its newest row is
+	// pending rather than failed, and a latest-status Failed reads zero
+	// for a kind that is failing every unit continuously — the one
+	// situation the count exists to report. A unit is therefore counted
+	// under both Pending and Failed while a retry of a failed unit is
+	// queued, which is the truth an operator needs: work is queued, and
+	// it is queued because it failed.
+	Failed int
 	// LastActivity is the most recent moment any job for this kind
 	// transitioned: MAX over the kind's rows of the greatest of
 	// completed_at, started_at, and created_at. Nil when the kind has
 	// no jobs. Computed as a true aggregate (not the newest-by-id row)
 	// so an out-of-order completion of an older job is not missed.
 	LastActivity *time.Time
-	// UnresolvedFailures is the number of distinct units for this kind
-	// with at least one open failed job (status='failed' AND
-	// resolved_at IS NULL). It is the "is this kind degraded?" signal
-	// the dashboard verdict keys on, and is deliberately distinct from
-	// Failed: Failed is the per-unit latest-status rollup and still
-	// counts a unit whose newest row is failed even after that failure
-	// was dismissed (resolved) or superseded, whereas UnresolvedFailures
-	// drops to zero the moment every failure is resolved.
-	UnresolvedFailures int
 }
 
 // FailedUnit is one unit (source_kind, source_id) whose index attempts

@@ -52,7 +52,7 @@ func requireNoResidue(t *testing.T, jobs *indexjobs.PostgresStore, catalogID, sp
 
 	counts, err := jobs.Counts(ctx, catalogindex.SourceKind)
 	require.NoError(t, err)
-	require.Zero(t, counts.UnresolvedFailures, "api_catalog kind must report healthy after the delete")
+	require.Zero(t, counts.Failed, "api_catalog kind must report healthy after the delete")
 }
 
 // TestCatalogSpecDelete_ClearsIndexResidue_RealDB drives the real

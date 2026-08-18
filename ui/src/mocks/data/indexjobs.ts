@@ -9,9 +9,11 @@ import type {
 const NOW = Date.now();
 const minsAgo = (m: number) => new Date(NOW - m * 60_000).toISOString();
 
-// mockIndexJobsSummary exercises every panel: api_catalog with a real
-// indexed/expected ratio and a failure, tools with an indexed-only
-// (expected_known=false) sync indicator and a job in flight.
+// mockIndexJobsSummary exercises every panel and every verdict:
+// api_catalog indexing with a real indexed/expected ratio and two units
+// under retry, tools in sync with a job in flight, and calls degraded --
+// every unit failing and being re-queued, so the pending count is the
+// failure repeating rather than a pass in flight (#1349).
 export const mockIndexJobsSummary: IndexJobsSummary = {
   provider: {
     kind: "ollama",
@@ -22,12 +24,11 @@ export const mockIndexJobsSummary: IndexJobsSummary = {
   kinds: [
     {
       kind: "api_catalog",
-      verdict: "degraded",
+      verdict: "indexing",
       pending: 1,
       running: 0,
       succeeded: 6,
       failed: 2,
-      unresolved_failures: 2,
       last_activity: minsAgo(3),
       coverage: { indexed: 142, expected: 168, expected_known: true },
     },
@@ -38,17 +39,27 @@ export const mockIndexJobsSummary: IndexJobsSummary = {
       running: 1,
       succeeded: 1,
       failed: 0,
-      unresolved_failures: 0,
       last_activity: minsAgo(1),
       coverage: { indexed: 87, expected: 87, expected_known: true },
+    },
+    {
+      kind: "calls",
+      verdict: "degraded",
+      pending: 12,
+      running: 0,
+      succeeded: 0,
+      failed: 9,
+      last_activity: minsAgo(4),
+      coverage: { indexed: 0, expected: 12, expected_known: true },
     },
   ],
 };
 
 // mockIndexJobsFailures is the failure-triage surface: two units sharing
 // an error signature (so they group) plus the timestamps and last-success
-// context the triage cards render. Mirrors the failed rows in
-// mockIndexJobs.
+// context the triage cards render, and a calls unit that has never
+// succeeded, which is what the degraded kind above is made of. Mirrors
+// the failed rows in mockIndexJobs.
 export const mockIndexJobsFailures: IndexFailedUnit[] = [
   {
     source_kind: "api_catalog",
@@ -70,6 +81,16 @@ export const mockIndexJobsFailures: IndexFailedUnit[] = [
     occurrences: 1,
     first_failed_at: minsAgo(33),
     last_failed_at: minsAgo(33),
+  },
+  {
+    source_kind: "calls",
+    source_id: "9f2c1b7e-4a05-4c3d-9f18-2b6e05a1c744",
+    latest_job_id: 108,
+    last_error: "callindex: upsert vectors: write rejected by the store",
+    attempts: 5,
+    occurrences: 41,
+    first_failed_at: minsAgo(2880),
+    last_failed_at: minsAgo(4),
   },
 ];
 

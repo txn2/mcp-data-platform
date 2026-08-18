@@ -488,22 +488,27 @@ func TestDismiss_Success(t *testing.T) {
 	}
 }
 
-func TestIndexJobsSummary_VerdictAndUnresolved(t *testing.T) {
+func TestIndexJobsSummary_VerdictAndFailures(t *testing.T) {
 	t.Parallel()
 	activity := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	svc := &fakeIndexJobs{
-		kinds: []string{"degraded_kind", "idle_kind"},
+		kinds: []string{"degraded_kind", "idle_kind", "stalled_kind"},
 		counts: map[string]*indexjobs.KindCounts{
 			// Idle with open failures and full coverage -> degraded.
-			"degraded_kind": {SourceKind: "degraded_kind", Succeeded: 5, Failed: 1, UnresolvedFailures: 1, LastActivity: &activity},
+			"degraded_kind": {SourceKind: "degraded_kind", Succeeded: 5, Failed: 1, LastActivity: &activity},
 			// 100% coverage, no job history (seeded outside the queue) ->
 			// the single resting state (healthy), same as any other
 			// fully-indexed kind; must NOT read as "never".
 			"idle_kind": {SourceKind: "idle_kind"},
+			// #1349: every unit failing and being re-queued. The pending
+			// count is the failure repeating, so the summary must not
+			// report an active pass.
+			"stalled_kind": {SourceKind: "stalled_kind", Pending: 67, Failed: 57, LastActivity: &activity},
 		},
 		coverage: map[string]*indexjobs.Coverage{
 			"degraded_kind": {Indexed: 5, Expected: 5, ExpectedKnown: true},
 			"idle_kind":     {Indexed: 34, Expected: 34, ExpectedKnown: true},
+			"stalled_kind":  {Indexed: 0, Expected: 68, ExpectedKnown: true},
 		},
 	}
 	h := indexJobsTestHandler(svc, nil)
@@ -522,8 +527,14 @@ func TestIndexJobsSummary_VerdictAndUnresolved(t *testing.T) {
 	if byKind["degraded_kind"].Verdict != string(indexjobs.VerdictDegraded) {
 		t.Errorf("degraded_kind verdict = %q; want degraded", byKind["degraded_kind"].Verdict)
 	}
-	if byKind["degraded_kind"].UnresolvedFailures != 1 {
-		t.Errorf("degraded_kind unresolved = %d; want 1", byKind["degraded_kind"].UnresolvedFailures)
+	if byKind["degraded_kind"].Failed != 1 {
+		t.Errorf("degraded_kind failed = %d; want 1", byKind["degraded_kind"].Failed)
+	}
+	if byKind["stalled_kind"].Verdict != string(indexjobs.VerdictDegraded) {
+		t.Errorf("stalled_kind verdict = %q; want degraded", byKind["stalled_kind"].Verdict)
+	}
+	if byKind["stalled_kind"].Failed != 57 {
+		t.Errorf("stalled_kind failed = %d; want 57", byKind["stalled_kind"].Failed)
 	}
 	if byKind["idle_kind"].Verdict != string(indexjobs.VerdictHealthy) {
 		t.Errorf("idle_kind verdict = %q; want healthy", byKind["idle_kind"].Verdict)

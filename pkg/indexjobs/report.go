@@ -43,14 +43,19 @@ var ErrUnknownKind = errors.New("indexjobs: unknown source kind")
 type Verdict string
 
 const (
-	// VerdictIndexing means work is in flight: at least one unit is
-	// running or pending. It takes priority over every other state so
-	// an active pass never reads as degraded or healthy.
+	// VerdictIndexing means work is in flight and that work is
+	// evidence of progress: at least one unit is running or pending,
+	// and the kind has something to show for the passes that already
+	// ran. It takes priority over the other two states so an active
+	// pass never reads as degraded or healthy.
 	VerdictIndexing Verdict = "indexing"
 
-	// VerdictDegraded means the kind needs attention with no active
-	// pass to fix it: an open (unresolved) failure, or a known coverage
-	// shortfall (indexed < expected) that nothing is currently closing.
+	// VerdictDegraded means the kind needs attention: an open
+	// (unresolved) failure, or a known coverage shortfall (indexed <
+	// expected). Queued work does not clear it when that work has
+	// produced nothing — a kind failing every unit is re-queued
+	// forever, and reporting it as an active pass is how a permanent,
+	// total failure hides behind a pending count.
 	VerdictDegraded Verdict = "degraded"
 
 	// VerdictHealthy is the single resting state: the kind is fully
@@ -72,16 +77,16 @@ const (
 // and tests can exercise without a database.
 //
 // A nil counts (no queue wired) is treated as fully quiescent. The
-// "needs attention" guards use UnresolvedFailures (open failures), not
-// Failed (the per-unit latest-status rollup), so a kind whose newest
-// row is a dismissed or superseded failure is not painted degraded. A
-// coverage shortfall counts only when ExpectedKnown: a kind with no
-// expected target (ExpectedKnown=false) can never be "short".
+// "needs attention" guards use Failed (units holding an open failure),
+// so a kind whose failures have all been dismissed or superseded is not
+// painted degraded. A coverage shortfall counts only when ExpectedKnown:
+// a kind with no expected target (ExpectedKnown=false) can never be
+// "short".
 func DeriveVerdict(c *KindCounts, cov *Coverage) Verdict {
-	if hasActiveWork(c) {
+	if hasActiveWork(c) && !stalled(c, cov) {
 		return VerdictIndexing
 	}
-	if (c != nil && c.UnresolvedFailures > 0) || coverageShort(cov) {
+	if (c != nil && c.Failed > 0) || coverageShort(cov) {
 		return VerdictDegraded
 	}
 	return VerdictHealthy
@@ -91,6 +96,38 @@ func DeriveVerdict(c *KindCounts, cov *Coverage) Verdict {
 // (running or pending units), which the verdict treats as "indexing".
 func hasActiveWork(c *KindCounts) bool {
 	return c != nil && (c.Running > 0 || c.Pending > 0)
+}
+
+// stalled reports queued work that is not evidence of progress: the
+// kind holds open failures and nothing argues that its passes are
+// getting anywhere.
+//
+// This is the guard that separates retrying from broken. A failed unit
+// is re-queued, so a kind that fails every unit the same way every time
+// always has pending rows, and the pending count alone would report a
+// permanent total failure as a pass in flight (#1349).
+//
+// Two independent signals can argue for progress, and either one is
+// enough — a stall is only declared when both are absent, so the
+// verdict downgrades a kind only when no available evidence defends it:
+//
+//   - Units resting on a success outnumber the broken ones. This is the
+//     success rate in the counts' own unit-per-kind terms.
+//   - The persisted vectors outnumber the broken units. This one
+//     survives a full re-enqueue, where every unit's latest status is
+//     pending and Succeeded therefore reads zero (an embedding-model
+//     swap makes every unit a gap at once), so a lone open failure
+//     during a legitimate re-index does not read as a stall.
+//
+// The second signal compares vectors against units, which is exact only
+// for the kinds whose unit holds one item and generous otherwise. Being
+// generous is the safe direction here: it can only keep a kind reading
+// as indexing, never paint a working one degraded.
+func stalled(c *KindCounts, cov *Coverage) bool {
+	if c == nil || c.Failed == 0 {
+		return false
+	}
+	return c.Failed > c.Succeeded && (cov == nil || c.Failed > cov.Indexed)
 }
 
 // coverageShort reports a known coverage shortfall: ExpectedKnown kinds

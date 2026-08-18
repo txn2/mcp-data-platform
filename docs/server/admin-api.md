@@ -247,7 +247,7 @@ Cross-kind embedding-index health for every consumer of the shared `index_jobs` 
 GET /api/v1/admin/index-jobs
 ```
 
-Returns embedding-provider health plus one rollup row per registered kind: a plain-language health `verdict`, per-state job counts, the count of units with open failures, last activity, and coverage where derivable.
+Returns embedding-provider health plus one rollup row per registered kind: a plain-language health `verdict`, per-state unit counts, the number of units with open failures, last activity, and coverage where derivable.
 
 **Response:**
 
@@ -258,8 +258,7 @@ Returns embedding-provider health plus one rollup row per registered kind: a pla
     {
       "kind": "api_catalog",
       "verdict": "degraded",
-      "pending": 1, "running": 0, "succeeded": 6, "failed": 2,
-      "unresolved_failures": 2,
+      "pending": 0, "running": 0, "succeeded": 6, "failed": 2,
       "last_activity": "2026-05-30T12:00:00Z",
       "coverage": { "indexed": 142, "expected": 168, "expected_known": true }
     },
@@ -267,7 +266,6 @@ Returns embedding-provider health plus one rollup row per registered kind: a pla
       "kind": "tools",
       "verdict": "indexing",
       "pending": 0, "running": 1, "succeeded": 1, "failed": 0,
-      "unresolved_failures": 0,
       "last_activity": "2026-05-30T12:02:00Z",
       "coverage": { "indexed": 87, "expected": 0, "expected_known": false }
     }
@@ -277,7 +275,9 @@ Returns embedding-provider health plus one rollup row per registered kind: a pla
 
 `verdict` is one of `healthy`, `indexing`, or `degraded`, derived server-side from the same counts and coverage the response carries so the lead health word and the detail metrics can never disagree. `healthy` is the single resting state for any fully-indexed, quiescent, failure-free kind, whether or not it has job history (a kind whose vectors were seeded outside the queue simply has a null `last_activity`); recency is read from `last_activity`, not the verdict.
 
-`succeeded`/`failed` are per-unit latest-status counts ("N units whose last run was X"), not job counts. `unresolved_failures` is the number of distinct units with an open failed job (`status='failed'` and not yet resolved); it is the `degraded` verdict's trigger and the triage badge count, and it drops to zero once every failure is superseded or dismissed even though `failed` (latest status) may still count the unit.
+`indexing` requires queued work that is getting somewhere. A failed unit is re-queued, so a kind failing every unit the same way always carries a pending count, and the pending count alone would report a permanent total failure as a pass in flight. Two signals can argue that a kind is progressing, and either one is enough: more units resting on a success than carrying an open failure, or more persisted vectors than broken units (this second one survives a full re-enqueue, where an embedding-model swap makes every unit a gap at once and no unit rests on a success). Only when neither holds does queued work read `degraded`.
+
+`pending`/`running`/`succeeded` are per-unit latest-status counts ("N units whose last run was X"), not job counts. `failed` is different in kind: it is the number of distinct units carrying an open failed job (`status='failed'` and not yet resolved), the same population `GET /api/v1/admin/index-jobs/failures` enumerates (that endpoint bounds how many it returns), so the count and the failure list can never disagree about what is open. A unit under retry is counted under both `pending` and `failed`; `failed` drops to zero once every failure is superseded by a later success or dismissed.
 
 `coverage.expected_known` is `true` for the current kinds, so all render a real indexed/expected ratio. api-catalog's expected comes from its stamped `operation_count`; the tools kind writes its complete registered set atomically on each index, so its indexed vector count is also its expected count (reported as both halves of the ratio). A kind reports `false` only when it has no expected total to show, in which case the dashboard shows an indexed-only state.
 

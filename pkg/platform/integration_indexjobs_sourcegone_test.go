@@ -121,5 +121,5 @@ func TestIndexJobs_SourceGoneSelfHeals_RealDB(t *testing.T) {
 
 	counts, err := jobs.Counts(ctx, catalogindex.SourceKind)
 	require.NoError(t, err)
-	require.Zero(t, counts.UnresolvedFailures, "api_catalog kind must report healthy")
+	require.Zero(t, counts.Failed, "api_catalog kind must report healthy")
 }

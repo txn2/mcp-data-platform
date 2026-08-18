@@ -17596,6 +17596,7 @@ const docTemplate = `{
                     ]
                 },
                 "failed": {
+                    "description": "Failed is the number of units carrying an open failed job: the\nsame population the failure-triage list holds, and the verdict's\n\"degraded\" signal. It is not a latest-status count, because a\nfailing unit is re-queued and its latest status is pending; a\nunit is counted under both while its retry is queued.",
                     "type": "integer"
                 },
                 "kind": {
@@ -17612,11 +17613,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "succeeded": {
-                    "description": "Succeeded / Failed are per-unit latest-status counts (\"N units\nwhose last run was X\"), NOT job counts. The UI labels them as\nsuch so \"1 succeeded\" no longer reads as a one-job history.",
-                    "type": "integer"
-                },
-                "unresolved_failures": {
-                    "description": "UnresolvedFailures is the number of distinct units with an open\nfailed job. It is the verdict's \"degraded\" signal and the count\nthe triage panel badge shows, distinct from Failed (which still\ncounts units whose latest row is a dismissed/superseded failure).",
+                    "description": "Pending / Running / Succeeded are per-unit latest-status counts\n(\"N units whose last run was X\"), NOT job counts. The UI labels\nthem as such so \"1 succeeded\" no longer reads as a one-job\nhistory.",
                     "type": "integer"
                 },
                 "verdict": {

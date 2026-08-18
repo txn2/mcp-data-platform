@@ -30,7 +30,12 @@ export interface IndexProviderStatus {
 // metrics can never disagree.
 //   healthy   fully indexed / in sync, nothing running, no failures
 //             (the single resting state, regardless of job history)
-//   indexing  work in flight (running or pending)
+//   indexing  work in flight (running or pending) that is getting
+//             somewhere: a kind whose open failures outnumber both its
+//             successful units and its persisted vectors is degraded
+//             however much work is queued, because a failing unit is
+//             re-queued and would otherwise read as an active pass
+//             forever
 //   degraded  an open failure or a known coverage shortfall
 export type IndexVerdict = "healthy" | "indexing" | "degraded";
 
@@ -39,15 +44,17 @@ export type IndexVerdict = "healthy" | "indexing" | "degraded";
 export interface IndexKindSummary {
   kind: string;
   verdict: IndexVerdict;
+  // pending / running / succeeded are per-unit latest-status counts
+  // ("N units whose last run was X"), NOT job counts.
   pending: number;
   running: number;
-  // succeeded / failed are per-unit latest-status counts ("N units
-  // whose last run was X"), NOT job counts.
   succeeded: number;
+  // failed is the number of units carrying an open failed job: the same
+  // population the failure-triage list holds, and the verdict's
+  // "degraded" signal. It is not a latest-status count -- a failing
+  // unit is re-queued, so it counts under both pending and failed while
+  // its retry waits.
   failed: number;
-  // unresolved_failures is the number of distinct units with an open
-  // failed job: the verdict's "degraded" signal and the triage badge.
-  unresolved_failures: number;
   last_activity?: string;
   coverage?: IndexCoverage;
 }

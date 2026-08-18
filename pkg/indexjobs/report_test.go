@@ -240,9 +240,12 @@ func TestDeriveVerdict(t *testing.T) {
 		want   Verdict
 	}{
 		{
-			name:   "running takes priority over failures",
-			counts: &KindCounts{Running: 1, UnresolvedFailures: 3},
-			cov:    &Coverage{Indexed: 1, Expected: 10, ExpectedKnown: true},
+			// A pass whose successes outnumber the failures it is
+			// retrying: a kind making progress, and the failures do not
+			// take the verdict off it.
+			name:   "running takes priority over the failures it outweighs",
+			counts: &KindCounts{Running: 1, Succeeded: 12, Failed: 3},
+			cov:    &Coverage{Indexed: 40, Expected: 50, ExpectedKnown: true},
 			want:   VerdictIndexing,
 		},
 		{
@@ -251,8 +254,68 @@ func TestDeriveVerdict(t *testing.T) {
 			want:   VerdictIndexing,
 		},
 		{
-			name:   "unresolved failures degrade when idle",
-			counts: &KindCounts{Succeeded: 5, UnresolvedFailures: 1, LastActivity: &activity},
+			// #1349: the calls kind on the deployment that prompted this.
+			// Every unit fails, every failure is re-queued, so the pending
+			// count never empties and nothing is ever indexed. Queued work
+			// here is the failure repeating, not a pass in flight.
+			name:   "queued work with nothing indexed is degraded, not indexing",
+			counts: &KindCounts{Pending: 67, Succeeded: 0, Failed: 57},
+			cov:    &Coverage{Indexed: 0, Expected: 68, ExpectedKnown: true},
+			want:   VerdictDegraded,
+		},
+		{
+			// The same kind once a single unit gets through. One vector
+			// out of 68 is not the pass working; a rule that took any
+			// non-zero coverage as progress would hand the permanent
+			// failure its "indexing" verdict back.
+			name:   "one unit through out of many broken is still degraded",
+			counts: &KindCounts{Pending: 66, Succeeded: 1, Failed: 57},
+			cov:    &Coverage{Indexed: 1, Expected: 68, ExpectedKnown: true},
+			want:   VerdictDegraded,
+		},
+		{
+			// The same stall on a kind that reports no expected target.
+			name:   "queued work with nothing indexed and no coverage target is degraded",
+			counts: &KindCounts{Pending: 3, Failed: 3},
+			cov:    &Coverage{Indexed: 0, ExpectedKnown: false},
+			want:   VerdictDegraded,
+		},
+		{
+			// A kind whose Sink reports no coverage at all: the unit
+			// counts are the only signal there is.
+			name:   "queued work with no successes and no coverage is degraded",
+			counts: &KindCounts{Pending: 2, Failed: 2},
+			want:   VerdictDegraded,
+		},
+		{
+			// The counterpart the end state names explicitly: successes
+			// plus a few retries is still an active pass.
+			name:   "queued retries alongside successes stay indexing",
+			counts: &KindCounts{Pending: 2, Succeeded: 40, Failed: 2},
+			cov:    &Coverage{Indexed: 40, Expected: 42, ExpectedKnown: true},
+			want:   VerdictIndexing,
+		},
+		{
+			// A full re-enqueue (an embedding-model swap makes every unit
+			// a gap at once) leaves no unit resting on a success, so the
+			// persisted vectors are what has to defend the kind. One open
+			// failure must not paint a legitimate re-index degraded.
+			name:   "a full re-index with one open failure stays indexing",
+			counts: &KindCounts{Pending: 87, Succeeded: 0, Failed: 1},
+			cov:    &Coverage{Indexed: 87, ExpectedKnown: false},
+			want:   VerdictIndexing,
+		},
+		{
+			// A first pass on an empty corpus: nothing indexed because
+			// there is nothing to index, and no failure to answer for.
+			name:   "queued work on an empty corpus is indexing",
+			counts: &KindCounts{Pending: 1},
+			cov:    &Coverage{Indexed: 0, Expected: 0, ExpectedKnown: true},
+			want:   VerdictIndexing,
+		},
+		{
+			name:   "open failures degrade when idle",
+			counts: &KindCounts{Succeeded: 5, Failed: 1, LastActivity: &activity},
 			cov:    &Coverage{Indexed: 5, Expected: 5, ExpectedKnown: true},
 			want:   VerdictDegraded,
 		},
