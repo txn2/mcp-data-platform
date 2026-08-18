@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/textpatch"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
+	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 
 // Tool names registered by the portal toolkit. Exported because pkg/platform
@@ -65,6 +66,12 @@ const (
 	actionDeleteCollection = "delete_collection"
 	actionSetSections      = "set_sections"
 	actionSearch           = "search"
+
+	// Sharing actions (#1280). Sharing is owner authority, so all three are
+	// refused for anyone but the asset's owner (and an admin).
+	actionShare       = "share"
+	actionListShares  = "list_shares"
+	actionRevokeShare = "revoke_share"
 
 	// Content editing and navigation actions (#1033). These make the cost of
 	// an edit proportional to the size of the edit rather than the size of
@@ -139,6 +146,16 @@ type manageAssetInput struct {
 	// Query (search action) ranks the caller's assets by relevance to a
 	// free-text query instead of the substring Search filter.
 	Query string `json:"query,omitempty"`
+
+	// Sharing arguments (#1280). Recipient names the person a share is
+	// addressed to, by email or by a name resolved through the user
+	// directory; leaving it empty asks for a link instead, whose audience is
+	// AccessMode. ShareID selects the share revoke_share ends.
+	Recipient  string `json:"recipient,omitempty"`
+	Permission string `json:"permission,omitempty"`
+	AccessMode string `json:"access_mode,omitempty"`
+	ExpiresIn  string `json:"expires_in,omitempty"`
+	ShareID    string `json:"share_id,omitempty"`
 
 	// Content editing and navigation arguments (#1033). Edits carries the
 	// ordered patch; the rest select what to read or search.
@@ -226,6 +243,19 @@ type Config struct {
 	// is read from. Nil leaves an asset recording its session and owner but no
 	// calls — what a deployment without audit gets.
 	CaptureProvenance portal.ProvenanceCapturer
+
+	// Directory resolves a person's name to their address for the share
+	// action (#1280). Nil (no database, so no directory) leaves sharing
+	// working by email address only.
+	Directory DirectoryReader
+}
+
+// DirectoryReader looks people up in the known-users directory. The share
+// action only reads it, so this is the whole surface it takes, the same view
+// the portal's share picker takes over the same store; pkg/user.Store
+// implements it.
+type DirectoryReader interface {
+	List(ctx context.Context, filter user.Filter) ([]user.User, int, error)
 }
 
 // Toolkit implements the portal asset toolkit.
@@ -252,6 +282,7 @@ type Toolkit struct {
 	feedbackActions map[string]feedbackActionHandler
 
 	captureProvenance portal.ProvenanceCapturer
+	directory         DirectoryReader
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -290,6 +321,7 @@ func New(cfg Config) *Toolkit {
 		embedder:        cfg.Embedder,
 
 		captureProvenance: cfg.CaptureProvenance,
+		directory:         cfg.Directory,
 	}
 	tk.actions = tk.buildActions()
 	tk.feedbackActions = tk.buildFeedbackActions()
@@ -319,8 +351,14 @@ const saveToolDescription = "Saves AI-generated content (JSX dashboard, HTML rep
 const manageToolDescription = "Manages saved assets and collections. " +
 	"Asset actions: list, get, update, delete, list_versions, revert, search. " +
 	"Content actions: patch, locate, get_content, outline, stats, diff. " +
+	"Sharing actions: share, list_shares, revoke_share. " +
 	"Collection actions: create_collection, list_collections, get_collection, " +
 	"update_collection, delete_collection, set_sections. " +
+	"Use 'share' to give a person access to an asset you own — name them with " +
+	"'recipient' (their email, or a name resolved against the user directory) " +
+	"and they get an email with the link; omit 'recipient' for a link instead, " +
+	"which any signed-in user can open (access_mode public makes it open to " +
+	"anyone holding it and requires expires_in). " +
 	"Note: 'list' returns full metadata including provenance for each asset. " +
 	"Use 'get' with a specific asset_id for the metadata row and 'get_content' for the body. " +
 	"Use 'search' with a 'query' to rank your assets by relevance (semantic + " +
@@ -589,6 +627,9 @@ func (t *Toolkit) buildActions() map[string]manageActionHandler {
 		actionOutline:          t.handleOutline,
 		actionStats:            t.handleStats,
 		actionDiff:             t.handleDiff,
+		actionShare:            t.handleShare,
+		actionListShares:       t.handleListShares,
+		actionRevokeShare:      t.handleRevokeShare,
 	}
 }
 
@@ -611,6 +652,7 @@ func (t *Toolkit) handleManageAsset(ctx context.Context, _ *mcp.CallToolRequest,
 		return toolkit.ErrorResult(fmt.Sprintf(
 			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, "+
 				"patch, locate, get_content, outline, stats, diff, "+
+				"share, list_shares, revoke_share, "+
 				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections",
 			input.Action)), nil, nil
 	}

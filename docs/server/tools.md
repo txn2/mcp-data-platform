@@ -46,7 +46,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
 | Portal | `save_asset` | Save AI-generated content as an asset (JSX, HTML, SVG, etc.) |
-| Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, and edit asset content in place (patch, locate, get_content, outline, stats, diff) |
+| Portal | `manage_asset` | List, get, update, delete, or relevance-search saved assets and collections, edit asset content in place (patch, locate, get_content, outline, stats, diff), and share an asset with a person or as a link (share, list_shares, revoke_share) |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 | Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, get, the script-reference commands (attach_script, detach_script), and the content verbs (patch, locate, get_content, outline, stats, diff) |
@@ -1039,14 +1039,14 @@ Save AI-generated content to the asset portal as a versioned asset. Captures the
 
 ### manage_asset
 
-List, retrieve, update, or delete saved assets, and edit an asset's content in place. All mutations enforce ownership (users can only modify their own assets); the read-only content verbs additionally accept a share grant, so an asset shared with you can be read but not patched.
+List, retrieve, update, delete, or share saved assets, and edit an asset's content in place. All mutations enforce ownership (users can only modify their own assets); the read-only content verbs additionally accept a share grant, so an asset shared with you can be read but not patched.
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | Action to perform: list, get, update, delete, search, patch, locate, get_content, outline, stats, diff |
-| `asset_id` | string | Conditional | - | Required for get, update, delete, and every content action |
+| `action` | string | Yes | - | Action to perform: list, get, update, delete, search, patch, locate, get_content, outline, stats, diff, share, list_shares, revoke_share |
+| `asset_id` | string | Conditional | - | Required for get, update, delete, share, list_shares, and every content action |
 | `content` | string | No | - | New content (for update; replaces the whole body) |
 | `name` | string | No | - | New name (for update) |
 | `description` | string | No | - | New description (for update) |
@@ -1056,6 +1056,11 @@ List, retrieve, update, or delete saved assets, and edit an asset's content in p
 | `sources` | array | No | session window | The calls behind a content edit (update and patch), as `call_id` values or `mcp:call:<id>` references. Recorded as a new capture beside the ones earlier versions carry |
 | `query` | string | Conditional | - | Free-text relevance query (required for search) |
 | `limit` | integer | No | 50 | Max results for list (max 200); ranked search defaults to 20 (max 100) |
+| `recipient` | string | No | - | Who to share with (share): an email address, or a name resolved against the user directory. Omit for a link share |
+| `permission` | string | No | viewer | `viewer` or `editor` (share). A link is always viewer |
+| `access_mode` | string | No | authenticated | Who a link admits (share, no recipient): `authenticated` or `public` |
+| `expires_in` | string | Conditional | - | Duration bounding a public link (`24h`). Required for `access_mode: public`, refused otherwise |
+| `share_id` | string | Conditional | - | Share to end (required for revoke_share) |
 
 The patch and navigation arguments (`edits`, `base_version`, `dry_run`, `find`, `pattern`, `section`, `selector`, `occurrence`, `line_start`, `line_end`, `context_bytes`, `from_version`, `to_version`) are the shared content-editing grammar documented in [Editing content in place](#editing-content-in-place). Inside `edits`, `occurrence` is a per-edit field; at the top level it disambiguates a `selector` used to scope `locate` or `get_content`.
 
@@ -1067,8 +1072,25 @@ The patch and navigation arguments (`edits`, `base_version`, `dry_run`, `find`, 
 - **delete**: Soft-delete an asset
 - **search**: Rank the caller's own assets by relevance to `query`. Uses the same hybrid (vector + lexical) ranking as the prompt and Knowledge & Memory search: weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise. Returns each match with a `score` and reports `ranking` (`hybrid` or `lexical`). Scoped server-side to the caller's own assets by `owner_id`, the same ownership key the asset library and update/delete checks use, so search returns exactly what you see in the library, and fails closed when the caller has no identity, so a user can never find an asset they cannot view.
 - **patch / locate / get_content / outline / stats / diff**: read and edit the body without moving the whole document. See below.
+- **share / list_shares / revoke_share**: give someone access to an asset, see who has it, and take it back. See [Sharing an asset from the session](#sharing-an-asset-from-the-session).
 
 A patch writes an ordinary new version, so `list_versions` and `revert` keep working, and the version's change summary is the caller's `change_summary` (or a generated "3 edits via patch") instead of a fixed constant.
+
+---
+
+### Sharing an asset from the session
+
+"Share this with John" is one call, not a trip to the portal. `manage_asset action=share` takes the same three decisions the portal's share dialog takes — who, what they may do, how it ends — and mints the same share row, through the same constructor the REST routes use, so a share created here is indistinguishable from one created in the UI.
+
+**Naming a person.** `recipient` accepts an email address, or a person's name. A name is resolved against the [known-users directory](admin-portal.md#users) — the same directory the portal's share picker reads — matching case-insensitively against email, first name, and last name; a full name ("John Smith") is resolved by narrowing to the entries every word appears in. The lookup refuses to guess: a name matching nobody, or more than one person, comes back as an error naming the candidates, and no share is created. An email address is taken as written, so a person who has never signed in can still be shared with.
+
+A person share is `restricted`: it opens only for the named recipient (and its creator), whoever else holds the URL. It is `viewer` unless `permission: editor` is asked for, it never expires — it ends when it is revoked — and the recipient gets the same "shared with you" email the portal sends, subject to their own notification preferences. The response reports `notified`, so an agent only says someone was emailed when one was actually sent.
+
+**Minting a link.** Omit `recipient` and the share is a link. `access_mode: authenticated` (the default) opens for any signed-in platform user and lasts until revoked. `access_mode: public` opens for anyone holding the URL without signing in; because holding the URL is then the whole of the access check, `expires_in` is required for it and refused for everything else (#1279). A link is always `viewer`: it admits an audience the creator never enumerated, so it can never carry write access.
+
+**Seeing and ending access.** `list_shares` returns the shares on an asset that currently grant access — a revoked or expired share is not one of them — each with its recipient, permission, access mode, view URL, and access count. `revoke_share` ends one by `share_id`; its token stops opening the asset immediately.
+
+All three are owner authority. An editor share on an asset never carries the right to hand that access on, an unauthenticated caller is refused outright, and an admin is unrestricted as everywhere else.
 
 ---
 

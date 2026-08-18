@@ -1952,7 +1952,7 @@ func TestIntParam(t *testing.T) {
 func TestGenerateShareToken(t *testing.T) {
 	tok1, err := GenerateShareToken()
 	require.NoError(t, err)
-	assert.Len(t, tok1, tokenBytes*2) // hex encoding doubles length
+	assert.Len(t, tok1, 64) // 32 random bytes, hex-encoded
 
 	tok2, err := GenerateShareToken()
 	require.NoError(t, err)
@@ -2070,22 +2070,30 @@ func TestCanEditAssetViaCollectionShare(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestResolveSharePermission(t *testing.T) {
-	perm, err := resolveSharePermission(createShareRequest{}, "user@example.com")
-	assert.NoError(t, err)
-	assert.Equal(t, PermissionViewer, perm)
+// TestBuildSharePermission pins the permission a request produces, through the
+// converter the three share routes call rather than against the resolver
+// directly: the rule itself lives in portaldomain and is tested there, and what
+// this asserts is that an HTTP request body still reaches it intact.
+func TestBuildSharePermission(t *testing.T) {
+	share, err := buildShare(shareTarget{AssetID: "a1"}, "owner@example.com",
+		createShareRequest{SharedWithEmail: "user@example.com"})
+	require.NoError(t, err)
+	assert.Equal(t, PermissionViewer, share.Permission)
 
-	perm, err = resolveSharePermission(createShareRequest{Permission: "editor", SharedWithUserID: "u1"}, "")
-	assert.NoError(t, err)
-	assert.Equal(t, PermissionEditor, perm)
+	share, err = buildShare(shareTarget{AssetID: "a1"}, "owner@example.com",
+		createShareRequest{Permission: "editor", SharedWithUserID: "u1"})
+	require.NoError(t, err)
+	assert.Equal(t, PermissionEditor, share.Permission)
 
-	_, err = resolveSharePermission(createShareRequest{Permission: "admin"}, "")
+	_, err = buildShare(shareTarget{AssetID: "a1"}, "owner@example.com",
+		createShareRequest{Permission: "admin"})
 	assert.Error(t, err)
 
-	// Public link forced to viewer even if editor requested.
-	perm, err = resolveSharePermission(createShareRequest{Permission: "editor"}, "")
-	assert.NoError(t, err)
-	assert.Equal(t, PermissionViewer, perm)
+	// A link naming nobody is forced to viewer even if editor was requested.
+	share, err = buildShare(shareTarget{AssetID: "a1"}, "owner@example.com",
+		createShareRequest{Permission: "editor"})
+	require.NoError(t, err)
+	assert.Equal(t, PermissionViewer, share.Permission)
 }
 
 // --- Me handler tests ---

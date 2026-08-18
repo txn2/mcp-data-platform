@@ -1923,12 +1923,12 @@ Response includes asset_id, portal_url (if public_base_url configured), provenan
 
 ### manage_asset
 
-List, retrieve, update, delete, or relevance-search saved assets (and manage collections). Ownership is enforced: users can only modify or find their own assets. Human feedback on assets is handled by the separate `manage_feedback` tool.
+List, retrieve, update, delete, share, or relevance-search saved assets (and manage collections). Ownership is enforced: users can only modify, share, or find their own assets. Human feedback on assets is handled by the separate `manage_feedback` tool.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | list, get, update, delete, search, patch, locate, get_content, outline, stats, diff |
-| `asset_id` | string | Conditional | - | Required for get, update, delete, and every content action |
+| `action` | string | Yes | - | list, get, update, delete, search, patch, locate, get_content, outline, stats, diff, share, list_shares, revoke_share |
+| `asset_id` | string | Conditional | - | Required for get, update, delete, share, list_shares, and every content action |
 | `content` | string | No | - | New content (for update — replaces S3 object) |
 | `name` | string | No | - | New name (for update) |
 | `description` | string | No | - | New description (for update) |
@@ -1937,8 +1937,25 @@ List, retrieve, update, delete, or relevance-search saved assets (and manage col
 | `sources` | array | No | session window | The calls behind a content edit (update and patch), as `call_id` values or `mcp:call:<id>` references. Recorded as a new capture beside the ones earlier versions carry |
 | `query` | string | Conditional | - | Free-text relevance query (required for search) |
 | `limit` | integer | No | 50 | Max results for list (max 200); ranked search defaults to 20 (max 100) |
+| `recipient` | string | No | - | Who to share with (share): an email address, or a name resolved against the known-users directory. Omit for a link share |
+| `permission` | string | No | viewer | `viewer` or `editor` (share). A link share is always viewer |
+| `access_mode` | string | No | authenticated | Who a link share admits (share, no recipient): `authenticated` or `public` |
+| `expires_in` | string | Conditional | - | Duration bounding a public link (`24h`). Required for `access_mode: public`, refused for every other share |
+| `share_id` | string | Conditional | - | Share to end (required for revoke_share) |
 
 The `search` action ranks the caller's own assets by relevance to `query` using the shared hybrid (vector + lexical) ranking — weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise — and returns each match with a `score` plus a `ranking` field (`hybrid` or `lexical`). It is scoped server-side to the caller's own assets by `owner_id` — the same ownership key the asset library list and the update/delete checks use, so search returns exactly the assets the caller can list (note: `owner_email` is a secondary display field that can diverge from `owner_id` across API-key vs OIDC identities, so it is deliberately NOT the scope key) — and fails closed when the caller has no identity. The Portal exposes the same ranking over HTTP at `GET /api/v1/portal/assets/search?q=...` and `GET /api/v1/portal/collections/search?q=...` (each row carries a `score`), mirroring the Knowledge & Memory and prompt search endpoints.
+
+### Sharing an asset from the session (share, list_shares, revoke_share)
+
+"Share this with John" is one call rather than a trip to the portal. `manage_asset action=share` takes the same three decisions the portal's share dialog takes — who, what they may do, how it ends — and builds the share row through the same constructor the REST share routes use (`portaldomain.BuildShare`), so a share created from a session is indistinguishable from one created in the UI.
+
+`recipient` accepts an email address or a person's name. A name is resolved against the known-users directory (the same directory the portal's share picker reads), matching case-insensitively against email, first name and last name; a full name is resolved by querying the most selective word and narrowing to the entries every word appears in. The lookup refuses to guess: a name that matches nobody, or more than one person, comes back as an error naming the candidates, and no share is created. An email address is taken as written, so a person who has never signed in can still be shared with; a deployment without a database has no directory, and a name there is refused with a pointer to give an address instead.
+
+A share addressed to a person is `restricted` — it opens only for the named recipient and its creator, whoever else holds the URL — is `viewer` unless `permission: editor` is asked for, never expires (it ends when it is revoked), and sends the recipient the same "shared with you" email the portal sends, subject to their own notification preferences. The response reports `notified`, so an agent claims someone was emailed only when one was actually sent.
+
+Omitting `recipient` mints a link. `access_mode: authenticated` (the default) opens for any signed-in platform user and lasts until revoked; `access_mode: public` opens for anyone holding the URL without signing in and therefore requires `expires_in`, which is refused for every other shape (#1279). A link is always `viewer`: it admits an audience the creator never enumerated, so it can never carry write access.
+
+`list_shares` returns the shares that currently grant access to an asset — a revoked or expired share is not one of them, decided by the same liveness rule the public viewer gate applies — each with its recipient, permission, access mode, view URL, expiry and access count. `revoke_share` ends one by `share_id`, and its token stops opening the asset immediately. All three are owner authority (an editor share never carries the right to hand access on), an unauthenticated caller is refused outright rather than matched against the shared "anonymous" owner sentinel, and an admin is unrestricted as everywhere else.
 
 ### Editing content in place (patch, locate, get_content, outline, stats, diff)
 

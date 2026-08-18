@@ -51,6 +51,10 @@ type Config struct {
 	BaseURL string
 	// MaxContentSize caps asset content size in bytes (0 = no limit).
 	MaxContentSize int
+	// Directory is the known-users directory the toolkit's share action
+	// resolves a recipient's name against (#1280). Nil leaves sharing working
+	// by email address only.
+	Directory portalkit.DirectoryReader
 }
 
 // Handle owns the assembled portal store layer: the six stores, the S3 blob
@@ -151,6 +155,7 @@ func NewFromStores(s Stores, embedder embedding.Provider, cfg Config) *Handle {
 		Embedder:        embedder,
 
 		CaptureProvenance: cfg.CaptureProvenance,
+		Directory:         cfg.Directory,
 	})
 	return h
 }

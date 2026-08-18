@@ -83,11 +83,33 @@ var manageAssetSchemaBase = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Content actions: patch, locate, get_content, outline, stats, diff. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on assets is handled by the separate manage_feedback tool.)"
+      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Content actions: patch, locate, get_content, outline, stats, diff. Sharing actions: share, list_shares, revoke_share. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. (Human feedback on assets is handled by the separate manage_feedback tool.)"
     },
     "asset_id": {
       "type": "string",
-      "description": "Asset ID (required for get, update, delete, list_versions, revert)"
+      "description": "Asset ID (required for get, update, delete, list_versions, revert, share, list_shares)"
+    },
+    "recipient": {
+      "type": "string",
+      "description": "Who to share the asset with (share action): an email address, or a person's name resolved against the platform's user directory. A name that matches nobody, or more than one person, is reported with the candidates and no share is created. Omit it to create a link instead of addressing a person."
+    },
+    "permission": {
+      "type": "string",
+      "enum": ["viewer", "editor"],
+      "description": "What the recipient of a share may do (share action). Defaults to viewer. Only a share addressed to a person can be an editor; a link is always viewer."
+    },
+    "access_mode": {
+      "type": "string",
+      "enum": ["authenticated", "public"],
+      "description": "Who a link share admits (share action, when no recipient is named): 'authenticated' (the default) opens for any signed-in platform user and lasts until revoked; 'public' opens for anyone holding the URL without signing in and requires expires_in."
+    },
+    "expires_in": {
+      "type": "string",
+      "description": "How long a public link lasts, as a duration ('24h', '30m'). Required for access_mode public and refused for every other share, which ends on revocation rather than on a clock."
+    },
+    "share_id": {
+      "type": "string",
+      "description": "Share ID to revoke (required for revoke_share). Call list_shares to see the shares on an asset."
     },
     "content": {
       "type": "string",
