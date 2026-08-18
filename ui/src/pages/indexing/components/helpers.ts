@@ -25,6 +25,24 @@ export function relTime(iso?: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+// untilTime renders a future instant as a forward-looking distance ("in
+// 2h"). It is the mirror of relTime, which collapses everything in the
+// future to "just now" because every timestamp it formats is in the past.
+// A deferral deadline is the one field on this surface that is not.
+export function untilTime(iso?: string): string {
+  if (!iso) return "";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return "";
+  if (ms <= 0) return "shortly";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `in ${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `in ${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `in ${h}h`;
+  return `in ${Math.floor(h / 24)}d`;
+}
+
 // percentile returns the nearest-rank p-th percentile of an ascending
 // sorted series: the smallest value at or below which p% of the data
 // falls. Using ceil(p/100*n)-1 (not floor) keeps p50 of [10,5000] at the

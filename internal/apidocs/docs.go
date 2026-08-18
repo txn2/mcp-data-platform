@@ -17495,6 +17495,10 @@ const docTemplate = `{
                     "description": "Occurrences is how many open failed rows the unit has (\u003e1 means it\nfailed, was retried, and failed again without an intervening\nsuccess).",
                     "type": "integer"
                 },
+                "parked_until": {
+                    "description": "ParkedUntil is when the periodic gap sweep will re-queue this unit\nagain, omitted while it is not deferred. Present means the platform\nhas stopped re-queueing the unit every reconcile tick because it\nkeeps failing without ever succeeding; a source write or an operator\nreindex still runs it immediately.",
+                    "type": "string"
+                },
                 "source_id": {
                     "type": "string"
                 },

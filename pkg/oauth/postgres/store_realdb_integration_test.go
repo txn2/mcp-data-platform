@@ -82,7 +82,14 @@ func TestOAuthStore_StateStore_RealDB(t *testing.T) {
 		CodeChallenge: "challenge",
 		Scope:         "openid",
 		UpstreamState: "upstream-realdb-1",
-		CreatedAt:     time.Now().UTC(),
+		// Backdated a minute. created_at is written from this process's clock
+		// (SaveState binds state.CreatedAt) while CleanupExpiredStates compares
+		// it against the database's NOW(), so a zero max-age sweep is a
+		// cross-clock comparison with no tolerance: a few milliseconds of skew
+		// between the host and the Postgres container leaves the row and fails
+		// the sweep assertion below. The minute is margin for that skew, and it
+		// still sits well inside the hour the keep-assertion uses.
+		CreatedAt: time.Now().UTC().Add(-time.Minute),
 	}
 	require.NoError(t, store.SaveState(ctx, "upstream-realdb-1", state))
 

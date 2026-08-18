@@ -74,9 +74,13 @@ const (
 	// enqueues a fresh job for the same unit on its next sweep if a
 	// vector gap remains, because the partial unique index only
 	// suppresses pending/running rows, not failed ones. So a transient
-	// failure self-heals within one reconcile interval, while a
-	// permanent failure re-fails each cycle until the operator fixes
-	// the cause.
+	// failure self-heals within one reconcile interval.
+	//
+	// A unit that keeps failing does not re-fail every cycle forever:
+	// past ParkThreshold open failures the reconciler defers it on a
+	// growing delay (see FailedUnit.ParkedUntil) so a deterministic
+	// failure is retried on the order of hours rather than minutes,
+	// while staying on the admin failure-triage surface.
 	StatusFailed Status = "failed"
 )
 
@@ -143,6 +147,39 @@ const ReaperInterval = 30 * time.Second
 // "vectors disappeared between boots". Five minutes is generous;
 // the data path tolerates lexical fallback while a gap waits.
 const ReconcilerInterval = 5 * time.Minute
+
+// ParkThreshold is how many open failed jobs one unit accumulates before
+// the reconciler starts deferring its re-queue. Each open failed row is
+// MaxAttempts exhausted worker attempts, so the default is 15 attempts
+// spread over at least two reconcile sweeps before anything is deferred:
+// far more than a transient provider blip produces.
+const ParkThreshold = 3
+
+// ParkBaseDelay and ParkMaxDelay bound the deferral a parked unit waits
+// out. The delay doubles with each further failure past ParkThreshold,
+// starting at ParkBaseDelay and capped at ParkMaxDelay.
+//
+// Against the failure that motivated this (one unit, 835 identical
+// failures over three days), the sequence 30m, 1h, 2h, 4h, 6h, 6h... cuts
+// three days of re-queues from ~860 to ~14.
+const (
+	ParkBaseDelay = 30 * time.Minute
+	ParkMaxDelay  = 6 * time.Hour
+)
+
+// parkScanLimit bounds the reconciler's park scan. The scan's predicate
+// already narrows to units carrying ParkThreshold open failures, which in
+// a healthy deployment is none, so the limit is a backstop against a
+// pathological corpus rather than a page size. Beyond it the extra units
+// re-queue as they did before; the scan's key ordering is stable, so the
+// same units are deferred on every sweep rather than rotating.
+const parkScanLimit = 5000
+
+// parkExponentCap bounds the doubling. A unit with hundreds of open
+// failures would otherwise shift ParkBaseDelay past the range of an
+// int64 duration; the cap is reached long before ParkMaxDelay binds, so
+// it changes no observable delay.
+const parkExponentCap = 16
 
 // DefaultRetentionDays is the fallback age past which the retainer
 // purges terminal job rows (succeeded, or failed-and-resolved). The
@@ -319,6 +356,53 @@ type FailedUnit struct {
 	LastSucceededAt *time.Time
 }
 
+// ParkCandidate is one unit whose repeated failures make it eligible for
+// the reconciler's deferral: how many open failed jobs it carries and when
+// the last of them landed, which is everything ParkedUntil needs. It is a
+// narrower read than FailedUnit because the sweep needs no error text,
+// attempt counts, or last-success context to decide whether to wait.
+type ParkCandidate struct {
+	Key          Key
+	Occurrences  int
+	LastFailedAt time.Time
+}
+
+// ParkedUntil reports when the reconciler may re-queue this unit again,
+// and whether it is deferred at all right now.
+//
+// A unit that has failed ParkThreshold times with no intervening success
+// is failing deterministically far more often than not: every open failed
+// row is MaxAttempts exhausted attempts, and the reconciler enqueues a
+// fresh job every ReconcilerInterval regardless of how the last one went.
+// Left alone that is a job every five minutes forever, which is what
+// produced 835 identical failures on one unit over three days (#1350).
+//
+// The deferral grows and is capped rather than being permanent, because
+// this counter cannot tell a deterministic input-shape failure from a
+// provider outage long enough to exhaust every unit in the corpus. A
+// permanent park would freeze the whole index behind one outage and wait
+// for a human; a growing one drops the retry rate by two orders of
+// magnitude and still converges on its own once the cause clears.
+//
+// Only the reconciler consults this. A write to the source and an
+// operator reindex both enqueue as they always did, so the two events
+// most likely to resolve the failure are never delayed by it.
+func (c ParkCandidate) ParkedUntil() (time.Time, bool) {
+	if c.Occurrences < ParkThreshold || c.LastFailedAt.IsZero() {
+		return time.Time{}, false
+	}
+	exponent := min(c.Occurrences-ParkThreshold, parkExponentCap)
+	delay := min(ParkBaseDelay<<exponent, ParkMaxDelay)
+	return c.LastFailedAt.Add(delay), true
+}
+
+// ParkedUntil reports the unit's deferral for the admin failure-triage
+// surface. It delegates so the sweep that acts on the deferral and the
+// panel that reports it can never disagree about what it is.
+func (u FailedUnit) ParkedUntil() (time.Time, bool) {
+	return ParkCandidate{Occurrences: u.Occurrences, LastFailedAt: u.LastFailedAt}.ParkedUntil()
+}
+
 // ErrNoJob is returned by Claim when no pending job is available.
 // Workers use it as the wait signal: receive this, block on
 // LISTEN/NOTIFY or the poll tick, then call Claim again.
@@ -415,6 +499,22 @@ type Store interface {
 	// limit bounds the result; a non-positive or oversized limit falls
 	// back to the store default.
 	ActiveFailures(ctx context.Context, sourceKind string, limit int) ([]FailedUnit, error)
+
+	// ParkCandidates returns the units carrying at least minOccurrences
+	// open failed jobs: the population the reconciler's deferral applies
+	// to. limit bounds the result.
+	//
+	// It is deliberately not ActiveFailures with a filter. That query
+	// orders by last-failure descending, and a deferred unit's last
+	// failure is frozen by construction: it stops being re-queued, so it
+	// stops failing, while an un-deferred one refreshes on every sweep.
+	// Reusing it would make the row limit evict precisely the units that
+	// are deferred, re-queue them, and let their fresh timestamps displace
+	// others in turn, so on a corpus with more open failures than the
+	// limit the deferral would never take hold. This query selects the
+	// population by predicate and orders on the key, which no amount of
+	// failing can move.
+	ParkCandidates(ctx context.Context, minOccurrences, limit int) ([]ParkCandidate, error)
 
 	// ResolveFailures stamps resolved_at on every open failed row for
 	// the unit (status='failed' AND resolved_at IS NULL), clearing it

@@ -2,7 +2,7 @@
 #
 # An entry here says: this advisory reaches code we call, we have read it, and
 # we are shipping anyway. It is not a way to quiet the scanner. The gate
-# (scripts/govulncheck-gate.sh) refuses the build in three cases, so an entry
+# (scripts/govulncheck-gate.py) refuses the build in three cases, so an entry
 # cannot outlive its reason:
 #
 #   1. A called finding is reported that is not listed here.
@@ -11,26 +11,3 @@
 #
 # Format: one advisory id, whitespace, then the reason it is accepted.
 # Lines starting with # are comments.
-
-# github.com/lib/pq, all seven published 2026-08-18. Every released version is
-# affected (the ranges open at 1.0.0 or 1.1.0 for five of them) and none names a
-# fixed version, so there is nothing to upgrade to yet. Fixes are landing on
-# upstream master and are simply untagged: the newest release is v1.12.3, which
-# is what this module uses. #1374 tracks the upgrade.
-#
-# These lines are expected to be short-lived. The gate fails the build the
-# moment any of these advisories names a fixed version, so the upgrade is
-# forced rather than remembered.
-#
-# All seven require the Postgres server, or the network path to it, to be
-# hostile. The platform connects to a database it configures itself over a
-# trusted path, so the exposure is a compromised database host, which already
-# holds every row these advisories could be used to reach.
-
-GO-2026-6166  GSS authentication completes without mutual proof. No fixed version. Reachable only with GSS authentication, which no deployment configuration enables.
-GO-2026-6168  Unbounded SCRAM iteration count causes CPU exhaustion during authentication. No fixed version. Requires a hostile server to answer the auth handshake.
-GO-2026-6169  Wrong .pgpass credential disclosed when hostaddr is set. No fixed version. The platform passes credentials in the DSN and reads no .pgpass file.
-GO-2026-6170  Malformed backend frame length panics the client. No fixed version. Requires a hostile or corrupted server response.
-GO-2026-6171  Malformed RowDescription and DataRow messages panic the client. No fixed version. Requires a hostile or corrupted server response.
-GO-2026-6172  Backend frame lengths cause memory exhaustion before validation. No fixed version. Requires a hostile server.
-GO-2026-6173  Pre-protocol error reader permits unbounded memory consumption. No fixed version. Requires a hostile server.

@@ -230,6 +230,45 @@ func (s *PostgresStore) Complete(ctx context.Context, id int64, workerID string)
 	return nil
 }
 
+// ParkCandidates returns the units whose open failed rows have reached
+// minOccurrences, newest-independent: the ORDER BY is the unit key rather
+// than a timestamp, because a deferred unit stops failing and any
+// recency ordering would sort it out of a bounded window and undo the
+// deferral (see the Store contract).
+func (s *PostgresStore) ParkCandidates(ctx context.Context, minOccurrences, limit int) ([]ParkCandidate, error) {
+	const q = `
+		SELECT source_kind, source_id, COUNT(*) AS occ,
+		       MAX(COALESCE(completed_at, created_at)) AS last_failed
+		  FROM index_jobs
+		 WHERE status = 'failed' AND resolved_at IS NULL
+		 GROUP BY source_kind, source_id
+		HAVING COUNT(*) >= $1
+		 ORDER BY source_kind, source_id
+		 LIMIT $2
+	`
+	rows, err := s.db.QueryContext(ctx, q, minOccurrences, limit)
+	if err != nil {
+		return nil, fmt.Errorf("indexjobs: park candidates: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // close error on read-only iteration is not actionable
+	var out []ParkCandidate
+	for rows.Next() {
+		var c ParkCandidate
+		var lastFailed sql.NullTime
+		if err := rows.Scan(&c.Key.SourceKind, &c.Key.SourceID, &c.Occurrences, &lastFailed); err != nil {
+			return nil, fmt.Errorf("indexjobs: scan park candidate: %w", err)
+		}
+		if lastFailed.Valid {
+			c.LastFailedAt = lastFailed.Time
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("indexjobs: iterate park candidates: %w", err)
+	}
+	return out, nil
+}
+
 // ResolveFailures stamps resolved_at on every open failed row for the
 // unit, clearing it from the triage surface. Returns the number of
 // rows resolved (zero when the unit had no open failures, which the

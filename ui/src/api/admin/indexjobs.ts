@@ -74,6 +74,11 @@ export interface IndexFailedUnit {
   first_failed_at?: string;
   last_failed_at?: string;
   last_succeeded_at?: string;
+  // parked_until is set while the periodic gap sweep is deferring this
+  // unit because it keeps failing without ever succeeding. The unit is
+  // still listed and still retryable by hand; only the automatic re-queue
+  // waits. Absent means it is re-queued on every sweep as usual.
+  parked_until?: string;
 }
 
 // IndexJobsSummary is the cross-kind health payload rendered on load.
@@ -147,7 +152,10 @@ export function useIndexJobFailures(kind?: string) {
   const query = qs.toString();
   return useQuery({
     queryKey: ["admin", "index-jobs", "failures", kind ?? ""],
-    queryFn: () => apiFetch<{ failures: IndexFailedUnit[] }>(`/index-jobs/failures?${query}`),
+    queryFn: () =>
+      apiFetch<{ failures: IndexFailedUnit[] }>(
+        `/index-jobs/failures?${query}`,
+      ),
     refetchInterval: 5000,
   });
 }

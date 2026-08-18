@@ -57,6 +57,10 @@ func (*fakeJobs) ActiveFailures(context.Context, string, int) ([]indexjobs.Faile
 	return nil, nil
 }
 
+func (*fakeJobs) ParkCandidates(context.Context, int, int) ([]indexjobs.ParkCandidate, error) {
+	return nil, nil
+}
+
 func (f *fakeJobs) ResolveFailures(_ context.Context, k indexjobs.Key) (int, error) {
 	f.lastResolveKey = k
 	return 0, f.resolveErr

@@ -13,20 +13,38 @@ const reindexMutate = vi.fn();
 const dismissMutate = vi.fn();
 let summaryState: { data?: IndexJobsSummary; isLoading: boolean };
 let jobsState: { data?: { jobs: IndexJob[] }; isError?: boolean };
-let failuresState: { data?: { failures: IndexFailedUnit[] }; isError?: boolean };
+let failuresState: {
+  data?: { failures: IndexFailedUnit[] };
+  isError?: boolean;
+};
 
 vi.mock("@/api/admin/indexjobs", () => ({
   useIndexJobsSummary: () => summaryState,
   useIndexJobs: () => jobsState,
   useIndexJobFailures: () => failuresState,
-  useReindex: () => ({ mutate: reindexMutate, isPending: false, isError: false, error: null }),
-  useDismissFailure: () => ({ mutate: dismissMutate, isPending: false, isError: false, error: null }),
+  useReindex: () => ({
+    mutate: reindexMutate,
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
+  useDismissFailure: () => ({
+    mutate: dismissMutate,
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
 }));
 
 import { IndexingPage } from "./IndexingPage";
 
 const summary: IndexJobsSummary = {
-  provider: { kind: "ollama", model: "nomic-embed-text", dimension: 768, status: "ok" },
+  provider: {
+    kind: "ollama",
+    model: "nomic-embed-text",
+    dimension: 768,
+    status: "ok",
+  },
   kinds: [
     {
       kind: "api_catalog",
@@ -131,7 +149,10 @@ describe("IndexingPage", () => {
 
   it("renders an empty state when no consumers are registered", () => {
     summaryState = {
-      data: { provider: { kind: "ollama", model: "m", dimension: 768, status: "ok" }, kinds: [] },
+      data: {
+        provider: { kind: "ollama", model: "m", dimension: 768, status: "ok" },
+        kinds: [],
+      },
       isLoading: false,
     };
     render(<IndexingPage />);
@@ -141,13 +162,20 @@ describe("IndexingPage", () => {
   it("surfaces a degraded provider banner", () => {
     summaryState = {
       data: {
-        provider: { kind: "noop", model: "", dimension: 0, status: "unconfigured" },
+        provider: {
+          kind: "noop",
+          model: "",
+          dimension: 0,
+          status: "unconfigured",
+        },
         kinds: summary.kinds,
       },
       isLoading: false,
     };
     render(<IndexingPage />);
-    expect(screen.getByText(/Embedding provider unconfigured/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Embedding provider unconfigured/i),
+    ).toBeInTheDocument();
   });
 
   it("leads with a health verdict per kind and shows the active provider banner", () => {
@@ -163,7 +191,9 @@ describe("IndexingPage", () => {
     failuresState = { data: { failures: [] }, isError: true };
     render(<IndexingPage />);
     // Both the panel body and the section hint surface the error.
-    expect(screen.getAllByText(/Could not load failures/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Could not load failures/i).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByText(/No open failures/i)).not.toBeInTheDocument();
   });
 
@@ -241,7 +271,9 @@ describe("IndexingPage", () => {
     // The card's recency line must not read "... never" for a kind with
     // no job timestamp (the broad word "never" can legitimately appear in
     // the unrelated job-table Updated column).
-    expect(screen.queryByText(/(indexed|synced) never/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/(indexed|synced) never/i),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/Units by last run/i)).not.toBeInTheDocument();
   });
 
@@ -273,9 +305,36 @@ describe("IndexingPage", () => {
 
   it("renders failure triage from the failures endpoint with timestamps", () => {
     render(<IndexingPage />);
-    expect(screen.getByText(/embed batch: provider timeout/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/embed batch: provider timeout/i),
+    ).toBeInTheDocument();
     expect(screen.getByText(/last succeeded/i)).toBeInTheDocument();
     expect(screen.getByText(/2 failures · 5 attempts/i)).toBeInTheDocument();
+  });
+
+  it("says when automatic retries are paused, and stays silent when they are not", () => {
+    // A parked unit is one the sweep has stopped re-queueing every five
+    // minutes. Saying so is what stops it reading as "failing constantly",
+    // which is what it looked like before (#1350).
+    failuresState = {
+      data: {
+        failures: [
+          {
+            ...failures[0]!,
+            parked_until: new Date(Date.now() + 90 * 60_000).toISOString(),
+          },
+        ],
+      },
+    };
+    render(<IndexingPage />);
+    expect(
+      screen.getByText(/retries paused, resuming in 1h/i),
+    ).toBeInTheDocument();
+  });
+
+  it("omits the paused-retry note for a unit still being re-queued", () => {
+    render(<IndexingPage />);
+    expect(screen.queryByText(/retries paused/i)).not.toBeInTheDocument();
   });
 
   it("retries a failing unit via the reindex mutation", () => {
@@ -300,7 +359,10 @@ describe("IndexingPage", () => {
     render(<IndexingPage />);
     const reindexButtons = screen.getAllByRole("button", { name: /Re-index/i });
     fireEvent.click(reindexButtons[0]!);
-    expect(reindexMutate).toHaveBeenCalledWith({ kind: "api_catalog" }, expect.anything());
+    expect(reindexMutate).toHaveBeenCalledWith(
+      { kind: "api_catalog" },
+      expect.anything(),
+    );
   });
 
   it("collapses routine reconciler heartbeats into a single synced row", () => {
@@ -318,7 +380,9 @@ describe("IndexingPage", () => {
   it("does not show pager controls when a single page suffices", () => {
     // The default 3-job fixture collapses to two rows, well under one page.
     render(<IndexingPage />);
-    expect(screen.queryByRole("button", { name: /Next page/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Next page/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("paginates the jobs table and advances pages", () => {

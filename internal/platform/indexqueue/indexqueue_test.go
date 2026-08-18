@@ -72,6 +72,9 @@ func (stubStore) Counts(context.Context, string) (*indexjobs.KindCounts, error) 
 func (stubStore) ActiveFailures(context.Context, string, int) ([]indexjobs.FailedUnit, error) {
 	return nil, nil
 }
+func (stubStore) ParkCandidates(context.Context, int, int) ([]indexjobs.ParkCandidate, error) {
+	return nil, nil
+}
 func (stubStore) ResolveFailures(context.Context, indexjobs.Key) (int, error) { return 0, nil }
 func (stubStore) PurgeTerminal(context.Context, int) (int, error)             { return 0, nil }
 

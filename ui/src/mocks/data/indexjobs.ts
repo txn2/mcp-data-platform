@@ -58,8 +58,9 @@ export const mockIndexJobsSummary: IndexJobsSummary = {
 // mockIndexJobsFailures is the failure-triage surface: two units sharing
 // an error signature (so they group) plus the timestamps and last-success
 // context the triage cards render, and a calls unit that has never
-// succeeded, which is what the degraded kind above is made of. Mirrors
-// the failed rows in mockIndexJobs.
+// succeeded, which is what the degraded kind above is made of and which
+// has failed often enough that its automatic retries are deferred.
+// Mirrors the failed rows in mockIndexJobs.
 export const mockIndexJobsFailures: IndexFailedUnit[] = [
   {
     source_kind: "api_catalog",
@@ -91,6 +92,11 @@ export const mockIndexJobsFailures: IndexFailedUnit[] = [
     occurrences: 41,
     first_failed_at: minsAgo(2880),
     last_failed_at: minsAgo(4),
+    // 41 failures with no success in between is the shape the sweep stops
+    // re-queueing: the deferral has reached its cap, so the next automatic
+    // attempt is ~6h after the last one. This is the only unit here that
+    // renders the paused-retry note.
+    parked_until: minsAgo(4 - 6 * 60),
   },
 ];
 

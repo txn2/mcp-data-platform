@@ -543,3 +543,58 @@ func TestIndexJobsSummary_VerdictAndFailures(t *testing.T) {
 		t.Errorf("idle_kind last_activity = %v; want nil", byKind["idle_kind"].LastActivity)
 	}
 }
+
+// TestListIndexJobsFailures_ReportsTheParkWindow proves the triage
+// surface tells an operator that automatic retries are deferred. Without
+// it a unit the sweep has stopped re-queueing is indistinguishable from
+// one still being retried every few minutes (#1350).
+func TestListIndexJobsFailures_ReportsTheParkWindow(t *testing.T) {
+	t.Parallel()
+	lastFailed := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
+	svc := &fakeIndexJobs{failures: []indexjobs.FailedUnit{
+		{
+			SourceKind: "resources", SourceID: "stuck", LatestJobID: 1,
+			LastError: "embed failed", Attempts: 5,
+			Occurrences: indexjobs.ParkThreshold, LastFailedAt: lastFailed,
+		},
+		{
+			SourceKind: "resources", SourceID: "blip", LatestJobID: 2,
+			LastError: "embed failed", Attempts: 5,
+			Occurrences: indexjobs.ParkThreshold - 1, LastFailedAt: lastFailed,
+		},
+		{
+			SourceKind: "resources", SourceID: "elapsed", LatestJobID: 3,
+			LastError: "embed failed", Attempts: 5,
+			Occurrences:  indexjobs.ParkThreshold,
+			LastFailedAt: time.Now().Add(-2 * indexjobs.ParkMaxDelay),
+		},
+	}}
+	h := indexJobsTestHandler(svc, nil)
+	res := doJSON(t, h, http.MethodGet, "/api/v1/admin/index-jobs/failures", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body %s", res.Code, res.Body.String())
+	}
+	var got map[string][]failedUnitResponse
+	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	f := got["failures"]
+	if len(f) != 3 {
+		t.Fatalf("failures = %d; want 3", len(f))
+	}
+	if f[0].ParkedUntil == nil {
+		t.Fatalf("parked unit must report parked_until; got %+v", f[0])
+	}
+	want := lastFailed.Add(indexjobs.ParkBaseDelay).Format(time.RFC3339)
+	if *f[0].ParkedUntil != want {
+		t.Errorf("parked_until = %q; want %q", *f[0].ParkedUntil, want)
+	}
+	if f[1].ParkedUntil != nil {
+		t.Errorf("a unit below the threshold must omit parked_until; got %q", *f[1].ParkedUntil)
+	}
+	// An elapsed window means the next sweep runs the unit. Reporting it
+	// would tell an operator retries are paused when they are not.
+	if f[2].ParkedUntil != nil {
+		t.Errorf("an elapsed park window must be omitted; got %q", *f[2].ParkedUntil)
+	}
+}
