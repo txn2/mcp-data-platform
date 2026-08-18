@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.starlark.net/starlark"
 
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -213,6 +214,35 @@ func TestRun_QueryFailuresSurfaceToTheScript(t *testing.T) {
 	assert.Contains(t, err.Error(), "not available")
 }
 
+// TestRun_WriteSQLIsRefusedInTheScriptSurfaceVocabulary pins #1356: the query
+// tool refuses a write with advice to call trino_execute, and neither that tool
+// nor trino_query exists inside a script. The refusal names what an author can
+// actually reach.
+func TestRun_WriteSQLIsRefusedInTheScriptSurfaceVocabulary(t *testing.T) {
+	writes := []string{
+		`platform.query(sql="DELETE FROM sales WHERE day = '2026-08-18'")`,
+		`platform.query(sql="INSERT INTO sales VALUES (1)")`,
+		`platform.query(sql="CREATE TABLE t AS SELECT 1")`,
+	}
+	for _, source := range writes {
+		caller := &recordingCaller{}
+		_, err := execute(t, source, caller, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "platform.query is read-only")
+		assert.Contains(t, err.Error(), "platform.export")
+		assert.NotContains(t, err.Error(), "trino_query")
+		assert.NotContains(t, err.Error(), "trino_execute")
+		assert.Empty(t, caller.calls, "the refusal precedes the tool call")
+	}
+
+	// The refusal is exactly the query tool's own predicate, so a SELECT that
+	// merely mentions one of those words is not caught by it.
+	caller := &recordingCaller{}
+	_, err := execute(t, `platform.query(sql="SELECT deleted FROM sales")`, caller, nil)
+	require.NoError(t, err)
+	assert.Len(t, caller.calls, 1)
+}
+
 func TestRun_ExportRecordsAndValidates(t *testing.T) {
 	result, err := execute(t, `
 out = platform.export(name="daily", rows=[{"a": 1}], format="json")
@@ -220,9 +250,15 @@ print(json.encode(out))
 `, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, result.Exports, 1)
+	// The reported size is the size a real write produces, not an estimate
+	// standing in for it (#1354): the same formatter, over the same rows.
+	written, _, err := FormatOutput(ExportRequest{
+		Name: "daily", Format: "json", Columns: []string{"a"}, Rows: []any{map[string]any{"a": int64(1)}},
+	})
+	require.NoError(t, err)
 	assert.Equal(t, ExportRecord{
 		Name: "daily", Destination: script.DestinationPortal,
-		Format: "json", RowCount: 1, Bytes: 9, Preview: true,
+		Format: "json", RowCount: 1, Bytes: len(written), Preview: true,
 	}, result.Exports[0],
 		"a run given no Exporter previews: it measures the output and writes nothing")
 	assert.Contains(t, result.Log, `"preview":true`)
@@ -243,6 +279,62 @@ print(json.encode(out))
 			assert.Contains(t, err.Error(), tc.wantErr)
 		})
 	}
+}
+
+// TestFormatOutput_RefusalsNameTheOutput pins that a serialization failure
+// carries the output it happened to, since a run may write several and the
+// author needs to know which one to fix.
+func TestFormatOutput_RefusalsNameTheOutput(t *testing.T) {
+	_, _, err := FormatOutput(ExportRequest{Name: "daily", Format: "parquet"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `output "daily"`)
+	assert.Contains(t, err.Error(), "unsupported format")
+
+	// A cell no encoder can represent cannot come from Starlark, whose values
+	// all convert to JSON-safe Go primitives. The arm still answers, because
+	// FormatOutput is the writer's serializer as well as the preview's.
+	_, _, err = FormatOutput(ExportRequest{
+		Name: "daily", Format: "json", Columns: []string{"a"},
+		Rows: []any{map[string]any{"a": make(chan int)}},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `formatting output "daily"`)
+}
+
+// TestFormatOutput_RefusesAnOversizedOutput keeps a script from writing an
+// asset a person could not have exported by hand, and pins that a DRAFT is
+// refused on the same terms: the ceiling belongs to the serializer both runs
+// share, so an output too large to write is refused while the author can still
+// do something about it rather than at the first fire after an approval.
+func TestFormatOutput_RefusesAnOversizedOutput(t *testing.T) {
+	big := strings.Repeat("x", 1024)
+	rows := make([]any, 0, 128*1024)
+	for range 128 * 1024 {
+		rows = append(rows, map[string]any{"blob": big})
+	}
+	req := ExportRequest{Name: "huge", Format: "csv", Columns: []string{"blob"}, Rows: rows}
+
+	_, _, err := FormatOutput(req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "over the")
+
+	host := &hostState{ctx: context.Background()}
+	_, err = host.persistOrPreview(starlark.NewBuiltin("platform.export", nil), req)
+	require.Error(t, err, "a draft run measures against the ceiling it would be written under")
+	assert.Contains(t, err.Error(), "over the")
+}
+
+// TestTabular_ProjectsRowsOntoTheColumnOrder pins the projection every output
+// format shares. It sits beside the formatter it feeds: one serializer writes a
+// script's output, whether the run persists it or only measures it.
+func TestTabular_ProjectsRowsOntoTheColumnOrder(t *testing.T) {
+	rows := tabular([]string{"a", "b"}, []any{
+		map[string]any{"b": 2, "a": 1},
+		map[string]any{"a": 3},
+		"not a dict",
+	})
+	assert.Equal(t, [][]any{{1, 2}, {3, nil}, {nil, nil}}, rows,
+		"a missing column is an empty cell, not a shifted row")
 }
 
 func TestRun_ExportCountCap(t *testing.T) {

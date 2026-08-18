@@ -290,6 +290,7 @@ internal/platform/scriptlayer -> pkg/session
 internal/platform/scriptlayer -> pkg/textpatch
 internal/platform/scriptlayer -> pkg/textpatch/patchmcp
 internal/platform/scriptrun -> pkg/script
+internal/platform/scriptrun -> pkg/toolkits/trino
 internal/platform/scriptstore -> pkg/script
 internal/platform/searchfed -> internal/tableavail
 internal/platform/searchfed -> pkg/embedding

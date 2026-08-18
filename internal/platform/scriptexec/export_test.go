@@ -200,6 +200,52 @@ func csvRequest(name string) scriptrun.ExportRequest { //nolint:unparam // one o
 	}
 }
 
+// TestDraftMeasuresWhatAnApprovedRunWrites pins #1354 across the seam it
+// spans: the engine reports a size for an output nobody persisted, and the
+// writer reports one for the object it stored. The two used to disagree,
+// because the draft measured a JSON encoding of the rows whatever format the
+// author declared. They are the same number now because there is one
+// serializer, and this asserts it against the bytes that actually reached
+// storage rather than against either side's own accounting.
+func TestDraftMeasuresWhatAnApprovedRunWrites(t *testing.T) {
+	const source = `platform.export(name="daily", format="csv", rows=[` +
+		`{"region": "west", "total": 120}, {"region": "east", "total": 80}])`
+
+	draft, err := scriptrun.Run(context.Background(), scriptrun.Options{
+		Source: source, Name: "daily", RunID: "run_draft",
+	})
+	require.NoError(t, err)
+	require.Len(t, draft.Exports, 1)
+	require.True(t, draft.Exports[0].Preview, "a run with no Exporter persists nothing")
+
+	h := newWriterHarness(t)
+	persisted, err := scriptrun.Run(context.Background(), scriptrun.Options{
+		Source: source, Name: "daily", RunID: "run_1", Exporter: h.writer,
+	})
+	require.NoError(t, err)
+	require.Len(t, persisted.Exports, 1)
+	require.False(t, persisted.Exports[0].Preview)
+
+	require.Len(t, h.s3.objects, 1)
+	var stored []byte
+	for _, data := range h.s3.objects {
+		stored = data
+	}
+	assert.Equal(t, len(stored), draft.Exports[0].Bytes,
+		"the draft reports the length of the object a real run writes")
+	assert.Equal(t, len(stored), persisted.Exports[0].Bytes)
+
+	// And the number follows the declared format, which is the whole of what
+	// was wrong: one JSON estimate stood in for all four formats.
+	asJSON, err := scriptrun.Run(context.Background(), scriptrun.Options{
+		Source: strings.Replace(source, `format="csv"`, `format="json"`, 1),
+		Name:   "daily", RunID: "run_draft_json",
+	})
+	require.NoError(t, err)
+	require.Len(t, asJSON.Exports, 1)
+	assert.NotEqual(t, draft.Exports[0].Bytes, asJSON.Exports[0].Bytes)
+}
+
 // TestOutputWriter_WritesAnAssetAndRecordsItOnTheRun is one output end to end:
 // the object, the asset, its version, and the run's record of what it wrote.
 func TestOutputWriter_WritesAnAssetAndRecordsItOnTheRun(t *testing.T) {
@@ -365,32 +411,6 @@ func TestOutputWriter_RecordFailureDoesNotUnwriteTheAsset(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.AssetID)
 	assert.Len(t, h.versions.created, 1)
-}
-
-// TestOutputWriter_RefusesAnOversizedOutput keeps a script from writing an
-// asset a person could not have exported by hand.
-func TestOutputWriter_RefusesAnOversizedOutput(t *testing.T) {
-	h := newWriterHarness(t)
-	big := strings.Repeat("x", 1024)
-	rows := make([]any, 0, 128*1024)
-	for range 128 * 1024 {
-		rows = append(rows, map[string]any{"blob": big})
-	}
-	_, err := h.writer.Export(context.Background(), scriptrun.ExportRequest{
-		Name: "huge", Format: "csv", Columns: []string{"blob"}, Rows: rows,
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "over the")
-}
-
-func TestTabular_ProjectsRowsOntoTheColumnOrder(t *testing.T) {
-	rows := tabular([]string{"a", "b"}, []any{
-		map[string]any{"b": 2, "a": 1},
-		map[string]any{"a": 3},
-		"not a dict",
-	})
-	assert.Equal(t, [][]any{{1, 2}, {3, nil}, {nil, nil}}, rows,
-		"a missing column is an empty cell, not a shifted row")
 }
 
 func TestSanitizeKeySegment(t *testing.T) {

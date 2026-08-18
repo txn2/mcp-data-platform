@@ -270,15 +270,43 @@ func TestEnableDisableSchedule(t *testing.T) {
 
 	rec := serve(t, store, http.MethodPost, schedulePath+"/disable", "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	assert.Equal(t, false, decode(t, rec)["enabled"])
+	paused := decode(t, rec)
+	assert.Equal(t, false, paused["enabled"])
+	assert.NotContains(t, paused, "next_run_at",
+		"a paused schedule announces no fire; the stored due time is what it resumes on, not a prediction")
 	assert.True(t, store.schedule.NextRunAt.Equal(parked), "pausing does not move the next fire")
 	assert.Equal(t, "admin@example.com", store.schedule.UpdatedBy)
 
 	rec = serve(t, store, http.MethodPost, schedulePath+"/enable", "")
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, true, decode(t, rec)["enabled"])
+	resumed := decode(t, rec)
+	assert.Equal(t, true, resumed["enabled"])
+	assert.Equal(t, parked.Format(time.RFC3339), resumed["next_run_at"],
+		"and resuming reports the fire again")
 	assert.True(t, store.schedule.NextRunAt.Equal(parked),
 		"and resuming picks up the fire it was parked on, which the misfire policy then collapses")
+}
+
+// TestGetSchedule_PausedReportsNoNextRun covers the read route as well as the
+// pause route: the rule belongs to the schedule, so every surface that serves
+// one states it, not only the route that turned it off.
+func TestGetSchedule_PausedReportsNoNextRun(t *testing.T) {
+	store := approvedStore()
+	store.schedule = &script.Schedule{
+		ID: "sched_1", ScriptID: "script_1", CronSpec: "@daily", Timezone: "UTC",
+		Enabled: false, NextRunAt: time.Now().Add(time.Hour).UTC(),
+	}
+
+	rec := serve(t, store, http.MethodGet, schedulePath, "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotContains(t, decode(t, rec), "next_run_at")
+
+	rec = serve(t, store, http.MethodGet, "/api/v1/admin/scripts/schedules", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	listed, ok := decode(t, rec)["data"].([]any)
+	require.True(t, ok)
+	require.Len(t, listed, 1)
+	assert.NotContains(t, listed[0], "next_run_at")
 }
 
 func TestEnableSchedule_Failures(t *testing.T) {

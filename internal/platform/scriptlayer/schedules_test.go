@@ -222,9 +222,12 @@ func TestScheduleEnableDisable(t *testing.T) {
 
 	off := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleDisable, Name: "daily"}))
 	assert.Equal(t, false, off["enabled"])
+	assert.NotContains(t, off, "next_run_at",
+		"an author reading a paused schedule is not told it is about to fire")
 
 	on := resultFields(t, call(t, h, authorCtx(), manageScriptInput{Command: cmdScheduleEnable, Name: "daily"}))
 	assert.Equal(t, true, on["enabled"])
+	assert.NotEmpty(t, on["next_run_at"], "and resuming reports the fire again")
 }
 
 func TestScheduleEnable_WithNoScheduleSaysHowToSetOne(t *testing.T) {

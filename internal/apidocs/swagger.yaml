@@ -5118,6 +5118,10 @@ definitions:
           its correctness guarantee: two replicas may read the same due schedule,
           and what stops them producing two runs is the unique index on the run
           they insert.
+
+          While the schedule is disabled the field still holds the fire it was
+          paused on, because resuming picks up from there. What a READER is told is
+          DueAt, which is empty for a paused schedule; see MarshalJSON.
         type: string
       params:
         additionalProperties: {}

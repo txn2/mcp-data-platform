@@ -247,7 +247,8 @@ email substrate configured, and a recipient can turn their own mail off.
 
 A schedule that is paused resumes on the fire it was parked on, which the
 misfire policy then collapses to one run — a pause is downtime, and gets the
-same treatment.
+same treatment. While it is paused it reports no next run: the stored due time
+is what it will resume on, not a fire anything is going to produce.
 
 ## Where runs execute
 

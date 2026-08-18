@@ -7,10 +7,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
 	"github.com/txn2/mcp-data-platform/pkg/script"
+	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
 // Tool names the host bindings call. They are ordinary platform tools invoked
@@ -213,6 +215,9 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	if err != nil {
 		return nil, argErr(b, err)
 	}
+	if err := refuseWrite(b, bound); err != nil {
+		return nil, err
+	}
 
 	call := map[string]any{"sql": bound, "limit": h.opts.MaxRows}
 	if connection != "" {
@@ -224,6 +229,29 @@ func (h *hostState) query(_ *starlark.Thread, b *starlark.Builtin, args starlark
 	}
 	h.queries++
 	return h.queryResult(b.Name(), out)
+}
+
+// refuseWrite refuses a write statement before it becomes a tool call.
+//
+// The query tool refuses it too, and would do so with its own message: that
+// trino_query is read-only and that trino_execute is where writes go. Neither
+// tool name exists inside a script — the Starlark surface is platform.query and
+// platform.export and nothing else — so an author following that advice has
+// nowhere to go. Refusing here states the same rule in the vocabulary the
+// author is writing in.
+//
+// The predicate is the query tool's own IsWriteSQL rather than a second
+// definition of what a write is, so the two surfaces cannot come to disagree
+// about which statements they refuse.
+func refuseWrite(b *starlark.Builtin, sql string) error {
+	if !trinotools.IsWriteSQL(sql) {
+		return nil
+	}
+	// The binding is named once, as queryResult's refusals name it: the
+	// interpreter already labels the frame the error came from, so an argErr
+	// prefix on top of a message that also names the binding would say it twice.
+	return fmt.Errorf("a managed script cannot write: %s is read-only, and a statement that modifies state, such as INSERT, UPDATE, DELETE, CREATE or DROP, is refused; compute the result with SELECT and write it with platform.export",
+		b.Name())
 }
 
 // queryResult caps and converts one query tool result.
@@ -403,13 +431,25 @@ func exportRows(b *starlark.Builtin, rows starlark.Value) ([]any, error) {
 
 // persistOrPreview writes the output through the run's Exporter, or measures it
 // when the run has none.
+//
+// A preview measures by serializing: it runs the same formatter the writer
+// would, and reports the length of what that produced. The documented loop is
+// create, validate, run_draft, then ask for approval, and sizing an output
+// against a cap is one of the few things the number is for — so the number a
+// draft reports has to be the number a real run would write, not a
+// format-independent estimate of it.
 func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (ExportRecord, error) {
 	record := ExportRecord{
 		Name: req.Name, Destination: req.Destination.Name, Format: req.Format,
-		RowCount: len(req.Rows), Bytes: approxJSONBytes(req.Rows),
-		Preview: h.opts.Exporter == nil,
+		RowCount: len(req.Rows),
+		Preview:  h.opts.Exporter == nil,
 	}
 	if h.opts.Exporter == nil {
+		data, _, err := FormatOutput(req)
+		if err != nil {
+			return ExportRecord{}, argErr(b, err)
+		}
+		record.Bytes = len(data)
 		return record, nil
 	}
 	written, err := h.opts.Exporter.Export(h.ctx, req)
@@ -420,11 +460,7 @@ func (h *hostState) persistOrPreview(b *starlark.Builtin, req ExportRequest) (Ex
 	record.AssetVersion = written.AssetVersion
 	record.Bucket = written.Bucket
 	record.Key = written.Key
-	// The writer's own accounting wins: it knows the serialized size of the
-	// format it actually wrote, which the pre-serialization estimate does not.
-	if written.Bytes > 0 {
-		record.Bytes = written.Bytes
-	}
+	record.Bytes = written.Bytes
 	return record, nil
 }
 
@@ -522,4 +558,56 @@ func (l *logBuffer) string() string {
 		return l.buf.String() + "\n... log truncated at the size cap; write large output as an export instead\n"
 	}
 	return l.buf.String()
+}
+
+// MaxOutputBytes caps one serialized output. It matches the ceiling the portal
+// export path applies, so a script cannot write an asset a human could not have
+// exported by hand.
+const MaxOutputBytes = 100 << 20
+
+// FormatOutput serializes one export request in its declared format, checks it
+// against the output ceiling, and returns the formatter that produced it.
+//
+// It is the single serializer for a script's output, and the ceiling is applied
+// here rather than by the writer so that the two runs of a script agree: an
+// approved run persists exactly these bytes, and a draft run measures them, so
+// an output too large to write is refused while the author is still iterating
+// rather than at the first fire after somebody approved it.
+func FormatOutput(req ExportRequest) ([]byte, trinokit.Formatter, error) {
+	formatter, err := trinokit.NewFormatter(req.Format)
+	if err != nil {
+		return nil, nil, fmt.Errorf("output %q: %w", req.Name, err)
+	}
+	data, err := formatter.Format(req.Columns, tabular(req.Columns, req.Rows))
+	if err != nil {
+		return nil, nil, fmt.Errorf("formatting output %q: %w", req.Name, err)
+	}
+	if len(data) > MaxOutputBytes {
+		return nil, nil, fmt.Errorf("output %q is %d bytes, over the %d-byte limit; aggregate in SQL or write fewer columns",
+			req.Name, len(data), MaxOutputBytes)
+	}
+	return data, formatter, nil
+}
+
+// tabular projects row dicts onto the column order the script wrote. A row
+// missing a column contributes an empty cell rather than shifting the row,
+// which is what keeps a ragged result readable instead of misaligned.
+func tabular(columns []string, rows []any) [][]any {
+	out := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		dict, ok := row.(map[string]any)
+		if !ok {
+			// A non-dict row has no columns to project. Rendering it as an empty
+			// row keeps the row count honest; the alternative, dropping it, would
+			// make the output disagree with the row count the script was told.
+			out = append(out, make([]any, len(columns)))
+			continue
+		}
+		cells := make([]any, len(columns))
+		for i, column := range columns {
+			cells[i] = dict[column]
+		}
+		out = append(out, cells)
+	}
+	return out
 }

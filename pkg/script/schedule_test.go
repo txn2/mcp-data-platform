@@ -1,6 +1,7 @@
 package script
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -309,4 +310,42 @@ func TestRunTerminal_IncludesASkippedOverlap(t *testing.T) {
 	assert.True(t, (&Run{Status: RunStatusSkippedOverlap}).Terminal())
 	assert.False(t, (&Run{Status: RunStatusPending}).Terminal())
 	assert.False(t, (&Run{Status: RunStatusRunning}).Terminal())
+}
+
+// TestScheduleDueAt pins the one field a reader is told differently from the
+// stored row, and both halves of why: a paused schedule announces no fire, and
+// pausing does not discard the fire it resumes on.
+func TestScheduleDueAt(t *testing.T) {
+	parked := time.Date(2026, 8, 18, 7, 0, 0, 0, time.UTC)
+	sched := Schedule{Enabled: true, NextRunAt: parked}
+	assert.Equal(t, parked, sched.DueAt())
+
+	sched.Enabled = false
+	assert.True(t, sched.DueAt().IsZero(), "a paused schedule has no next fire")
+	assert.Equal(t, parked, sched.NextRunAt, "and the fire it resumes on is still there")
+
+	sched.Enabled, sched.NextRunAt = true, time.Time{}
+	assert.True(t, sched.DueAt().IsZero(), "an expression with no further fire has none either")
+}
+
+func TestScheduleMarshalJSON(t *testing.T) {
+	sched := Schedule{
+		ID: "sched_1", ScriptID: "script_1", CronSpec: "@daily", Timezone: "UTC",
+		Enabled: true, NextRunAt: time.Date(2026, 8, 18, 7, 0, 0, 0, time.UTC),
+	}
+
+	var enabled map[string]any
+	data, err := json.Marshal(sched)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &enabled))
+	assert.Equal(t, "2026-08-18T07:00:00Z", enabled["next_run_at"])
+	assert.Equal(t, "@daily", enabled["cron_spec"])
+
+	sched.Enabled = false
+	var paused map[string]any
+	data, err = json.Marshal(&sched)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &paused))
+	assert.NotContains(t, paused, "next_run_at", "a pointer marshals by the same rule as a value")
+	assert.Equal(t, "@daily", paused["cron_spec"], "and every other field is unchanged")
 }

@@ -260,8 +260,11 @@ func scheduleFields(sc *script.Script, sched *script.Schedule) map[string]any {
 		// the count is what tells an owner the automation was not running.
 		"missed_fires": sched.MissedFires,
 	}
-	if !sched.NextRunAt.IsZero() {
-		out["next_run_at"] = sched.NextRunAt.UTC()
+	// DueAt rather than NextRunAt: a paused schedule's stored due time is the
+	// fire it is parked on, and reporting it here would tell an author their
+	// paused automation is about to run.
+	if due := sched.DueAt(); !due.IsZero() {
+		out["next_run_at"] = due.UTC()
 	}
 	if sched.LastFireAt != nil {
 		out["last_fire_at"] = sched.LastFireAt.UTC()

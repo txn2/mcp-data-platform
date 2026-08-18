@@ -32,8 +32,11 @@ const dialectContract = `Managed scripts are written in Starlark: Python-shaped 
 WHAT IS AVAILABLE
   platform.query(sql, connection=..., params={})  Run read-only SQL. Returns
       {"columns": [...], "rows": [...], "row_count": n}; rows are dicts keyed by
-      column name. Use :name placeholders and pass the values in params; the
-      platform quotes them by type. Never build SQL by string concatenation.
+      column name. A script cannot write: a statement that modifies state,
+      such as INSERT, UPDATE, DELETE, CREATE or DROP, is refused. Compute the
+      result with SELECT and write it with platform.export.
+      Use :name placeholders and pass the values in params; the platform
+      quotes them by type. Never build SQL by string concatenation.
       A date binds as a quoted string, so compare it against a DATE column as
       "DATE :day", which renders the standard date literal DATE '2026-08-12'.
       A query whose result is truncated by the row cap FAILS rather than
@@ -54,8 +57,10 @@ WHAT IS AVAILABLE
       destination and key must be passed BY NAME. Only name, rows and format may
       be positional, because where a script writes has to be readable from its
       source before anyone approves it.
-      In a draft run this reports the shape and size the output would have and
-      writes nothing, wherever it was addressed.
+      In a draft run this writes nothing, wherever it was addressed, and
+      reports the shape and size the output would have: the rows are serialized
+      in the declared format to measure them, so the size is the one a real run
+      writes.
   print(...)  Goes to the run log (capped; anything larger is an export).
   run.run_id, run.fire_time, run.params["name"]  The frozen run record.
   json.encode / json.decode / json.indent
