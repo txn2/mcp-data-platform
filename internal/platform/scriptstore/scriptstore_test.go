@@ -74,6 +74,22 @@ func newMock(t *testing.T) (*Store, sqlmock.Sqlmock) {
 	return New(db), mock
 }
 
+// expectLiveRowUpdate stands in for updateTx's write of the live script row.
+// It is a QueryRow rather than an Exec because the statement reports, through
+// RETURNING, whether the write moved the text the scripts index is built from;
+// indexChanged is that answer.
+func expectLiveRowUpdate(mock sqlmock.Sqlmock, indexChanged bool) {
+	mock.ExpectQuery(regexp.QuoteMeta("UPDATE scripts")).
+		WillReturnRows(sqlmock.NewRows([]string{"changed"}).AddRow(indexChanged))
+}
+
+// expectLiveRowUpdateMissing stands in for updateTx against a script id that no
+// longer exists: no row is returned, which is how the statement reports it.
+func expectLiveRowUpdateMissing(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(regexp.QuoteMeta("UPDATE scripts")).
+		WillReturnRows(sqlmock.NewRows([]string{"changed"}))
+}
+
 func TestGet_ResolvesSharedByName(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectQuery(regexp.QuoteMeta("FROM scripts WHERE name = $1 AND scope <> 'personal'")).
@@ -175,7 +191,7 @@ func TestCreate_RollsBackWhenTheSnapshotFails(t *testing.T) {
 func TestUpdate_MissingRowIsAnError(t *testing.T) {
 	s, mock := newMock(t)
 	mock.ExpectBegin()
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE scripts")).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectLiveRowUpdateMissing(mock)
 	mock.ExpectRollback()
 
 	err := s.Update(context.Background(), &script.Script{ID: "script_1"})

@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/platform/datasetindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -163,18 +164,42 @@ func TestNew_ConsumerGating(t *testing.T) {
 			PortalCollections:    true,
 			PortalKnowledgePages: true,
 			Resources:            true,
+			Scripts:              true,
 		},
 		ResourceBucket: "resources",
 	})
 	if h == nil {
 		t.Fatal("New must return a handle")
 	}
-	// tools + memory + prompts + assets + collections + knowledge pages + resources.
-	if kinds := h.registry.Kinds(); len(kinds) != 7 {
-		t.Errorf("kinds = %v; want 7 (tools + 6 gated consumers)", kinds)
+	// tools + memory + prompts + assets + collections + knowledge pages +
+	// resources + scripts.
+	if kinds := h.registry.Kinds(); len(kinds) != 8 {
+		t.Errorf("kinds = %v; want 8 (tools + 7 gated consumers)", kinds)
 	}
 	if !slices.Contains(h.registry.Kinds(), resourceindex.SourceKind) {
 		t.Errorf("kinds = %v; want the resources consumer registered", h.registry.Kinds())
+	}
+	if !slices.Contains(h.registry.Kinds(), scriptindex.SourceKind) {
+		t.Errorf("kinds = %v; want the scripts consumer registered", h.registry.Kinds())
+	}
+}
+
+// TestNew_ScriptsConsumerGatedOff covers the deployment with no script store:
+// the scripts kind must not register, so the reconciler never sweeps a table
+// nothing writes to and the worker never claims a job it cannot serve.
+func TestNew_ScriptsConsumerGatedOff(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	h := New(Config{DB: db, Embedder: testEmbedder(), ModelName: "m"})
+	if h == nil {
+		t.Fatal("New must return a handle")
+	}
+	if slices.Contains(h.registry.Kinds(), scriptindex.SourceKind) {
+		t.Errorf("kinds = %v; scripts must not register without a store", h.registry.Kinds())
 	}
 }
 

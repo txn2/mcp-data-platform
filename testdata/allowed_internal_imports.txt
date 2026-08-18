@@ -169,6 +169,7 @@ internal/platform/indexqueue -> internal/platform/knowledgepageindex
 internal/platform/indexqueue -> internal/platform/memoryindex
 internal/platform/indexqueue -> internal/platform/promptindex
 internal/platform/indexqueue -> internal/platform/resourceindex
+internal/platform/indexqueue -> internal/platform/scriptindex
 internal/platform/indexqueue -> pkg/embedding
 internal/platform/indexqueue -> pkg/indexjobs
 internal/platform/indexqueue -> pkg/registry
@@ -282,8 +283,12 @@ internal/platform/scriptexec -> pkg/portal
 internal/platform/scriptexec -> pkg/script
 internal/platform/scriptexec -> pkg/session
 internal/platform/scriptexec -> pkg/toolkits/trino
+internal/platform/scriptindex -> pkg/indexjobs
+internal/platform/scriptindex -> pkg/script
+internal/platform/scriptlayer -> internal/platform/scriptindex
 internal/platform/scriptlayer -> internal/platform/scriptrun
 internal/platform/scriptlayer -> internal/platform/scriptstore
+internal/platform/scriptlayer -> pkg/indexjobs
 internal/platform/scriptlayer -> pkg/middleware
 internal/platform/scriptlayer -> pkg/script
 internal/platform/scriptlayer -> pkg/session
@@ -291,6 +296,7 @@ internal/platform/scriptlayer -> pkg/textpatch
 internal/platform/scriptlayer -> pkg/textpatch/patchmcp
 internal/platform/scriptrun -> pkg/script
 internal/platform/scriptrun -> pkg/toolkits/trino
+internal/platform/scriptstore -> pkg/indexjobs
 internal/platform/scriptstore -> pkg/script
 internal/platform/searchfed -> internal/tableavail
 internal/platform/searchfed -> pkg/embedding

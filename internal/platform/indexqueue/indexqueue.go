@@ -3,7 +3,7 @@
 // registry, the worker/reaper/reconciler, the optional retention sweep and
 // LISTEN/NOTIFY adapter, and every enabled consumer (api-catalog, tools,
 // memory, prompts, portal assets/collections/knowledge-pages, managed
-// resources, catalog datasets).
+// resources, managed scripts, catalog datasets).
 //
 // New takes an explicit Config: callers translate their own config into Config
 // at the boundary and wire the returned Handle's Start/Stop into their own
@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/memoryindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/promptindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/resourceindex"
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -48,6 +49,10 @@ type Consumers struct {
 	PortalCollections    bool
 	PortalKnowledgePages bool
 	Resources            bool
+	// Scripts registers the managed-script consumer, which embeds each script's
+	// description card so an automation is found by what it does and not only
+	// by the words it was named with (#1370).
+	Scripts bool
 	// Calls registers the call-catalog consumer, which embeds the recorded
 	// data-access calls so a prior query is findable by what it answers and
 	// not only by the words it contains (#1321).
@@ -265,8 +270,9 @@ func (h *Handle) registerConsumers(cfg Config) {
 	h.registerDataConsumers(cfg)
 }
 
-// registerDataConsumers registers the DB-backed data consumers (memory,
-// prompts, portal assets/collections/knowledge-pages). Each registers only
+// registerDataConsumers registers the DB-backed data consumers (memory, calls,
+// prompts, portal assets/collections/knowledge-pages, catalog datasets,
+// resources, managed scripts). Each registers only
 // when the caller reports its store is wired. None needs a bootstrap enqueue:
 // each one's corpus is a table the reconciler can diff on its own, and new rows
 // arrive as write-path jobs from the producers bindProducers wires (#1256).
@@ -340,6 +346,16 @@ func (h *Handle) registerDataConsumers(cfg Config) {
 		return h.registry.Register(
 			resourceindex.NewSource(resStore, cfg.ResourceBlobs, cfg.ResourceBucket),
 			resourceindex.NewSink(resStore, cfg.ModelName),
+		)
+	})
+	// Scripts consumer: embeds each script's description card — never its
+	// Starlark — so a person asking for what they want done reaches the
+	// automation that does it (#1370).
+	tryRegister(cfg.Consumers.Scripts, "scripts", func() error {
+		scStore := scriptindex.NewStore(cfg.DB)
+		return h.registry.Register(
+			scriptindex.NewSource(scStore),
+			scriptindex.NewSink(scStore, cfg.ModelName),
 		)
 	})
 }

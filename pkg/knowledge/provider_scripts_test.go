@@ -94,6 +94,53 @@ func TestScriptsProvider_ForwardsCallerVisibility(t *testing.T) {
 	assert.Equal(t, 7, s.got.Limit)
 }
 
+// TestScriptsProvider_ForwardsTheQueryVector proves the router's embedding
+// reaches the script store, which is the only thing that turns the scripts
+// source's ranking hybrid. A provider that dropped it would leave scripts the
+// one kind found by wording alone while every other source ranked semantically.
+func TestScriptsProvider_ForwardsTheQueryVector(t *testing.T) {
+	s := &fakeScriptSearcher{}
+
+	_, err := NewScriptsProvider(s).Search(context.Background(), Query{
+		Intent:    "what refreshes the regional sales numbers",
+		Embedding: []float32{0.1, 0.2},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []float32{0.1, 0.2}, s.got.Embedding)
+}
+
+// TestScriptsProvider_LexicalWhenTheRouterHasNoVector pins the degraded path: a
+// deployment with no embedding provider passes no vector, and the store must be
+// asked for exactly the lexical ranking it has always done.
+func TestScriptsProvider_LexicalWhenTheRouterHasNoVector(t *testing.T) {
+	s := &fakeScriptSearcher{}
+
+	_, err := NewScriptsProvider(s).Search(context.Background(), Query{Intent: "sales"})
+
+	require.NoError(t, err)
+	assert.Nil(t, s.got.Embedding)
+}
+
+// TestScriptsProvider_HitTextIsTheEmbeddedText proves the snippet a caller reads
+// is the document the vector was built from: both are script.IndexText, so a
+// result cannot be ranked on text nobody is shown.
+func TestScriptsProvider_HitTextIsTheEmbeddedText(t *testing.T) {
+	sc := script.Script{
+		ID: "script_1", Name: "daily-sales", DisplayName: "Daily Sales",
+		Description: "Yesterday's sales by region", Tags: []string{"revenue"},
+		ApprovedVersionID: "sver_3",
+	}
+	s := &fakeScriptSearcher{scored: []script.ScoredScript{{Score: 0.9, Script: sc}}}
+
+	hits, err := NewScriptsProvider(s).Search(context.Background(), Query{Intent: "sales"})
+
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, script.IndexText(&sc), hits[0].Text)
+	assert.Contains(t, hits[0].Text, "revenue", "tags are part of the document, as they are for prompts")
+}
+
 // TestScriptsProvider_HitCarriesContractAndExecutionState proves a hit answers
 // the two questions that decide what to do with it — what it takes, and whether
 // anything will run it — plus the reference that dereferences it.

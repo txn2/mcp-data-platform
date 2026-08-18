@@ -21,7 +21,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/scriptindex"
 	"github.com/txn2/mcp-data-platform/internal/platform/scriptstore"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/script"
 )
@@ -70,17 +72,36 @@ type Handle struct {
 	// opens an in-memory session against it so a draft's platform calls cross
 	// the same middleware chain an agent's calls cross.
 	server *mcp.Server
+	// indexProducer is the write-path index-job producer the Postgres script
+	// store was built with, so a created or re-described script enters ranked
+	// search without waiting for the reconciler (#1370). Nil when the layer was
+	// handed a store rather than building one, since that store's write path is
+	// the caller's to wire.
+	indexProducer *indexjobs.Producer
 }
 
 // New assembles the script layer.
 func New(cfg Config) *Handle {
 	h := &Handle{store: cfg.Store, runs: cfg.Runs, adminPersona: cfg.AdminPersona, portalURL: cfg.PortalURL}
 	if h.store == nil && cfg.DB != nil {
-		h.store = scriptstore.New(cfg.DB)
+		h.indexProducer = indexjobs.NewProducer(scriptindex.SourceKind)
+		h.store = scriptstore.New(cfg.DB, indexjobs.WithProducer(h.indexProducer))
 	}
 	h.versions, _ = h.store.(script.VersionStore)
 	h.schedules, _ = h.store.(script.ScheduleStore)
 	return h
+}
+
+// IndexProducer returns the write-path index-job producer behind the managed-
+// script store, or nil on a deployment with no database. The composition root
+// hands it to the index queue, which binds it once the scripts consumer is
+// registered; until then, and forever where no worker runs, NotifyWrite is a
+// no-op and the reconciler is the only route to the index.
+func (h *Handle) IndexProducer() *indexjobs.Producer {
+	if h == nil {
+		return nil
+	}
+	return h.indexProducer
 }
 
 // resolveEmail returns the identity a script is owned by and compared against:

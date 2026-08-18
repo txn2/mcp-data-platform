@@ -142,7 +142,8 @@ func requireUngated(locked, sc *script.Script) error {
 // under the row lock (see requireUngated).
 func (s *Store) UpdateWithVersion(ctx context.Context, sc *script.Script, author script.Author) error {
 	normalizeSlices(sc)
-	return s.withTx(ctx, "update script with version", func(tx *sql.Tx) error {
+	var indexed bool
+	if err := s.withTx(ctx, "update script with version", func(tx *sql.Tx) error {
 		before, err := lockScript(ctx, tx, sc.ID)
 		if err != nil {
 			return err
@@ -163,8 +164,15 @@ func (s *Store) UpdateWithVersion(ctx context.Context, sc *script.Script, author
 				return err
 			}
 		}
-		return updateTx(ctx, tx, sc)
-	})
+		indexed, err = updateTx(ctx, tx, sc)
+		return err
+	}); err != nil {
+		return err
+	}
+	if indexed {
+		s.index.NotifyWrite(ctx, sc.ID)
+	}
+	return nil
 }
 
 // CreateDraftVersion snapshots proposed's versioned fields as a new draft

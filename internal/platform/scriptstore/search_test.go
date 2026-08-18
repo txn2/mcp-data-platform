@@ -204,3 +204,172 @@ func approvedVersionRow(t *testing.T) []driver.Value {
 	row[13] = []byte(`{"connections":["warehouse"]}`)
 	return row
 }
+
+// hybridSelectColumns is the hybrid arms' result-set shape: the script columns
+// followed by the cosine score and the lexical-match flag.
+var hybridSelectColumns = append(append([]string{}, scriptSelectColumns...), "vec_score", "lex_match")
+
+// hybridRow returns one hybrid-arm row.
+func hybridRow(spec rowSpec, vecScore float64, lexMatch bool) []driver.Value {
+	return append(scriptRow(spec), vecScore, lexMatch)
+}
+
+// TestSearch_HybridRunsBothIndexBackedArms proves a query carrying a vector
+// takes the hybrid path: the vector arm and the lexical arm are UNIONed so each
+// keeps its own index, and a script matched by both is returned once, carrying
+// the higher fused score rather than appearing twice.
+func TestSearch_HybridRunsBothIndexBackedArms(t *testing.T) {
+	s, mock := newMock(t)
+	both := rowSpec{
+		id: "script_1", name: "daily-sales", scope: "global",
+		owner: "jane@example.com", paramsJSON: emptyParams(t),
+	}
+	vectorOnly := rowSpec{
+		id: "script_2", name: "weekly-churn", scope: "global",
+		owner: "jane@example.com", paramsJSON: emptyParams(t),
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).
+		WithArgs(sqlmock.AnyArg(), "refresh the regional sales numbers",
+			sqlmock.AnyArg(), sqlmock.AnyArg(), "jane@example.com").
+		WillReturnRows(sqlmock.NewRows(hybridSelectColumns).
+			AddRow(hybridRow(both, 0.8, false)...).
+			AddRow(hybridRow(vectorOnly, 0.6, false)...).
+			AddRow(hybridRow(both, 0.8, true)...))
+
+	got, err := s.Search(context.Background(), script.SearchQuery{
+		Embedding:  []float32{0.1, 0.2},
+		QueryText:  "refresh the regional sales numbers",
+		OwnerEmail: "jane@example.com",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, got, 2, "a script matched by both arms is one result, not two")
+	assert.Equal(t, "script_1", got[0].Script.ID)
+	// 0.6*((0.8+1)/2) + 0.4*1: the lexical arm's copy wins the dedup, which is
+	// the point of keeping the higher fused score.
+	assert.InDelta(t, 0.94, got[0].Score, 1e-9)
+	assert.Equal(t, "script_2", got[1].Script.ID)
+	assert.InDelta(t, 0.48, got[1].Score, 1e-9)
+}
+
+// TestSearch_HybridOrdersSemanticOnlyBelowAnExactMatch is the ranking property
+// the ticket exists for and its limit: a script whose wording nobody typed is
+// still returned, and a script that also matches the words outranks it.
+func TestSearch_HybridOrdersSemanticOnlyBelowAnExactMatch(t *testing.T) {
+	s, mock := newMock(t)
+	lexical := rowSpec{id: "script_1", name: "a-lexical", scope: "global", paramsJSON: emptyParams(t)}
+	semantic := rowSpec{id: "script_2", name: "b-semantic", scope: "global", paramsJSON: emptyParams(t)}
+	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).
+		WillReturnRows(sqlmock.NewRows(hybridSelectColumns).
+			// The semantically nearer script, with no term in common.
+			AddRow(hybridRow(semantic, 0.95, false)...).
+			// The weaker vector match that does contain the words.
+			AddRow(hybridRow(lexical, 0.10, true)...))
+
+	got, err := s.Search(context.Background(), script.SearchQuery{
+		Embedding: []float32{0.1}, QueryText: "sales",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "script_1", got[0].Script.ID, "an exact-term match takes a decisive boost")
+	assert.Equal(t, "script_2", got[1].Script.ID, "a semantic-only match still ranks, which is the whole point")
+}
+
+// TestSearch_HybridQueryErrorIsWrapped keeps a failed hybrid query legible as
+// one, since the two paths fail in different places.
+func TestSearch_HybridQueryErrorIsWrapped(t *testing.T) {
+	s, mock := newMock(t)
+	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).WillReturnError(errors.New("boom"))
+
+	_, err := s.Search(context.Background(), script.SearchQuery{
+		Embedding: []float32{0.1}, QueryText: "sales",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "search scripts (hybrid)")
+}
+
+// TestSearch_HybridRowErrorIsSurfaced covers the iteration failure, which a
+// fused-in-Go ranker has to check explicitly or it silently returns a partial
+// ranking as a complete one.
+func TestSearch_HybridRowErrorIsSurfaced(t *testing.T) {
+	s, mock := newMock(t)
+	spec := rowSpec{id: "script_1", name: "daily", scope: "global", paramsJSON: emptyParams(t)}
+	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).
+		WillReturnRows(sqlmock.NewRows(hybridSelectColumns).
+			AddRow(hybridRow(spec, 0.5, true)...).RowError(0, errors.New("boom")))
+
+	_, err := s.Search(context.Background(), script.SearchQuery{
+		Embedding: []float32{0.1}, QueryText: "sales",
+	})
+
+	require.Error(t, err)
+}
+
+// TestSearch_HybridScanErrorIsSurfaced covers a row the script scanner cannot
+// read, which is a different failure from the iteration one above.
+func TestSearch_HybridScanErrorIsSurfaced(t *testing.T) {
+	s, mock := newMock(t)
+	spec := rowSpec{id: "script_1", name: "daily", scope: "global", paramsJSON: []byte("not json")}
+	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).
+		WillReturnRows(sqlmock.NewRows(hybridSelectColumns).AddRow(hybridRow(spec, 0.5, true)...))
+
+	_, err := s.Search(context.Background(), script.SearchQuery{
+		Embedding: []float32{0.1}, QueryText: "sales",
+	})
+
+	require.Error(t, err)
+}
+
+// TestSearch_HybridTruncatesToTheEffectiveLimit proves the fused set is trimmed
+// after the union: each arm returns up to the limit, so their union can hold
+// twice it.
+func TestSearch_HybridTruncatesToTheEffectiveLimit(t *testing.T) {
+	s, mock := newMock(t)
+	rows := sqlmock.NewRows(hybridSelectColumns)
+	for _, id := range []string{"script_1", "script_2", "script_3"} {
+		rows.AddRow(hybridRow(rowSpec{
+			id: id, name: id, scope: "global", paramsJSON: emptyParams(t),
+		}, 0.5, true)...)
+	}
+	mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).WillReturnRows(rows)
+
+	got, err := s.Search(context.Background(), script.SearchQuery{
+		Embedding: []float32{0.1}, QueryText: "sales", Limit: 2,
+	})
+
+	require.NoError(t, err)
+	assert.Len(t, got, 2)
+}
+
+// TestSearch_HybridOrdersTiesDeterministically pins the last tie-break. The
+// fused set is collected from a map, so two scripts with the same score and the
+// same name — names are unique only within a scope — would otherwise come back
+// in map iteration order, and a search that reorders itself between identical
+// calls is a search an agent cannot cite.
+func TestSearch_HybridOrdersTiesDeterministically(t *testing.T) {
+	rows := func() *sqlmock.Rows {
+		r := sqlmock.NewRows(hybridSelectColumns)
+		for _, id := range []string{"script_b", "script_a"} {
+			r.AddRow(hybridRow(rowSpec{
+				id: id, name: "same-name", scope: "global", paramsJSON: emptyParams(t),
+			}, 0.5, true)...)
+		}
+		return r
+	}
+
+	for range 5 {
+		s, mock := newMock(t)
+		mock.ExpectQuery(regexp.QuoteMeta("UNION ALL")).WillReturnRows(rows())
+
+		got, err := s.Search(context.Background(), script.SearchQuery{
+			Embedding: []float32{0.1}, QueryText: "sales",
+		})
+
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+		assert.Equal(t, "script_a", got[0].Script.ID)
+		assert.Equal(t, "script_b", got[1].Script.ID)
+	}
+}

@@ -77,7 +77,17 @@ const (
 	// owns their assembly, their shutdown order, and the sweeper lifecycle,
 	// ratcheting 46 → 44. A ceiling with slack is not a ratchet, so it is
 	// pinned to the actual rather than left where the extraction found it.
-	maxPlatformFields = 44
+	//
+	// The scripts semantic index (#1370) is the one movement UP this ceiling has
+	// taken, 44 → 45, and it is a correction rather than regrowth. Every
+	// subsystem the index queue embeds for — prompts, resources, portal stores,
+	// knowledge pages — reaches its write-path index producer through an owner
+	// handle Platform holds. Managed scripts were wired as fire-and-forget in
+	// #1283 and were the only such subsystem with no owner field at all, so the
+	// producer had nowhere to be read from. The field holds a handle, not
+	// state: it is the same one-field-per-subsystem-owner shape every ratchet
+	// above drove toward, applied to the subsystem that never got one.
+	maxPlatformFields = 45
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the

@@ -40,11 +40,12 @@ func wireScripts(p *Platform) *scriptexec.Handle {
 		NotificationsDisabled: !p.config.Notifications.IsEnabled(),
 		DigestHourUTC:         p.config.Notifications.DigestHour(),
 	})
-	scriptlayer.New(scriptlayer.Config{
+	p.scripts = scriptlayer.New(scriptlayer.Config{
 		DB:           p.db,
 		Runs:         scripts.Runs(),
 		AdminPersona: p.config.Admin.Persona,
 		PortalURL:    p.config.Portal.PublicBaseURL,
-	}).RegisterTool(p.mcpServer)
+	})
+	p.scripts.RegisterTool(p.mcpServer)
 	return scripts
 }
