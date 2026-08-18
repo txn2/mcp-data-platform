@@ -21,7 +21,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DEFAULT_CADENCE, describeCron, fromCron, toCron, type Cadence } from "./cadence";
+import {
+  DEFAULT_CADENCE,
+  describeCron,
+  fromCron,
+  scheduleState,
+  toCron,
+  type Cadence,
+} from "./cadence";
 import { formatWhen } from "./runFormat";
 import { ScheduleBuilder } from "./ScheduleBuilder";
 
@@ -282,14 +289,20 @@ function CadenceSummary({ schedule }: { schedule: ScriptSchedule | null }) {
   );
 }
 
-// cadenceState is what the schedule is doing, in one clause. An enabled
-// schedule with nothing due is stated as such rather than rendered as an empty
-// next fire: an expression whose last fire has passed is a real state, and a
-// dash beside "next fire" reads as a page that failed to load something.
+// cadenceState is what the schedule is doing, in the clause this page has room
+// for. Which state it is in is decided by scheduleState, which the scripts
+// listing reads too, so the two surfaces cannot disagree about whether a
+// cadence is going to fire while phrasing it for the space each has.
 function cadenceState(schedule: ScriptSchedule): string {
-  if (!schedule.enabled) return "paused, and firing nothing until it is resumed";
-  if (!schedule.next_run_at) return "enabled, with no further fire due";
-  return `next fire ${formatWhen(schedule.next_run_at)}`;
+  const state = scheduleState(schedule);
+  switch (state.kind) {
+    case "paused":
+      return "paused, and firing nothing until it is resumed";
+    case "idle":
+      return "enabled, with no further fire due";
+    case "due":
+      return `next fire ${formatWhen(state.at)}`;
+  }
 }
 
 // InertNotice says that a cadence on this script fires nothing. It is driven by

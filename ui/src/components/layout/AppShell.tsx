@@ -36,8 +36,8 @@ import { KeysPage } from "@/pages/settings/KeysPage";
 import { UsersPanel } from "@/pages/settings/UsersPanel";
 import { ChangelogPage } from "@/pages/settings/ChangelogPage";
 import { AdminSettingsPage } from "@/pages/settings/AdminSettingsPage";
-import { ShieldAlert } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AdminOnlyNotice, PageNotFound } from "./RouteFallbacks";
+import { canonicalRoute, isAdminRoute, isKnownRoute } from "@/lib/portalRoutes";
 
 const pageTitles: Record<string, string> = {
   "/activity": "Activity",
@@ -85,6 +85,34 @@ function pageTitleFor(route: string): string {
   return pageTitles[route] ?? "Assets";
 }
 
+/**
+ * resolveTitle decides the header title from what the main area is showing.
+ *
+ * The two refusals answer first, because falling through to a section name for
+ * either of them is what made a missing page read as an empty one (#1359). The
+ * rest are the detail views that carry a title of their own; anything left is
+ * a plain route and answers from pageTitleFor.
+ */
+function resolveTitle(v: {
+  route: string;
+  notFound: boolean;
+  adminBlocked: boolean;
+  assetViewer: boolean;
+  collectionEdit: boolean;
+  collectionView: boolean;
+  promptView: boolean;
+  knowledge: boolean;
+}): string {
+  if (v.notFound) return "Not found";
+  if (v.adminBlocked) return "Access denied";
+  if (v.assetViewer) return "Asset Viewer";
+  if (v.collectionEdit) return "Edit Collection";
+  if (v.collectionView) return "Collection";
+  if (v.promptView) return "Prompt";
+  if (v.knowledge) return "Knowledge";
+  return pageTitleFor(v.route);
+}
+
 const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
 
 /** Vite base path — must match vite.config.ts `base`. */
@@ -112,26 +140,6 @@ function isAssetRoute(path: string): boolean {
     /^\/admin\/personas$/.test(route)
   );
 }
-
-/**
- * AdminOnlyNotice is the defense-in-depth answer to an admin route reached by
- * a non-admin: the rail does not offer these routes, so this is only ever seen
- * on a typed URL or a stale link. Named apart from `components/AccessDenied`,
- * which is the whole-page refusal for an account that maps to no persona.
- */
-function AdminOnlyNotice() {
-  return (
-    <Alert variant="destructive" className="mx-auto max-w-md">
-      <ShieldAlert />
-      <AlertTitle>Access denied</AlertTitle>
-      <AlertDescription>
-        You need admin privileges to view this section. Ask an administrator to
-        grant your account an admin role.
-      </AlertDescription>
-    </Alert>
-  );
-}
-
 
 const MOBILE_BREAKPOINT = 768;
 
@@ -190,7 +198,10 @@ export function AppShell() {
     }
   }, [currentPath, sidebarCollapsed]);
 
-  const navigate = useCallback((path: string) => {
+  // replace: true rewrites the current entry rather than pushing one, which is
+  // what a canonical redirect needs: pushing would leave the redirecting path
+  // behind, so Back would land on it and redirect forward again (#1359).
+  const navigate = useCallback((path: string, opts?: { replace?: boolean }) => {
     const hashIdx = path.indexOf("#");
     const pathname = hashIdx >= 0 ? path.slice(0, hashIdx) : path;
     const hash = hashIdx >= 0 ? path.slice(hashIdx) : "";
@@ -219,6 +230,10 @@ export function AppShell() {
     // or a cold deep-link, where state is null on the initial entry). (#709)
     const from = readPath();
     setCurrentPath(path);
+    if (opts?.replace) {
+      window.history.replaceState({ appNav: true, from }, "", target);
+      return;
+    }
     window.history.pushState({ appNav: true, from }, "", target);
   }, []);
 
@@ -227,23 +242,6 @@ export function AppShell() {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
-
-  // "Shared With Me" was folded into the Assets scope filter. Redirect the
-  // retired bare route so existing bookmarks land on the Assets page.
-  useEffect(() => {
-    if (currentPath.split("#")[0] === "/shared") navigate("/");
-  }, [currentPath, navigate]);
-
-  // Knowledge/Memory IA unification (#661): the former /knowledge-pages,
-  // /my-knowledge, and /admin/knowledge surfaces merged into one /knowledge
-  // hub with three tabs. Redirect the retired routes to the matching tab so
-  // existing bookmarks and links keep working.
-  useEffect(() => {
-    const base = currentPath.split("#")[0];
-    if (base === "/knowledge-pages") navigate("/knowledge#knowledge");
-    else if (base === "/my-knowledge") navigate("/knowledge#insights");
-    else if (base === "/admin/knowledge") navigate("/knowledge#insights");
-  }, [currentPath, navigate]);
 
   const hashIdx = currentPath.indexOf("#");
   const initialTab = hashIdx >= 0 ? currentPath.slice(hashIdx + 1) : undefined;
@@ -255,6 +253,16 @@ export function AppShell() {
   // selection from window.location.search independently.
   const sepIdx = currentPath.search(/[?#]/);
   const route = sepIdx >= 0 ? currentPath.slice(0, sepIdx) : currentPath;
+
+  // A path that names a surface which moved ("Shared With Me" folded into the
+  // Assets scope filter; the three knowledge surfaces merged into one hub,
+  // #661), or that carries a trailing slash, is sent to the one the reader
+  // meant. That table lives in lib/portalRoutes so the redirects and the
+  // recognition below cannot disagree about which paths are real (#1359).
+  const redirectTo = canonicalRoute(route);
+  useEffect(() => {
+    if (redirectTo) navigate(redirectTo, { replace: true });
+  }, [redirectTo, navigate]);
 
   // Asset viewer routes
   const collectionAssetMatch = route.match(/^\/collections\/([^/]+)\/assets\/(.+)$/);
@@ -282,22 +290,26 @@ export function AppShell() {
     ? route.match(/^\/collections\/([^/]+)$/)
     : null;
 
-  const title = collectionAssetMatch || sharedAssetMatch || assetMatch
-    ? "Asset Viewer"
-    : adminAssetMatch
-      ? "Asset Viewer"
-      : collectionEditMatch
-        ? "Edit Collection"
-        : collectionViewMatch
-          ? "Collection"
-          : promptViewMatch
-            ? "Prompt"
-            : knowledgePagesList || knowledgePageMatch || catalogRoute
-              ? "Knowledge"
-              : pageTitleFor(route);
+  const adminRoute = isAdminRoute(route);
+  // A path the switch below renders nothing for gets a page saying so (#1359).
+  // A path being redirected is not one of those, or the render before the
+  // effect lands would flash a refusal at somebody whose link works; and an
+  // unknown path under /admin is not singled out for a non-admin, who gets the
+  // notice every path in that section gets rather than an enumeration of which
+  // administrator routes are real.
+  const adminBlocked = adminRoute && !isAdmin;
+  const notFound = !redirectTo && !isKnownRoute(route) && !adminBlocked;
 
-  // Admin routes start with /admin
-  const isAdminRoute = route.startsWith("/admin");
+  const title = resolveTitle({
+    route,
+    notFound,
+    adminBlocked,
+    assetViewer: !!(collectionAssetMatch || sharedAssetMatch || assetMatch || adminAssetMatch),
+    collectionEdit: !!collectionEditMatch,
+    collectionView: !!collectionViewMatch,
+    promptView: !!promptViewMatch,
+    knowledge: knowledgePagesList || !!knowledgePageMatch || catalogRoute,
+  });
 
   return (
     <div className="flex h-screen">
@@ -341,12 +353,14 @@ export function AppShell() {
             the ramp's own middle step, and a muted wash would land on top of
             the fills (tab tracks, code blocks) that also derive from muted. */}
         <main className="flex-1 overflow-auto bg-background p-3 sm:p-6">
+          {notFound && <PageNotFound route={route} onNavigate={navigate} />}
+
           {/* Portal routes — everyone */}
-          {!isAdminRoute && <ActivityRoutes route={route} onNavigate={navigate} />}
-          {!isAdminRoute && route === "/" && (
+          {!adminRoute && <ActivityRoutes route={route} onNavigate={navigate} />}
+          {!adminRoute && route === "/" && (
             <MyAssetsPage onNavigate={navigate} />
           )}
-          {!isAdminRoute && route === "/collections" && (
+          {!adminRoute && route === "/collections" && (
             <CollectionsPage onNavigate={navigate} />
           )}
           {collectionViewMatch && (
@@ -363,14 +377,14 @@ export function AppShell() {
               onNavigate={navigate}
             />
           )}
-          {!isAdminRoute && route === "/resources" && (
+          {!adminRoute && route === "/resources" && (
             <ResourcesPage onNavigate={navigate} />
           )}
-          {!isAdminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
-          {!isAdminRoute && route === "/settings" && (
+          {!adminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
+          {!adminRoute && route === "/settings" && (
             <UserSettingsPage onNavigate={navigate} />
           )}
-          {!isAdminRoute &&
+          {!adminRoute &&
             (route === "/knowledge" ||
               knowledgePagesList ||
               knowledgePageMatch ||
@@ -383,15 +397,15 @@ export function AppShell() {
                 onNavigate={navigate}
               />
             )}
-          {!isAdminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
-          {!isAdminRoute && promptViewMatch && (
+          {!adminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
+          {!adminRoute && promptViewMatch && (
             <PromptViewerPage
               promptId={promptViewMatch[1]!}
               onNavigate={navigate}
               onBack={() => navigate("/prompts")}
             />
           )}
-          {!isAdminRoute && <PortalScriptRoutes route={route} onNavigate={navigate} />}
+          {!adminRoute && <PortalScriptRoutes route={route} onNavigate={navigate} />}
           {collectionAssetMatch && (
             <AssetViewerPage assetId={collectionAssetMatch[2]!} onNavigate={navigate} onBack={() => navigate(`/collections/${collectionAssetMatch[1]!}`)} />
           )}
@@ -403,8 +417,8 @@ export function AppShell() {
           )}
 
           {/* Admin routes — admin only (defense in depth) */}
-          {isAdminRoute && !isAdmin && <AdminOnlyNotice />}
-          {isAdminRoute && isAdmin && (
+          {adminRoute && !isAdmin && <AdminOnlyNotice />}
+          {adminRoute && isAdmin && (
             <>
               {/* Dashboard now hosts the merged MCP / API Gateway / Events
                   activity views (was a separate Audit Log page). */}

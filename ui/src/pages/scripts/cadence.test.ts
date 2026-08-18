@@ -1,9 +1,11 @@
 import { describe as suite, it, expect } from "vitest";
 import {
   DEFAULT_CADENCE,
+  cadenceLine,
   describe as describeCadence,
   describeCron,
   fromCron,
+  scheduleState,
   skipsShortMonths,
   toCron,
   type Cadence,
@@ -135,5 +137,49 @@ suite("months that do not have the chosen day", () => {
     expect(skipsShortMonths({ kind: "monthly", day: 29, hour: 6, minute: 0 })).toBe(true);
     expect(skipsShortMonths({ kind: "monthly", day: 28, hour: 6, minute: 0 })).toBe(false);
     expect(skipsShortMonths({ kind: "daily", hour: 6, minute: 0 })).toBe(false);
+  });
+});
+
+suite("cadenceLine", () => {
+  it("states a cadence the builder can express as the sentence the editor states", () => {
+    expect(cadenceLine("0 7 * * 1-5", "America/Los_Angeles")).toEqual({
+      text: "Every weekday at 7:00 AM, America/Los_Angeles",
+      verbatim: false,
+    });
+  });
+
+  // A phrase wrapped around an expression this module cannot read adds a word
+  // and no information, so a listing gets the expression to set in mono.
+  it("hands back an expression it cannot state, marked as the expression", () => {
+    expect(cadenceLine("*/7 3 * 2 1-5", "UTC")).toEqual({
+      text: "*/7 3 * 2 1-5",
+      verbatim: true,
+    });
+  });
+
+  it("says an empty expression is no cadence rather than showing nothing", () => {
+    expect(cadenceLine("   ", "UTC")).toEqual({ text: "No cadence set", verbatim: false });
+  });
+});
+
+suite("scheduleState", () => {
+  it("reads a paused schedule as paused whatever fire is recorded on it", () => {
+    // #1368 stopped a paused schedule from reporting a next fire; the state is
+    // read off enabled first so no surface can reintroduce that by rendering
+    // the timestamp it still carries.
+    expect(scheduleState({ enabled: false, next_run_at: "2026-08-20T14:00:00Z" })).toEqual({
+      kind: "paused",
+    });
+  });
+
+  it("names an enabled schedule with nothing due rather than leaving it blank", () => {
+    expect(scheduleState({ enabled: true })).toEqual({ kind: "idle" });
+  });
+
+  it("carries the fire an enabled schedule is due for", () => {
+    expect(scheduleState({ enabled: true, next_run_at: "2026-08-20T14:00:00Z" })).toEqual({
+      kind: "due",
+      at: "2026-08-20T14:00:00Z",
+    });
   });
 });

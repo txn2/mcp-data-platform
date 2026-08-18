@@ -8,6 +8,15 @@ The user portal is the day-to-day interface for analysts, engineers, and other d
 
 The sidebar is divided into **User** pages (described here) and **Admin** pages (see [Admin Portal](admin-portal.md)).
 
+Every page here is addressable, so a link to one can be bookmarked or handed to a
+colleague. An address that names a page which has moved, or that carries a stray
+trailing slash, lands on the page it meant. An address with no page behind it says so
+and offers the way back, rather than rendering an empty section — an empty page would be
+indistinguishable from being told you have none of whatever you asked for, and nothing
+was looked up to say that.
+
+![No page at this address](../images/screenshots/light/user-not-found-light.webp#only-light)![No page at this address](../images/screenshots/dark/user-not-found-dark.webp#only-dark)
+
 ## Activity
 
 Activity has three tabs: **Overview**, the aggregates; **My Sessions**, the individual sessions those aggregates are made of; and **My Calls**, the queries and API calls those sessions ran.
@@ -574,10 +583,12 @@ you have, what is scheduled, and how it has been going.
 
 ![Scripts](../images/screenshots/light/user-scripts-light.webp#only-light)![Scripts](../images/screenshots/dark/user-scripts-dark.webp#only-dark)
 
-Above the table, four numbers say how the automations are doing: how many you can see,
-how many have an approved version and so can run at all, how many are firing on a
-cadence, and how many last ended in a failure. The last one is the number most people
-open this page for.
+Above the table, four numbers say how the automations are doing: how many scripts are
+visible to you, how many have an approved version and so can run at all, how many are
+firing on a cadence, and how many last ended in a failure. The last one is the number
+most people open this page for, and its caption names the smaller set it is counted
+over: a run belongs to the script's owner, so a script somebody else owns carries no
+last run here and cannot be counted as failing.
 
 Each row states the four things worth knowing at a glance: what the script is executing
 (the approved version, or plainly that nothing is approved and so nothing will run),
@@ -585,6 +596,12 @@ its cadence and next fire, and how its most recent run ended. Opening a row open
 script, the way every other list in the portal opens a record. A script with no schedule
 runs on demand; a paused schedule says so rather than showing a next fire that will not
 happen.
+
+The cadence is stated here in the same words the schedule editor states it in — "Every
+weekday at 7:00 AM, America/Los_Angeles" — because this is the column you scan to answer
+what is running and when, and a cron expression is not an answer to that. A cadence the
+builder cannot express is shown as the expression itself, which is all there is to say
+about it.
 
 Before an agent has written anything for you, the page says so rather than showing an
 empty table.
@@ -677,10 +694,15 @@ on this page except the cadence.
 ### Run history
 
 The run history is the refresh record of the automation: what triggered each run, which
-version it executed, how long it took, how many outputs it produced, and how it ended. A
-failure states its reason in the list. A fire that arrived while the previous run was
-still going is recorded as skipped rather than silently dropped, because a report that
-stopped producing is exactly what this history has to show.
+version it executed, how long it took, what it produced, and how it ended. A failure
+states its reason in the list. A fire that arrived while the previous run was still
+going is recorded as skipped rather than silently dropped, because a report that stopped
+producing is exactly what this history has to show.
+
+How a run ended and when it ran are read as one fact and are set as one. What triggered
+it and which version executed qualify that fact rather than standing beside it — the
+trigger is a short enumeration and the version is the same number down the whole history
+— so they sit under it in the row rather than each holding a column open.
 
 The section header carries what the history adds up to — the share that succeeded, how
 many failed or were skipped, and the median duration — over the runs actually loaded,

@@ -67,8 +67,42 @@ describe("MyScriptsPage", () => {
 
     expect(screen.getByText("Daily Sales Report")).toBeInTheDocument();
     expect(screen.getByText("Approved v2")).toBeInTheDocument();
-    expect(screen.getByText("0 7 * * 1-5")).toBeInTheDocument();
     expect(screen.getByText("succeeded")).toBeInTheDocument();
+  });
+
+  // #1358: the column an owner scans to answer "what is running and when" said
+  // "0 7 * * 1-5", while the editor two clicks away said the same cadence in
+  // words. The sentence is the one the editor states.
+  it("states a cadence in the words the schedule editor states it in", () => {
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(
+      screen.getByText("Every weekday at 7:00 AM, America/Los_Angeles"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("0 7 * * 1-5")).not.toBeInTheDocument();
+  });
+
+  // An expression the builder cannot express is shown as itself: a phrase that
+  // only says "custom" around it would cost a line and add nothing.
+  it("falls back to the expression for a cadence it cannot state", () => {
+    mockScripts.mockReturnValue(
+      query({
+        data: [row({ schedule: { ...row().schedule!, cron_spec: "*/7 3 * 2 1-5" } })],
+        total: 1,
+      }),
+    );
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.getByText("*/7 3 * 2 1-5")).toBeInTheDocument();
+  });
+
+  it("says an enabled schedule with nothing due is not overdue", () => {
+    mockScripts.mockReturnValue(
+      query({
+        data: [row({ schedule: { ...row().schedule!, next_run_at: undefined } })],
+        total: 1,
+      }),
+    );
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.getByText("No fire due")).toBeInTheDocument();
   });
 
   it("says a script runs nothing when no version is approved", () => {
@@ -87,7 +121,7 @@ describe("MyScriptsPage", () => {
       query({ data: [row({ schedule: { ...row().schedule!, enabled: false } })], total: 1 }),
     );
     render(<MyScriptsPage onNavigate={onNavigate} />);
-    expect(screen.getByText("paused")).toBeInTheDocument();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
   });
 
   it("says a script with no schedule runs on demand", () => {
@@ -113,6 +147,31 @@ describe("MyScriptsPage", () => {
     render(<MyScriptsPage onNavigate={onNavigate} />);
     expect(screen.getByText("Never run")).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  // #1360: the captions used to be asides ("you can see", "worth opening").
+  // Each now states what its number counts, and the failure tile states the
+  // population it counts over, which is NOT the one the other three count over:
+  // a last run is absent from a row this caller does not own.
+  it("states what each summary number counts and over what population", () => {
+    mockScripts.mockReturnValue(
+      query({
+        data: [
+          row({ last_run: { ...row().last_run!, status: "failed" } }),
+          row({
+            script: { ...row().script, id: "script-002", display_name: "Someone Else's" },
+            owned: false,
+            last_run: undefined,
+          }),
+        ],
+        total: 2,
+      }),
+    );
+    render(<MyScriptsPage onNavigate={onNavigate} />);
+    expect(screen.getByText("scripts visible to you")).toBeInTheDocument();
+    expect(screen.getByText("have a version an administrator approved")).toBeInTheDocument();
+    expect(screen.getByText("run on a schedule, unattended")).toBeInTheDocument();
+    expect(screen.getByText("of the 1 you own")).toBeInTheDocument();
   });
 
   // The row is the target, as it is on every other listing in the portal.

@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { cadenceLine, scheduleState } from "./cadence";
 import { formatWhen, runStatusLabel, runStatusVariant, runWhen } from "./runFormat";
 
 // MyScriptsPage is what the people who own the automations see (#1290): every
@@ -59,23 +60,36 @@ export function MyScriptsPage({ onNavigate }: Props) {
 // The last one is the number somebody opens this page for. A report that has
 // been failing every morning is otherwise a red badge in a table they have to
 // read row by row.
+//
+// Each caption states what its number counts and the population it counts over
+// (#1360), because the four populations are NOT the same one. Every visible
+// script carries an approval and a cadence, but a last run is the owner's and
+// the administrator's reading and is absent from a row this caller does not
+// own, so the failure count is over a strictly smaller set than the three
+// beside it and has to say so.
+//
+// The approved caption names the approval and not runnability, because it
+// counts scripts with an approved version and a disabled or deprecated one
+// still has one. The row says which, and this number must not claim more than
+// it counts.
 function AutomationSummary({ rows }: { rows: PortalScriptRow[] }) {
   const executable = rows.filter((r) => !!r.script.approved_version_id).length;
   const scheduled = rows.filter((r) => r.schedule?.enabled).length;
+  const owned = rows.filter((r) => r.owned).length;
   const failing = rows.filter((r) => r.last_run?.status === "failed").length;
   return (
     <div className="grid gap-4 sm:grid-cols-4">
-      <SummaryTile label="Automations" value={rows.length} hint="you can see" />
+      <SummaryTile label="Automations" value={rows.length} hint="scripts visible to you" />
       <SummaryTile
         label="Approved"
         value={executable}
-        hint={executable === rows.length ? "all of them" : "the rest run nothing"}
+        hint="have a version an administrator approved"
       />
-      <SummaryTile label="On a cadence" value={scheduled} hint="firing unattended" />
+      <SummaryTile label="On a cadence" value={scheduled} hint="run on a schedule, unattended" />
       <SummaryTile
         label="Last run failed"
         value={failing}
-        hint={failing === 0 ? "nothing is broken" : "worth opening"}
+        hint={`of the ${owned} you own`}
         alarming={failing > 0}
       />
     </div>
@@ -201,20 +215,39 @@ function ApprovalState({ row }: { row: PortalScriptRow }) {
   return <Badge variant="success">Approved v{script.version}</Badge>;
 }
 
-// ScheduleCell reports the cadence and when it next fires. A paused schedule
-// says so rather than showing a next fire that will not happen.
+// ScheduleCell reports the cadence and what it is doing, in the words the
+// schedule editor states them in (#1358). This column is the surface an owner
+// scans to answer "what is running and when", and a cron expression is not an
+// answer to that question for the person whose report it is. An expression the
+// builder cannot express falls back to the expression, which is all there is to
+// say about it.
 function ScheduleCell({ row }: { row: PortalScriptRow }) {
-  if (!row.schedule) {
+  const { schedule } = row;
+  if (!schedule) {
     return <span className="text-xs text-muted-foreground">On demand</span>;
   }
+  const line = cadenceLine(schedule.cron_spec, schedule.timezone);
   return (
     <div className="text-xs">
-      <div className="font-mono">{row.schedule.cron_spec}</div>
-      <div className="text-muted-foreground">
-        {row.schedule.enabled ? `next ${formatWhen(row.schedule.next_run_at)}` : "paused"}
-      </div>
+      <div className={line.verbatim ? "font-mono" : undefined}>{line.text}</div>
+      <div className="text-muted-foreground">{scheduleWhen(schedule)}</div>
     </div>
   );
+}
+
+// scheduleWhen is the schedule's state in the few words this column has. The
+// editor says the same thing at greater length; both read it off scheduleState,
+// so neither can call a paused schedule due.
+function scheduleWhen(schedule: NonNullable<PortalScriptRow["schedule"]>): string {
+  const state = scheduleState(schedule);
+  switch (state.kind) {
+    case "paused":
+      return "Paused";
+    case "idle":
+      return "No fire due";
+    case "due":
+      return `Next ${formatWhen(state.at)}`;
+  }
 }
 
 // LastRunCell reports the most recent run. A script the caller does not own
