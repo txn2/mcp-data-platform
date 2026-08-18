@@ -487,6 +487,8 @@ The MCP SDK caps each Streamable HTTP request body at 4 MiB and rejects a larger
 
 Setting `dsn` enables audit logging, knowledge capture, session externalization, and OAuth persistence. Without it, these features degrade to in-memory or noop implementations.
 
+PostgreSQL 16 and 17 are the supported majors, with the `pgvector` extension available. Both are covered by the migration gate on every change (`make migrate-check` applies the full set to each, and CI runs a service per major), because the majors disagree about what SQL a migration may legally contain: since 17, maintenance operations including `CREATE INDEX` run with `search_path` restricted to `pg_catalog` and `pg_temp`, so an index expression whose function body calls a platform-defined function builds on 16 and fails on 17. Upgrading between the two majors needs nothing from this platform beyond the usual PostgreSQL upgrade procedure.
+
 ## Config Store
 
 When a database is available (`database.dsn` is set), individual config entries in the `config_entries` table override file defaults for whitelisted keys. The store is the authority: every read resolves the key from it and falls back to the file value when no row exists, so a change via the admin API is in force on every replica as soon as it commits, without restart. Deleting a database entry restores the file default everywhere on the next read. If the store cannot be read, the file-config value is used.

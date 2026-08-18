@@ -306,8 +306,12 @@ apply the directory.
 - Kubernetes 1.28+
 - `kubectl` configured for the target cluster
 - TLS certificates for the ingress (cert-manager recommended)
-- PostgreSQL reachable from the cluster. It backs audit, portal, knowledge,
-  memory, and the OAuth/PKCE state that multi-replica deployments share
+- PostgreSQL 16 or 17 reachable from the cluster, with the `pgvector`
+  extension available. It backs audit, portal, knowledge, memory, and the
+  OAuth/PKCE state that multi-replica deployments share. Both majors are
+  covered by the migration gate on every change (`make migrate-check` applies
+  the full set to each), so an upgrade between them needs nothing from this
+  platform beyond the usual PostgreSQL upgrade procedure
 
 ### Namespace and secrets
 
