@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
@@ -41,6 +43,55 @@ const maxErrorBodyBytes = 4096
 // context model can raise this via config. The cap only trims the text
 // that is embedded; the full content is still stored. See #623.
 const DefaultMaxInputBytes = 6000
+
+// MinInputBytes is the floor the adaptive input bound stops shrinking
+// at. Below this, a refusal is no longer plausibly about the text's
+// length: a model whose context cannot hold 256 bytes is misconfigured,
+// and shrinking further would embed a fragment too small to carry
+// meaning. The provider surfaces the error instead.
+const MinInputBytes = 256
+
+// ErrInputTooLarge reports that the provider refused a text because it
+// does not fit the model's context window.
+//
+// It is separated from a generic provider failure because it is
+// deterministic: the same bytes are refused on every attempt, so a caller
+// that re-sends them unchanged fails identically forever. Callers either
+// bound the text and try again (which this provider does itself, see
+// Embed) or stop re-queueing the unit.
+var ErrInputTooLarge = errors.New("embedding: input exceeds the model context length")
+
+// contextLengthMarkers are the substrings an Ollama 400 body uses to say
+// an input does not fit the model's context (observed: "the input length
+// exceeds the context length"). Matched case-insensitively, and only on a
+// 400, so a 5xx or a transport failure stays a generic retryable error.
+//
+// The wording is matched rather than compared because it is not part of
+// Ollama's API contract and has varied across releases. The asymmetry is
+// deliberate: a false positive costs a few extra calls at smaller bounds
+// before the original error surfaces unchanged, while a false negative
+// restores the endless identical failure this classification exists to
+// end.
+var contextLengthMarkers = []string{
+	"context length",
+	"context window",
+	"input is too large",
+}
+
+// isContextLengthError reports whether an Ollama error response says the
+// input overflowed the model's context.
+func isContextLengthError(status int, body string) bool {
+	if status != http.StatusBadRequest {
+		return false
+	}
+	lower := strings.ToLower(body)
+	for _, marker := range contextLengthMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
 
 // ollamaProvider generates embeddings via the Ollama API.
 //
@@ -134,11 +185,67 @@ func capForEmbedding(s string, maxBytes int) (string, bool) {
 }
 
 // Embed generates an embedding for a single text input.
+//
+// The configured byte cap is a proxy for the model's token budget, and no
+// fixed byte count can be an exact one: token density varies by close to
+// an order of magnitude between prose and dense content (CSV, JSON,
+// source code, base64), so a text well inside the byte cap can still
+// overflow the context. When the server says so, Embed halves the bound
+// and retries, down to MinInputBytes.
+//
+// This converges in a bounded number of calls (four from the default
+// 6000) and is what keeps one dense document from failing identically on
+// every attempt forever (#1350). The bound applies only to the bytes
+// sent to the model; stored content is untouched.
+//
+// The converged bound is deliberately NOT remembered across calls. Doing
+// so would look like an optimization -- a model that refuses the
+// configured cap for every text makes each one pay the whole sequence --
+// but density is a property of the text, not of the model: one dense CSV
+// converging at 375 bytes would then truncate every prose document in the
+// corpus to 375 bytes. Paying a few extra round trips on the outliers is
+// the cheaper error. A model that cannot hold the configured cap at all
+// is a misconfiguration, and the warning below names the model and the
+// size that was refused so it can be corrected at max_input_bytes.
 func (o *ollamaProvider) Embed(ctx context.Context, text string) ([]float32, error) {
-	text, truncated := capForEmbedding(text, o.maxInputBytes)
+	budget := o.maxInputBytes
+	for {
+		emb, err := o.embedOnce(ctx, text, budget)
+		if !errors.Is(err, ErrInputTooLarge) {
+			return emb, err
+		}
+		sent := sentBytes(text, budget)
+		next := sent / 2
+		if next < MinInputBytes {
+			return nil, err
+		}
+		// Reports what was actually put on the wire, not the budget: for a
+		// text well inside an oversized budget those differ, and the sent
+		// figure is the one that locates the model's real limit.
+		slog.Warn("ollama: input refused as too long for the model context; retrying at a smaller bound",
+			"sent_bytes", sent, "next_bytes", next, "model", o.model,
+		)
+		budget = next
+	}
+}
+
+// sentBytes is how many bytes the last attempt actually put on the wire:
+// the smaller of the budget and the text. Halving this rather than the
+// budget keeps a text already well inside an oversized budget from paying
+// retries that send byte-for-byte the same request.
+func sentBytes(text string, budget int) int {
+	if len(text) < budget {
+		return len(text)
+	}
+	return budget
+}
+
+// embedOnce is one /api/embeddings round trip at the supplied byte bound.
+func (o *ollamaProvider) embedOnce(ctx context.Context, text string, budget int) ([]float32, error) {
+	text, truncated := capForEmbedding(text, budget)
 	if truncated {
 		slog.Warn("ollama: embedding input truncated to fit the input budget; embedded text is trimmed (stored content is unaffected)",
-			"max_bytes", o.maxInputBytes, "model", o.model,
+			"max_bytes", budget, "model", o.model,
 		)
 	}
 	body, err := json.Marshal(ollamaRequest{
@@ -164,6 +271,10 @@ func (o *ollamaProvider) Embed(ctx context.Context, text string) ([]float32, err
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		if isContextLengthError(resp.StatusCode, string(respBody)) {
+			return nil, fmt.Errorf("ollama API returned status %d: %s: %w",
+				resp.StatusCode, string(respBody), ErrInputTooLarge)
+		}
 		return nil, fmt.Errorf("ollama API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -195,6 +306,19 @@ func (o *ollamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 	}
 	results, fallback, err := o.embedBatchOnce(ctx, texts)
 	if fallback {
+		return o.embedBatchSequential(ctx, texts)
+	}
+	if errors.Is(err, ErrInputTooLarge) {
+		// The batch endpoint reports one refusal for the whole array and
+		// does not say which input overflowed, so there is nothing to
+		// shrink here without shrinking every text in the batch. Re-run
+		// the batch one input at a time instead: Embed applies the
+		// adaptive bound per text, so only the offending one is trimmed
+		// and the rest embed whole. batchUnsupported is deliberately NOT
+		// set -- the endpoint is healthy, this batch's contents were not.
+		slog.Warn("ollama: batch refused as too long for the model context; re-running it one input at a time",
+			"batch_size", len(texts), "model", o.model,
+		)
 		return o.embedBatchSequential(ctx, texts)
 	}
 	if err != nil {
@@ -249,6 +373,10 @@ func (o *ollamaProvider) embedBatchOnce(ctx context.Context, texts []string) (re
 	}
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		if isContextLengthError(resp.StatusCode, string(respBody)) {
+			return nil, false, fmt.Errorf("ollama batch API returned status %d: %s: %w",
+				resp.StatusCode, string(respBody), ErrInputTooLarge)
+		}
 		return nil, false, fmt.Errorf("ollama batch API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 

@@ -1,12 +1,19 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, RefreshCw, X } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  RefreshCw,
+  X,
+} from "lucide-react";
 
 import { type IndexFailedUnit } from "@/api/admin/indexjobs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { relTime, errorSignature, failureKey } from "./helpers";
+import { relTime, untilTime, errorSignature, failureKey } from "./helpers";
 
 // FailedUnitRow renders one failing unit inside a triage group: its
 // timestamps, last-success context, and Retry / Dismiss actions, with an
@@ -59,7 +66,8 @@ function FailedUnitRow({
             title="Re-index this unit; the card clears once it succeeds"
             className="text-muted-foreground"
           >
-            <RefreshCw className={retrying ? "animate-spin" : undefined} /> Retry
+            <RefreshCw className={retrying ? "animate-spin" : undefined} />{" "}
+            Retry
           </Button>
           <Button
             type="button"
@@ -76,7 +84,8 @@ function FailedUnitRow({
       </div>
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 pl-4 text-[11px] text-muted-foreground">
         <span>
-          {unit.occurrences} failure{unit.occurrences === 1 ? "" : "s"} · {unit.attempts} attempts
+          {unit.occurrences} failure{unit.occurrences === 1 ? "" : "s"} ·{" "}
+          {unit.attempts} attempts
         </span>
         <span>first seen {relTime(unit.first_failed_at)}</span>
         <span>last seen {relTime(unit.last_failed_at)}</span>
@@ -87,11 +96,20 @@ function FailedUnitRow({
         ) : (
           <span>never succeeded</span>
         )}
+        {/* Without this the row reads as "failing every few minutes", which
+            is what it used to do. Saying when the automatic retry resumes
+            is what stops the paused sweep from looking like a stalled one. */}
+        {unit.parked_until ? (
+          <span className="text-amber-600 dark:text-amber-400">
+            retries paused, resuming {untilTime(unit.parked_until)}
+          </span>
+        ) : null}
       </div>
       {open && (
         <div className="mt-2 space-y-1 pl-4">
           <div className="text-[11px] text-muted-foreground">
-            job #{unit.latest_job_id} · source id <code className="font-mono">{unit.source_id}</code>
+            job #{unit.latest_job_id} · source id{" "}
+            <code className="font-mono">{unit.source_id}</code>
           </div>
           <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/60 p-2 text-[11px] text-destructive">
             {unit.last_error || "no error recorded"}
@@ -149,8 +167,8 @@ export function FailureTriage({
       <Alert variant="success" role="status">
         <CheckCircle2 />
         <AlertDescription>
-          No open failures. A failure clears automatically once the unit is re-indexed
-          successfully.
+          No open failures. A failure clears automatically once the unit is
+          re-indexed successfully.
         </AlertDescription>
       </Alert>
     );
@@ -161,7 +179,10 @@ export function FailureTriage({
         // A triage group is a grouping of rows, not a notice, so it is a Card
         // tinted like the destructive Alert rather than an Alert itself: it
         // must not announce itself on every poll.
-        <Card key={sig} className="gap-2 border-destructive/30 bg-destructive/5 p-3 shadow-none">
+        <Card
+          key={sig}
+          className="gap-2 border-destructive/30 bg-destructive/5 p-3 shadow-none"
+        >
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
             <code className="break-all text-xs text-destructive">{sig}</code>

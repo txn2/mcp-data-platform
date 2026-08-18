@@ -92,6 +92,12 @@ type failedUnitResponse struct {
 	// LastSucceededAt is the unit's most recent success, omitted when it
 	// has never succeeded, so the UI can show "last succeeded Xm ago".
 	LastSucceededAt *string `json:"last_succeeded_at,omitempty"`
+	// ParkedUntil is when the periodic gap sweep will re-queue this unit
+	// again, omitted while it is not deferred. Present means the platform
+	// has stopped re-queueing the unit every reconcile tick because it
+	// keeps failing without ever succeeding; a source write or an operator
+	// reindex still runs it immediately.
+	ParkedUntil *string `json:"parked_until,omitempty"`
 }
 
 // dismissRequest is the POST /index-jobs/dismiss body: resolve every
@@ -453,6 +459,14 @@ func failedUnitResponseFromUnit(u indexjobs.FailedUnit) failedUnitResponse {
 	out.FirstFailedAt = formatTime(u.FirstFailedAt.UTC())
 	out.LastFailedAt = formatTime(u.LastFailedAt.UTC())
 	out.LastSucceededAt = formatNullableTime(u.LastSucceededAt)
+	// Reported only while the deferral is still in force. A window that has
+	// already elapsed means the next sweep runs the unit, so carrying the
+	// timestamp past it would tell an operator retries are paused when they
+	// are not.
+	if until, parked := u.ParkedUntil(); parked && until.After(time.Now()) {
+		utc := until.UTC()
+		out.ParkedUntil = formatNullableTime(&utc)
+	}
 	return out
 }
 

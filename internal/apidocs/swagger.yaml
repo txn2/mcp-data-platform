@@ -538,6 +538,14 @@ definitions:
           failed, was retried, and failed again without an intervening
           success).
         type: integer
+      parked_until:
+        description: |-
+          ParkedUntil is when the periodic gap sweep will re-queue this unit
+          again, omitted while it is not deferred. Present means the platform
+          has stopped re-queueing the unit every reconcile tick because it
+          keeps failing without ever succeeding; a source write or an operator
+          reindex still runs it immediately.
+        type: string
       source_id:
         type: string
       source_kind:

@@ -68,7 +68,19 @@ build: swagger
 ## test: Run tests
 test:
 	@echo "Running tests..."
-	$(GOTEST) -v -race -coverprofile=coverage.out ./...
+	@# -p 6 bounds how many packages are built and run at once.
+	@#
+	@# The default is one per core, which on an 18-core machine means this
+	@# target alone tries to own the whole machine — and inside `verify` it is
+	@# one of four lanes doing that. Measured there: this lane finished 93s
+	@# before the slowest one, so its unbounded appetite bought slack it did
+	@# not need while inflating the lane that actually sets the wall clock
+	@# (the e2e suite ran 109s alone and ~235s beside it). Spending some of
+	@# that slack to stop starving the pole is the trade.
+	@#
+	@# -race multiplies the memory and CPU each package costs, which is why
+	@# the bound matters more here than on an ordinary test run.
+	$(GOTEST) -v -race -p 6 -coverprofile=coverage.out ./...
 	@echo "Tests complete."
 
 ## test-short: Run tests without race detection (faster)
@@ -88,10 +100,47 @@ test-integration:
 # defect that shipped to production (pq.Array(nil) -> NULL into NOT NULL tags).
 # Convention: name any tool write-path round-trip test *RealDB* so it runs here.
 # Requires Docker. Part of `verify`, alongside migrate-check.
-## test-realdb: Real-Postgres round-trip gate for tool write paths (Docker required)
+## test-realdb: Real-Postgres round-trip gate for store write paths
 test-realdb:
 	@echo "Running real-DB round-trip gate..."
-	$(GOTEST) -count=1 -tags=integration -run 'RealDB' ./...
+	@# One Postgres for the whole gate, not one per test.
+	@#
+	@# internal/testdb.New is called at 163 sites and per test, not per
+	@# package. A container plus a full replay of the migration set for each
+	@# of them cost ~420s here and made this the slowest lane in `verify` by
+	@# roughly eight times. Instead: start one server, apply the migrations
+	@# once into a template database, and let each test clone it with
+	@# CREATE DATABASE ... TEMPLATE, which Postgres does as a file copy.
+	@#
+	@# Isolation is unchanged. Every test still gets a private database that
+	@# nothing else writes to; what is shared is one postgres process. The
+	@# harness falls back to a container per test when TESTDB_DSN is unset,
+	@# so a bare `go test -tags=integration ./...` still works.
+	@#
+	@# -p 4 still bounds package concurrency: it is what keeps 34 packages
+	@# from opening pools faster than one server will accept them.
+	@set -e; \
+	trap 'docker rm -f $(REALDB_PG_CONTAINER) >/dev/null 2>&1 || true' EXIT; \
+	docker rm -f $(REALDB_PG_CONTAINER) >/dev/null 2>&1 || true; \
+	docker run -d --name $(REALDB_PG_CONTAINER) \
+		-e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=postgres \
+		-p 127.0.0.1:$(REALDB_PG_PORT):5432 $(REALDB_PG_IMAGE) \
+		-c max_connections=400 -c fsync=off -c full_page_writes=off \
+		-c synchronous_commit=off >/dev/null; \
+	echo "  waiting for Postgres on :$(REALDB_PG_PORT)..."; \
+	for i in $$(seq 1 60); do \
+		docker exec $(REALDB_PG_CONTAINER) pg_isready -h localhost -p 5432 -U test >/dev/null 2>&1 && break; \
+		if [ "$$i" = "60" ]; then echo "FAIL: Postgres did not become ready" >&2; exit 1; fi; \
+		sleep 1; \
+	done; \
+	echo "  building the migrated template once..."; \
+	docker exec $(REALDB_PG_CONTAINER) psql -U test -d postgres -q \
+		-c 'CREATE DATABASE $(REALDB_TEMPLATE)'; \
+	MIGRATE_TEST_DSN="postgres://test:test@localhost:$(REALDB_PG_PORT)/$(REALDB_TEMPLATE)?sslmode=disable" \
+		$(GOTEST) -count=1 -run TestMigrationsAgainstRealPostgres ./pkg/database/migrate/ >/dev/null; \
+	TESTDB_DSN="postgres://test:test@localhost:$(REALDB_PG_PORT)/postgres?sslmode=disable" \
+	TESTDB_TEMPLATE="$(REALDB_TEMPLATE)" \
+		$(GOTEST) -count=1 -p 4 -tags=integration -run 'RealDB' ./...
 	@echo "Real-DB gate passed."
 
 # Live post-deploy smoke: connects to a RUNNING MCP server as a real MCP client
@@ -115,6 +164,15 @@ smoke:
 # operations, so an index expression whose function body calls a function of
 # ours builds on 16 and fails on 17. A single-major gate reported that as green
 # and it reached a release (000102, fixed in 000111). One major is not a gate.
+# Real-DB gate: one shared Postgres. fsync/full_page_writes/synchronous_commit
+# are off because this database exists for the duration of one gate run and is
+# thrown away; durability settings only buy crash recovery nobody wants here,
+# and they dominate the cost of 163 schema clones.
+REALDB_PG_CONTAINER := mcpdp-realdb-pg
+REALDB_PG_PORT      := 55433
+REALDB_PG_IMAGE     := pgvector/pgvector:pg16
+REALDB_TEMPLATE     := testdb_template
+
 MIGRATE_PG_IMAGES := \
 	pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc \
 	pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
@@ -501,15 +559,16 @@ embed-clean:
 	@find $(UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(UI_EMBED_DIR) -delete 2>/dev/null || true
 	@find $(CV_EMBED_DIR) -not -name '.gitkeep' -not -path $(CV_EMBED_DIR) -delete 2>/dev/null || true
 
-## verify-release: Full verify PLUS mutation testing — run only before cutting a release
-## Mutation testing (gremlins) is expensive and must NOT run per-revision.
-verify-release: verify mutate
+## verify-release: Full verify PLUS CodeQL and mutation testing — run only before cutting a release
+## Both are expensive and must NOT run per-revision; CI runs each on the PR.
+verify-release: verify codeql mutate
 	@echo ""
-	@echo "=== Release verification complete (incl. mutation testing) ==="
+	@echo "=== Release verification complete (incl. CodeQL + mutation testing) ==="
 
 ## verify: Run the CI-equivalent per-commit suite (test, lint, security, SAST, coverage, release)
-## NOTE: mutation testing is intentionally excluded — it lives in verify-release.
-## Do not add `mutate` back to this per-commit target.
+## NOTE: mutation testing and CodeQL are intentionally excluded — both live in
+## verify-release, and CI runs each on the pull request. Do not add `mutate` or
+## `codeql` back to this per-commit target; see the comment in the recipe.
 verify:
 	@# The four steps that REWRITE the working tree run first, one at a time,
 	@# because everything after them reads what they produce: fmt rewrites
@@ -520,16 +579,25 @@ verify:
 	@$(MAKE) --no-print-directory fmt
 	@$(MAKE) --no-print-directory swagger-check
 	@$(MAKE) --no-print-directory embed-clean
-	@# CodeQL runs alone, before the concurrent phase. Its Go extractor uses
-	@# autobuild, which finds the Makefile and runs the default goal — so the
-	@# codeql step quietly regenerates swagger, runs the whole test suite and
-	@# lints, a second time. That is harmless when nothing else is running and
-	@# destructive when something is: it deleted internal/apidocs/swagger.json
-	@# while another group was compiling. CI extracts the same way, and the
-	@# autobuild surface includes the test files (946 of them), so giving the
-	@# extractor a narrower --command here would both shrink what is analysed
-	@# and split local from CI. It stays serial instead.
-	@$(MAKE) --no-print-directory codeql
+	@# CodeQL is deliberately NOT here. It cannot join the concurrent phase:
+	@# its Go extractor uses autobuild, which finds this Makefile and runs the
+	@# default goal, so the step quietly regenerates swagger, runs the whole
+	@# test suite and lints a second time. That is harmless alone and
+	@# destructive beside anything else — it deleted internal/apidocs/swagger.json
+	@# while another group was compiling. Narrowing the extractor with
+	@# --command would shrink what is analysed and split local from CI.
+	@#
+	@# So it could only ever run alone, ahead of everything, and measured on
+	@# this repo that is ~4 minutes of serial wall clock added to every single
+	@# commit — the largest cost in the target by a wide margin, and more than
+	@# the whole concurrent phase.
+	@#
+	@# It buys nothing that is not already bought. .github/workflows/codeql.yml
+	@# runs the same security-and-quality suite on every pull_request to main
+	@# and blocks the merge, so a finding is caught before anything ships; the
+	@# local copy only changes whether you learn about it now or at PR time.
+	@# This is the same trade already made for mutation testing, and it lives
+	@# in the same place: verify-release, plus `make codeql` on demand.
 	@$(MAKE) --no-print-directory -j4 verify-checks
 	@echo ""
 	@echo "=== All checks passed ==="
@@ -546,6 +614,11 @@ verify:
 	@echo "Wrote .claude/.last-verify-passed (gate sentinel)"
 
 ## verify-checks: the read-only half of `verify`, run concurrently by it.
+##
+## Each lane prints a "[lane start/done]" marker. The wall clock of `verify` is
+## the slowest lane, so those two lines are what tell you which lane to attack
+## when the cycle gets slow — without them the lanes interleave into one
+## undifferentiated stream and the pole is guesswork.
 ##
 ## The steps are grouped by the resource they contend for, NOT spread evenly:
 ## a flat -j starves whatever it oversubscribes. Each group runs its own steps
@@ -577,6 +650,7 @@ verify-checks: verify-go verify-lint verify-docker verify-ui
 ## coverage-report and patch-coverage both read the coverage.out that `test`
 ## writes, which is why this group is ordered rather than parallel.
 verify-go:
+	@echo "[lane start $$(date +%T)] verify-go"
 	@$(MAKE) --no-print-directory test
 	@$(MAKE) --no-print-directory coverage-report
 	@$(MAKE) --no-print-directory patch-coverage
@@ -586,6 +660,7 @@ verify-go:
 	@$(MAKE) --no-print-directory bench-test
 	@$(MAKE) --no-print-directory bench-report-check
 	@$(MAKE) --no-print-directory doc-check
+	@echo "[lane done  $$(date +%T)] verify-go"
 
 ## verify-lint: the two lint targets, in order.
 ##
@@ -596,21 +671,27 @@ verify-go:
 ## module's two-minute lint. bench-lint runs second and therefore runs cold,
 ## since `lint` cleans golangci-lint's cache; on this module that is two seconds.
 verify-lint:
+	@echo "[lane start $$(date +%T)] verify-lint"
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory bench-lint
+	@echo "[lane done  $$(date +%T)] verify-lint"
 
 ## verify-docker: everything that wants the Docker daemon, and nothing else.
 verify-docker:
+	@echo "[lane start $$(date +%T)] verify-docker"
 	@$(MAKE) --no-print-directory migrate-check
 	@$(MAKE) --no-print-directory test-realdb
+	@echo "[lane done  $$(date +%T)] verify-docker"
 
 ## verify-ui: the frontend steps, then the release build that rebuilds the UI
 ## from scratch and must not overlap them.
 verify-ui:
+	@echo "[lane start $$(date +%T)] verify-ui"
 	@$(MAKE) --no-print-directory frontend-test
 	@$(MAKE) --no-print-directory frontend-lint
 	@$(MAKE) --no-print-directory frontend-e2e
 	@$(MAKE) --no-print-directory release-check
+	@echo "[lane done  $$(date +%T)] verify-ui"
 
 ## docs-serve: Serve documentation locally
 docs-serve:

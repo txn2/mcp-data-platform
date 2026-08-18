@@ -25,6 +25,9 @@ func (*noopStore) Counts(context.Context, string) (*KindCounts, error)          
 func (*noopStore) ActiveFailures(context.Context, string, int) ([]FailedUnit, error) {
 	return nil, nil
 }
+func (*noopStore) ParkCandidates(context.Context, int, int) ([]ParkCandidate, error) {
+	return nil, nil
+}
 func (*noopStore) ResolveFailures(context.Context, Key) (int, error) { return 0, nil }
 func (*noopStore) PurgeTerminal(context.Context, int) (int, error)   { return 0, nil }
 func (*noopStore) CancelPending(context.Context, Key) (int, error)   { return 0, nil }

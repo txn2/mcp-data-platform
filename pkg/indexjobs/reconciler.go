@@ -91,7 +91,8 @@ func (r *Reconciler) run() {
 func (r *Reconciler) reconcileOnce() {
 	ctx, cancel := context.WithTimeout(context.Background(), r.interval/2)
 	defer cancel()
-	var total int
+	parked := r.parkedUnits(ctx)
+	var total, deferred int
 	for _, sink := range r.registry.Sinks() {
 		ids, err := sink.FindGaps(ctx)
 		if err != nil {
@@ -100,7 +101,12 @@ func (r *Reconciler) reconcileOnce() {
 			continue
 		}
 		for _, id := range ids {
-			created, err := r.store.Enqueue(ctx, Key{SourceKind: sink.Kind(), SourceID: id}, TriggerReconciler)
+			key := Key{SourceKind: sink.Kind(), SourceID: id}
+			if _, ok := parked[key]; ok {
+				deferred++
+				continue
+			}
+			created, err := r.store.Enqueue(ctx, key, TriggerReconciler)
 			if err != nil {
 				slog.Warn("indexjobs: reconciler enqueue failed",
 					logKeySourceKind, sink.Kind(), logKeySourceID, id, logKeyError, err)
@@ -114,4 +120,38 @@ func (r *Reconciler) reconcileOnce() {
 	if total > 0 {
 		slog.Info("indexjobs: reconciler enqueued gap jobs", "count", total)
 	}
+	if deferred > 0 {
+		slog.Info("indexjobs: reconciler deferred parked units", "count", deferred)
+	}
+}
+
+// parkedUnits returns the units this sweep must not re-queue, keyed for
+// O(1) lookup. One query covers every kind, so the cost is one read per
+// sweep rather than one per gap.
+//
+// Two deliberate degradations, both toward re-queueing rather than
+// withholding work:
+//
+//   - A read failure returns an empty set, which re-queues every gap.
+//     Closing gaps is the sweep's job; losing one tick of deferral is a
+//     far smaller fault than skipping reconciliation.
+//   - The scan is bounded by parkScanLimit. Its predicate already narrows
+//     to units carrying ParkThreshold open failures, so the bound is a
+//     backstop against a pathological corpus, and the query's key ordering
+//     keeps the same units deferred across sweeps rather than rotating.
+func (r *Reconciler) parkedUnits(ctx context.Context) map[Key]struct{} {
+	candidates, err := r.store.ParkCandidates(ctx, ParkThreshold, parkScanLimit)
+	if err != nil {
+		slog.Warn("indexjobs: reconciler park scan failed; re-queueing every gap this sweep",
+			logKeyError, err)
+		return nil
+	}
+	now := time.Now()
+	parked := make(map[Key]struct{}, len(candidates))
+	for _, c := range candidates {
+		if until, ok := c.ParkedUntil(); ok && until.After(now) {
+			parked[c.Key] = struct{}{}
+		}
+	}
+	return parked
 }

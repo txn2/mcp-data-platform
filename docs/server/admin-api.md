@@ -346,13 +346,18 @@ Returns the units with open (unresolved) failures, one entry per unit, most-rece
       "latest_job_id": 106, "last_error": "embed batch: provider timeout after 30s on spec \"acme\"",
       "attempts": 5, "occurrences": 2,
       "first_failed_at": "2026-05-30T10:00:00Z", "last_failed_at": "2026-05-30T11:00:00Z",
-      "last_succeeded_at": "2026-05-29T09:00:00Z"
+      "last_succeeded_at": "2026-05-29T09:00:00Z",
+      "parked_until": "2026-05-30T11:30:00Z"
     }
   ]
 }
 ```
 
 `occurrences` is how many open failed rows the unit has (`>1` means it failed, was retried, and failed again without an intervening success). `last_succeeded_at` is omitted when the unit has never succeeded, so the dashboard can distinguish a unit that used to work from one that never has.
+
+`parked_until` is present only while the periodic gap sweep is deferring the unit, and says when it will be re-queued. Each open failed row is five exhausted worker attempts, so a unit that reaches three of them is failing deterministically rather than transiently; the sweep then backs off instead of enqueueing a fresh job every `ReconcilerInterval`. The delay starts at 30 minutes, doubles with each further failure, and is capped at 6 hours.
+
+The deferral is a delay, never a block. It applies to the automatic sweep alone: a write to the source row and the re-index escape hatch below both enqueue immediately, and because the cap is a bound rather than a terminal state, a unit whose cause has cleared recovers on its own without an operator touching it. That matters because this counter cannot distinguish a permanently unindexable input from a provider outage long enough to exhaust every unit in the corpus, and freezing the whole index behind the second case would be worse than the re-queue loop the deferral exists to stop.
 
 ### Dismiss Failure
 
